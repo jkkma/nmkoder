@@ -77,7 +77,7 @@ namespace Nmkoder.Data
             return null;
         }
 
-        public static string GetKeyIntArg(MediaFile mediaFile, int intervalSeconds, string arg = "-g ", int max = 480)
+        public static string GetKeyIntArg(MediaFile mediaFile, int intervalSeconds, string arg = "-g ", int max = 600)
         {
             if (mediaFile == null || mediaFile.VideoStreams.Count < 1)
                 return "";
