@@ -137,12 +137,12 @@ namespace Nmkoder.Data.Codecs.Video
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             bool is420 = !(pixFmt.Contains("444") || pixFmt.Contains("422"));
             int b = pixFmt.Split('p').LastOrDefault().GetInt();
-            b = (b > 0) ? b : 8; // Make bit depth default to 8 if it was detected as 0 (e.g. when using yuv420p which does not explicitly specify 8-bit)
-            int p = b > 8 ? (is420 ? 2 : 3) : (is420 ? 0 : 1); // Profile 0: 4:2:0 8-bit | Profile 1: 4:2:2/4:4:4 8-bit | Profile 2: 4:2:0 10/12-bit | Profile 3: 4:2:2/4:4:4 10/12-bit
+            //b = (b > 0) ? b : 8; Always use 10-bit for maximum efficiency & minimal banding, even with an 8-bit source. Make sure to enable -–profile=2
+            //int p = b > 8 ? (is420 ? 2 : 3) : (is420 ? 0 : 1); VP9 profile 2 is obligatory if you want 10-bit & 12-bit support for HDR, and improved quality from 8-bit.
             string tiles = mediaFile.VideoStreams.Count > 0 ? CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-columns=", "--tile-rows=") : "";
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
 
-            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} {(!vmaf ? $"--end-usage=q --cq-level={q}" : "")} --cpu-used={preset} --kf-max-dist={g} " +
+            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --good --profile=2 --lag-in-frames=25 --auto-alt-ref=6 --arnr-maxframes=7 --arnr-strength=4 --aq-mode=0 --tune-content=default --bit-depth=10 --enable-tpl=1 {(!vmaf ? $"--end-usage=q --cq-level={q}" : "")} --cpu-used={preset} --kf-max-dist={g} " +
                     $"--threads={thr} --row-mt=1 {tiles} {cust} \" --pix-format {pixFmt}");
         }
     }
