@@ -13,12 +13,12 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "AV1 (AOM)";
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6" };
-        public int PresetDefault { get; } = 6;
+        public int PresetDefault { get; } = 4;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuv422P8, PixelFormats.Yuv444P8, PixelFormats.Yuv420P10, PixelFormats.Yuv422P10, PixelFormats.Yuv444P10 };
         public int ColorFormatDefault { get; } = 3;
         public int QMin { get; } = 0;
         public int QMax { get; } = 63;
-        public int QDefault { get; } = 20;
+        public int QDefault { get; } = 30;
         public string QInfo { get; } = "CRF (0-63 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
@@ -70,7 +70,7 @@ namespace Nmkoder.Data.Codecs.Video
         public int ColorFormatDefault { get; } = 1;
         public int QMin { get; } = 0;
         public int QMax { get; } = 63;
-        public int QDefault { get; } = 20;
+        public int QDefault { get; } = 30;
         public string QInfo { get; } = "CRF (0-50 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
@@ -112,12 +112,12 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "VP9 (VPX)";
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6" };
-        public int PresetDefault { get; } = 3;
+        public int PresetDefault { get; } = 2;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuva420P8, PixelFormats.Yuv444P8, PixelFormats.Yuv420P10, PixelFormats.Yuv444P10 };
-        public int ColorFormatDefault { get; } = 0;
+        public int ColorFormatDefault { get; } = 3;
         public int QMin { get; } = 0;
         public int QMax { get; } = 50;
-        public int QDefault { get; } = 20;
+        public int QDefault { get; } = 30;
         public string QInfo { get; } = "CRF (0-50 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
@@ -153,9 +153,9 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "H.265 / HEVC (x265)";
         public string[] Presets { get; } = new string[] { "veryslow", "slower", "slow", "medium", "fast", "faster", "veryfast", "superfast" };
-        public int PresetDefault { get; } = 3;
+        public int PresetDefault { get; } = 2;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuv422P8, PixelFormats.Yuv444P8, PixelFormats.Yuv420P10, PixelFormats.Yuv422P10, PixelFormats.Yuv444P10 };
-        public int ColorFormatDefault { get; } = 0;
+        public int ColorFormatDefault { get; } = 3;
         public int QMin { get; } = 0;
         public int QMax { get; } = 51;
         public int QDefault { get; } = 20;
