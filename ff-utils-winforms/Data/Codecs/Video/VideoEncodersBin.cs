@@ -38,7 +38,7 @@ namespace Nmkoder.Data.Codecs.Video
             string grain = encArgs.ContainsKey("grainSynthStrength") ? encArgs["grainSynthStrength"] : "0";
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
             string denoise = encArgs.ContainsKey("grainSynthDenoise") ? (encArgs["grainSynthDenoise"].GetBool() ? "1" : "0") : "0";
-            string tiles = mediaFile.VideoStreams.Count > 0 ? CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-rows=", "--tile-columns=") : "";
+            string tiles = mediaFile.VideoStreams.Count > 0 ? CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-columns=", "--tile-rows=") : "";
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : "";
             string colors = "";
