@@ -2214,8 +2214,8 @@ namespace Nmkoder.Forms
             this.av1anOptsConcatMode.ForeColor = System.Drawing.Color.White;
             this.av1anOptsConcatMode.FormattingEnabled = true;
             this.av1anOptsConcatMode.Items.AddRange(new object[] {
-            "ffmpeg",
-            "mkvmerge"});
+            "mkvmerge",
+            "ffmpeg"});
             this.av1anOptsConcatMode.Location = new System.Drawing.Point(220, 67);
             this.av1anOptsConcatMode.Name = "av1anOptsConcatMode";
             this.av1anOptsConcatMode.Size = new System.Drawing.Size(250, 23);
