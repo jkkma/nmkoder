@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.FileImportWindow"
+        Title="Import Files"
+        Width="640" Height="420"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <TextBlock Grid.Row="0" Classes="dim" Margin="0,0,0,8" Text="Uncheck any files you don't want to import." />
+
+    <ListBox Grid.Row="1" x:Name="FilesBox">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Content="{Binding DisplayName}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button x:Name="ImportClearBtn" Content="Replace file list" MinWidth="130" Click="ImportClear_Click" />
+      <Button x:Name="ImportAppendBtn" Content="Add to file list" MinWidth="130" IsDefault="True" Click="ImportAppend_Click" />
+    </StackPanel>
+  </Grid>
+
+</Window>

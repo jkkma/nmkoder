@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.PromptWindow"
+        Title="Nmkoder"
+        Width="440" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock x:Name="MsgLabel" TextWrapping="Wrap" />
+    <TextBox x:Name="InputBox" />
+    <Button Content="OK" HorizontalAlignment="Right" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+  </StackPanel>
+
+</Window>

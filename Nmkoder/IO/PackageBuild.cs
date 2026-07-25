@@ -1,0 +1,61 @@
+using Nmkoder.Data;
+using Nmkoder.Extensions;
+using Nmkoder.OS;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Nmkoder.IO
+{
+    class PackageBuild
+    {
+        public static async Task Run (string ver)
+        {
+            Logger.Log($"Packaging...");
+
+            try
+            {
+                Program.Cleanup();
+                string dir = Paths.GetExeDir();
+                string copyDir = Path.Combine(dir, $"Nmkoder{ver}");
+                IoUtils.DeleteIfExists(copyDir);
+                Directory.CreateDirectory(copyDir);
+                CopyDir(dir, copyDir, "bin");
+                CopyFile(dir, copyDir, Path.GetFileName(Paths.GetExe()));
+
+                // Resolved through PATH so packaging isn't tied to one machine's 7-Zip install
+                string path7z = Shell.ResolveExecutable("7za", new[] { @"C:\Program Files\7-Zip-Zstandard", @"C:\Program Files\7-Zip", "/usr/bin", "/usr/local/bin" });
+                string archivePath1 = Path.Combine(dir, $"Nmkoder{ver}.7z");
+                string archivePath2 = Path.Combine(dir, $"Nmkoder{ver}-NoOCR.7z");
+
+                string args = $"a {archivePath1.Wrap()} -m0=flzma2 -mx9 {copyDir.Wrap()}";
+                Logger.Log($"\"{path7z}\" {args}");
+                Process p1 = Process.Start(path7z, args);
+                while (!p1.HasExited) await Task.Delay(100);
+                IoUtils.TryDeleteIfExists(Path.Combine(copyDir, "bin", "SE"));
+                Process.Start(path7z, $"a {archivePath2.Wrap()} -m0=flzma2 -mx9 {copyDir.Wrap()}");
+
+            }
+            catch(Exception e)
+            {
+                Logger.Log(e.Message);
+            }
+
+            Logger.Log($"Done");
+        }
+
+        private static void CopyFile(string baseDirSource, string baseDirTarget, string filename)
+        {
+            File.Copy(Path.Combine(baseDirSource, filename), Path.Combine(baseDirTarget, filename));
+        }
+
+        private static void CopyDir (string baseDirSource, string baseDirTarget, string dirName)
+        {
+            IoUtils.CopyDir(Path.Combine(baseDirSource, dirName), Path.Combine(baseDirTarget, dirName));
+        }
+    }
+}

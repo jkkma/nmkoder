@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.MetricsWindow"
+        Title="Quality Metrics"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="10">
+
+    <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoded (Low Quality)" />
+      <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncodedVideo" Margin="0,0,0,6" />
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Reference (Source)" />
+      <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ReferenceVideo" />
+    </Grid>
+
+    <TextBlock Classes="h" Text="Metrics" />
+    <StackPanel Orientation="Horizontal" Spacing="16">
+      <CheckBox x:Name="Vmaf" Content="VMAF" />
+      <CheckBox x:Name="Ssim" Content="SSIM" />
+      <CheckBox x:Name="Psnr" Content="PSNR" />
+    </StackPanel>
+
+    <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Alignment" />
+      <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Align" Margin="0,0,0,6">
+        <ComboBoxItem Content="None" />
+        <ComboBoxItem Content="Auto-Crop reference" />
+        <ComboBoxItem Content="Resize reference" />
+        <ComboBoxItem Content="Auto-Crop and resize reference" />
+      </ComboBox>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Subsampling" />
+      <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Subsample" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="VMAF Model" />
+      <ComboBox Grid.Row="2" Grid.Column="1" x:Name="VmafMdl">
+        <ComboBoxItem Content="vmaf_v0.6.1 (Default)" />
+        <ComboBoxItem Content="vmaf_v0.6.1neg (No Enhancement Gain)" />
+        <ComboBoxItem Content="vmaf_4k_v0.6.1 (4K)" />
+      </ComboBox>
+    </Grid>
+
+    <Button Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,8,0,0"
+            IsDefault="True" Click="Confirm_Click" />
+
+  </StackPanel>
+
+</Window>

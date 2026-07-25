@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.Av1anResumeWindow"
+        Title="Resume AV1AN Encode"
+        Width="820" Height="420"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <TextBlock Grid.Row="0" Classes="dim" Margin="0,0,0,8"
+               Text="Unfinished av1an encodes found in the temp folder. Pick one to resume or delete." />
+
+    <ListBox Grid.Row="1" x:Name="FolderList" />
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Delete Encode" MinWidth="120" Click="DeleteFull_Click" />
+      <Button Content="Delete Chunks" MinWidth="120" Click="DeleteChunks_Click" />
+      <Button Content="Resume (New Settings)" MinWidth="170" Click="ResumeNew_Click" />
+      <Button Content="Resume (Saved Settings)" MinWidth="180" IsDefault="True" Click="ResumeSaved_Click" />
+    </StackPanel>
+  </Grid>
+
+</Window>

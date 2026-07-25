@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.TrimWindow"
+        Title="Configure Trim"
+        Width="460" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="10">
+
+    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Mode" />
+      <ComboBox Grid.Row="0" Grid.Column="1" x:Name="TrimMode" SelectionChanged="TrimMode_SelectionChanged" Margin="0,0,0,6">
+        <ComboBoxItem Content="Time (snap to keyframe - fast, no re-encode needed)" />
+        <ComboBoxItem Content="Time (exact - slower, requires re-encoding)" />
+        <ComboBoxItem Content="Frame Numbers" />
+      </ComboBox>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Start" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="StartBox" TextChanged="Time_TextChanged" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="End" />
+      <TextBox Grid.Row="2" Grid.Column="1" x:Name="EndBox" TextChanged="Time_TextChanged" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Duration" />
+      <TextBox Grid.Row="3" Grid.Column="1" x:Name="DurationBox" IsReadOnly="True" />
+    </Grid>
+
+    <TextBlock Classes="dim" Text="Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers." />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

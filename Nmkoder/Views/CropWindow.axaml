@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.CropWindow"
+        Title="Configure Crop"
+        Width="460" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="10">
+
+    <Border x:Name="NoVidPanel" Classes="card" IsVisible="False">
+      <TextBlock TextWrapping="Wrap"
+                 Text="No video track is loaded, so the resulting crop area can't be previewed. The values below are still applied." />
+    </Border>
+
+    <TextBlock Classes="h" Text="Pixels to crop off each side" />
+
+    <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto" >
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Left" />
+      <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="CropLeft" Minimum="0" Increment="2" Value="0" ValueChanged="CropLeftRightChanged" Margin="0,0,12,6" />
+      <TextBlock Grid.Row="0" Grid.Column="2" Classes="field" Text="Right" />
+      <NumericUpDown Grid.Row="0" Grid.Column="3" x:Name="CropRight" Minimum="0" Increment="2" Value="0" ValueChanged="CropLeftRightChanged" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Top" />
+      <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="CropTop" Minimum="0" Increment="2" Value="0" ValueChanged="CropTopBotChanged" Margin="0,0,12,0" />
+      <TextBlock Grid.Row="1" Grid.Column="2" Classes="field" Text="Bottom" />
+      <NumericUpDown Grid.Row="1" Grid.Column="3" x:Name="CropBot" Minimum="0" Increment="2" Value="0" ValueChanged="CropTopBotChanged" />
+    </Grid>
+
+    <TextBlock Classes="h" Text="Resulting crop area" />
+    <TextBlock x:Name="ResultLabel" Classes="dim" Text="-" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

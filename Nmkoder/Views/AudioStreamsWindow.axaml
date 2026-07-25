@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
+        x:Class="Nmkoder.Views.AudioStreamsWindow"
+        Title="Configure Audio Tracks"
+        Width="760" Height="420"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <TextBlock Grid.Row="0" Classes="dim" Margin="0,0,0,8"
+               Text="Set the channel count and bitrate for each audio track individually." />
+
+    <dg:DataGrid Grid.Row="1" x:Name="Grid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                 GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+      <dg:DataGrid.Columns>
+        <dg:DataGridTextColumn Header="Track" Binding="{Binding Track}" IsReadOnly="True" Width="70" />
+        <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" IsReadOnly="True" Width="*" />
+        <dg:DataGridTextColumn Header="Lang" Binding="{Binding Language}" IsReadOnly="True" Width="80" />
+        <dg:DataGridTextColumn Header="Channels" Binding="{Binding Channels}" Width="110" />
+        <dg:DataGridTextColumn Header="Bitrate (Kbps)" Binding="{Binding BitrateKbps}" Width="140" />
+      </dg:DataGrid.Columns>
+    </dg:DataGrid>
+
+    <Button Grid.Row="2" Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,12,0,0"
+            IsDefault="True" Click="Confirm_Click" />
+  </Grid>
+
+</Window>

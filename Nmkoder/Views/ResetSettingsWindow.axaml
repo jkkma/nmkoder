@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.ResetSettingsWindow"
+        Title="Settings To Reset On New File"
+        Width="420" Height="360"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <TextBlock Grid.Row="0" Classes="dim" Margin="0,0,0,8"
+               Text="These settings are cleared whenever a new input file is loaded." />
+
+    <ListBox Grid.Row="1" x:Name="SettingsList">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Content="{Binding Name}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <Button Grid.Row="2" Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,12,0,0"
+            IsDefault="True" Click="Confirm_Click" />
+  </Grid>
+
+</Window>

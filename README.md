@@ -1,5 +1,5 @@
 # Nmkoder
-Video encoding, muxing, and analysis GUI in Winforms, built around FFmpeg, FFprobe, and av1an.
+Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avaloniaui.net/) on .NET 10, wrapping FFmpeg, FFprobe, and av1an.
 
 ![](https://i.imgur.com/c8XtSlG.png)
 
@@ -55,6 +55,20 @@ Video encoding, muxing, and analysis GUI in Winforms, built around FFmpeg, FFpro
 
 ## Compatibility
 
-- Tested on and intended for Windows 10 64-bit. Windows 11 should work as well.
-- .NET Framework 4.7.2 is required which should be pre-installed.
-- There is no native Linux or Mac port and I don't plan on making one as Linux users constantly tell me how much they love their CLI. However, if you still want to run this on Linux, use WINE, it should work without problems. 
+- Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (or publish self-contained, see below).
+- Windows 10/11 64-bit is the primary target. Since the move from WinForms to Avalonia the app also builds and runs natively on Linux and macOS.
+- `ffmpeg`, `ffprobe`, `mkvmerge` and `av1an` are looked up in the `bin` folder next to the executable first, then on `PATH`.
+
+## Building
+
+```
+dotnet build Nmkoder.sln -c Release
+```
+
+To produce a self-contained, single-file build for a given platform:
+
+```
+dotnet publish Nmkoder/Nmkoder.csproj -c Release -r win-x64   --self-contained -p:PublishSingleFile=true
+dotnet publish Nmkoder/Nmkoder.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true
+dotnet publish Nmkoder/Nmkoder.csproj -c Release -r osx-arm64 --self-contained -p:PublishSingleFile=true
+```

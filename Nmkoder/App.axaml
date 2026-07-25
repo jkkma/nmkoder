@@ -1,0 +1,76 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Nmkoder.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
+
+    <!-- Nmkoder look: compact, dark, dense rows like the original WinForms UI -->
+    <Style Selector="TextBlock.h">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,8,0,2" />
+    </Style>
+
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="TextBlock.field">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+
+    <Style Selector="TextBox">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="6,2" />
+    </Style>
+
+    <Style Selector="NumericUpDown">
+      <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="10,3" />
+    </Style>
+
+    <Style Selector="Button.icon">
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="MinWidth" Value="30" />
+    </Style>
+
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1E1E1E" />
+      <Setter Property="BorderBrush" Value="#333333" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="8" />
+    </Style>
+
+    <Style Selector="Border.card.selected">
+      <Setter Property="BorderBrush" Value="#4A9EFF" />
+    </Style>
+
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="10,4" />
+    </Style>
+  </Application.Styles>
+
+  <Application.Resources>
+    <SolidColorBrush x:Key="NmkoderBackground" Color="#1B1B1B" />
+    <SolidColorBrush x:Key="NmkoderPanel" Color="#242424" />
+  </Application.Resources>
+
+</Application>
