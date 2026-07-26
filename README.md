@@ -59,6 +59,23 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Windows 10/11 64-bit is the primary target. Since the move from WinForms to Avalonia the app also builds and runs natively on Linux and macOS.
 - `ffmpeg`, `ffprobe`, `mkvmerge` and `av1an` are looked up in the `bin` folder next to the executable first, then on `PATH`.
 
+## Releases
+
+Portable builds are produced by `.github/workflows/release.yml`. Push a `v*` tag to publish a
+release, or run the workflow manually to get a draft.
+
+Each archive is self-contained (no .NET install required) and `.github/scripts/bundle-tools.sh`
+stages the external tools into `bin/`:
+
+| | ffmpeg / ffprobe | MKVToolNix | VMAF models |
+|---|---|---|---|
+| win-x64 | bundled | bundled | bundled |
+| linux-x64 | bundled | use package manager | bundled |
+| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | bundled |
+
+`av1an` is not bundled - drop it into `bin/av1an/` to use the AV1AN tab. Tool downloads are
+best-effort: an unreachable upstream is reported and skipped rather than failing the release.
+
 ## Building
 
 ```

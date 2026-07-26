@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 2.0.0). Creates a draft release.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64,   os: windows-latest, archive: zip }
+          - { rid: linux-x64, os: ubuntu-latest,  archive: tar }
+          - { rid: osx-x64,   os: macos-latest,   archive: tar }
+          - { rid: osx-arm64, os: macos-latest,   archive: tar }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${{ inputs.version }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building Nmkoder $v for ${{ matrix.rid }}"
+
+      - name: Publish
+        shell: bash
+        env:
+          AVALONIA_TELEMETRY_OPTOUT: '1'
+        run: |
+          # Trimming stays off: Avalonia resolves XAML types by reflection at runtime.
+          dotnet publish Nmkoder/Nmkoder.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishTrimmed=false \
+            -p:DebugType=none \
+            -p:Version=${{ steps.ver.outputs.version }} \
+            -o publish/Nmkoder
+
+      - name: Bundle external tools
+        shell: bash
+        run: bash .github/scripts/bundle-tools.sh ${{ matrix.rid }} publish/Nmkoder/bin
+
+      - name: Stage docs
+        shell: bash
+        run: cp README.md LICENSE publish/Nmkoder/
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path publish/Nmkoder -DestinationPath Nmkoder-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.zip
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: |
+          chmod +x publish/Nmkoder/Nmkoder
+          tar -czf Nmkoder-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz -C publish Nmkoder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nmkoder-${{ matrix.rid }}
+          path: Nmkoder-*.${{ matrix.archive == 'zip' && 'zip' || 'tar.gz' }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Nmkoder ${{ steps.ver.outputs.version }}
+          draft: ${{ steps.ver.outputs.draft }}
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            Portable builds of Nmkoder ${{ steps.ver.outputs.version }} (Avalonia UI on .NET 10).
+
+            Unpack anywhere and run `Nmkoder`. No .NET install needed - the runtime is included.
+
+            **Bundled tools** (see `bin/THIRD-PARTY.txt` for licences and sources):
+            - Windows and Linux builds include ffmpeg and ffprobe.
+            - Windows builds also include MKVToolNix.
+            - macOS builds ship without them; install with `brew install ffmpeg mkvtoolnix`.
+            - `av1an` is not bundled - drop it into `bin/av1an/` to use the AV1AN tab.
+
+            Anything placed in `bin/` takes priority over tools on your `PATH`.
