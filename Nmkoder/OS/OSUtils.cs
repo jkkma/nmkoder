@@ -289,6 +289,21 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
+        /// Points a process at Nmkoder's bundled tools through PATH. Assigning environment variables
+        /// is only legal when the process is not started through the shell - doing it anyway makes
+        /// Start() throw "The Process object must have the UseShellExecute property set to false in
+        /// order to use environment variables", which is why this has to be asked rather than assumed.
+        /// A process that does run through the shell gets its PATH from the launch script instead.
+        /// </summary>
+        public static void SetPathVar(Process proc, IEnumerable<string> additionalPaths)
+        {
+            if (proc.StartInfo.UseShellExecute)
+                return;
+
+            proc.StartInfo.EnvironmentVariables["PATH"] = GetPathVar(additionalPaths);
+        }
+
+        /// <summary>
         /// Builds a PATH that puts Nmkoder's own bin folder first. On Windows the original also
         /// stripped everything but C:\Windows to avoid stray ffmpeg builds shadowing the bundled one;
         /// that heuristic is kept for Windows and the full PATH is preserved elsewhere.

@@ -44,7 +44,7 @@ namespace Nmkoder.Media
 
             string wd = Shell.ChangeDir(settings.WorkingDir);
             ffmpeg.StartInfo.Arguments = Shell.BuildArguments($"{wd} ffmpeg {beforeArgs} {settings.Args}", StayOpen());
-            ffmpeg.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { Paths.GetBinPath() });
+            OsUtils.SetPathVar(ffmpeg, new[] { Paths.GetBinPath() });
 
             if (settings.LoggingMode != LogMode.Hidden) Logger.Log("Running FFmpeg...", false);
             Logger.Log($"ffmpeg {beforeArgs} {settings.Args}", true, false, "ffmpeg");
@@ -130,7 +130,7 @@ namespace Nmkoder.Media
             NmkdStopwatch timeSinceLastOutput = new NmkdStopwatch();
 
             ffprobe.StartInfo.Arguments = Shell.BuildArguments($"ffprobe -v {settings.LogLevel} {settings.Args}", StayOpen());
-            ffprobe.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { Paths.GetBinPath() });
+            OsUtils.SetPathVar(ffprobe, new[] { Paths.GetBinPath() });
 
             if (settings.LoggingMode != LogMode.Hidden) Logger.Log("Running FFprobe...", false);
             Logger.Log($"ffprobe -v {settings.LogLevel} {settings.Args}", true, false, "ffmpeg");
@@ -190,7 +190,7 @@ namespace Nmkoder.Media
                 // Launched without an interpreter where possible: a command line handed to cmd or sh
                 // gets %VAR%, $var and backticks in file names expanded before av1an ever sees them.
                 Process av1an = OsUtils.NewProcess(!show, NmkoderProcess.ProcessType.Primary, show ? null : GetToolPath("av1an", toolDirs));
-                av1an.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { vsynthPath, encPath, ffmpegPath });
+                OsUtils.SetPathVar(av1an, new[] { vsynthPath, encPath, ffmpegPath });
 
                 if (!show)
                 {
@@ -344,7 +344,7 @@ namespace Nmkoder.Media
                 Process mkve = OsUtils.NewProcess(!show, processType);
 
                 mkve.StartInfo.Arguments = Shell.BuildArguments($"mkvextract {args}", StayOpen());
-                mkve.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { Paths.GetBinPath() });
+                OsUtils.SetPathVar(mkve, new[] { Paths.GetBinPath() });
 
                 Logger.Log($"mkvextract {args}", true, false, "mkvextract");
 
@@ -375,7 +375,7 @@ namespace Nmkoder.Media
             {
                 Process mkvm = OsUtils.NewProcess(!show, processType);
                 mkvm.StartInfo.Arguments = Shell.BuildArguments($"{Shell.ChangeDir(workingDir)} mkvmerge {args}", StayOpen());
-                mkvm.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { Paths.GetBinPath() });
+                OsUtils.SetPathVar(mkvm, new[] { Paths.GetBinPath() });
                 Logger.Log($"mkvmerge {args}", true, false, "mkvmerge");
 
                 mkvm.OutputDataReceived += (sender, outLine) => {
@@ -415,7 +415,7 @@ namespace Nmkoder.Media
             {
                 Process mkvi = OsUtils.NewProcess(!show, processType);
                 mkvi.StartInfo.Arguments = Shell.BuildArguments($"mkvinfo {args}", StayOpen());
-                mkvi.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { Paths.GetBinPath() });
+                OsUtils.SetPathVar(mkvi, new[] { Paths.GetBinPath() });
 
                 Logger.Log($"mkvinfo {args}", true, false, "mkvinfo");
 
