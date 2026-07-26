@@ -135,14 +135,10 @@ jobs:
             fi
           fi
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: Nmkoder ${{ steps.ver.outputs.version }}
-          draft: ${{ steps.ver.outputs.draft }}
-          generate_release_notes: true
-          files: dist/*
-          body: |
+      - name: Compose release notes
+        shell: bash
+        run: |
+          cat > notes.md <<'NOTES'
             Portable builds of Nmkoder ${{ steps.ver.outputs.version }} (Avalonia UI on .NET 10).
 
             Unpack anywhere and run `Nmkoder`. No .NET install needed - the runtime is included.
@@ -165,3 +161,32 @@ jobs:
             `bin/av1an/vsynth/vs-plugins/`.
 
             Anything placed in `bin/` takes priority over tools on your `PATH`.
+          NOTES
+          # The heredoc sits two columns deeper than the YAML block scalar's own indent.
+          # Left in, continuation lines land at four columns and Markdown renders them as
+          # code blocks.
+          sed -i 's/^  //' notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Nmkoder ${{ steps.ver.outputs.version }}
+          draft: ${{ steps.ver.outputs.draft }}
+          generate_release_notes: true
+          files: dist/*
+          body_path: notes.md
+
+      # action-gh-release only sets the body when it creates a release, so one that began
+      # as a draft in an earlier run keeps that run's notes however often it is rebuilt -
+      # which silently published notes describing a different set of bundled tools. Make
+      # the workflow's text authoritative on every run.
+      - name: Sync release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '\n**Full Changelog**: %s/%s/commits/%s\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "${{ steps.ver.outputs.tag }}" >> notes.md
+          gh release edit "${{ steps.ver.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" --notes-file notes.md
