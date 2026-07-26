@@ -54,7 +54,9 @@ namespace Nmkoder.Data.Codecs.Video
                     colors += " --deltaq-mode=5 --enable-chroma-deltaq=1";
             }
 
-            return new CodecArgs($" -e aom -v \" {(!vmaf ? $"--end-usage=q --cq-level={q}" : "")} --cpu-used={preset} --disable-kf --kf-min-dist=12 --kf-max-dist={g} " +
+            // --end-usage=q stays even in VMAF mode: av1an's target quality search only injects
+            // --cq-level, which aomenc ignores unless constant quality rate control is selected.
+            return new CodecArgs($" -e aom -v \" --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} --disable-kf --kf-min-dist=12 --kf-max-dist={g} " +
                     $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
@@ -142,7 +144,8 @@ namespace Nmkoder.Data.Codecs.Video
             string tiles = mediaFile.VideoStreams.Count > 0 ? CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-columns=", "--tile-rows=") : "";
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
 
-            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} {(!vmaf ? $"--end-usage=q --cq-level={q}" : "")} --cpu-used={preset} --kf-max-dist={g} " +
+            // As with aomenc, --end-usage=q has to be set for av1an's injected --cq-level to apply
+            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} --kf-max-dist={g} " +
                     $"--threads={thr} --row-mt=1 {tiles} {cust} \" --pix-format {pixFmt}");
         }
     }
