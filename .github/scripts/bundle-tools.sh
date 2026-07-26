@@ -635,10 +635,14 @@ bundle_msys2_encoders() {
 # No project publishes a prebuilt Windows vpxenc: the WebM project ships source only,
 # ShiftMediaProject builds the library rather than the CLI, and MSYS2's libvpx package
 # leaves the encoder out. This is the build the av1an ecosystem uses - one person's
-# server, served over TLS but with no signed provenance, so what lands is checked rather
-# than trusted. Point VPXENC_URL elsewhere to use a different build, or set it empty to
-# skip vpxenc entirely.
-VPXENC_DEFAULT_URL="https://jeremylee.sh/bins/vpxenc.exe"
+# server with no signed provenance, so what lands is checked rather than trusted. Point
+# VPXENC_URL elsewhere to use a different build, or set it empty to skip vpxenc entirely.
+#
+# The archive holds vpxenc.exe and vpxdec.exe; only the encoder is staged. The site
+# publishes a SHA1 per binary - set VPXENC_SHA1 to the one shown for vpxenc.exe to pin
+# this to a build that was actually looked at. Left unset, nothing is pinned, because the
+# build rolls forward and a stale hash would reject every future one.
+VPXENC_DEFAULT_URL="https://jeremylee.sh/bins/vpx.7z"
 
 # Windows executables start with "MZ". A plain web server can answer a stale path with a
 # 200 and an HTML error page, which would otherwise be staged as though it were vpxenc.
@@ -684,6 +688,23 @@ bundle_vpxenc() {
        chmod +x "$ENC_DIR/vpxenc$EXE" 2>/dev/null || true ;;
     *) note_skip "vpxenc" "could not extract $(basename "$url")"; return ;;
   esac
+
+  if ! is_windows_exe "$ENC_DIR/vpxenc$EXE"; then
+    rm -f "$ENC_DIR/vpxenc$EXE"
+    note_skip "vpxenc" "$url did not yield a Windows executable"
+    return
+  fi
+
+  # An unsigned binary off a plain web server is worth pinning when someone has checked it.
+  if [ -n "${VPXENC_SHA1:-}" ]; then
+    local got
+    got="$(sha1sum "$ENC_DIR/vpxenc$EXE" 2>/dev/null | cut -d' ' -f1)"
+    if [ "$(printf '%s' "$got" | tr 'A-F' 'a-f')" != "$(printf '%s' "$VPXENC_SHA1" | tr 'A-F' 'a-f')" ]; then
+      rm -f "$ENC_DIR/vpxenc$EXE"
+      note_skip "vpxenc" "SHA1 $got does not match the pinned VPXENC_SHA1"
+      return
+    fi
+  fi
 
   note_ok "vpxenc ($url)"
   note_licence "  vpxenc             BSD-3-Clause (libvpx)

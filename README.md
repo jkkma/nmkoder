@@ -101,15 +101,25 @@ mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
 **vpxenc comes from a third-party build.** No project publishes a prebuilt Windows
 vpxenc: the WebM project ships source only, ShiftMediaProject builds the library rather
 than the CLI, and MSYS2's `libvpx` package leaves the encoder out. Windows builds
-therefore take <https://jeremylee.sh/bins/vpxenc.exe>, the build the av1an ecosystem uses.
-It is one person's server with no signed provenance, so the bundler checks that what
-arrives is actually a Windows executable rather than trusting the response, and the
-`bin/THIRD-PARTY.txt` in each archive records the URL it came from.
+therefore take <https://jeremylee.sh/bins/vpx.7z>, the build the av1an ecosystem uses,
+and stage the `vpxenc.exe` inside it.
+
+That is one person's server with no signed provenance, so what arrives is checked rather
+than trusted: the bundler verifies the staged file is actually a Windows executable, and
+`bin/THIRD-PARTY.txt` records the URL it came from. The site publishes a SHA1 for each
+binary - set `VPXENC_SHA1` to the one listed for `vpxenc.exe` to pin the build to one
+that has been looked at, and anything else is rejected rather than shipped. It is left
+unpinned by default because the build rolls forward and a stale hash would reject every
+future one.
+
+Note that the site's certificate does not validate. Downloads are made with certificate
+verification on, so if that is still true when a release is built, vpxenc is reported as
+a failed download and skipped rather than fetched insecurely.
 
 Point `VPXENC_URL` at a different build (a bare `.exe` or an archive containing one) to
-override it, or set it empty (`VPXENC_URL=`) to skip vpxenc entirely. Without vpxenc the
-AV1AN tab's VP9 entry has no encoder behind it; the regular encoding tab's VP9 support
-goes through the bundled ffmpeg and is unaffected either way.
+override the source, or set it empty (`VPXENC_URL=`) to skip vpxenc entirely. Without
+vpxenc the AV1AN tab's VP9 entry has no encoder behind it; the regular encoding tab's VP9
+support goes through the bundled ffmpeg and is unaffected either way.
 
 DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV install.
 
