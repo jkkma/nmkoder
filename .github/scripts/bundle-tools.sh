@@ -441,7 +441,12 @@ install_vapoursynth() {
   # Mirror the binaries to the root as well. That folder is the only one the app puts on
   # av1an's PATH, and av1an resolves "vspipe" as an executable rather than through the
   # .bat shim - the DLLs have to travel with it or it will not load.
-  find "$site" -maxdepth 3 -type f \( -iname '*.exe' -o -iname '*.dll' -o -iname '*.pyd' \) \
+  #
+  # Deep enough to reach a wheel's data directory. R72 keeps the core in one, at
+  # vapoursynth-72.data/data/Lib/site-packages/vapoursynth.dll - five levels down, where a
+  # shallower search leaves the core buried and VSScript unable to load it, while R78 keeps
+  # its binaries at the top of the wheel.
+  find "$site" -maxdepth 6 -type f \( -iname '*.exe' -o -iname '*.dll' -o -iname '*.pyd' \) \
     -exec cp {} "$VSYNTH_DIR/" \; 2>/dev/null || true
 
   # The embeddable interpreter ignores site-packages unless its path file names it.
