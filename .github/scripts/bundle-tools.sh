@@ -96,19 +96,31 @@ normalize_backslash_paths() {
 # Unpack an archive by extension. Returns 2 when the file is not an archive at all,
 # which is how a bare binary asset (some projects publish one) gets detected.
 extract() {
-  local file="$1" dest="$2"
+  local file="$1" dest="$2" status=0
   mkdir -p "$dest"
   case "$file" in
-    *.zip)                          unzip -qo "$file" -d "$dest" ;;
-    *.7z)                           command -v 7z >/dev/null 2>&1 || return 1
-                                    7z x -o"$dest" "$file" >/dev/null ;;
-    *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar.zst) tar -xf "$file" -C "$dest" ;;
+    *.zip)
+      unzip -qo "$file" -d "$dest"
+      status=$?
+      # unzip exits 1 for warnings, not failures, and the files are written regardless.
+      # VapourSynth's archive trips exactly that with its backslash-separator note, so
+      # treating any non-zero as failure silently discards a perfectly good download.
+      [ "$status" -le 1 ] && status=0
+      ;;
+    *.7z)
+      command -v 7z >/dev/null 2>&1 || return 1
+      7z x -o"$dest" "$file" >/dev/null
+      status=$?
+      ;;
+    *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar.zst)
+      tar -xf "$file" -C "$dest"
+      status=$?
+      ;;
     *) return 2 ;;
   esac
 
-  local status=$?
   normalize_backslash_paths "$dest"
-  return $status
+  return "$status"
 }
 
 # Copy an extracted tree into <dest>, stepping through the single versioned wrapper
@@ -327,37 +339,59 @@ install_vapoursynth() {
 
   rm -rf "$stage"
   flatten_into "$dir" "$stage"
-  find "$stage" -maxdepth 1 -iname 'vspipe*' -print -quit | grep -q . || return 1
-
   cp -R "$stage"/. "$VSYNTH_DIR"/
 
-  # Unpack the wheel next to python.exe: the .pyd is the "vapoursynth" module av1an's
-  # scripts import, and vapoursynth.dll sits inside the wheel's data directory.
+  # The portable archive comes in two generations. Up to R77 it carried VSPipe.exe and the
+  # runtime DLLs at its root, with a wheel alongside holding just the Python module. From
+  # R78 it carries no binaries at all - only doc, launcher .bat files and a wheel that now
+  # contains everything, vspipe.exe included, which vspipe.bat expects to find installed
+  # under lib\site-packages. Unpacking the wheel therefore has to serve both.
   #
-  # The archive carries one wheel per interpreter, so pick the one matching the Python
-  # staged above - falling back to the cp38 wheel, which is the stable-ABI build and
-  # therefore imports on any Python 3.8 or newer.
+  # Wheels are per interpreter, so prefer the one matching the staged Python, then an
+  # abi3/cp38 build, both of which import on any Python new enough to run them.
   local tag whl unpacked="$WORK/whl"
   tag="$(find "$VSYNTH_DIR" -maxdepth 1 -iname 'python3*._pth' -print -quit \
          | sed -nE 's/.*python(3[0-9]+)\._pth$/cp\1/p')"
 
   whl=""
-  [ -n "$tag" ] && whl="$(find "$VSYNTH_DIR" -type f -iname "VapourSynth*-${tag}-*.whl" -print -quit)"
-  [ -n "$whl" ]  || whl="$(find "$VSYNTH_DIR" -type f -iname 'VapourSynth*-cp38-*.whl' -print -quit)"
-  [ -n "$whl" ]  || whl="$(find "$VSYNTH_DIR" -type f -iname 'VapourSynth*.whl' -print -quit)"
+  [ -n "$tag" ] && whl="$(find "$VSYNTH_DIR" -type f -iname "*apoursynth*-${tag}-*.whl" -print -quit)"
+  [ -n "$whl" ]  || whl="$(find "$VSYNTH_DIR" -type f -iname '*apoursynth*abi3*.whl' -print -quit)"
+  [ -n "$whl" ]  || whl="$(find "$VSYNTH_DIR" -type f -iname '*apoursynth*cp38*.whl' -print -quit)"
+  [ -n "$whl" ]  || whl="$(find "$VSYNTH_DIR" -type f -iname '*apoursynth*.whl' -print -quit)"
   [ -n "$whl" ]  || return 1
 
   rm -rf "$unpacked"
   unzip -qo "$whl" -d "$unpacked" || return 1
-  find "$unpacked" -type f \( -iname '*.pyd' -o -iname '*.dll' \) -exec cp {} "$VSYNTH_DIR/" \; || return 1
-  find "$VSYNTH_DIR" -maxdepth 1 -iname 'vapoursynth*.pyd' -print -quit | grep -q . || return 1
+
+  # A wheel is a zip of the tree pip would install, so unpacking it into site-packages is
+  # the install: it satisfies both "import vapoursynth" and the launcher .bat files.
+  local site="$VSYNTH_DIR/lib/site-packages"
+  mkdir -p "$site"
+  cp -R "$unpacked"/. "$site"/
+
+  # Mirror the binaries to the root as well. That folder is the only one the app puts on
+  # av1an's PATH, and av1an resolves "vspipe" as an executable rather than through the
+  # .bat shim - the DLLs have to travel with it or it will not load.
+  find "$site" -maxdepth 3 -type f \( -iname '*.exe' -o -iname '*.dll' -o -iname '*.pyd' \) \
+    -exec cp {} "$VSYNTH_DIR/" \; 2>/dev/null || true
+
+  # The embeddable interpreter ignores site-packages unless its path file names it.
+  local pth
+  pth="$(find "$VSYNTH_DIR" -maxdepth 1 -iname 'python3*._pth' -print -quit)"
+  if [ -n "$pth" ] && ! grep -qi 'site-packages' "$pth"; then
+    printf 'lib\\site-packages\n' >> "$pth"
+  fi
+
+  # Whichever generation it was, VSPipe has to be sitting on that PATH now.
+  find "$VSYNTH_DIR" -maxdepth 1 -iname 'vspipe.exe' -print -quit | grep -q . || return 1
 
   # LGPL wants the licence text shipped alongside the binaries, not just referenced.
   find "$unpacked" -type f \( -iname 'COPYING*' -o -iname 'LICENSE*' \) -exec \
     cp {} "$VSYNTH_DIR/VapourSynth-LICENSE.txt" \; 2>/dev/null || true
 
-  # doc, sdk and the remaining wheels are dead weight in a release archive.
+  # doc, sdk, debug symbols and the remaining wheels are dead weight in a release archive.
   rm -rf "$VSYNTH_DIR/doc" "$VSYNTH_DIR/sdk" "$VSYNTH_DIR/wheel"
+  find "$VSYNTH_DIR" -name '*.pdb' -delete 2>/dev/null || true
 }
 
 bundle_vapoursynth() {
