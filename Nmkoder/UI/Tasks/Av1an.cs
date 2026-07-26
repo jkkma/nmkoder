@@ -137,7 +137,7 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
-                if (Path.GetExtension(outPath) == null)
+                if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
                     Logger.Log($"Output path must have a valid file extension!");
                     return;
