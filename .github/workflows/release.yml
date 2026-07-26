@@ -111,6 +111,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: the changelog below is built from the commit range
+      # between the previous release and this one.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -166,6 +172,29 @@ jobs:
           # Left in, continuation lines land at four columns and Markdown renders them as
           # code blocks.
           sed -i 's/^  //' notes.md
+
+          # The changelog goes in the release itself. A link out to the commits page is not a
+          # changelog: it needs the reader to leave, and it shows whatever the branch holds now
+          # rather than what went into this version. Appended after the sed above so these lines
+          # keep their own indentation.
+          tag="${{ steps.ver.outputs.tag }}"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            prev="$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)"   # Tag exists: range ends at it
+            range="${prev:+$prev..}$tag"
+          else
+            prev="$(git describe --tags --abbrev=0 2>/dev/null || true)"           # Dispatch: the tag is created later
+            range="${prev:+$prev..}HEAD"
+          fi
+
+          {
+            echo
+            echo "## Changes${prev:+ since $prev}"
+            echo
+            git log --no-merges --pretty=format:'- %s' $range
+            echo
+          } >> notes.md
+
           cat notes.md
 
       - uses: softprops/action-gh-release@v2
@@ -173,7 +202,9 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Nmkoder ${{ steps.ver.outputs.version }}
           draft: ${{ steps.ver.outputs.draft }}
-          generate_release_notes: true
+          # Our notes carry the changelog, and the sync step below overwrites the body anyway,
+          # so GitHub's generated section would only ever be discarded.
+          generate_release_notes: false
           files: dist/*
           body_path: notes.md
 
@@ -186,7 +217,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          printf '\n**Full Changelog**: %s/%s/commits/%s\n' \
-            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "${{ steps.ver.outputs.tag }}" >> notes.md
           gh release edit "${{ steps.ver.outputs.tag }}" \
             --repo "$GITHUB_REPOSITORY" --notes-file notes.md
