@@ -37,4 +37,10 @@
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Data files the app reads back from Paths.GetBinPath() at runtime, so they are
+         copied into bin rather than embedded the way Assets/ is. -->
+    <Content Include="BinFiles/**" Link="bin/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

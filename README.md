@@ -95,6 +95,10 @@ environment variables.
 
 DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV install.
 
+`bin/iso639.csv`, the language table that names audio and subtitle tracks, is not
+downloaded - it lives in `Nmkoder/BinFiles` and every build copies it into `bin`.
+Regenerate it with `.github/scripts/gen-iso639.py` when the ISO registers move.
+
 ## Building
 
 ```
