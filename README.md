@@ -77,7 +77,8 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
 ```
 bin/av1an/av1an[.exe]        av1an itself
-bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe), L-SMASH-Works in vs-plugins/
+bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
+bin/av1an/vsynth/vs-plugins/ L-SMASH-Works and FFMS2, for the matching chunk methods
 bin/av1an/enc/               SvtAv1EncApp, aomenc, vpxenc and x265
 ```
 
@@ -88,8 +89,11 @@ failing the release, and the workflow's job summary lists exactly what each buil
 Binaries are resolved from each project's latest release at build time, except aomenc,
 vpxenc and x265, which upstream does not publish for Windows and so come from MSYS2's
 mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
-`VAPOURSYNTH_REPO`, `LSMASH_REPO`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`,
-`MSYS2_ROOT` and `MKVTOOLNIX_VERSION` environment variables.
+`VAPOURSYNTH_REPO`, `LSMASH_REPO`, `FFMS2_REPO`, `PYTHON_EMBED_VERSIONS`,
+`MSYS2_ENCODERS`, `MSYS2_ROOT` and `MKVTOOLNIX_VERSION` environment variables.
+
+The chunk method dropdown's other entries are not covered: DGDecNV needs a licensed
+DGDecNV install, and BestSource is not bundled - drop its DLL into `vs-plugins/` to use it.
 
 ## Building
 

@@ -34,6 +34,7 @@ NOTICE="$WORK/notice.txt"
 BUNDLED=()
 SKIPPED=()
 LAST_ASSET=""
+VS_PLUGIN_DLL=""
 
 note_ok()   { BUNDLED+=("$1"); echo "  [ok]   $1"; }
 note_skip() { SKIPPED+=("$1"); echo "  [skip] $1 - $2"; }
@@ -347,35 +348,56 @@ bundle_vapoursynth() {
 
   CPython            Python Software Foundation License 2.0 (embeddable distribution)
                      Source: https://www.python.org/downloads/"
-    bundle_vs_source_plugin
+    bundle_vs_source_plugins
   else
     note_skip "vapoursynth" "no usable portable asset in the latest release"
     rm -rf "$VSYNTH_DIR"
   fi
 }
 
-# VapourSynth on its own cannot open a video file - it needs a source plugin. Without one
-# av1an falls back to its non-vapoursynth chunk methods, so this is a nice-to-have.
+# VapourSynth on its own cannot open a video file - it needs a source plugin, one per
+# entry in Nmkoder's chunk method dropdown (Av1an.ChunkMethod). LSMASH is the default and
+# FFMS2 the alternative; without either, av1an falls back to non-vapoursynth chunking.
 install_vs_plugin() {
-  local dir="$2" plugins="$VSYNTH_DIR/vs-plugins" got=0 dll
+  local dir="$2" plugins="$VSYNTH_DIR/vs-plugins" got=0 dll matches wide
 
   [ -n "$dir" ] || return 1
-  mkdir -p "$plugins"
 
+  matches="$(find "$dir" -type f -iname "$VS_PLUGIN_DLL")"
+  [ -n "$matches" ] || return 1
+
+  # Archives carrying both architectures separate them into x86 and x64 directories.
+  wide="$(printf '%s\n' "$matches" | grep -Ei '(x64|win64|64bit|amd64)')"
+  [ -n "$wide" ] && matches="$wide"
+
+  mkdir -p "$plugins"
   while IFS= read -r dll; do
-    cp "$dll" "$plugins/" && got=$((got + 1))
-  done < <(find "$dir" -type f -iname '*vslsmashsource*.dll')
+    [ -n "$dll" ] && cp "$dll" "$plugins/" && got=$((got + 1))
+  done <<< "$matches"
 
   [ "$got" -gt 0 ]
 }
 
-bundle_vs_source_plugin() {
+bundle_vs_source_plugins() {
+  # L-SMASH-Works - what the chunk method dropdown defaults to (Config.av1anOptsChunkMode).
+  VS_PLUGIN_DLL='*vslsmashsource*.dll'
   if try_assets "${LSMASH_REPO:-AkarinVS/L-SMASH-Works}" '(release-x86_64|win).*\.(zip|7z)$' '\.(zip|7z)$' install_vs_plugin; then
-    note_ok "vapoursynth source plugin ($LAST_ASSET)"
+    note_ok "vapoursynth plugin: L-SMASH-Works ($LAST_ASSET)"
     note_licence "  L-SMASH-Works      GPL-2.0-or-later (VapourSynth source plugin)
                      Source: https://github.com/AkarinVS/L-SMASH-Works"
   else
-    note_skip "vapoursynth source plugin" "no L-SMASH-Works asset with a vslsmashsource DLL"
+    note_skip "vapoursynth plugin: L-SMASH-Works" "no asset with a vslsmashsource DLL"
+  fi
+
+  # FFMS2 - the other source plugin the dropdown offers.
+  VS_PLUGIN_DLL='ffms2.dll'
+  if try_assets "${FFMS2_REPO:-FFMS/ffms2}" 'msvc.*\.(7z|zip)$' '\.(7z|zip)$' install_vs_plugin; then
+    note_ok "vapoursynth plugin: FFMS2 ($LAST_ASSET)"
+    note_licence "  FFMS2              MIT, but the published Windows build statically links
+                     a GPL FFmpeg, making the binary GPL-3.0-or-later as distributed
+                     Source: https://github.com/FFMS/ffms2"
+  else
+    note_skip "vapoursynth plugin: FFMS2" "no asset with an ffms2 DLL"
   fi
 }
 
