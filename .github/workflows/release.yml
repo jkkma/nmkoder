@@ -9,6 +9,11 @@ on:
         description: 'Version to build (e.g. 2.0.0). Creates a draft release.'
         required: true
         type: string
+      publish:
+        description: 'Publish for real: creates the v<version> tag and a public release instead of a draft.'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -121,7 +126,13 @@ jobs:
           else
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
             echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "draft=true" >> "$GITHUB_OUTPUT"
+            # Publishing from a dispatch creates the tag itself, which is the only route
+            # when tags cannot be pushed from where the release is being cut.
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              echo "draft=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "draft=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - uses: softprops/action-gh-release@v2
