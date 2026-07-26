@@ -140,10 +140,12 @@ jobs:
             - Windows and Linux builds include ffmpeg and ffprobe.
             - Windows builds also include MKVToolNix, plus the AV1AN tab's toolchain in
               `bin/av1an/`: av1an itself, VapourSynth with an embedded Python and the
-              L-SMASH-Works source plugin in `vsynth/`, and SvtAv1EncApp in `enc/`.
+              L-SMASH-Works source plugin in `vsynth/`, and SvtAv1EncApp, aomenc and
+              vpxenc in `enc/`.
             - Linux builds pick up av1an and SVT-AV1 where upstream publishes binaries;
-              install VapourSynth from your package manager for the vapoursynth chunk methods.
-            - macOS builds ship without them; install with `brew install ffmpeg mkvtoolnix av1an svt-av1`.
+              install VapourSynth and the aom/vpx tools from your package manager.
+            - macOS builds ship without them; install with
+              `brew install ffmpeg mkvtoolnix av1an svt-av1 aom libvpx`.
 
             Tool downloads are best-effort - check the build's job summary to see exactly
             what shipped in this release.

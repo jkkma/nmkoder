@@ -67,27 +67,29 @@ release, or run the workflow manually to get a draft.
 Each archive is self-contained (no .NET install required) and `.github/scripts/bundle-tools.sh`
 stages the external tools into `bin/`:
 
-| | ffmpeg / ffprobe | MKVToolNix | av1an + SVT-AV1 | VapourSynth | VMAF models |
-|---|---|---|---|---|---|
-| win-x64 | bundled | bundled | bundled | bundled | bundled |
-| linux-x64 | bundled | use package manager | bundled | use package manager | bundled |
-| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an svt-av1` | `brew install vapoursynth` | bundled |
+| | ffmpeg / ffprobe | MKVToolNix | av1an + SVT-AV1 | aomenc + vpxenc | VapourSynth | VMAF models |
+|---|---|---|---|---|---|---|
+| win-x64 | bundled | bundled | bundled | bundled | bundled | bundled |
+| linux-x64 | bundled | use package manager | bundled | use package manager | use package manager | bundled |
+| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an svt-av1` | `brew install aom libvpx` | `brew install vapoursynth` | bundled |
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
 ```
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe), L-SMASH-Works in vs-plugins/
-bin/av1an/enc/               encoders, e.g. SvtAv1EncApp for "-e svt-av1"
+bin/av1an/enc/               SvtAv1EncApp, aomenc and vpxenc
 ```
 
 `vsynth` and `enc` are prepended to av1an's `PATH`, so nothing needs installing system-wide.
 
 Tool downloads are best-effort: an unreachable upstream is reported and skipped rather than
 failing the release, and the workflow's job summary lists exactly what each build shipped.
-Binaries are resolved from each project's latest release at build time; override the sources
-with the `AV1AN_REPO`, `SVTAV1_REPOS`, `VAPOURSYNTH_REPO`, `LSMASH_REPO`,
-`PYTHON_EMBED_VERSIONS` and `MKVTOOLNIX_VERSION` environment variables.
+Binaries are resolved from each project's latest release at build time, except aomenc and
+vpxenc, which upstream does not publish for Windows and so come from MSYS2's mingw64
+packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`, `VAPOURSYNTH_REPO`,
+`LSMASH_REPO`, `PYTHON_EMBED_VERSIONS`, `AOM_VPX_PACKAGES`, `MSYS2_ROOT` and
+`MKVTOOLNIX_VERSION` environment variables.
 
 ## Building
 

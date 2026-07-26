@@ -7,7 +7,7 @@
 #   bin/av1an/av1an[.exe]          the av1an binary itself
 #   bin/av1an/vsynth/              VapourSynth portable + embedded Python, supplies VSPipe
 #   bin/av1an/vsynth/vs-plugins/   source plugins, autoloaded by VapourSynth
-#   bin/av1an/enc/                 encoders, e.g. SvtAv1EncApp for "-e svt-av1"
+#   bin/av1an/enc/                 encoders: SvtAv1EncApp, aomenc, vpxenc
 #
 # vsynth and enc are prepended to av1an's PATH by the app, so nothing needs installing.
 #
@@ -421,6 +421,74 @@ bundle_svtav1() {
   note_skip "svt-av1" "no release binary in: ${SVTAV1_REPOS:-AOMediaCodec/SVT-AV1 psy-ex/svt-av1-psy}"
 }
 
+# ─────────────────────────── aomenc + vpxenc ───────────────────────────
+# av1an calls these for "-e aom" and "-e vpx" (VideoEncodersBin.AomAv1 / .Vpx). Neither
+# project ships Windows binaries of its own, so they come from MSYS2's mingw64 packages -
+# the Windows runner image already carries pacman.
+
+# List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
+# handful of runtime libraries those encoders are known to link when ldd is unavailable.
+msys_dependencies() {
+  local msys_bash="$1" tool="$2" deps
+
+  deps="$("$msys_bash" -lc "ldd /mingw64/bin/$tool.exe" 2>/dev/null \
+          | awk '{print $3}' | grep -i '/mingw64/bin/' | sed 's|.*/||')"
+
+  if [ -z "$deps" ]; then
+    deps="libaom.dll libvpx.dll libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll libssp-0.dll"
+  fi
+
+  printf '%s\n' $deps
+}
+
+bundle_aom_vpx() {
+  if [ "$RID" != "win-x64" ]; then
+    note_skip "aomenc + vpxenc" "no portable build for $RID - install the aom and vpx tools from your package manager"
+    return
+  fi
+
+  local root="${MSYS2_ROOT:-/c/msys64}"
+  local msys_bash="$root/usr/bin/bash.exe" pacman="$root/usr/bin/pacman.exe"
+
+  if [ ! -x "$pacman" ] || [ ! -x "$msys_bash" ]; then
+    note_skip "aomenc + vpxenc" "MSYS2 not found at $root"
+    return
+  fi
+
+  # -Sy refreshes the image's package database, which is usually months stale.
+  if ! "$pacman" -Sy --noconfirm --needed ${AOM_VPX_PACKAGES:-mingw-w64-x86_64-aom mingw-w64-x86_64-libvpx} >/dev/null 2>&1; then
+    note_skip "aomenc + vpxenc" "pacman could not install the aom/libvpx packages"
+    return
+  fi
+
+  mkdir -p "$ENC_DIR"
+
+  local tool exe dll got=()
+  for tool in aomenc vpxenc; do
+    exe="$root/mingw64/bin/$tool.exe"
+    [ -f "$exe" ] || continue
+    cp "$exe" "$ENC_DIR/" || continue
+    got+=("$tool")
+
+    while IFS= read -r dll; do
+      [ -n "$dll" ] && [ -f "$root/mingw64/bin/$dll" ] && cp "$root/mingw64/bin/$dll" "$ENC_DIR/"
+    done < <(msys_dependencies "$msys_bash" "$tool")
+  done
+
+  if [ "${#got[@]}" -gt 0 ]; then
+    note_ok "${got[*]} (MSYS2 mingw64)"
+    note_licence "  aomenc             BSD-2-Clause + AOM Patent License 1.0 (libaom)
+                     Source: https://aomedia.googlesource.com/aom/
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-aom
+
+  vpxenc             BSD-3-Clause (libvpx)
+                     Source: https://chromium.googlesource.com/webm/libvpx/
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-libvpx"
+  else
+    note_skip "aomenc + vpxenc" "packages installed but no encoder binaries in $root/mingw64/bin"
+  fi
+}
+
 # ─────────────────────────── VMAF models ───────────────────────────
 # Paths.GetVmafPath() expects these next to the binaries for the metrics utility.
 bundle_vmaf_models() {
@@ -467,6 +535,7 @@ bundle_mkvtoolnix
 bundle_av1an
 bundle_vapoursynth
 bundle_svtav1
+bundle_aom_vpx
 bundle_vmaf_models
 # A tool that skipped may have left its (now empty) destination folder behind.
 find "$BIN" -mindepth 1 -type d -empty -delete 2>/dev/null || true
