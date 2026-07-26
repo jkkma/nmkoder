@@ -136,18 +136,21 @@ jobs:
 
             Unpack anywhere and run `Nmkoder`. No .NET install needed - the runtime is included.
 
-            **Bundled tools** (see `bin/THIRD-PARTY.txt` for licences and sources):
-            - Windows and Linux builds include ffmpeg and ffprobe.
-            - Windows builds also include MKVToolNix, plus the AV1AN tab's toolchain in
-              `bin/av1an/`: av1an itself, VapourSynth with an embedded Python plus the
-              BestSource, L-SMASH-Works and FFMS2 source plugins in `vsynth/`, and
-              SvtAv1EncApp, aomenc, vpxenc and x265 in `enc/`.
-            - Linux builds pick up av1an and SVT-AV1 where upstream publishes binaries;
-              install VapourSynth and the aom/vpx/x265 tools from your package manager.
-            - macOS builds ship without them; install with
+            **Bundled tools.** Each archive lists exactly what it carries in
+            `bin/THIRD-PARTY.txt`, with licences and sources. Bundling is best-effort:
+            where a project publishes no binary for a platform, it is skipped rather than
+            faked, so check that file rather than assuming.
+
+            - Windows carries the most: ffmpeg/ffprobe, MKVToolNix, and what is available
+              of the AV1AN tab's toolchain in `bin/av1an/` - VapourSynth with an embedded
+              Python and its source plugins in `vsynth/`, encoders in `enc/`.
+            - Linux includes ffmpeg/ffprobe; install VapourSynth and the encoders from
+              your package manager.
+            - macOS ships none of them; install with
               `brew install ffmpeg mkvtoolnix av1an svt-av1 aom libvpx x265`.
 
-            Tool downloads are best-effort - check the build's job summary to see exactly
-            what shipped in this release.
+            Anything missing can be dropped into `bin/` yourself - av1an goes in
+            `bin/av1an/`, encoders in `bin/av1an/enc/`, VapourSynth plugins in
+            `bin/av1an/vsynth/vs-plugins/`.
 
             Anything placed in `bin/` takes priority over tools on your `PATH`.

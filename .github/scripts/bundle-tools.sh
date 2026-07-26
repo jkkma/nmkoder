@@ -47,21 +47,37 @@ fetch() {
   curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 -o "$2" "$1"
 }
 
-# Print the download URLs of every asset of <repo>'s latest release whose filename
-# matches <regex>, best match first. Resolving at build time avoids hardcoding version
-# numbers that go stale. GITHUB_TOKEN, when set, lifts the anonymous API rate limit.
-gh_latest_assets() {
+# Print the download URLs of every asset in <repo>'s recent releases whose filename matches
+# <regex>, newest release first. Resolving at build time avoids hardcoding version numbers
+# that go stale; scanning several releases rather than just the newest matters because
+# projects tag source-only releases in between binary ones. GITHUB_TOKEN, when set, lifts
+# the anonymous API rate limit.
+gh_release_assets() {
   local repo="$1" pattern="$2"
   local auth=()
   [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
 
   curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 \
        -H 'Accept: application/vnd.github+json' ${auth[@]+"${auth[@]}"} \
-       "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+       "https://api.github.com/repos/$repo/releases?per_page=${GH_RELEASE_SCAN:-8}" 2>/dev/null \
     | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' \
     | sed 's/.*"\(https[^"]*\)"/\1/' \
     | grep -Ev -- '\.(sha256|sha512|md5|sig|asc|pem|txt|json|pdb|deb|rpm)$' \
     | grep -Ei -- "$pattern"
+}
+
+# VapourSynth's portable zip stores paths with backslash separators. unzip does not treat
+# those as directories, so it writes single files literally named "dir\file" and every
+# lookup below misses them. Rebuild the tree they were meant to describe.
+normalize_backslash_paths() {
+  local root="$1" file rel target
+  while IFS= read -r file; do
+    rel="${file#"$root"/}"
+    case "$rel" in *\\*) ;; *) continue ;; esac
+    target="$root/${rel//\\//}"
+    mkdir -p "$(dirname "$target")"
+    mv "$file" "$target" 2>/dev/null || true
+  done < <(find "$root" -depth -name '*\\*')
 }
 
 # Unpack an archive by extension. Returns 2 when the file is not an archive at all,
@@ -76,6 +92,10 @@ extract() {
     *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar.zst) tar -xf "$file" -C "$dest" ;;
     *) return 2 ;;
   esac
+
+  local status=$?
+  normalize_backslash_paths "$dest"
+  return $status
 }
 
 # Copy an extracted tree into <dest>, stepping through the single versioned wrapper
@@ -112,9 +132,9 @@ try_assets() {
   local repo="$1" primary="$2" fallback="$3" handler="$4"
   local urls=() url file dir n=0
 
-  mapfile -t urls < <(gh_latest_assets "$repo" "$primary")
+  mapfile -t urls < <(gh_release_assets "$repo" "$primary")
   if [ "${#urls[@]}" -eq 0 ] && [ -n "$fallback" ]; then
-    mapfile -t urls < <(gh_latest_assets "$repo" "$fallback")
+    mapfile -t urls < <(gh_release_assets "$repo" "$fallback")
   fi
   [ "${#urls[@]}" -gt 0 ] || return 1
 
@@ -350,7 +370,7 @@ bundle_vapoursynth() {
                      Source: https://www.python.org/downloads/"
     bundle_vs_source_plugins
   else
-    note_skip "vapoursynth" "no usable portable asset in the latest release"
+    note_skip "vapoursynth" "no usable portable asset in recent releases"
     rm -rf "$VSYNTH_DIR"
   fi
 }
@@ -468,8 +488,10 @@ bundle_svtav1() {
 # and .X265). None of the three ship Windows binaries of their own, so they come from
 # MSYS2's mingw64 packages - the Windows runner image already carries pacman.
 
-# <binary>:<package> pairs. The binary name is the one av1an looks for on PATH.
-MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom vpxenc:mingw-w64-x86_64-libvpx x265:mingw-w64-x86_64-x265}"
+# <binary>:<package> pairs. The binary name is the one av1an looks for on PATH. SvtAv1EncApp
+# is here as well as in bundle_svtav1: upstream does not reliably publish a Windows binary,
+# and MSYS2 packages one. Whichever runs first wins; the second sees it already staged.
+MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom vpxenc:mingw-w64-x86_64-libvpx x265:mingw-w64-x86_64-x265 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
 
 # List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
 # handful of runtime libraries those encoders are known to link when ldd is unavailable.
@@ -497,6 +519,9 @@ encoder_licence() {
     x265)   note_licence "  x265               GPL-2.0-or-later
                      Source: https://bitbucket.org/multicoreware/x265_git
                      Build:  https://packages.msys2.org/package/mingw-w64-x86_64-x265" ;;
+    SvtAv1EncApp) note_licence "  SvtAv1EncApp       BSD-3-Clause-Clear + AOM Patent License 1.0
+                     Source: https://gitlab.com/AOMediaCodec/SVT-AV1
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-svt-av1" ;;
   esac
 }
 
@@ -531,6 +556,9 @@ bundle_msys2_encoders() {
   for entry in $MSYS2_ENCODERS; do
     tool="${entry%%:*}"
     exe="$root/mingw64/bin/$tool.exe"
+
+    # Already staged from a project's own release - that build is the more canonical one.
+    [ -f "$ENC_DIR/$tool.exe" ] && continue
 
     if [ ! -f "$exe" ]; then
       note_skip "$tool" "not shipped by ${entry#*:}"
