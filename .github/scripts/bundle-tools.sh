@@ -644,10 +644,61 @@ bundle_msys2_encoders() {
 # build rolls forward and a stale hash would reject every future one.
 VPXENC_DEFAULT_URL="https://jeremylee.sh/bins/vpx.7z"
 
+# Preferred over the URL above: a release asset. Attach a vpxenc.exe to any release of this
+# repository and every build picks it up from there. That is the durable place for a binary
+# upstream does not publish - it is versioned, it is fetched with the token the workflow
+# already holds, and it does not expire the way a chat or CDN attachment link does (those
+# carry a signed expiry of roughly a day, after which the build silently loses vpxenc again).
+# Defaults to the repository being built; point VPXENC_REPO elsewhere to host it separately.
+VPXENC_REPO="${VPXENC_REPO-${GITHUB_REPOSITORY:-}}"
+
 # Windows executables start with "MZ". A plain web server can answer a stale path with a
 # 200 and an HTML error page, which would otherwise be staged as though it were vpxenc.
 is_windows_exe() {
   [ "$(head -c 2 "$1" 2>/dev/null)" = "MZ" ]
+}
+
+# try_assets handler: the asset is either an archive holding vpxenc, or vpxenc itself.
+install_vpxenc_asset() {
+  local file="$1" dir="$2"
+
+  if [ -n "$dir" ]; then
+    install_binary "$dir" vpxenc "$ENC_DIR" || return 1
+  else
+    is_windows_exe "$file" || return 1
+    mkdir -p "$ENC_DIR"
+    cp "$file" "$ENC_DIR/vpxenc$EXE" || return 1
+    chmod +x "$ENC_DIR/vpxenc$EXE" 2>/dev/null || true
+  fi
+
+  [ -f "$ENC_DIR/vpxenc$EXE" ] || return 1
+}
+
+# Shared by both sources: nothing is trusted just because it downloaded.
+verify_vpxenc() {
+  local origin="$1"
+
+  if ! is_windows_exe "$ENC_DIR/vpxenc$EXE"; then
+    rm -f "$ENC_DIR/vpxenc$EXE"
+    note_skip "vpxenc" "$origin did not yield a Windows executable"
+    return 1
+  fi
+
+  # An unsigned binary with no signed provenance is worth pinning when someone has checked it.
+  if [ -n "${VPXENC_SHA1:-}" ]; then
+    local got
+    got="$(sha1sum "$ENC_DIR/vpxenc$EXE" 2>/dev/null | cut -d' ' -f1)"
+    if [ "$(printf '%s' "$got" | tr 'A-F' 'a-f')" != "$(printf '%s' "$VPXENC_SHA1" | tr 'A-F' 'a-f')" ]; then
+      rm -f "$ENC_DIR/vpxenc$EXE"
+      note_skip "vpxenc" "SHA1 $got does not match the pinned VPXENC_SHA1"
+      return 1
+    fi
+  fi
+
+  note_ok "vpxenc ($origin)"
+  note_licence "  vpxenc             BSD-3-Clause (libvpx)
+                     Source: https://chromium.googlesource.com/webm/libvpx/
+                     Build:  $origin"
 }
 
 bundle_vpxenc() {
@@ -661,8 +712,12 @@ bundle_vpxenc() {
     return
   fi
 
+  if [ -n "$VPXENC_REPO" ] && try_assets "$VPXENC_REPO" '[Vv]pxenc.*\.(exe|zip|7z)$' '' install_vpxenc_asset; then
+    verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" && return
+  fi
+
   if [ -z "$url" ]; then
-    note_skip "vpxenc" "VPXENC_URL set empty - no prebuilt binary is published upstream"
+    note_skip "vpxenc" "VPXENC_URL set empty and no vpxenc release asset in ${VPXENC_REPO:-<unset>}"
     return
   fi
 
@@ -689,27 +744,7 @@ bundle_vpxenc() {
     *) note_skip "vpxenc" "could not extract $(basename "$url")"; return ;;
   esac
 
-  if ! is_windows_exe "$ENC_DIR/vpxenc$EXE"; then
-    rm -f "$ENC_DIR/vpxenc$EXE"
-    note_skip "vpxenc" "$url did not yield a Windows executable"
-    return
-  fi
-
-  # An unsigned binary off a plain web server is worth pinning when someone has checked it.
-  if [ -n "${VPXENC_SHA1:-}" ]; then
-    local got
-    got="$(sha1sum "$ENC_DIR/vpxenc$EXE" 2>/dev/null | cut -d' ' -f1)"
-    if [ "$(printf '%s' "$got" | tr 'A-F' 'a-f')" != "$(printf '%s' "$VPXENC_SHA1" | tr 'A-F' 'a-f')" ]; then
-      rm -f "$ENC_DIR/vpxenc$EXE"
-      note_skip "vpxenc" "SHA1 $got does not match the pinned VPXENC_SHA1"
-      return
-    fi
-  fi
-
-  note_ok "vpxenc ($url)"
-  note_licence "  vpxenc             BSD-3-Clause (libvpx)
-                     Source: https://chromium.googlesource.com/webm/libvpx/
-                     Build:  $url"
+  verify_vpxenc "$url"
 }
 
 # ─────────────────────────── VMAF models ───────────────────────────
