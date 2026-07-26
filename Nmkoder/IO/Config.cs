@@ -262,10 +262,10 @@ namespace Nmkoder.IO
                 return WriteDefault(keyStr, "");
             }
 
-            if (key == Key.av1anOptsChunkMode)          return WriteDefault(key, "1");
+            if (key == Key.Av1anOptsChunkModeBox)       return WriteDefault(key, "1");
             if (key == Key.DefaultKeyIntSecs)           return WriteDefault(key, "10");
-            if (key == Key.av1anOptsWorkerCount)        return WriteDefault(key, $"{Av1an.GetDefaultWorkerCount()}");
-            if (key == Key.av1anThreads)                return WriteDefault(key, "2");
+            if (key == Key.Av1anOptsWorkerCountUpDown)  return WriteDefault(key, $"{Av1an.GetDefaultWorkerCount()}");
+            if (key == Key.Av1anThreadsUpDown)          return WriteDefault(key, "2");
             if (key == Key.mp4Faststart)                return WriteDefault(key, "True");
             if (key == Key.metaMode)                    return WriteDefault(key, "1");
 
@@ -287,13 +287,17 @@ namespace Nmkoder.IO
             return def;
         }
 
+        /// <summary>
+        /// Entries that back a UI control must be named exactly like that control - ConfigParser
+        /// stores and looks up those values by control name, so a mismatch silently loses the default.
+        /// </summary>
         public enum Key
         {
             AutoCropSamples,
             Av1anCmdVisible,
-            av1anThreads,
-            av1anOptsChunkMode,
-            av1anOptsWorkerCount,
+            Av1anThreadsUpDown,
+            Av1anOptsChunkModeBox,
+            Av1anOptsWorkerCountUpDown,
             CmdDebugMode,
             DefaultKeyIntSecs,
             metaMode,
