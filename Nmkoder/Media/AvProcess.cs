@@ -1,19 +1,20 @@
 using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.Main;
 using Nmkoder.OS;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Nmkoder.Media
 {
     class AvProcess
     {
-        public static string lastOutputAv1an;
         public static string lastTempDirAv1an;
 
         public enum LogMode { Visible, OnlyLastLine, Hidden }
@@ -171,18 +172,30 @@ namespace Nmkoder.Media
             {
                 string dir = Path.Combine(Paths.GetBinPath(), "av1an");
                 bool show = Config.GetBool(Config.Key.Av1anCmdVisible, true); // = Config.GetInt(Config.Key.cmdDebugMode) > 0;
-                lastOutputAv1an = "";
-                Process av1an = OsUtils.NewProcess(!show, NmkoderProcess.ProcessType.Primary);
 
                 string vsynthPath = Path.Combine(dir, "vsynth");
                 string encPath = Path.Combine(dir, "enc");
                 string ffmpegPath = Paths.GetBinPath();
+                string[] toolDirs = new[] { dir, encPath, vsynthPath, ffmpegPath };
 
+                string missing = GetMissingTool(args, toolDirs);
+
+                if (missing.IsNotEmpty())
+                {
+                    RunTask.Cancel($"{missing} was not found.\n\nIt is neither bundled with this build nor on your PATH. " +
+                        $"Put it in '{encPath}' or install it, then try again.");
+                    return;
+                }
+
+                // Launched without an interpreter where possible: a command line handed to cmd or sh
+                // gets %VAR%, $var and backticks in file names expanded before av1an ever sees them.
+                Process av1an = OsUtils.NewProcess(!show, NmkoderProcess.ProcessType.Primary, show ? null : GetToolPath("av1an", toolDirs));
                 av1an.StartInfo.EnvironmentVariables["PATH"] = OsUtils.GetPathVar(new[] { vsynthPath, encPath, ffmpegPath });
 
                 if (!show)
                 {
-                    av1an.StartInfo.Arguments = Shell.BuildArguments($"{Shell.ChangeDir(dir)} av1an {args}");
+                    av1an.StartInfo.WorkingDirectory = Directory.Exists(dir) ? dir : Paths.GetBinPath();
+                    av1an.StartInfo.Arguments = args; // Parsed by .NET into argv, so no shell gets to touch it
                 }
                 else
                 {
@@ -230,6 +243,43 @@ namespace Nmkoder.Media
             }
         }
 
+        /// <summary> av1an's -e values mapped to the executable it expects to find on PATH. </summary>
+        private static readonly Dictionary<string, string> av1anEncoderBinaries = new Dictionary<string, string>
+        {
+            { "aom", "aomenc" }, { "svt-av1", "SvtAv1EncApp" }, { "vpx", "vpxenc" },
+            { "x265", "x265" }, { "x264", "x264" }, { "rav1e", "rav1e" },
+        };
+
+        /// <summary>
+        /// Names the first tool the command needs but cannot find, or "" if everything is present.
+        /// Bundling is best-effort - av1an itself or an encoder can be missing on any platform, and
+        /// finding that out from av1an's own output is considerably less clear than saying so first.
+        /// </summary>
+        private static string GetMissingTool(string args, string[] searchDirs)
+        {
+            if (GetToolPath("av1an", searchDirs).IsEmpty())
+                return "av1an";
+
+            string encoder = args.Contains(" -e ") ? args.Split(" -e ")[1].Trim().Split(' ').FirstOrDefault() : "";
+
+            if (encoder.IsNotEmpty() && av1anEncoderBinaries.TryGetValue(encoder, out string binary) && GetToolPath(binary, searchDirs).IsEmpty())
+                return binary;
+
+            return "";
+        }
+
+        /// <summary>
+        /// Full path of a bundled or installed tool, or "" if it is nowhere to be found. Shell.ResolveExecutable
+        /// hands back the bare name when it finds nothing, which is what the launcher wants but tells a caller
+        /// asking "is this present?" nothing - hence the File.Exists.
+        /// </summary>
+        private static string GetToolPath(string name, string[] searchDirs)
+        {
+            IEnumerable<string> dirs = searchDirs.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator));
+            string resolved = Shell.ResolveExecutable(name, dirs);
+            return File.Exists(resolved) ? resolved : "";
+        }
+
         /// <summary>
         /// When the av1an console is visible we launch it through a script so the window keeps
         /// the right title and stays around briefly after finishing.
@@ -241,15 +291,20 @@ namespace Nmkoder.Media
             List<string> lines;
             string path;
 
+            // Everything the interpreter should treat as data rather than as something to expand.
+            // The PATH lines below are deliberately left alone - they need their own expansion.
+            string safeArgs = Shell.EscapeExpansions(av1anArgs);
+            string safeDir = Shell.EscapeExpansions(workingDir);
+
             if (Shell.IsWindows)
             {
                 lines = new List<string>
                 {
                     "@echo off",
-                    $"CD /D {workingDir.Wrap()}",
+                    $"CD /D {safeDir.Wrap()}",
                     $"SET PATH={string.Join(sep.ToString(), paths)}{sep}%PATH%",
                     "TITLE av1an",
-                    $"av1an {av1anArgs}",
+                    $"av1an {safeArgs}",
                     "TIMEOUT /T 5"
                 };
                 path = Path.Combine(Paths.GetSessionDataPath(), "av1an.bat");
@@ -259,9 +314,9 @@ namespace Nmkoder.Media
                 lines = new List<string>
                 {
                     "#!/bin/sh",
-                    $"cd {workingDir.Wrap()}",
+                    $"cd {safeDir.Wrap()}",
                     $"export PATH=\"{string.Join(sep.ToString(), paths)}{sep}$PATH\"",
-                    $"av1an {av1anArgs}",
+                    $"av1an {safeArgs}",
                     "sleep 5"
                 };
                 path = Path.Combine(Paths.GetSessionDataPath(), "av1an.sh");

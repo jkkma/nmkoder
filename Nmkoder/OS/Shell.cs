@@ -43,6 +43,25 @@ namespace Nmkoder.OS
         public static string NullDevice { get { return IsWindows ? "NUL" : "/dev/null"; } }
 
         /// <summary>
+        /// Neutralises the substitutions the interpreter would otherwise perform on a command line
+        /// that has to be embedded in a script. Quoting alone does not stop them: cmd still expands
+        /// %VAR% inside double quotes, and sh still expands $var and backticks - so a file named
+        /// "My $Movie.mkv" silently loses part of its path, and one containing `...` would run it.
+        /// Only apply this to text that is data (paths, arguments), never to a line that needs its
+        /// own expansions, such as "SET PATH=...;%PATH%".
+        /// </summary>
+        public static string EscapeExpansions(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            if (IsWindows)
+                return text.Replace("%", "%%");
+
+            return text.Replace("\\", "\\\\").Replace("$", "\\$").Replace("`", "\\`");
+        }
+
+        /// <summary>
         /// Pipes stderr into a line filter that keeps lines containing any of the given literals
         /// (findstr on Windows, grep -F elsewhere).
         /// </summary>
