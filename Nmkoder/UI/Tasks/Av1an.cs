@@ -102,6 +102,7 @@ namespace Nmkoder.UI.Tasks
                     if (RunTask.canceled) return;
 
                     string ffArgs = $"{ffAud} {ffSubs} {ffDat} {ffAttach}";
+                    string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
 
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
@@ -111,7 +112,7 @@ namespace Nmkoder.UI.Tasks
                         $"--sc-downscale-height {GetScDownscaleHeight()} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
-                        $"-f \" {vf} \" " +
+                        $"{ffFilters}" +
                         $"-a \" {ffArgs} \" " +
                         $"-w {form.Av1anOptsWorkerCountUpDown.Value.AsInt()} " +
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
@@ -249,14 +250,31 @@ namespace Nmkoder.UI.Tasks
         {
             if (!args.MatchesWildcard("* -o \"*.mkv\"*")) return; // Only do this if output is MKV
 
-            while (!IsAv1anRunning()) await Task.Delay(200);
-            while (!IsAudioDone(tempFolder)) await Task.Delay(500);
+            NmkdStopwatch sw = new NmkdStopwatch();
+
+            while (!IsAv1anRunning()) // Give up rather than poll forever if av1an never comes up
+            {
+                if (RunTask.canceled || sw.ElapsedMs > 30000) return;
+                await Task.Delay(200);
+            }
+
+            while (!IsAudioDone(tempFolder)) // The encode ending without an audio track means it is never coming
+            {
+                if (RunTask.canceled || !IsAv1anRunning()) return;
+                await Task.Delay(500);
+            }
+
             await Task.Delay(500);
 
             try
             {
+                string encoder = TextBetween(args, " -e ", " ");
+                string encoderArgs = TextBetween(args, "-v \" ", " \"");
+
+                if (encoder.IsEmpty()) return; // Not a command we can describe, so there is nothing worth attaching
+
                 string txtPath = Path.Combine(Paths.GetSessionDataPath(), $"av1an-{DateTime.Now.ToString("MM-dd-yyyy-HH-mm-ss")}.txt");
-                List<string> lines = new List<string> { "Encoder:", args.Split(" -e ")[1].Split(' ')[0], "", "Args:", args.Split("-v \" ")[1].Split(" \"")[0] };
+                List<string> lines = new List<string> { "Encoder:", encoder, "", "Args:", encoderArgs };
                 File.WriteAllLines(txtPath, lines);
                 string outPath = Path.Combine(tempFolder, "audio.mkv");
 
@@ -280,6 +298,19 @@ namespace Nmkoder.UI.Tasks
             {
                 Logger.Log($"CreateAttachmentMkv Error: {ex.Message}\n{ex.StackTrace}", true);
             }
+        }
+
+        /// <summary> Text between two markers, or "" if either is absent - custom args can leave them out. </summary>
+        private static string TextBetween(string str, string start, string end)
+        {
+            int from = str.IndexOf(start);
+
+            if (from < 0)
+                return "";
+
+            from += start.Length;
+            int to = str.IndexOf(end, from);
+            return to < 0 ? "" : str.Substring(from, to - from).Trim();
         }
 
         private static bool IsAudioDone(string tempFolder)
