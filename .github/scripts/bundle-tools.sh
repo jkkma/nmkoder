@@ -716,6 +716,13 @@ VPXENC_REPO="${VPXENC_REPO-${GITHUB_REPOSITORY:-}}"
 # would reject every future one.
 VPXENC_ASSET_SHA1="${VPXENC_ASSET_SHA1-d9d12249316e893ae8198e22c4937e91816db21a}"
 
+# Where that build came from, for the notice file. libvpx ships no Windows binaries of its
+# own, so this is a community build rather than an official one, and saying so is the point
+# - a user reading THIRD-PARTY.txt should be able to tell the difference.
+VPXENC_CREDIT="${VPXENC_CREDIT:-community build of libvpx v1.15.2-151-gd98e70839, shared in the
+                             AV1 community Discord linked from https://www.reddit.com/r/AV1/
+                             and mirrored as a release asset of this repository}"
+
 # Windows executables start with "MZ". A plain web server can answer a stale path with a
 # 200 and an HTML error page, which would otherwise be staged as though it were vpxenc.
 is_windows_exe() {
@@ -740,7 +747,7 @@ install_vpxenc_asset() {
 
 # Shared by both sources: nothing is trusted just because it downloaded.
 verify_vpxenc() {
-  local origin="$1" expected="${2:-}"
+  local origin="$1" expected="${2:-}" credit="${3:-$1}"
 
   if ! is_windows_exe "$ENC_DIR/vpxenc$EXE"; then
     rm -f "$ENC_DIR/vpxenc$EXE"
@@ -762,7 +769,7 @@ verify_vpxenc() {
   note_ok "vpxenc ($origin)"
   note_licence "  vpxenc             BSD-3-Clause (libvpx)
                      Source: https://chromium.googlesource.com/webm/libvpx/
-                     Build:  $origin"
+                     Build:  $credit"
 }
 
 bundle_vpxenc() {
@@ -777,7 +784,7 @@ bundle_vpxenc() {
   fi
 
   if [ -n "$VPXENC_REPO" ] && try_assets "$VPXENC_REPO" '[Vv]pxenc.*\.(exe|zip|7z)$' '' install_vpxenc_asset; then
-    verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" "$VPXENC_ASSET_SHA1" && return
+    verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" "$VPXENC_ASSET_SHA1" "$VPXENC_CREDIT" && return
   fi
 
   if [ -z "$url" ]; then
