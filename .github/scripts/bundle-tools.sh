@@ -64,6 +64,38 @@ gh_api_asset_urls() {
     | sed 's/.*"\(https[^"]*\)"/\1/'
 }
 
+# Names that must not be considered for the RID being built, even when they match the
+# pattern. A project publishing "Windows_arm64_..." alongside "Windows_x86-64_..." matches
+# any sane "windows" pattern with both, and the wrong one staged into an x86-64 build fails
+# at runtime with nothing pointing at the cause. Set before try_assets, cleared after.
+ASSET_EXCLUDE=""
+
+filter_excluded() {
+  if [ -n "${ASSET_EXCLUDE:-}" ]; then
+    grep -Evi -- "$ASSET_EXCLUDE"
+  else
+    cat
+  fi
+}
+
+# Names to try first among those that match. try_assets takes the first asset that installs,
+# so where a project publishes several builds for one platform this decides which, instead
+# of leaving it to whatever order the API happens to return them in.
+ASSET_PREFER=""
+
+prefer_assets() {
+  local all
+  all="$(cat)"
+  [ -n "$all" ] || return 0
+
+  if [ -n "${ASSET_PREFER:-}" ]; then
+    printf '%s\n' "$all" | grep -Ei  -- "$ASSET_PREFER" || true
+    printf '%s\n' "$all" | grep -Evi -- "$ASSET_PREFER" || true
+  else
+    printf '%s\n' "$all"
+  fi
+}
+
 gh_release_assets() {
   local repo="$1" pattern="$2"
 
@@ -76,7 +108,9 @@ gh_release_assets() {
     gh_api_asset_urls "$repo" "releases?per_page=${GH_RELEASE_SCAN:-8}"
   } \
     | grep -Ev -- '\.(sha256|sha512|md5|sig|asc|pem|txt|json|pdb|deb|rpm)$' \
-    | grep -Ei -- "$pattern"
+    | grep -Ei -- "$pattern" \
+    | filter_excluded \
+    | prefer_assets
 }
 
 # VapourSynth's portable zip stores paths with backslash separators. unzip does not treat
@@ -115,6 +149,15 @@ extract() {
     *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar.zst)
       tar -xf "$file" -C "$dest"
       status=$?
+
+      # GNU tar shells out to xz/zstd to decompress, and the tar on a Windows runner's PATH
+      # may have neither beside it - which would silently cost us every project publishing
+      # .tar.xz. 7z decompresses to stdout and tar takes the plain archive from there.
+      if [ "$status" -ne 0 ] && command -v 7z >/dev/null 2>&1; then
+        if 7z x -so "$file" 2>/dev/null | tar -xf - -C "$dest" 2>/dev/null; then
+          status=0
+        fi
+      fi
       ;;
     *) return 2 ;;
   esac
@@ -509,16 +552,27 @@ install_svtav1() {
   chmod +x "$ENC_DIR/SvtAv1EncApp$EXE" 2>/dev/null || true
 }
 
+# svt-av1-hdr continues the PSY line, which psy-ex/svt-av1-psy no longer develops, and is
+# tried before upstream so its builds are what ships rather than a plain upstream binary
+# that happens to be published. Override with SVTAV1_REPOS to use something else.
+SVTAV1_REPOS="${SVTAV1_REPOS:-juliobbv-p/svt-av1-hdr AOMediaCodec/SVT-AV1}"
+
 bundle_svtav1() {
   local primary fallback repo
   case "$RID" in
-    win-x64)   primary='(windows|win64|win-x64|msvc)'; fallback='\.(zip|7z|exe)$' ;;
-    linux-x64) primary='(linux|musl|gnu)';             fallback='(\.tar\.(gz|xz)|\.zip)$' ;;
+    # svt-av1-hdr publishes per-microarchitecture builds. The x86-64-v3 one is preferred
+    # over the bare znver2 one: v3 is a baseline level (AVX2 and friends) that any CPU from
+    # roughly 2013 on satisfies, where znver2 alone is tuned for one AMD generation.
+    win-x64)   primary='(windows|win64|win-x64|msvc)'; fallback='\.(zip|7z|exe)$'
+               ASSET_EXCLUDE='(arm64|aarch64)'; ASSET_PREFER='x86[-_]64-v3' ;;
+    linux-x64) primary='(linux|musl|gnu)';             fallback='(\.tar\.(gz|xz)|\.zip)$'
+               ASSET_EXCLUDE='(arm64|aarch64)'; ASSET_PREFER='x86[-_]64-v3' ;;
     *)         note_skip "svt-av1" "no prebuilt binary for $RID - install via 'brew install svt-av1'"; return ;;
   esac
 
-  for repo in ${SVTAV1_REPOS:-AOMediaCodec/SVT-AV1 psy-ex/svt-av1-psy}; do
+  for repo in $SVTAV1_REPOS; do
     if try_assets "$repo" "$primary" "$fallback" install_svtav1; then
+      ASSET_EXCLUDE=""; ASSET_PREFER=""
       note_ok "svt-av1 ($LAST_ASSET from $repo)"
       note_licence "  SvtAv1EncApp       BSD-3-Clause-Clear + AOM Patent License 1.0
                      Source: https://gitlab.com/AOMediaCodec/SVT-AV1
@@ -527,7 +581,8 @@ bundle_svtav1() {
     fi
   done
 
-  note_skip "svt-av1" "no release binary in: ${SVTAV1_REPOS:-AOMediaCodec/SVT-AV1 psy-ex/svt-av1-psy}"
+  ASSET_EXCLUDE=""; ASSET_PREFER=""
+  note_skip "svt-av1" "no release binary in: $SVTAV1_REPOS"
 }
 
 # ─────────────────────── aomenc + vpxenc + x265 ───────────────────────
