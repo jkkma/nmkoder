@@ -96,6 +96,11 @@ prefer_assets() {
   fi
 }
 
+# Restricts the search to one release instead of the recent ones, for a dependency that is
+# pinned to a specific version rather than tracking whatever is newest. Set before
+# try_assets, cleared after.
+ASSET_RELEASE_TAG=""
+
 gh_release_assets() {
   local repo="$1" pattern="$2"
 
@@ -104,8 +109,12 @@ gh_release_assets() {
   # av1an's, so a stable binary is preferred and a nightly is still found if it is all
   # that exists.
   {
-    gh_api_asset_urls "$repo" "releases/latest"
-    gh_api_asset_urls "$repo" "releases?per_page=${GH_RELEASE_SCAN:-8}"
+    if [ -n "${ASSET_RELEASE_TAG:-}" ]; then
+      gh_api_asset_urls "$repo" "releases/tags/$ASSET_RELEASE_TAG"
+    else
+      gh_api_asset_urls "$repo" "releases/latest"
+      gh_api_asset_urls "$repo" "releases?per_page=${GH_RELEASE_SCAN:-8}"
+    fi
   } \
     | grep -Ev -- '\.(sha256|sha512|md5|sig|asc|pem|txt|json|pdb|deb|rpm)$' \
     | grep -Ei -- "$pattern" \
@@ -343,6 +352,23 @@ bundle_av1an() {
 }
 
 # ─────────────────────────── VapourSynth ───────────────────────────
+# Pinned rather than tracking the newest release, because av1an and VapourSynth disagree
+# about VSScript. av1an builds against the vapoursynth crate, which speaks VSScript API3;
+# VapourSynth dropped the API3 entry points from vsscript.dll in R73. Against anything from
+# R73 on, av1an panics the moment a vapoursynth chunk method is used:
+#
+#   panicked at vapoursynth-0.5.6/src/vsscript/environment.rs: VSScript API not available
+#
+# which is what shipped in 2.0.0 through 2.0.4. Checked by reading the exported symbols out
+# of each release's vsscript DLL: R72 and earlier export the 17 vsscript_* functions
+# alongside getVSScriptAPI, R73 through R78 export only the latter. R72 is therefore the
+# newest usable one, and it carries a cp312-abi3 wheel, which imports on the newer
+# embeddable Python staged beside it.
+#
+# Lift this when av1an ships a build using a VSScript4-capable crate - check by confirming
+# a vapoursynth chunk method works against a newer VapourSynth before changing the tag.
+VAPOURSYNTH_TAG="${VAPOURSYNTH_TAG:-R72}"
+
 # av1an's vapoursynth chunk methods call VSPipe. The portable archive is not standalone:
 # it carries a wheel instead of a Python runtime, so vsynth is assembled from three parts -
 # an embeddable CPython, the portable archive on top, then the wheel's module unpacked
@@ -451,7 +477,10 @@ bundle_vapoursynth() {
     return
   fi
 
+  ASSET_RELEASE_TAG="$VAPOURSYNTH_TAG"
+
   if try_assets "${VAPOURSYNTH_REPO:-vapoursynth/vapoursynth}" 'portable.*\.(zip|7z)$' '' install_vapoursynth; then
+    ASSET_RELEASE_TAG=""
     note_ok "vapoursynth ($LAST_ASSET + Python $PYTHON_EMBED_VERSION)"
     note_licence "  VapourSynth        LGPL-2.1-or-later
                      Source: https://github.com/vapoursynth/vapoursynth
@@ -460,7 +489,8 @@ bundle_vapoursynth() {
                      Source: https://www.python.org/downloads/"
     bundle_vs_source_plugins
   else
-    note_skip "vapoursynth" "no usable portable asset in recent releases"
+    ASSET_RELEASE_TAG=""
+    note_skip "vapoursynth" "no portable asset in $VAPOURSYNTH_TAG"
     rm -rf "$VSYNTH_DIR"
   fi
 }
