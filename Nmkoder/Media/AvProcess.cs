@@ -199,7 +199,10 @@ namespace Nmkoder.Media
                 }
 
                 Logger.Log($"cmd {av1an.StartInfo.Arguments}", true, false, "av1an");
-                //Task.Run(() => Av1anOutputHandler.ParseProgressLoop());
+
+                if (progressBar)
+                    Av1anOutputHandler.StartProgressLoop(); // av1an reports chunk progress through its log file, not stdout
+
                 av1an.Start();
                 av1an.PriorityClass = ProcessPriorityClass.BelowNormal;
 
@@ -212,12 +215,18 @@ namespace Nmkoder.Media
                 while (!av1an.HasExited)
                     await Task.Delay(10);
 
+                Av1anOutputHandler.StopProgressLoop(); // Before resetting the bar, so the loop can't write to it again
+
                 if (progressBar)
                     Program.MainWin?.SetProgress(0);
             }
             catch (Exception e)
             {
                 Logger.Log($"{e.Message}");
+            }
+            finally
+            {
+                Av1anOutputHandler.StopProgressLoop();
             }
         }
 
