@@ -375,7 +375,16 @@ install_vs_plugin() {
     [ -n "$dll" ] && cp "$dll" "$plugins/" && got=$((got + 1))
   done <<< "$matches"
 
-  [ "$got" -gt 0 ]
+  [ "$got" -gt 0 ] || return 1
+
+  # Companion runtime libraries - BestSource ships FFmpeg's - go next to VSPipe rather
+  # than into vs-plugins: Windows resolves a plugin's own dependencies through the
+  # loading process's directory and PATH, both of which point at the vsynth root.
+  while IFS= read -r dll; do
+    [ -n "$dll" ] || continue
+    find "$(dirname "$dll")" -maxdepth 1 -type f -iname '*.dll' ! -iname "$VS_PLUGIN_DLL" \
+      -exec cp {} "$VSYNTH_DIR/" \; 2>/dev/null || true
+  done <<< "$matches"
 }
 
 bundle_vs_source_plugins() {
@@ -387,6 +396,17 @@ bundle_vs_source_plugins() {
                      Source: https://github.com/AkarinVS/L-SMASH-Works"
   else
     note_skip "vapoursynth plugin: L-SMASH-Works" "no asset with a vslsmashsource DLL"
+  fi
+
+  # BestSource - the dropdown's first entry, and the slowest but most accurate of the three.
+  VS_PLUGIN_DLL='*bestsource*.dll'
+  if try_assets "${BESTSOURCE_REPO:-vapoursynth/bestsource}" '(win|x64|msvc).*\.(zip|7z)$' '\.(zip|7z)$' install_vs_plugin; then
+    note_ok "vapoursynth plugin: BestSource ($LAST_ASSET)"
+    note_licence "  BestSource         MIT, linking FFmpeg's libav* libraries
+                     (LGPL-2.1-or-later, bundled beside it)
+                     Source: https://github.com/vapoursynth/bestsource"
+  else
+    note_skip "vapoursynth plugin: BestSource" "no asset with a bestsource DLL"
   fi
 
   # FFMS2 - the other source plugin the dropdown offers.
