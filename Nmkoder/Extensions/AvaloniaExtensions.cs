@@ -21,7 +21,21 @@ namespace Nmkoder.Extensions
             if (box.IsEditable && !string.IsNullOrEmpty(box.Text))
                 return box.Text;
 
-            return box.SelectedItem?.ToString() ?? "";
+            return ItemText(box.SelectedItem);
+        }
+
+        /// <summary>
+        /// Display string of a dropdown entry. Entries filled in from code are the value itself and
+        /// read back as one, but entries written in the XAML arrive as ComboBoxItem, whose
+        /// ToString() is its type name - so reading one of those dropdowns handed
+        /// "avalonia.controls.comboboxitem" to whatever was building a command line.
+        /// </summary>
+        private static string ItemText(object item)
+        {
+            if (item is ContentControl content)
+                return content.Content?.ToString() ?? "";
+
+            return item?.ToString() ?? "";
         }
 
         /// <summary> Selects the first item whose string representation matches, ignoring case. </summary>
@@ -34,7 +48,7 @@ namespace Nmkoder.Extensions
 
             for (int i = 0; i < items.Count; i++)
             {
-                if (string.Equals(items[i]?.ToString(), text, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(ItemText(items[i]), text, StringComparison.OrdinalIgnoreCase))
                 {
                     box.SelectedIndex = i;
                     return true;
