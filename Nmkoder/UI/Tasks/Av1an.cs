@@ -28,7 +28,7 @@ namespace Nmkoder.UI.Tasks
 
         public static async Task RunResumeWithSavedArgs(string overrideTempDir = "", string overrideArgs = "")
         {
-            await Run(true, overrideTempDir, overrideArgs);
+            await RunResume(overrideTempDir, overrideArgs);
         }
 
         public static async Task RunResumeWithNewArgs(string sourceFile, string overrideTempDir = "")
@@ -40,14 +40,36 @@ namespace Nmkoder.UI.Tasks
                 await TrackList.SetAsMainFile(FileList.Items[0]); // Load file
             }
 
-            await Run(true, overrideTempDir, "");
+            await RunResume(overrideTempDir, "");
+        }
+
+        /// <summary>
+        /// Resuming skips RunTask.Start, so the task state it normally sets up (and tears down)
+        /// has to be applied here - without it the output path resolves empty, a previous
+        /// cancelation still aborts the run, and the UI stays stuck in its working state.
+        /// </summary>
+        private static async Task RunResume(string overrideTempDir, string overrideArgs)
+        {
+            RunTask.canceled = false;
+            Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
+
+            try
+            {
+                await Run(true, overrideTempDir, overrideArgs);
+            }
+            finally
+            {
+                Program.MainWin.RunningTask = RunTask.TaskType.None;
+                Program.MainWin.SetProgress(0);
+                Program.MainWin.SetWorking(false);
+            }
         }
 
         public static async Task Run(bool resume = false, string overrideTempDir = "", string overrideArgs = "")
         {
-            if (overrideTempDir == "" && TrackList.current.File.IsDirectory)
+            if (overrideTempDir.IsEmpty() && (TrackList.current == null || TrackList.current.File.IsDirectory))
             {
-                RunTask.Cancel("Av1an cannot use image sequence inputs!");
+                RunTask.Cancel(TrackList.current == null ? "No input file loaded!" : "Av1an cannot use image sequence inputs!");
                 return;
             }
 

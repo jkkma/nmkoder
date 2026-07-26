@@ -151,7 +151,8 @@ namespace Nmkoder.Views
             if (window.ChosenEntry == null || !window.Resume)
                 return;
 
-            if (window.ChosenEntry.jsonInfo == null)
+            // LoadJson returns an empty dict on failure, so an unusable entry shows up as a missing temp folder name
+            if (window.ChosenEntry.jsonInfo == null || window.ChosenEntry.TempFolderName.IsEmpty())
             {
                 Logger.Log($"Cannot resume - Failed to load info from JSON.");
                 return;
