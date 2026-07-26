@@ -652,6 +652,15 @@ VPXENC_DEFAULT_URL="https://jeremylee.sh/bins/vpx.7z"
 # Defaults to the repository being built; point VPXENC_REPO elsewhere to host it separately.
 VPXENC_REPO="${VPXENC_REPO-${GITHUB_REPOSITORY:-}}"
 
+# The build that was inspected for this repository: PE32+ console x86-64, identifying as
+# libvpx v1.15.2-151-gd98e70839, importing nothing beyond KERNEL32 and the UCRT stubs, so
+# the bare executable needs no DLLs staged beside it. Pinned so the asset route ships that
+# exact binary and a later swap fails the check rather than going out unnoticed - replacing
+# the asset means updating this hash. The URL route below keeps its own optional
+# VPXENC_SHA1, unset by default, because that build rolls forward and a fixed hash there
+# would reject every future one.
+VPXENC_ASSET_SHA1="${VPXENC_ASSET_SHA1-d9d12249316e893ae8198e22c4937e91816db21a}"
+
 # Windows executables start with "MZ". A plain web server can answer a stale path with a
 # 200 and an HTML error page, which would otherwise be staged as though it were vpxenc.
 is_windows_exe() {
@@ -676,7 +685,7 @@ install_vpxenc_asset() {
 
 # Shared by both sources: nothing is trusted just because it downloaded.
 verify_vpxenc() {
-  local origin="$1"
+  local origin="$1" expected="${2:-}"
 
   if ! is_windows_exe "$ENC_DIR/vpxenc$EXE"; then
     rm -f "$ENC_DIR/vpxenc$EXE"
@@ -685,12 +694,12 @@ verify_vpxenc() {
   fi
 
   # An unsigned binary with no signed provenance is worth pinning when someone has checked it.
-  if [ -n "${VPXENC_SHA1:-}" ]; then
+  if [ -n "$expected" ]; then
     local got
     got="$(sha1sum "$ENC_DIR/vpxenc$EXE" 2>/dev/null | cut -d' ' -f1)"
-    if [ "$(printf '%s' "$got" | tr 'A-F' 'a-f')" != "$(printf '%s' "$VPXENC_SHA1" | tr 'A-F' 'a-f')" ]; then
+    if [ "$(printf '%s' "$got" | tr 'A-F' 'a-f')" != "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ]; then
       rm -f "$ENC_DIR/vpxenc$EXE"
-      note_skip "vpxenc" "SHA1 $got does not match the pinned VPXENC_SHA1"
+      note_skip "vpxenc" "SHA1 $got does not match the pinned $expected"
       return 1
     fi
   fi
@@ -713,7 +722,7 @@ bundle_vpxenc() {
   fi
 
   if [ -n "$VPXENC_REPO" ] && try_assets "$VPXENC_REPO" '[Vv]pxenc.*\.(exe|zip|7z)$' '' install_vpxenc_asset; then
-    verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" && return
+    verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" "$VPXENC_ASSET_SHA1" && return
   fi
 
   if [ -z "$url" ]; then
@@ -744,7 +753,7 @@ bundle_vpxenc() {
     *) note_skip "vpxenc" "could not extract $(basename "$url")"; return ;;
   esac
 
-  verify_vpxenc "$url"
+  verify_vpxenc "$url" "${VPXENC_SHA1:-}"
 }
 
 # ─────────────────────────── VMAF models ───────────────────────────
