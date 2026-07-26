@@ -52,16 +52,29 @@ fetch() {
 # that go stale; scanning several releases rather than just the newest matters because
 # projects tag source-only releases in between binary ones. GITHUB_TOKEN, when set, lifts
 # the anonymous API rate limit.
-gh_release_assets() {
-  local repo="$1" pattern="$2"
+gh_api_asset_urls() {
+  local repo="$1" endpoint="$2"
   local auth=()
   [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
 
   curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 \
        -H 'Accept: application/vnd.github+json' ${auth[@]+"${auth[@]}"} \
-       "https://api.github.com/repos/$repo/releases?per_page=${GH_RELEASE_SCAN:-8}" 2>/dev/null \
+       "https://api.github.com/repos/$repo/$endpoint" 2>/dev/null \
     | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' \
-    | sed 's/.*"\(https[^"]*\)"/\1/' \
+    | sed 's/.*"\(https[^"]*\)"/\1/'
+}
+
+gh_release_assets() {
+  local repo="$1" pattern="$2"
+
+  # The stable release first, then the recent ones. That order matters: "releases/latest"
+  # skips prereleases, while the scan includes them along with rolling nightly tags like
+  # av1an's, so a stable binary is preferred and a nightly is still found if it is all
+  # that exists.
+  {
+    gh_api_asset_urls "$repo" "releases/latest"
+    gh_api_asset_urls "$repo" "releases?per_page=${GH_RELEASE_SCAN:-8}"
+  } \
     | grep -Ev -- '\.(sha256|sha512|md5|sig|asc|pem|txt|json|pdb|deb|rpm)$' \
     | grep -Ei -- "$pattern"
 }
@@ -257,18 +270,18 @@ install_av1an() {
 }
 
 bundle_av1an() {
-  local repo="${AV1AN_REPO:-master-of-zen/Av1an}" primary fallback
+  local repo="${AV1AN_REPO:-rust-av/Av1an}" primary fallback
 
   case "$RID" in
-    win-x64)   primary='(windows|win64|win-x64|msvc)'; fallback='\.(zip|7z|exe)$' ;;
-    linux-x64) primary='(linux|musl|gnu)';             fallback='(\.tar\.(gz|xz)|\.zip|/av1an)$' ;;
+    win-x64)   primary='(av1an\.exe$|windows|win64|win-x64|msvc)'; fallback='\.(zip|7z|exe)$' ;;
+    linux-x64) primary='(linux|musl|gnu)';                          fallback='(\.tar\.(gz|xz)|\.zip|/av1an)$' ;;
     *)         note_skip "av1an" "no prebuilt binary for $RID - build with 'cargo install av1an'"; return ;;
   esac
 
   if try_assets "$repo" "$primary" "$fallback" install_av1an; then
     note_ok "av1an ($LAST_ASSET)"
     note_licence "  av1an              GPL-3.0-only
-                     Source: https://github.com/master-of-zen/Av1an"
+                     Source: https://github.com/rust-av/Av1an"
   else
     note_skip "av1an" "no usable release binary in $repo for $RID"
   fi

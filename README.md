@@ -36,7 +36,7 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 
 #### AV1AN Chunked Encoding
 
-- Encode video using [av1an](https://github.com/master-of-zen/Av1an) and supported encoders
+- Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
 - Video Formats: **H265 (x265), VP9 (VPX), AV1 (AOM or SVT-AV1)**
 - Quality Modes: Either use a **constant quality** or target a **VMAF** score (experimental)
 - Same audio and video options as FFmpeg encoding
