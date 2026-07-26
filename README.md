@@ -98,14 +98,18 @@ mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
 `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN` and
 `MKVTOOLNIX_VERSION` environment variables.
 
-**vpxenc is not bundled.** No trustworthy prebuilt Windows binary is published: the WebM
-project ships source only, ShiftMediaProject builds the library rather than the CLI, and
-MSYS2's `libvpx` package leaves the encoder out. The community build at
-<https://jeremylee.sh/bins/> is one person's server with no signed provenance, so whether
-to ship it is a release-time decision rather than a default - set `VPXENC_URL` to a build
-you trust (a bare `.exe` or an archive containing one) and it is staged into
-`bin/av1an/enc/`. Without it, the AV1AN tab's VP9 entry has no encoder behind it; the
-regular encoding tab's VP9 support goes through the bundled ffmpeg and is unaffected.
+**vpxenc comes from a third-party build.** No project publishes a prebuilt Windows
+vpxenc: the WebM project ships source only, ShiftMediaProject builds the library rather
+than the CLI, and MSYS2's `libvpx` package leaves the encoder out. Windows builds
+therefore take <https://jeremylee.sh/bins/vpxenc.exe>, the build the av1an ecosystem uses.
+It is one person's server with no signed provenance, so the bundler checks that what
+arrives is actually a Windows executable rather than trusting the response, and the
+`bin/THIRD-PARTY.txt` in each archive records the URL it came from.
+
+Point `VPXENC_URL` at a different build (a bare `.exe` or an archive containing one) to
+override it, or set it empty (`VPXENC_URL=`) to skip vpxenc entirely. Without vpxenc the
+AV1AN tab's VP9 entry has no encoder behind it; the regular encoding tab's VP9 support
+goes through the bundled ffmpeg and is unaffected either way.
 
 DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV install.
 

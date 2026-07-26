@@ -632,15 +632,22 @@ bundle_msys2_encoders() {
 }
 
 # ─────────────────────────── vpxenc ───────────────────────────
-# Nothing bundles vpxenc by default, because no trustworthy prebuilt Windows binary is
-# published: the WebM project ships source only, ShiftMediaProject builds the library
-# rather than the CLI, and MSYS2's libvpx package leaves the encoder out. The community
-# gets it from https://jeremylee.sh/bins/, which is one person's server with no signed
-# provenance - a decision for whoever cuts the release, not a default.
-#
-# Set VPXENC_URL to a build you trust (a bare .exe or an archive containing one).
+# No project publishes a prebuilt Windows vpxenc: the WebM project ships source only,
+# ShiftMediaProject builds the library rather than the CLI, and MSYS2's libvpx package
+# leaves the encoder out. This is the build the av1an ecosystem uses - one person's
+# server, served over TLS but with no signed provenance, so what lands is checked rather
+# than trusted. Point VPXENC_URL elsewhere to use a different build, or set it empty to
+# skip vpxenc entirely.
+VPXENC_DEFAULT_URL="https://jeremylee.sh/bins/vpxenc.exe"
+
+# Windows executables start with "MZ". A plain web server can answer a stale path with a
+# 200 and an HTML error page, which would otherwise be staged as though it were vpxenc.
+is_windows_exe() {
+  [ "$(head -c 2 "$1" 2>/dev/null)" = "MZ" ]
+}
+
 bundle_vpxenc() {
-  local url="${VPXENC_URL:-}"
+  local url="${VPXENC_URL-$VPXENC_DEFAULT_URL}"
 
   if [ "$RID" != "win-x64" ]; then
     return
@@ -651,7 +658,7 @@ bundle_vpxenc() {
   fi
 
   if [ -z "$url" ]; then
-    note_skip "vpxenc" "no prebuilt binary is published upstream - set VPXENC_URL to a build you trust"
+    note_skip "vpxenc" "VPXENC_URL set empty - no prebuilt binary is published upstream"
     return
   fi
 
@@ -668,13 +675,17 @@ bundle_vpxenc() {
          note_skip "vpxenc" "no vpxenc binary inside $(basename "$url")"
          return
        fi ;;
-    2) mkdir -p "$ENC_DIR"
+    2) if ! is_windows_exe "$file"; then
+         note_skip "vpxenc" "$url did not return a Windows executable"
+         return
+       fi
+       mkdir -p "$ENC_DIR"
        cp "$file" "$ENC_DIR/vpxenc$EXE" || { note_skip "vpxenc" "could not stage $(basename "$url")"; return; }
        chmod +x "$ENC_DIR/vpxenc$EXE" 2>/dev/null || true ;;
     *) note_skip "vpxenc" "could not extract $(basename "$url")"; return ;;
   esac
 
-  note_ok "vpxenc (VPXENC_URL)"
+  note_ok "vpxenc ($url)"
   note_licence "  vpxenc             BSD-3-Clause (libvpx)
                      Source: https://chromium.googlesource.com/webm/libvpx/
                      Build:  $url"
