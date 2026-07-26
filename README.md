@@ -67,11 +67,16 @@ release, or run the workflow manually to get a draft.
 Each archive is self-contained (no .NET install required) and `.github/scripts/bundle-tools.sh`
 stages the external tools into `bin/`:
 
-| | ffmpeg / ffprobe | MKVToolNix | av1an + SVT-AV1 | aomenc + vpxenc + x265 | VapourSynth | VMAF models |
-|---|---|---|---|---|---|---|
-| win-x64 | bundled | bundled | bundled | bundled | bundled | bundled |
-| linux-x64 | bundled | use package manager | bundled | use package manager | use package manager | bundled |
-| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an svt-av1` | `brew install aom libvpx x265` | `brew install vapoursynth` | bundled |
+| | ffmpeg / ffprobe | MKVToolNix | av1an | VapourSynth | SVT-AV1, aomenc, x265 | vpxenc | VMAF models |
+|---|---|---|---|---|---|---|---|
+| win-x64 | bundled | bundled | bundled | bundled | bundled | see below | bundled |
+| linux-x64 | bundled | use package manager | use package manager | use package manager | use package manager | use package manager | bundled |
+| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an` | `brew install vapoursynth` | `brew install svt-av1 aom x265` | `brew install libvpx` | bundled |
+
+Only Windows gets the av1an toolchain. av1an publishes prebuilt binaries for Windows only,
+VapourSynth's portable build is Windows-only, and the encoders come from MSYS2's mingw64
+packages, so Linux and macOS builds carry ffmpeg and the VMAF models and leave the rest to
+the package manager.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
@@ -79,19 +84,28 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods
-bin/av1an/enc/               SvtAv1EncApp, aomenc, vpxenc and x265
+bin/av1an/enc/               SvtAv1EncApp, aomenc and x265
 ```
 
 `vsynth` and `enc` are prepended to av1an's `PATH`, so nothing needs installing system-wide.
 
 Tool downloads are best-effort: an unreachable upstream is reported and skipped rather than
 failing the release, and the workflow's job summary lists exactly what each build shipped.
-Binaries are resolved from each project's latest release at build time, except aomenc,
-vpxenc and x265, which upstream does not publish for Windows and so come from MSYS2's
+Binaries are resolved from each project's releases at build time, except SvtAv1EncApp,
+aomenc and x265, which upstream does not publish for Windows and so come from MSYS2's
 mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
 `VAPOURSYNTH_REPO`, `LSMASH_REPO`, `FFMS2_REPO`, `BESTSOURCE_REPO`,
-`PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT` and `MKVTOOLNIX_VERSION`
-environment variables.
+`PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN` and
+`MKVTOOLNIX_VERSION` environment variables.
+
+**vpxenc is not bundled.** No trustworthy prebuilt Windows binary is published: the WebM
+project ships source only, ShiftMediaProject builds the library rather than the CLI, and
+MSYS2's `libvpx` package leaves the encoder out. The community build at
+<https://jeremylee.sh/bins/> is one person's server with no signed provenance, so whether
+to ship it is a release-time decision rather than a default - set `VPXENC_URL` to a build
+you trust (a bare `.exe` or an archive containing one) and it is staged into
+`bin/av1an/enc/`. Without it, the AV1AN tab's VP9 entry has no encoder behind it; the
+regular encoding tab's VP9 support goes through the bundled ffmpeg and is unaffected.
 
 DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV install.
 

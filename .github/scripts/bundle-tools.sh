@@ -504,7 +504,9 @@ bundle_svtav1() {
 # <binary>:<package> pairs. The binary name is the one av1an looks for on PATH. SvtAv1EncApp
 # is here as well as in bundle_svtav1: upstream does not reliably publish a Windows binary,
 # and MSYS2 packages one. Whichever runs first wins; the second sees it already staged.
-MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom vpxenc:mingw-w64-x86_64-libvpx x265:mingw-w64-x86_64-x265 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
+# vpxenc is deliberately absent: MSYS2's libvpx package ships the library without the CLI,
+# which a build confirmed. See bundle_vpxenc.
+MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom x265:mingw-w64-x86_64-x265 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
 
 # List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
 # handful of runtime libraries those encoders are known to link when ldd is unavailable.
@@ -539,7 +541,7 @@ encoder_licence() {
 }
 
 bundle_msys2_encoders() {
-  local names="aomenc + vpxenc + x265"
+  local names="aomenc + x265 + SvtAv1EncApp"
 
   if [ "$RID" != "win-x64" ]; then
     note_skip "$names" "no portable build for $RID - install the aom, vpx and x265 tools from your package manager"
@@ -595,6 +597,55 @@ bundle_msys2_encoders() {
   fi
 }
 
+# ─────────────────────────── vpxenc ───────────────────────────
+# Nothing bundles vpxenc by default, because no trustworthy prebuilt Windows binary is
+# published: the WebM project ships source only, ShiftMediaProject builds the library
+# rather than the CLI, and MSYS2's libvpx package leaves the encoder out. The community
+# gets it from https://jeremylee.sh/bins/, which is one person's server with no signed
+# provenance - a decision for whoever cuts the release, not a default.
+#
+# Set VPXENC_URL to a build you trust (a bare .exe or an archive containing one).
+bundle_vpxenc() {
+  local url="${VPXENC_URL:-}"
+
+  if [ "$RID" != "win-x64" ]; then
+    return
+  fi
+
+  if [ -f "$ENC_DIR/vpxenc$EXE" ]; then
+    return
+  fi
+
+  if [ -z "$url" ]; then
+    note_skip "vpxenc" "no prebuilt binary is published upstream - set VPXENC_URL to a build you trust"
+    return
+  fi
+
+  local file="$WORK/vpxenc-$(basename "$url")"
+  if ! fetch "$url" "$file"; then
+    note_skip "vpxenc" "download failed ($url)"
+    return
+  fi
+
+  rm -rf "$WORK/vpx"
+  extract "$file" "$WORK/vpx"
+  case "$?" in
+    0) if ! install_binary "$WORK/vpx" vpxenc "$ENC_DIR"; then
+         note_skip "vpxenc" "no vpxenc binary inside $(basename "$url")"
+         return
+       fi ;;
+    2) mkdir -p "$ENC_DIR"
+       cp "$file" "$ENC_DIR/vpxenc$EXE" || { note_skip "vpxenc" "could not stage $(basename "$url")"; return; }
+       chmod +x "$ENC_DIR/vpxenc$EXE" 2>/dev/null || true ;;
+    *) note_skip "vpxenc" "could not extract $(basename "$url")"; return ;;
+  esac
+
+  note_ok "vpxenc (VPXENC_URL)"
+  note_licence "  vpxenc             BSD-3-Clause (libvpx)
+                     Source: https://chromium.googlesource.com/webm/libvpx/
+                     Build:  $url"
+}
+
 # ─────────────────────────── VMAF models ───────────────────────────
 # Paths.GetVmafPath() expects these next to the binaries for the metrics utility.
 bundle_vmaf_models() {
@@ -642,6 +693,7 @@ bundle_av1an
 bundle_vapoursynth
 bundle_svtav1
 bundle_msys2_encoders
+bundle_vpxenc
 bundle_vmaf_models
 # A tool that skipped may have left its (now empty) destination folder behind.
 find "$BIN" -mindepth 1 -type d -empty -delete 2>/dev/null || true
