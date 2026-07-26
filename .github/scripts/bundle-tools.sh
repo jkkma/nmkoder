@@ -7,7 +7,7 @@
 #   bin/av1an/av1an[.exe]          the av1an binary itself
 #   bin/av1an/vsynth/              VapourSynth portable + embedded Python, supplies VSPipe
 #   bin/av1an/vsynth/vs-plugins/   source plugins, autoloaded by VapourSynth
-#   bin/av1an/enc/                 encoders: SvtAv1EncApp, aomenc, vpxenc
+#   bin/av1an/enc/                 encoders: SvtAv1EncApp, aomenc, vpxenc, x265
 #
 # vsynth and enc are prepended to av1an's PATH by the app, so nothing needs installing.
 #
@@ -421,10 +421,13 @@ bundle_svtav1() {
   note_skip "svt-av1" "no release binary in: ${SVTAV1_REPOS:-AOMediaCodec/SVT-AV1 psy-ex/svt-av1-psy}"
 }
 
-# ─────────────────────────── aomenc + vpxenc ───────────────────────────
-# av1an calls these for "-e aom" and "-e vpx" (VideoEncodersBin.AomAv1 / .Vpx). Neither
-# project ships Windows binaries of its own, so they come from MSYS2's mingw64 packages -
-# the Windows runner image already carries pacman.
+# ─────────────────────── aomenc + vpxenc + x265 ───────────────────────
+# av1an calls these for "-e aom", "-e vpx" and "-e x265" (VideoEncodersBin.AomAv1, .Vpx
+# and .X265). None of the three ship Windows binaries of their own, so they come from
+# MSYS2's mingw64 packages - the Windows runner image already carries pacman.
+
+# <binary>:<package> pairs. The binary name is the one av1an looks for on PATH.
+MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom vpxenc:mingw-w64-x86_64-libvpx x265:mingw-w64-x86_64-x265}"
 
 # List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
 # handful of runtime libraries those encoders are known to link when ldd is unavailable.
@@ -435,15 +438,31 @@ msys_dependencies() {
           | awk '{print $3}' | grep -i '/mingw64/bin/' | sed 's|.*/||')"
 
   if [ -z "$deps" ]; then
-    deps="libaom.dll libvpx.dll libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll libssp-0.dll"
+    deps="libaom.dll libvpx.dll libx265.dll libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll libssp-0.dll"
   fi
 
   printf '%s\n' $deps
 }
 
-bundle_aom_vpx() {
+encoder_licence() {
+  case "$1" in
+    aomenc) note_licence "  aomenc             BSD-2-Clause + AOM Patent License 1.0 (libaom)
+                     Source: https://aomedia.googlesource.com/aom/
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-aom" ;;
+    vpxenc) note_licence "  vpxenc             BSD-3-Clause (libvpx)
+                     Source: https://chromium.googlesource.com/webm/libvpx/
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-libvpx" ;;
+    x265)   note_licence "  x265               GPL-2.0-or-later
+                     Source: https://bitbucket.org/multicoreware/x265_git
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-x265" ;;
+  esac
+}
+
+bundle_msys2_encoders() {
+  local names="aomenc + vpxenc + x265"
+
   if [ "$RID" != "win-x64" ]; then
-    note_skip "aomenc + vpxenc" "no portable build for $RID - install the aom and vpx tools from your package manager"
+    note_skip "$names" "no portable build for $RID - install the aom, vpx and x265 tools from your package manager"
     return
   fi
 
@@ -451,41 +470,45 @@ bundle_aom_vpx() {
   local msys_bash="$root/usr/bin/bash.exe" pacman="$root/usr/bin/pacman.exe"
 
   if [ ! -x "$pacman" ] || [ ! -x "$msys_bash" ]; then
-    note_skip "aomenc + vpxenc" "MSYS2 not found at $root"
+    note_skip "$names" "MSYS2 not found at $root"
     return
   fi
 
+  local entry packages=()
+  for entry in $MSYS2_ENCODERS; do packages+=("${entry#*:}"); done
+
   # -Sy refreshes the image's package database, which is usually months stale.
-  if ! "$pacman" -Sy --noconfirm --needed ${AOM_VPX_PACKAGES:-mingw-w64-x86_64-aom mingw-w64-x86_64-libvpx} >/dev/null 2>&1; then
-    note_skip "aomenc + vpxenc" "pacman could not install the aom/libvpx packages"
+  if ! "$pacman" -Sy --noconfirm --needed "${packages[@]}" >/dev/null 2>&1; then
+    note_skip "$names" "pacman could not install: ${packages[*]}"
     return
   fi
 
   mkdir -p "$ENC_DIR"
 
   local tool exe dll got=()
-  for tool in aomenc vpxenc; do
+  for entry in $MSYS2_ENCODERS; do
+    tool="${entry%%:*}"
     exe="$root/mingw64/bin/$tool.exe"
-    [ -f "$exe" ] || continue
+
+    if [ ! -f "$exe" ]; then
+      note_skip "$tool" "not shipped by ${entry#*:}"
+      continue
+    fi
+
     cp "$exe" "$ENC_DIR/" || continue
     got+=("$tool")
 
     while IFS= read -r dll; do
       [ -n "$dll" ] && [ -f "$root/mingw64/bin/$dll" ] && cp "$root/mingw64/bin/$dll" "$ENC_DIR/"
     done < <(msys_dependencies "$msys_bash" "$tool")
+
+    encoder_licence "$tool"
   done
 
   if [ "${#got[@]}" -gt 0 ]; then
     note_ok "${got[*]} (MSYS2 mingw64)"
-    note_licence "  aomenc             BSD-2-Clause + AOM Patent License 1.0 (libaom)
-                     Source: https://aomedia.googlesource.com/aom/
-                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-aom
-
-  vpxenc             BSD-3-Clause (libvpx)
-                     Source: https://chromium.googlesource.com/webm/libvpx/
-                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-libvpx"
   else
-    note_skip "aomenc + vpxenc" "packages installed but no encoder binaries in $root/mingw64/bin"
+    note_skip "$names" "packages installed but no encoder binaries in $root/mingw64/bin"
   fi
 }
 
@@ -535,7 +558,7 @@ bundle_mkvtoolnix
 bundle_av1an
 bundle_vapoursynth
 bundle_svtav1
-bundle_aom_vpx
+bundle_msys2_encoders
 bundle_vmaf_models
 # A tool that skipped may have left its (now empty) destination folder behind.
 find "$BIN" -mindepth 1 -type d -empty -delete 2>/dev/null || true
