@@ -285,9 +285,13 @@ namespace Nmkoder.UI.Tasks
             return $"-c {Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim()}";
         }
 
+        /// <summary> av1an's ChunkOrdering values, in the same order as the dropdown items. </summary>
+        private static readonly string[] ChunkOrders = { "long-to-short", "short-to-long", "sequential", "random" };
+
         public static string GetChunkOrderArgs()
         {
-            return $"--chunk-order {Form.Av1anOptsChunkOrderBox.GetText().Split('(')[0].ToLower().Trim()}";
+            // Mapped by index instead of parsed from the label - av1an rejects anything outside this list
+            return $"--chunk-order {ChunkOrders[Form.Av1anOptsChunkOrderBox.SelectedIndex.Clamp(0, ChunkOrders.Length - 1)]}";
         }
 
         public static string GetThreadAffArgs()

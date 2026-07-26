@@ -364,11 +364,10 @@
 
                     <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
                     <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Av1anOptsChunkOrderBox" Margin="0,0,0,6" SelectionChanged="Av1anOption_SelectionChanged">
-                      <ComboBoxItem Content="Long-Short-First (Recommended)" />
-                      <ComboBoxItem Content="Sequential" />
-                      <ComboBoxItem Content="Random" />
-                      <ComboBoxItem Content="Shortest-First" />
-                      <ComboBoxItem Content="Longest-First" />
+                      <ComboBoxItem Content="Long-to-Short (Best CPU utilization)" />
+                      <ComboBoxItem Content="Short-to-Long (Not very useful)" />
+                      <ComboBoxItem Content="Sequential (Same order as input video)" />
+                      <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
                     </ComboBox>
 
                     <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Workers" />
