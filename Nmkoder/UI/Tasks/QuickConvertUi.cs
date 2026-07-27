@@ -185,6 +185,11 @@ namespace Nmkoder.UI.Tasks
             return (CodecUtils.SubtitleCodec)Math.Max(0, Form.EncSubCodecBox.SelectedIndex);
         }
 
+        public static Containers.Container GetCurrentContainer()
+        {
+            return (Containers.Container)Math.Max(0, Form.FfmpegContainerBox.SelectedIndex);
+        }
+
         #endregion
 
         public static Dictionary<string, string> GetVideoArgsFromUi(bool vbr)
@@ -431,8 +436,68 @@ namespace Nmkoder.UI.Tasks
 
         public static string GetMuxingArgs()
         {
-            Containers.Container c = (Containers.Container)Math.Max(0, Form.FfmpegContainerBox.SelectedIndex);
-            return Containers.GetMuxingArgs(c);
+            return Containers.GetMuxingArgs(GetCurrentContainer());
+        }
+
+        /// <summary>
+        /// Where a file sits among the '-i' arguments, which is what a filtergraph stream reference has
+        /// to name. Batch mode passes a single input and it is always the current file; muxing passes
+        /// the whole file list in order, and the file being encoded need not be the first of them.
+        /// Resolved the same way <see cref="TrackList.GetMapArgs"/> resolves it for -map, so a filter
+        /// and the maps alongside it cannot end up pointing at different inputs.
+        /// </summary>
+        private static int GetInputFileIndex(MediaFile file)
+        {
+            FileListEntry entry = FileList.Items.FirstOrDefault(x => x.File == file);
+
+            if (RunTask.currentFileListMode == RunTask.FileListMode.Batch || entry == null)
+                return 0;
+
+            return FileList.Items.IndexOf(entry);
+        }
+
+        /// <summary>
+        /// The track to burn in, as an index into <paramref name="file"/>'s subtitle streams, or -1 for
+        /// none. The dropdown is filled from whichever file was loaded when it was last refreshed and a
+        /// batch run deliberately leaves it alone - rebuilding it would reset the selection and turn
+        /// burn-in off for the rest of the queue - so during a batch it describes the wrong file. The
+        /// position it names is applied to each file in turn, and files without that many subtitle
+        /// tracks are left alone rather than taken as far as an index that does not exist.
+        /// </summary>
+        private static int GetBurnInSubtitleIndex(MediaFile file, bool quiet)
+        {
+            int index = Form.EncSubBurnBox.SelectedIndex - 1; // Entry 0 is "Disabled"
+
+            if (index < 0 || file == null)
+                return -1;
+
+            if (index >= file.SubtitleStreams.Count)
+            {
+                bool zeroIdx = Config.GetBool(Config.Key.UseZeroIndexedStreams);
+                int shown = zeroIdx ? index : index + 1;
+                string has = file.SubtitleStreams.Count == 1 ? "only has 1 subtitle track" : $"has {file.SubtitleStreams.Count} subtitle tracks";
+
+                if (!quiet)
+                    Logger.Log($"Not burning in subtitle track #{shown.ToString().PadLeft(2, '0')}: '{file.Name.Trunc(40)}' {has}.");
+
+                return -1;
+            }
+
+            return index;
+        }
+
+        /// <summary>
+        /// Seconds of seek applied to the input before the filter chain sees a frame, which is what
+        /// restarts frame timestamps at zero. Only the keyframe trim mode seeks the input: the exact
+        /// mode seeks the output, and the frame-number mode selects inside the chain, so both leave
+        /// the source's own timestamps on the frames.
+        /// </summary>
+        private static float GetInputSeekOffsetSecs()
+        {
+            if (CurrentTrim == null || CurrentTrim.IsUnset || CurrentTrim.TrimMode != TrimSettings.Mode.TimeKeyframe)
+                return 0f;
+
+            return CurrentTrim.StartTime / 1000f;
         }
 
         public static string GetMiscInputArgs()
@@ -480,19 +545,34 @@ namespace Nmkoder.UI.Tasks
             if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
-            if (Form.EncSubBurnBox.SelectedIndex > 0) // Check Filter: Subtitle Burn-In
+            int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In
+
+            if (subIndex >= 0)
             {
-                int subIndex = Form.EncSubBurnBox.SelectedIndex - 1;
-                bool bitmapSubs = TrackList.current.File.SubtitleStreams[subIndex].Bitmap;
+                bool bitmapSubs = currFile.SubtitleStreams[subIndex].Bitmap;
 
                 if (bitmapSubs)
                 {
-                    filters.Add($"[0:s:{subIndex}]overlay=shortest=1");
+                    // Read as a filtergraph input, so it has to name where the file sits among the '-i'
+                    // arguments rather than assuming it is the first of them. Being an input of its own
+                    // it is seeked along with the video, so it needs no timestamp correction.
+                    filters.Add($"[{GetInputFileIndex(currFile)}:s:{subIndex}]overlay=shortest=1");
                 }
                 else
                 {
                     string subFilePath = FormatUtils.GetFilterPath(currFile.ImportPath);
-                    filters.Add($"subtitles={subFilePath}:si={subIndex}");
+                    string burnIn = $"subtitles={subFilePath}:si={subIndex}";
+
+                    // This filter re-reads the source and picks its lines by frame timestamp. Seeking
+                    // the input restarts those timestamps at zero, so left alone it renders from the
+                    // top of the file: the wrong lines, or past the last cue no lines at all. Put the
+                    // frames back on the source's clock to render, then take them off again.
+                    float seekOffset = GetInputSeekOffsetSecs();
+
+                    if (seekOffset > 0f)
+                        burnIn = $"setpts=PTS+{seekOffset.ToStringDot()}/TB,{burnIn},setpts=PTS-{seekOffset.ToStringDot()}/TB";
+
+                    filters.Add(burnIn);
                 }
             }
 

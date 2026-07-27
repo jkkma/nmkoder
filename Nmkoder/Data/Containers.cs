@@ -55,19 +55,38 @@ namespace Nmkoder.Data
 
         public static SC[] GetSupportedSubtitleCodecs(Container c)
         {
-            if (c == Container.Mp4)
-                return new SC[] { SC.MovText, SC.Srt };
+            // MP4/MOV take tx3g and nothing else ffmpeg can write - notably not SRT - while Matroska
+            // is the other way around and has no tag for tx3g.
+            if (c == Container.Mp4 || c == Container.Mov)
+                return new SC[] { SC.MovText };
 
             if (c == Container.Mkv)
-                return new SC[] { SC.MovText, SC.Srt, SC.WebVtt };
+                return new SC[] { SC.Srt, SC.WebVtt };
 
             if (c == Container.Webm)
                 return new SC[] { SC.WebVtt };
 
-            if (c == Container.Mov)
-                return new SC[] { SC.MovText };
+            return new SC[0]; // M4A and OGG carry no subtitles at all
+        }
 
-            return new SC[0];
+        /// <summary>
+        /// Whether <paramref name="c"/> can store a subtitle stream of the given ffprobe codec name
+        /// as-is, i.e. whether "-c:s copy" will mux rather than fail.
+        /// </summary>
+        public static bool CanCopySubtitleCodec(Container c, string ffprobeCodecName)
+        {
+            string codec = (ffprobeCodecName ?? "").Trim().ToLower();
+
+            if (c == Container.Mkv)
+                return codec != "mov_text"; // Matroska stores every subtitle format ffmpeg writes except MP4's tx3g
+
+            if (c == Container.Mp4 || c == Container.Mov)
+                return codec == "mov_text";
+
+            if (c == Container.Webm)
+                return codec == "webvtt";
+
+            return false; // M4A and OGG carry no subtitles at all
         }
 
         public static bool ContainerSupports(Container c, IEncoder enc)

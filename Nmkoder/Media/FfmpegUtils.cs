@@ -157,19 +157,47 @@ namespace Nmkoder.Media
             return streamList;
         }
 
+        /// <summary> Codec names as ffprobe reports them, plus the aliases the older checks used. </summary>
+        private static readonly HashSet<string> textSubtitleCodecs = new HashSet<string>
+        {
+            "text", "ssa", "ass", "subrip", "srt", "mov_text", "webvtt", "ttml", "microdvd", "jacosub",
+            "sami", "realtext", "stl", "subviewer", "subviewer1", "vplayer", "pjs", "mpl2", "eia_608",
+            "hdmv_text_subtitle", "arib_caption"
+        };
+
+        private static readonly HashSet<string> bitmapSubtitleCodecs = new HashSet<string>
+        {
+            "dvdsub", "dvd_subtitle", "pgssub", "hdmv_pgs_subtitle", "dvbsub", "dvb_subtitle", "xsub"
+        };
+
         public static async Task<bool> IsSubtitleBitmapBased(string path, int streamIndex, string codec = "")
         {
-            if (codec == "ssa" || codec == "ass" || codec == "mov_text" || codec == "srt" || codec == "subrip" || codec == "text" || codec == "webvtt")
+            string name = (codec ?? "").Trim().ToLower();
+
+            if (textSubtitleCodecs.Contains(name))
                 return false;
 
-            if (codec == "dvdsub" || codec == "dvd_subtitle" || codec == "pgssub" || codec == "hdmv_pgs_subtitle" || codec.StartsWith("dvb_"))
+            if (bitmapSubtitleCodecs.Contains(name))
                 return true;
 
-            // If codec was not listed above, manually check if it's compatible by trying to encode it:
-            //string ffmpegCheck = await GetFfmpegOutputAsync(path, $"-map 0:{streamIndex} -c:s srt -t 0 -f null -");
-            //return ffmpegCheck.Contains($"encoding currently only possible from text to text or bitmap to bitmap");
-
-            return false;
+            // Anything else - dvb_teletext among them, which ffmpeg decodes to either form depending on
+            // how it is configured - is asked about rather than guessed at. Guessing is wrong silently
+            // in both directions: an image track taken for text is handed to a text encoder that
+            // refuses it, and a text track taken for an image one is burnt in through the overlay path,
+            // which draws nothing at all. Trying to encode it to a text format settles it, and the
+            // result is cached with the rest of this file's queries.
+            try
+            {
+                string output = await GetFfmpegOutputAsync(path, $"-map 0:{streamIndex} -c:s srt -t 0 -f null -");
+                bool bitmap = output.Contains("only possible from text to text or bitmap to bitmap");
+                Logger.Log($"IsSubtitleBitmapBased: '{name}' is not a codec we know; ffmpeg says stream {streamIndex} is {(bitmap ? "image" : "text")}-based.", true);
+                return bitmap;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"IsSubtitleBitmapBased: could not determine whether '{name}' is image-based ({e.Message}), assuming text.", true);
+                return false;
+            }
         }
 
         public static string GetPadFilter(int px = 2)
