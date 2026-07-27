@@ -349,11 +349,22 @@ namespace Nmkoder.UI.Tasks
         /// <summary> Positions of the image-based tracks among a file's subtitle streams, for "-0:s:N". </summary>
         public static List<int> GetBitmapSubtitleIndices(MediaFile file)
         {
+            return GetSubtitleIndices(file, true);
+        }
+
+        /// <summary> Positions of the text-based tracks among a file's subtitle streams, for "1:s:N". </summary>
+        public static List<int> GetTextSubtitleIndices(MediaFile file)
+        {
+            return GetSubtitleIndices(file, false);
+        }
+
+        private static List<int> GetSubtitleIndices(MediaFile file, bool bitmap)
+        {
             var indices = new List<int>();
 
             for (int i = 0; file != null && i < file.SubtitleStreams.Count; i++)
             {
-                if (file.SubtitleStreams[i].Bitmap)
+                if (file.SubtitleStreams[i].Bitmap == bitmap)
                     indices.Add(i);
             }
 

@@ -81,6 +81,9 @@ namespace Nmkoder.UI.Tasks
             string outPath = "";
             string tempDir = "";
             string timestamp = ((long)(DateTime.Now - new DateTime(1970, 1, 1)).TotalMilliseconds).ToString();
+            // Set only when the arguments are built from the UI: replaying saved arguments means running
+            // exactly what was saved, and may not even have a file loaded to take the subtitles from.
+            List<int> subsToAddAfter = new List<int>();
 
             try
             {
@@ -138,7 +141,11 @@ namespace Nmkoder.UI.Tasks
                     string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm, bitmapSubs);
 
                     if (copySubs && mp4)
-                        Logger.Log("Note: av1an cannot carry subtitles into MP4, so they are being left out. Use MKV to keep them.");
+                        subsToAddAfter = GetTextSubtitleIndices(TrackList.current?.File);
+
+                    if (copySubs && mp4 && bitmapSubs.Count > 0)
+                        Logger.Log($"Note: MP4 stores no image-based subtitles, so {bitmapSubs.Count} " +
+                            $"track{(bitmapSubs.Count == 1 ? " is" : "s are")} being left out. Use MKV to keep them.");
                     else if (copySubs && webm && bitmapSubs.Count > 0)
                         Logger.Log($"Note: WebM only holds text subtitles, so {bitmapSubs.Count} image-based " +
                             $"track{(bitmapSubs.Count == 1 ? " is" : "s are")} being left out. Use MKV to keep them.");
@@ -232,8 +239,62 @@ namespace Nmkoder.UI.Tasks
             _ = Task.Run(() => CreateAttachmentMkv(args, tempDir));
             await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
 
+            if (subsToAddAfter.Count > 0 && !RunTask.canceled)
+                await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
+
             Program.MainWin.SetWorking(false);
             await AskDeleteTempFolder(tempDir);
+        }
+
+        /// <summary>
+        /// Copies the source's text subtitle tracks into a finished MP4 as tx3g. av1an cannot carry them
+        /// through its own pipeline - it muxes an intermediate audio.mkv first, and no subtitle codec is
+        /// legal in both Matroska and MP4 - so adding them afterwards is the only way they get in.
+        /// Nothing is re-encoded: video and audio are copied across untouched.
+        /// </summary>
+        private static async Task AddSubtitlesToMp4(string sourcePath, string outPath, List<int> textSubIndices)
+        {
+            if (!File.Exists(outPath) || !File.Exists(sourcePath))
+            {
+                Logger.Log($"Not adding subtitles: the {(File.Exists(outPath) ? "source" : "output")} file is missing.", true);
+                return;
+            }
+
+            string tempPath = IoUtils.FilenameSuffix(outPath, ".subs");
+
+            try
+            {
+                Logger.Log($"Adding {textSubIndices.Count} subtitle track{(textSubIndices.Count == 1 ? "" : "s")} to the finished MP4...");
+
+                // Named one by one rather than '-map 1:s': the image-based tracks cannot become tx3g and
+                // would fail the mux, and they were reported as left out when the encode started.
+                string subMaps = string.Join(" ", textSubIndices.Select(i => $"-map 1:s:{i}"));
+                string faststart = Config.GetBool(Config.Key.mp4Faststart) ? "-movflags +faststart" : "";
+                string args = $"-i {outPath.Wrap()} -i {sourcePath.Wrap()} -map 0 {subMaps} " +
+                    $"-c copy -c:s mov_text {faststart} {tempPath.Wrap()}";
+
+                Logger.Log($"Running:\nffmpeg {args}", true, false, "ffmpeg");
+                await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine });
+
+                // The encode that just finished is worth far more than the subtitles, so it is only
+                // replaced once ffmpeg has actually written something in its place.
+                if (!File.Exists(tempPath) || new FileInfo(tempPath).Length < 1)
+                {
+                    Logger.Log("Could not add the subtitles - the encode itself is unaffected.");
+                    IoUtils.TryDeleteIfExists(tempPath);
+                    return;
+                }
+
+                File.Delete(outPath);
+                File.Move(tempPath, outPath);
+                Logger.Log("Added the subtitles to the finished MP4.");
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to add subtitles to the output: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true);
+                IoUtils.TryDeleteIfExists(tempPath);
+            }
         }
 
         private static int GetScDownscaleHeight()
