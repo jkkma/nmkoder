@@ -90,6 +90,7 @@ namespace Nmkoder.UI.Tasks
                     CodecUtils.Av1anCodec vCodec = GetCurrentCodecV();
                     CodecUtils.AudioCodec aCodec = GetCurrentCodecA();
                     bool mp4 = IsMp4Output();
+                    bool webm = IsWebmOutput();
 
                     // av1an insists on mkvmerge to stitch x265 back together, and mkvmerge cannot
                     // write MP4 - so the two cannot be had at once, and saying which is better than
@@ -101,6 +102,29 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    // WebM is a narrow subset of Matroska. What it refuses, it refuses in the muxing
+                    // step at the very end, so the encode would be thrown away hours after the choice
+                    // that doomed it was made.
+                    if (webm && (vCodec == CodecUtils.Av1anCodec.X264 || vCodec == CodecUtils.Av1anCodec.X265))
+                    {
+                        RunTask.Cancel("WebM can only hold VP9 or AV1 video, not H.264 or H.265.\n\n" +
+                            "Choose MKV or MP4 as the container, or a different video encoder.");
+                        return;
+                    }
+
+                    if (webm && (aCodec == CodecUtils.AudioCodec.Aac || aCodec == CodecUtils.AudioCodec.Eac3 ||
+                                 aCodec == CodecUtils.AudioCodec.Mp3 || aCodec == CodecUtils.AudioCodec.Flac))
+                    {
+                        RunTask.Cancel("WebM can only hold Opus or Vorbis audio.\n\n" +
+                            "Choose one of those, or a different container.");
+                        return;
+                    }
+
+                    // MP4 forces the ffmpeg concatenator (mkvmerge cannot write MP4), and av1an itself
+                    // warns that vpx chunks come out of that path with the wrong frame rate.
+                    if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
+                        Logger.Log("Note: VP9 in MP4 has to be concatenated by ffmpeg, which av1an warns can give the file a wrong frame rate. MKV avoids this.");
+
                     inPath = TrackList.current.File.ImportPath;
                     ValidatePath();
                     outPath = UiData.GetOutPath();
@@ -109,16 +133,15 @@ namespace Nmkoder.UI.Tasks
                     string vf = await GetVideoFilterArgs(codecArgs);
                     string ffAud = CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi()).Arguments;
                     var form = Program.MainWin;
-                    // MP4 carries neither Matroska's text subtitles nor its attachments: copied
-                    // across as-is they fail the mux outright, so subtitles are converted to the
-                    // one format MP4 does take and attachments are left behind.
-                    string ffSubs = form.CheckAv1anCopySubs.IsChecked == true ? (mp4 ? "-c:s mov_text" : "-c:s copy") : "-sn";
-                    string ffDat = form.CheckAv1anCopyData.IsChecked == true ? "" : "-dn";
-                    string ffAttach = form.CheckAv1anCopyAttachs.IsChecked == true && !mp4 ? "-map 0:t?" : "-map -0:t?";
+                    bool copySubs = form.CheckAv1anCopySubs.IsChecked == true;
+                    string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm);
+
+                    if (copySubs && mp4)
+                        Logger.Log("Note: av1an cannot carry subtitles into MP4, so they are being left out. Use MKV to keep them.");
 
                     if (RunTask.canceled) return;
 
-                    string ffArgs = $"{ffAud} {ffSubs} {ffDat} {ffAttach}";
+                    string ffArgs = $"{ffAud} {ffMux}";
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
 
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +

@@ -314,6 +314,31 @@ namespace Nmkoder.UI.Tasks
             return Form.Av1anContainerBox.GetText().Trim().Lower() == "mp4";
         }
 
+        /// <summary> Whether the chosen container is WebM, which takes only a subset of what Matroska does. </summary>
+        public static bool IsWebmOutput()
+        {
+            return Form.Av1anContainerBox.GetText().Trim().Lower() == "webm";
+        }
+
+        /// <summary>
+        /// The stream-selection half of av1an's -a parameters. These never reach the muxer that writes
+        /// the output file: av1an builds an intermediate audio.mkv out of them and later copies its
+        /// streams into whichever container was asked for, so everything named here has to be legal in
+        /// Matroska *and* in that container.
+        /// </summary>
+        public static string BuildMuxArgs(bool copySubs, bool copyData, bool copyAttachments, bool mp4, bool webm)
+        {
+            // No subtitle codec survives both hops into MP4 - Matroska refuses mov_text, and MP4 refuses
+            // both SRT and WebVTT - so for MP4 they have to go. Asking anyway fails the audio step
+            // outright, and the encode then finishes with no sound either.
+            string subs = copySubs && !mp4 ? (webm ? "-c:s webvtt" : "-c:s copy") : "-sn"; // WebM takes WebVTT and nothing else
+            string data = copyData ? "" : "-dn";
+            // av1an's own '-map 0' has already taken the attachments, so they only need naming here in
+            // order to drop them - mapping them a second time writes every font twice.
+            string attachments = copyAttachments && !mp4 && !webm ? "" : "-map -0:t?";
+            return string.Join(" ", new[] { subs, data, attachments }.Where(x => x.IsNotEmpty()));
+        }
+
         public static string GetConcatMethodArgs()
         {
             // mkvmerge writes Matroska and nothing else. Pointed at an .mp4 it does not refuse - it
