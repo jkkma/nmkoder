@@ -4,6 +4,7 @@ using Nmkoder.Data;
 using Nmkoder.Data.Ui;
 using Nmkoder.IO;
 using Nmkoder.UI;
+using Nmkoder.UI.Tasks;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -49,13 +50,8 @@ namespace Nmkoder.Views
         private void ReloadList()
         {
             _entries.Clear();
-            string av1anDir = Paths.GetAv1anTempPath();
 
-            var found = new DirectoryInfo(av1anDir).GetDirectories()
-                .Select(x => new Av1anFolderEntry(x.FullName))
-                .OrderBy(x => x.TimeSinceLastRun.TotalMilliseconds);
-
-            foreach (Av1anFolderEntry entry in found)
+            foreach (Av1anFolderEntry entry in Av1anUi.GetResumableEncodes())
                 _entries.Add(entry);
 
             FolderList.SelectedIndex = _entries.Count > 0 ? 0 : -1;

@@ -887,15 +887,30 @@ namespace Nmkoder.IO
 			return 0;
 		}
 
-		public static string GetAvailableFilename(string preferredPath, string suffix = ".nmkoder")
+		/// <summary>
+		/// <paramref name="preferredPath"/> when nothing is there, otherwise the same name with a
+		/// number on the end - "My Film (1).mp4" - counting up until one is free. This used to append a
+		/// marker instead, which stacked on repeat: "My Film.nmkoder.nmkoder.mp4".
+		/// </summary>
+		public static string GetAvailableFilename(string preferredPath)
         {
+			if (string.IsNullOrWhiteSpace(preferredPath) || !File.Exists(preferredPath))
+				return preferredPath;
+
+			string dir = Path.GetDirectoryName(preferredPath) ?? "";
+			string name = Path.GetFileNameWithoutExtension(preferredPath);
 			string ext = Path.GetExtension(preferredPath);
-			string renamedPath = preferredPath;
 
-			while (File.Exists(renamedPath))
-				renamedPath = Path.ChangeExtension(renamedPath, null) + suffix + ext;
+			for (int i = 1; i <= 9999; i++)
+			{
+				string candidate = Path.Combine(dir, $"{name} ({i}){ext}");
 
-			return renamedPath;
+				if (!File.Exists(candidate))
+					return candidate;
+			}
+
+			// Far past the point of absurdity, but handing back a path that exists means overwriting it
+			return Path.Combine(dir, $"{name} ({DateTime.Now:yyyy-MM-dd-HH-mm-ss}){ext}");
 		}
 
 		public static string[] GetUniqueExtensions (string path, bool recursive = false)

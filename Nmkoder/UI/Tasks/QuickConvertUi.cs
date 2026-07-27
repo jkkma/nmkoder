@@ -56,7 +56,7 @@ namespace Nmkoder.UI.Tasks
             {
                 if (path.IsNotEmpty())
                 {
-                    Form.FfmpegOutputBox.Text = Path.ChangeExtension(path, null);
+                    Form.FfmpegOutputBox.Text = UiData.GetDefaultOutPath(path);
                     ValidateContainer();
                 }
 
@@ -159,13 +159,19 @@ namespace Nmkoder.UI.Tasks
             ValidatePath();
         }
 
+        /// <summary>
+        /// Steps the output filename aside when something is already there, rather than letting ffmpeg
+        /// overwrite it - it is always run with -y. Only does anything once RunningTask is set, since
+        /// that is what makes UiData.GetOutPath resolve to a real path.
+        /// </summary>
         public static void ValidatePath()
         {
-            if (TrackList.current == null)
+            if (TrackList.current == null || !File.Exists(UiData.GetOutPath()))
                 return;
 
-            if (File.Exists(UiData.GetOutPath()))
-                Form.FfmpegOutputBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(UiData.GetOutPath()), null);
+            string taken = UiData.GetOutPath();
+            Form.FfmpegOutputBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(taken), null);
+            Logger.Log($"'{Path.GetFileName(taken)}' already exists - saving as '{Path.GetFileName(UiData.GetOutPath())}' instead.");
         }
 
         #region Get Current Codec

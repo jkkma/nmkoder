@@ -99,6 +99,7 @@ namespace Nmkoder.Views
             Av1anUi.InitAdvFilterGrid();
             UpdateResetSettingsText();
             QuickConvertUi.InitFile();
+            Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
             _initialized = true;
 
@@ -338,6 +339,7 @@ namespace Nmkoder.Views
 
         private void Stop_Click(object sender, RoutedEventArgs e)
         {
+            RunTask.canceledManually = true; // Distinguishes this from a task stopping itself, which is not the user's decision to review
             RunTask.Cancel("Canceled manually.", true);
         }
 

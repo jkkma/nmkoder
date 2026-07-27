@@ -11,6 +11,7 @@ using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
 using System;
 using System.IO;
+using System.Linq;
 
 namespace Nmkoder.Views
 {
@@ -142,6 +143,42 @@ namespace Nmkoder.Views
 
             if (!string.IsNullOrWhiteSpace(path))
                 Av1anOutputPathBox.Text = Path.ChangeExtension(path, null);
+        }
+
+        /// <summary>
+        /// Throws away every unfinished encode's temp files. Nothing else clears them - a stopped encode
+        /// keeps its folder on purpose and Cleanup never touches the directory - so without this the
+        /// only way to reclaim the space is one entry at a time in the resume window, or by hand.
+        /// Confirmed first, and with the size shown, because what it deletes is finished encoding work.
+        /// </summary>
+        private async void Av1anClearTemp_Click(object sender, RoutedEventArgs e)
+        {
+            var pending = Av1anUi.GetResumableEncodes();
+
+            if (pending.Count < 1)
+            {
+                Logger.Log("There are no av1an temp files to clear.");
+                Av1anUi.RefreshResumeButton();
+                return;
+            }
+
+            long bytes = pending.Sum(x => x.ChunkFiles.Sum(f => f.Length));
+            string msg = $"Delete the temporary files of {pending.Count} unfinished encode{(pending.Count == 1 ? "" : "s")}?\n\n" +
+                $"That frees {FormatUtils.Bytes(bytes)} of encoded chunks. None of them can be resumed afterwards - " +
+                $"each would have to start over from the beginning.";
+
+            if (await UiUtils.ShowMessageBox(msg, "Clear all av1an temp files?", UiUtils.MessageButtons.YesNo) != UiUtils.DialogResult.Yes)
+                return;
+
+            foreach (var entry in pending)
+                Av1anUi.DeleteTempFolder(entry.DirInfo.FullName);
+
+            var left = Av1anUi.GetResumableEncodes();
+            int removed = pending.Count - left.Count;
+            Logger.Log($"Cleared {removed} av1an temp folder{(removed == 1 ? "" : "s")}, freeing {FormatUtils.Bytes(bytes)}." +
+                (left.Count > 0 ? $" {left.Count} could not be removed - they may be in use." : ""));
+
+            Av1anUi.RefreshResumeButton();
         }
 
         private async void Av1anResume_Click(object sender, RoutedEventArgs e)
