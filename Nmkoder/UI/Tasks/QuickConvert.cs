@@ -42,7 +42,7 @@ namespace Nmkoder.UI.Tasks
 
                 IEncoder vCodec = CodecUtils.GetCodec(GetCurrentCodecV());
                 CodecUtils.AudioCodec aCodec = GetCurrentCodecA();
-                CodecUtils.SubtitleCodec sCodec = GetCurrentCodecS();
+                CodecUtils.SubtitleCodec sCodec = ResolveSubtitleCodec(GetCurrentCodecS(), vCodec);
                 bool anyVideoStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video);
                 bool anyAudioStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio);
                 string subProblem = GetSubtitleProblem(sCodec, vCodec);
@@ -118,15 +118,43 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// The subtitle codec to actually encode with. MP4 and MOV store no text subtitle format other
+        /// than tx3g, so copying SRT into them cannot work - converting is the only way the tracks
+        /// survive, and carrying them over is what choosing to copy them asked for.
+        /// </summary>
+        private static CodecUtils.SubtitleCodec ResolveSubtitleCodec(CodecUtils.SubtitleCodec sCodec, IEncoder vCodec)
+        {
+            if (sCodec != CodecUtils.SubtitleCodec.CopySubs || vCodec.IsFixedFormat)
+                return sCodec;
+
+            Containers.Container container = GetCurrentContainer();
+
+            if (container != Containers.Container.Mp4 && container != Containers.Container.Mov)
+                return sCodec;
+
+            List<Data.Streams.SubtitleStream> subStreams = GetCheckedSubtitleStreams();
+
+            // Nothing to carry over, or already tx3g and copyable without a round trip through the encoder
+            if (subStreams.Count < 1 || subStreams.All(x => (x.Codec ?? "").Trim().ToLower() == "mov_text"))
+                return sCodec;
+
+            // Image-based tracks cannot become tx3g either. They are left to GetSubtitleProblem, which
+            // says so rather than dropping them quietly.
+            IEncoder movText = CodecUtils.GetCodec(CodecUtils.SubtitleCodec.MovText);
+            Logger.Log($"{container.ToString().ToUpper()} stores no text subtitle format other than " +
+                $"{GetShortName(movText)}, so the subtitles are being converted to it rather than copied.");
+
+            return CodecUtils.SubtitleCodec.MovText;
+        }
+
+        /// <summary>
         /// Describes why the selected subtitle codec cannot produce the requested output, or "" if it can.
         /// ffmpeg only reports these mismatches once it is already muxing, which on a long encode means
         /// finding out at the very end, so the ones that can be seen from the selection are caught here.
         /// </summary>
         private static string GetSubtitleProblem(CodecUtils.SubtitleCodec sCodec, IEncoder vCodec)
         {
-            List<Data.Streams.SubtitleStream> subStreams = TrackList.CheckedItems
-                .Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Subtitle)
-                .Select(x => (Data.Streams.SubtitleStream)x.Stream).ToList();
+            List<Data.Streams.SubtitleStream> subStreams = GetCheckedSubtitleStreams();
 
             // Fixed formats (GIF/PNG/JPG) map video only, so no subtitle reaches the muxer either way
             if (sCodec == CodecUtils.SubtitleCodec.StripSubs || subStreams.Count < 1 || vCodec.IsFixedFormat)
@@ -177,6 +205,14 @@ namespace Nmkoder.UI.Tasks
                 return $"{name} cannot hold subtitles in any format.";
 
             return $"{name} accepts {string.Join(" and ", supported.Select(x => GetShortName(CodecUtils.GetCodec(x))))}.";
+        }
+
+        /// <summary> The subtitle tracks that are ticked in the track list, in output order. </summary>
+        private static List<Data.Streams.SubtitleStream> GetCheckedSubtitleStreams()
+        {
+            return TrackList.CheckedItems
+                .Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Subtitle)
+                .Select(x => (Data.Streams.SubtitleStream)x.Stream).ToList();
         }
 
         /// <summary> A track's codec for display, with a fallback for streams ffprobe gave no codec name. </summary>
