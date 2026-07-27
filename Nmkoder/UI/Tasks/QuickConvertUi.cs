@@ -439,6 +439,20 @@ namespace Nmkoder.UI.Tasks
             return Containers.GetMuxingArgs(GetCurrentContainer());
         }
 
+        /// <summary>
+        /// Seconds of seek applied to the input before the filter chain sees a frame, which is what
+        /// restarts frame timestamps at zero. Only the keyframe trim mode seeks the input: the exact
+        /// mode seeks the output, and the frame-number mode selects inside the chain, so both leave
+        /// the source's own timestamps on the frames.
+        /// </summary>
+        private static float GetInputSeekOffsetSecs()
+        {
+            if (CurrentTrim == null || CurrentTrim.IsUnset || CurrentTrim.TrimMode != TrimSettings.Mode.TimeKeyframe)
+                return 0f;
+
+            return CurrentTrim.StartTime / 1000f;
+        }
+
         public static string GetMiscInputArgs()
         {
             List<string> args = new List<string>();
@@ -491,12 +505,25 @@ namespace Nmkoder.UI.Tasks
 
                 if (bitmapSubs)
                 {
+                    // The subtitle stream is an input of its own, seeked along with the video, so it
+                    // stays in step without any correction.
                     filters.Add($"[0:s:{subIndex}]overlay=shortest=1");
                 }
                 else
                 {
                     string subFilePath = FormatUtils.GetFilterPath(currFile.ImportPath);
-                    filters.Add($"subtitles={subFilePath}:si={subIndex}");
+                    string burnIn = $"subtitles={subFilePath}:si={subIndex}";
+
+                    // This filter re-reads the source and picks its lines by frame timestamp. Seeking
+                    // the input restarts those timestamps at zero, so left alone it renders from the
+                    // top of the file: the wrong lines, or past the last cue no lines at all. Put the
+                    // frames back on the source's clock to render, then take them off again.
+                    float seekOffset = GetInputSeekOffsetSecs();
+
+                    if (seekOffset > 0f)
+                        burnIn = $"setpts=PTS+{seekOffset.ToStringDot()}/TB,{burnIn},setpts=PTS-{seekOffset.ToStringDot()}/TB";
+
+                    filters.Add(burnIn);
                 }
             }
 
