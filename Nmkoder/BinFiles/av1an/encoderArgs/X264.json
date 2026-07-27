@@ -1,0 +1,21 @@
+[
+  ["tune", "", "film, animation, grain, stillimage, psnr, ssim, fastdecode or zerolatency - Tune for a type of source"],
+  ["profile", "", "baseline, main, high, high10, high422 or high444 - Force the limits of a profile"],
+  ["level", "", "Decoder level to comply with, e.g. 4.1"],
+  ["bframes", "", "0-16 (default 3) - B-frames between I and P frames"],
+  ["b-adapt", "", "0-2 (default 1) - How B-frame placement is decided: 0 off, 1 fast, 2 optimal"],
+  ["ref", "", "1-16 (default 3) - Reference frames the motion search may use"],
+  ["rc-lookahead", "", "0-250 (default 40) - Frames looked ahead when deciding frame types"],
+  ["aq-mode", "", "0-3 (default 1) - Adaptive quantisation: 0 off, 1 variance, 2 auto-variance, 3 with dark-scene bias"],
+  ["aq-strength", "", "Float (default 1.0) - Reduces blocking and blurring in flat and textured areas"],
+  ["psy-rd", "", "rd:trellis floats (default 0.0:0.0) - Strength of the psychovisual optimisation"],
+  ["me", "", "dia, hex, umh, esa or tesa (default hex) - Integer pixel motion estimation method"],
+  ["subme", "", "0-11 (default 7) - Subpixel motion estimation and mode decision quality"],
+  ["merange", "", "Integer (default 16) - Largest motion vector search range"],
+  ["trellis", "", "0-2 (default 1) - Trellis rate-distortion quantisation"],
+  ["qcomp", "", "0.0-1.0 (default 0.60) - QP curve compression; 1.0 behaves like constant QP"],
+  ["weightp", "", "0-2 (default 2) - Weighted prediction for P-frames"],
+  ["deblock", "", "alpha:beta offsets (default 0:0) - Loop filter parameters"],
+  ["vbv-maxrate", "", "kbit/s - Ceiling on local bitrate, for decoder compliance"],
+  ["vbv-bufsize", "", "kbit - Size of the VBV buffer, used with vbv-maxrate"]
+]

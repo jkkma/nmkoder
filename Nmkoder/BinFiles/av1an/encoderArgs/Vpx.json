@@ -1,0 +1,20 @@
+[
+  ["auto-alt-ref", "", "0-6 - Automatic alt reference frames; 2 and above enables multi-layer"],
+  ["lag-in-frames", "", "Frames of lookahead the encoder may hold; more helps alt-ref placement"],
+  ["aq-mode", "", "0-3 (default 0 off) - Adaptive quantisation mode; 1 is variance based"],
+  ["tune", "", "psnr or ssim - Which metric the encoder favours"],
+  ["tune-content", "", "default, screen or film - Tune for the type of content"],
+  ["arnr-maxframes", "", "0-15 - Frames the alt-ref noise reduction filter may use"],
+  ["arnr-strength", "", "0-6 - Strength of the alt-ref noise reduction filter"],
+  ["sharpness", "", "0-7 - Trades PSNR for a sharper picture"],
+  ["static-thresh", "", "Motion detection threshold; above 0 skips near-static blocks"],
+  ["frame-boost", "", "0-1 (default 0) - Periodic boost of frame quality"],
+  ["enable-tpl", "", "0-1 - Temporal dependency model, improving bit allocation"],
+  ["alt-ref-aq", "", "Adaptive quantisation applied specifically to alt reference frames"],
+  ["frame-parallel", "", "0-1 - Frame parallel decodability; 0 encodes slightly better"],
+  ["corpus-complexity", "", "Midpoint used by corpus VBR complexity estimation"],
+  ["min-q", "", "Best quantiser the encoder may choose"],
+  ["max-q", "", "Worst quantiser the encoder may choose"],
+  ["undershoot-pct", "", "0-100 - How far under the target rate the encoder may run"],
+  ["overshoot-pct", "", "0-100 - How far over the target rate the encoder may run"]
+]

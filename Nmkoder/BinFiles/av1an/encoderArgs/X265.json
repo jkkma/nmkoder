@@ -1,0 +1,19 @@
+[
+  ["tune", "", "psnr, ssim, grain, zero-latency, fast-decode or animation - Tune for a type of source"],
+  ["profile", "", "main, main10, main444-10 and so on - Force compliance with a profile"],
+  ["level-idc", "", "Decoder level to comply with, e.g. 4.1; also turns on VBV in CRF mode"],
+  ["bframes", "", "0-16 (default 4) - Longest run of consecutive B-frames"],
+  ["ref", "", "1-16 (default 3) - Reference frames the motion search may use"],
+  ["rc-lookahead", "", "0-250 (default 20) - Frames looked ahead when deciding slice types"],
+  ["aq-mode", "", "0-4 (default 2) - Adaptive quantisation: 0 off, 2 auto-variance, 3 dark-scene bias, 4 edge aware"],
+  ["aq-strength", "", "0.0-3.0 (default 1.0) - How strongly adaptive quantisation shifts QP"],
+  ["psy-rd", "", "0.0-5.0 (default 2.0) - Preserves the source's energy in the reconstruction"],
+  ["psy-rdoq", "", "0.0-50.0 (default 0.0, 1.0 on slow presets) - Favours higher energy through quantisation"],
+  ["rd", "", "1-6 (default 3) - Rate-distortion optimisation level; higher looks harder"],
+  ["subme", "", "0-7 (default 2) - Subpixel refinement passes in the motion search"],
+  ["merange", "", "0-32768 (default 57) - Motion search range in pixels"],
+  ["qcomp", "", "0.5-1.0 (default 0.6) - Quantiser curve compression; 1.0 behaves like constant QP"],
+  ["deblock", "", "tC:Beta offsets, each -6 to 6 (default 0:0) - Deblocking filter strength"],
+  ["master-display", "", "SMPTE ST 2086 mastering display volume for HDR, as G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min)"],
+  ["max-cll", "", "MaxCLL,MaxFALL - Content and frame-average light levels for HDR"]
+]
