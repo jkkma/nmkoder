@@ -13,10 +13,16 @@ namespace Nmkoder.Data
     {
         public enum Container { Mp4, Mkv, Webm, Mov, M4a, Ogg };
 
+        // Both tables below were checked encoder by encoder against ffmpeg rather than reasoned about:
+        // each codec was muxed into each container and the ones that came out are the ones listed. The
+        // earlier lists were narrower than ffmpeg in several places, which is the direction that hurts -
+        // it refuses combinations that would have worked.
+
         public static VC[] GetSupportedVideoCodecs (Container c)
         {
+            // VP9 does go into MP4, contrary to what this used to say
             if (c == Container.Mp4)
-                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibSvtAv1, VC.LibAomAv1 };
+                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
 
             if (c == Container.Mkv)
                 return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1, VC.Png, VC.Jpg };
@@ -24,31 +30,41 @@ namespace Nmkoder.Data
             if (c == Container.Webm)
                 return new VC[] { VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
 
+            // MOV takes H.264/H.265 but not VP9 or AV1
             if (c == Container.Mov)
                 return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc };
 
-            return new VC[0];
+            // .m4a goes to the ipod muxer, not the mp4 one, and that muxer's tag table is much shorter:
+            // H.264 muxes, H.265 and VP9 and AV1 do not. Listing it does not put video in an audio file,
+            // it only stops a working combination being called invalid.
+            if (c == Container.M4a)
+                return new VC[] { VC.Libx264, VC.H264Nvenc };
+
+            return new VC[0]; // OGG holds none of the video codecs offered here
         }
 
         public static AC[] GetSupportedAudioCodecs(Container c)
         {
+            // MP4 is the permissive one: everything offered here muxes into it
             if (c == Container.Mp4)
-                return new AC[] { AC.Aac, AC.Mp3 };
+                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Eac3, AC.Mp3, AC.Flac };
 
             if (c == Container.Mkv)
-                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Mp3, AC.Flac };
+                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Eac3, AC.Mp3, AC.Flac };
 
             if (c == Container.Webm)
                 return new AC[] { AC.Opus, AC.Vorbis };
 
+            // Opus and FLAC are the two MP4 takes and MOV does not - ffmpeg says so in as many words:
+            // "opus only supported in MP4", "flac only supported in MP4".
             if (c == Container.Mov)
-                return new AC[] { AC.Aac, AC.Mp3 };
+                return new AC[] { AC.Aac, AC.Vorbis, AC.Eac3, AC.Mp3 };
 
             if (c == Container.M4a)
-                return new AC[] { AC.Aac };
+                return new AC[] { AC.Aac }; // ipod muxer again - AAC and nothing else offered here
 
             if (c == Container.Ogg)
-                return new AC[] { AC.Opus, AC.Vorbis };
+                return new AC[] { AC.Opus, AC.Vorbis, AC.Flac };
 
             return new AC[0];
         }
