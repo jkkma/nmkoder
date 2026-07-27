@@ -161,12 +161,13 @@ namespace Nmkoder.Media
 
         #region av1an
 
-        public static async Task RunAv1an(string args, LogMode logMode, bool progressBar = false)
+        /// <summary> Runs av1an and hands back its exit code, or -1 if it never got as far as running. </summary>
+        public static async Task<int> RunAv1an(string args, LogMode logMode, bool progressBar = false)
         {
-            await RunAv1an(args, "", logMode, progressBar);
+            return await RunAv1an(args, "", logMode, progressBar);
         }
 
-        public static async Task RunAv1an(string args, string workingDir, LogMode logMode, bool progressBar = false)
+        public static async Task<int> RunAv1an(string args, string workingDir, LogMode logMode, bool progressBar = false)
         {
             try
             {
@@ -184,7 +185,7 @@ namespace Nmkoder.Media
                 {
                     RunTask.Cancel($"{missing} was not found.\n\nIt is neither bundled with this build nor on your PATH. " +
                         $"Put it in '{encPath}' or install it, then try again.");
-                    return;
+                    return -1;
                 }
 
                 // Launched without an interpreter where possible: a command line handed to cmd or sh
@@ -214,7 +215,7 @@ namespace Nmkoder.Media
                 Logger.Log($"cmd {av1an.StartInfo.Arguments}", true, false, "av1an");
 
                 if (progressBar)
-                    Av1anOutputHandler.StartProgressLoop(); // av1an reports chunk progress through its log file, not stdout
+                    Av1anOutputHandler.StartProgressLoop(args); // av1an reports chunk progress through its log file, not stdout
 
                 av1an.Start();
                 av1an.PriorityClass = ProcessPriorityClass.BelowNormal;
@@ -232,14 +233,38 @@ namespace Nmkoder.Media
 
                 if (progressBar)
                     Program.MainWin?.SetProgress(0);
+
+                // In the visible-console mode this is the launch script's code, which it deliberately
+                // carries over from av1an rather than from the command that keeps the window open.
+                return TryGetExitCode(av1an);
             }
             catch (Exception e)
             {
                 Logger.Log($"{e.Message}");
+                return -1;
             }
             finally
             {
                 Av1anOutputHandler.StopProgressLoop();
+            }
+        }
+
+        /// <summary>
+        /// A finished process's exit code, or 0 where the platform will not give one up - a shell-executed
+        /// process does not always keep a handle to ask. Reporting failure there would mean never trusting
+        /// an encode enough to clean up after it, so "cannot tell" is reported as "no complaint" and the
+        /// caller is left to judge by what the run actually produced.
+        /// </summary>
+        private static int TryGetExitCode(Process p)
+        {
+            try
+            {
+                return p.ExitCode;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read the exit code of {p.StartInfo.FileName}: {e.Message}", true);
+                return 0;
             }
         }
 
@@ -282,7 +307,9 @@ namespace Nmkoder.Media
 
         /// <summary>
         /// When the av1an console is visible we launch it through a script so the window keeps
-        /// the right title and stays around briefly after finishing.
+        /// the right title and stays around briefly after finishing. The script ends by exiting with
+        /// av1an's own code rather than the pause command's, so the caller can still tell a finished
+        /// encode from a failed one - which is the difference between keeping and deleting its chunks.
         /// </summary>
         private static string WriteLaunchScript(string workingDir, string[] paths, string av1anArgs)
         {
@@ -305,7 +332,9 @@ namespace Nmkoder.Media
                     $"SET PATH={string.Join(sep.ToString(), paths)}{sep}%PATH%",
                     "TITLE av1an",
                     $"av1an {safeArgs}",
-                    "TIMEOUT /T 5"
+                    "SET AV1AN_EXIT_CODE=%ERRORLEVEL%",
+                    "TIMEOUT /T 5",
+                    "EXIT /B %AV1AN_EXIT_CODE%"
                 };
                 path = Path.Combine(Paths.GetSessionDataPath(), "av1an.bat");
             }
@@ -317,7 +346,9 @@ namespace Nmkoder.Media
                     $"cd {safeDir.Wrap()}",
                     $"export PATH=\"{string.Join(sep.ToString(), paths)}{sep}$PATH\"",
                     $"av1an {safeArgs}",
-                    "sleep 5"
+                    "av1an_exit_code=$?",
+                    "sleep 5",
+                    "exit $av1an_exit_code"
                 };
                 path = Path.Combine(Paths.GetSessionDataPath(), "av1an.sh");
             }

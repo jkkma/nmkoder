@@ -19,11 +19,28 @@ namespace Nmkoder.Media
         public static Task currentLogReaderTask;
 
         /// <summary> Starts reading progress out of the current encode's log file. Call once per av1an run. </summary>
-        public static void StartProgressLoop()
+        public static void StartProgressLoop(string av1anArgs)
         {
             stopProgressLoop = false;
             currentQueueSize = 0; // Static, so it has to be cleared or the next encode inherits this one's chunk count
-            currentLogReaderTask = Task.Run(() => ParseProgressLoop());
+            int workers = ParseWorkerCount(av1anArgs);
+            currentLogReaderTask = Task.Run(() => ParseProgressLoop(workers));
+        }
+
+        /// <summary>
+        /// The worker count the command actually asked for. Read back out of the arguments rather than
+        /// from the config, which only holds what the AV1AN tab last saved - a resumed encode runs a
+        /// saved command that may well have been built with a different number.
+        /// </summary>
+        static int ParseWorkerCount(string args)
+        {
+            string[] parts = (args ?? "").Split(' ');
+
+            for (int i = 0; i < parts.Length - 1; i++)
+                if (parts[i] == "-w" || parts[i] == "--workers")
+                    return parts[i + 1].GetInt();
+
+            return 0;
         }
 
         public static void StopProgressLoop()
@@ -66,9 +83,8 @@ namespace Nmkoder.Media
             }
         }
 
-        public static async Task ParseProgressLoop()
+        public static async Task ParseProgressLoop(int workers)
         {
-            int workers = Config.GetInt(Config.Key.Av1anOptsWorkerCountUpDown);
             string dir = AvProcess.lastTempDirAv1an;
 
             if (dir.IsEmpty())
@@ -103,6 +119,9 @@ namespace Nmkoder.Media
                         currentQueueSize = sc.Length > 0 ? sc[0].Split("SC: Now at ")[1].Split(' ')[0].GetInt() : 0;
                     }
 
+                    if (currentQueueSize == 0) // Nothing announced it, so count the scenes av1an wrote down
+                        currentQueueSize = GetQueueSizeFromScenesFile(dir);
+
                     if (currentQueueSize > 0) // Nothing to report until scene detection has announced a queue size
                     {
                         int ratio = FormatUtils.RatioInt(encodedChunks, currentQueueSize);
@@ -130,6 +149,33 @@ namespace Nmkoder.Media
                 }
 
                 if (!await KeepWaiting()) return;
+            }
+        }
+
+        /// <summary>
+        /// How many chunks the video was split into, counted from the scene list av1an keeps in the temp
+        /// folder. Only the run that performs scene detection announces the count in the log, and a
+        /// resumed encode reuses the existing list rather than redoing it - so without this a resumed
+        /// run reported no progress and no estimate at all, for however long it took.
+        /// </summary>
+        static int GetQueueSizeFromScenesFile(string dir)
+        {
+            string path = Path.Combine(dir, "scenes.json");
+
+            if (!File.Exists(path))
+                return 0;
+
+            try
+            {
+                // Counted rather than deserialized: the surrounding fields have changed between av1an
+                // versions, but a scene has always been an object with a start frame.
+                using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                return Regex.Matches(new StreamReader(stream).ReadToEnd(), "\"start_frame\"").Count;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to read av1an's scene list: {e.Message}", true);
+                return 0;
             }
         }
 

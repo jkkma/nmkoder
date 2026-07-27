@@ -87,8 +87,20 @@ namespace Nmkoder.Data
             return $"{arg}{keyInt.Clamp(12, max)}";
         }
 
+        /// <summary>
+        /// The audio settings as ffmpeg arguments, one set per ticked track.
+        /// <para/>
+        /// Callers with no file in hand get a single unindexed set that applies to every audio stream
+        /// instead. That is the AV1AN tab, which has no per-track settings and whose arguments av1an
+        /// applies to everything its own '-map 0' picks up: numbering them by ticked track there put
+        /// each track's settings on whichever stream happened to share its position, and dropped a
+        /// track from the numbering without dropping it from the output.
+        /// </summary>
         public static string GetAudioArgsForEachStream(MediaFile mf, int baseBitrate, int overrideChannels, List<string> extraArgs = null)
         {
+            if (mf == null)
+                return GetAudioArgsForAllStreams(baseBitrate, overrideChannels, extraArgs);
+
             List<string> args = new List<string>();
 
             List<AudioStream> allAudStreams = TrackList.Items.Where(x => x.Stream.Type == Stream.StreamType.Audio).Select(x => (AudioStream)x.Stream).ToList();
@@ -129,6 +141,33 @@ namespace Nmkoder.Data
                     }
                 }
             }
+
+            return string.Join(" ", args);
+        }
+
+        /// <summary>
+        /// The same audio settings for every stream, without the stream specifiers that would tie them
+        /// to particular tracks.
+        /// <para/>
+        /// A channel count of zero is "keep what the source has". There is no per-stream count to put in
+        /// its place here, so the count goes unsaid - which leaves every track its own layout - and the
+        /// bitrate is used as written rather than scaled to a number of channels nobody chose.
+        /// </summary>
+        private static string GetAudioArgsForAllStreams(int baseBitrate, int overrideChannels, List<string> extraArgs = null)
+        {
+            List<string> args = new List<string>();
+
+            if (baseBitrate > 0)
+            {
+                float mult = overrideChannels > 0 ? MiscUtils.GetAudioBitrateMultiplier(overrideChannels) : 1f;
+                args.Add($"-b:a {(baseBitrate * mult).RoundToInt()}k");
+            }
+
+            if (overrideChannels > 0)
+                args.Add($"-ac {overrideChannels}");
+
+            if (extraArgs != null)
+                args.AddRange(extraArgs.Where(x => !string.IsNullOrWhiteSpace(x)));
 
             return string.Join(" ", args);
         }

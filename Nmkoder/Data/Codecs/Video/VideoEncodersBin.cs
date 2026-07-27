@@ -54,9 +54,13 @@ namespace Nmkoder.Data.Codecs.Video
                     colors += " --deltaq-mode=5 --enable-chroma-deltaq=1";
             }
 
+            // No keyframe interval means the file had no video stream to work one out from. Leaving the
+            // flag in without its value would make aomenc read the next argument as the interval.
+            string kf = $"--disable-kf{(g.IsNotEmpty() ? $" --kf-min-dist=12 --kf-max-dist={g}" : "")}";
+
             // --end-usage=q stays even in VMAF mode: av1an's target quality search only injects
             // --cq-level, which aomenc ignores unless constant quality rate control is selected.
-            return new CodecArgs($" -e aom -v \" --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} --disable-kf --kf-min-dist=12 --kf-max-dist={g} " +
+            return new CodecArgs($" -e aom -v \" --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
                     $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
@@ -95,7 +99,7 @@ namespace Nmkoder.Data.Codecs.Video
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
             string tiles = ""; // TEMP DISABLED AS IT SEEMS TO SLOW THINGS DOWN // = CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-rows ", "--tile-columns ");
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"].Replace("=", " ") : "";
+            string adv = encArgs.ContainsKey("advanced") ? ToSpaceSeparated(encArgs["advanced"]) : "";
             string colors = "";
 
             if (mediaFile != null && mediaFile.ColorData != null)
@@ -104,7 +108,23 @@ namespace Nmkoder.Data.Codecs.Video
                 colors = $"--color-primaries {mediaFile.ColorData.ColorPrimaries} --transfer-characteristics {mediaFile.ColorData.ColorTransfer} --matrix-coefficients {mediaFile.ColorData.ColorMatrixCoeffs} --color-range {range}";
             }
             
-            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!vmaf ? $"--crf {q}" : "")} --keyint {g} --lp {thr} --film-grain {grain} --film-grain-denoise {denoise} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+            string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
+
+            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!vmaf ? $"--crf {q}" : "")} {keyint} --lp {thr} --film-grain {grain} --film-grain-denoise {denoise} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+        }
+
+        /// <summary>
+        /// The advanced grid's "--key=value" arguments in the "--key value" form SVT-AV1 expects. Only
+        /// the first '=' separates the two: replacing every one of them broke any value containing one,
+        /// which is how SVT's own grouped parameters are written.
+        /// </summary>
+        private static string ToSpaceSeparated(string args)
+        {
+            return string.Join(" ", (args ?? "").Split(' ').Select(a =>
+            {
+                int at = a.IndexOf('=');
+                return at < 0 ? a : $"{a.Substring(0, at)} {a.Substring(at + 1)}";
+            }));
         }
     }
 
@@ -145,8 +165,10 @@ namespace Nmkoder.Data.Codecs.Video
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : ""; // vpxenc takes --flag=value, as written
 
+            string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : ""; // No video stream to work an interval out from
+
             // As with aomenc, --end-usage=q has to be set for av1an's injected --cq-level to apply
-            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} --kf-max-dist={g} " +
+            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
                     $"--threads={thr} --row-mt=1 {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
@@ -245,7 +267,10 @@ namespace Nmkoder.Data.Codecs.Video
                 colors = $"--colorprim {mediaFile.ColorData.ColorPrimaries} --transfer {mediaFile.ColorData.ColorTransfer} --colormatrix {mediaFile.ColorData.ColorMatrixCoeffs} --range {range}";
             }
 
-            return new CodecArgs($" -e x265 --force -v \" {(!vmaf ? $"--crf {q}" : "")} --preset {preset} --keyint {g} --frame-threads {thr} --output-depth {bitDepth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
+            string depth = bitDepth > 0 ? $"--output-depth {bitDepth}" : ""; // Unrecognised pixel format - let x265 pick
+
+            return new CodecArgs($" -e x265 --force -v \" {(!vmaf ? $"--crf {q}" : "")} --preset {preset} {keyint} --frame-threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
 }

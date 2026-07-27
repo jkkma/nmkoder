@@ -347,7 +347,7 @@
                 <ScrollViewer>
                   <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
-                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" Margin="0,0,0,6">
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" Margin="0,0,0,6" SelectionChanged="Av1anOption_SelectionChanged">
                       <ComboBoxItem Content="None" />
                       <ComboBoxItem Content="Scene Change Detection" />
                     </ComboBox>
