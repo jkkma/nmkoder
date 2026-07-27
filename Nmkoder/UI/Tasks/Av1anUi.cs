@@ -457,33 +457,29 @@ namespace Nmkoder.UI.Tasks
             return MiscUtils.GetFpsFromString(Form.Av1anFpsBox.Text);
         }
 
-        public static async Task AskDeleteTempFolder(string dir)
+        /// <summary>
+        /// Clears away an encode's temp folder. It used to ask first, which put a dialog at the end of
+        /// every encode to be answered the same way every time - and left the chunks on disk until
+        /// someone came back to the machine to answer it.
+        /// <para/>
+        /// A cancelled encode keeps its folder. That folder is the whole of what Resume picks up -
+        /// the resume list is built by enumerating them - so deleting it would throw away the chunks
+        /// already encoded and the only thing able to continue from them.
+        /// </summary>
+        public static void DeleteTempFolder(string dir, bool keepForResume)
         {
-            if (string.IsNullOrWhiteSpace(dir))
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
                 return;
 
-            int minKbytes = 4; // If the temp folder is smaller than this, delete it without asking
-            var dirSize = IoUtils.GetDirSize(dir, true);
-
-            if (RunTask.currentFileListMode == RunTask.FileListMode.Batch || RunTask.runningBatch || !Directory.Exists(Path.Combine(dir, "split")) || !File.Exists(Path.Combine(dir, "scenes.json")) || dirSize < minKbytes * 1024)
+            if (keepForResume)
             {
-                Logger.Log($"Temp folder has no scene detection data or is <{minKbytes}kb, deleting without asking", true);
-                IoUtils.TryDeleteIfExists(dir);
-                IoUtils.DeleteIfExists(dir + ".json");
+                Logger.Log($"Keeping the temp folder so this encode can be resumed ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))} in '{Path.GetFileName(dir)}').");
                 return;
             }
 
-            string size = FormatUtils.Bytes(dirSize);
-            string chunks = $"{IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Where(x => x.Length >= 1024).Count()} encoded video chunks";
-            string msg = $"Av1an has finished.\nDo you want to delete the temporary folder of this encode? It's {size} and contains {chunks}.";
-
-            var result = await UiUtils.ShowMessageBox(msg, "Delete av1an temp folder?", UiUtils.MessageButtons.YesNo);
-
-            if (result == UiUtils.DialogResult.Yes)
-            {
-                IoUtils.TryDeleteIfExists(dir);
-                IoUtils.DeleteIfExists(dir + ".json");
-            }
+            Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
+            IoUtils.TryDeleteIfExists(dir);
+            IoUtils.DeleteIfExists(dir + ".json");
         }
 
         public static bool IsUsingVmaf()
