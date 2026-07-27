@@ -158,6 +158,22 @@ namespace Nmkoder.Data
                      codec.StartsWith("wmv") || codec.StartsWith("msmpeg4")); // MP4 takes the rest
         }
 
+        /// <summary>
+        /// Whether a data stream can be copied into <paramref name="c"/>. Only QuickTime takes one -
+        /// its timecode track - and Matroska rejects them outright: "Only audio, video, and subtitles
+        /// are supported for Matroska".
+        /// </summary>
+        public static bool CanCopyDataStream(Container c)
+        {
+            return c == Container.Mov;
+        }
+
+        /// <summary> Whether an attachment can be copied into <paramref name="c"/>. Matroska alone stores them. </summary>
+        public static bool CanCopyAttachment(Container c)
+        {
+            return c == Container.Mkv;
+        }
+
         public static string GetMuxingArgs(Container c)
         {
             if (c == Container.Mp4)

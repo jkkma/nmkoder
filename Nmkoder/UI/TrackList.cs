@@ -297,6 +297,8 @@ namespace Nmkoder.UI
         {
             List<string> args = new List<string>();
             bool hasSkippedFirstVideoStream = false;
+            Containers.Container container = QuickConvertUi.GetCurrentContainer();
+            List<string> dropped = new List<string>();
 
             foreach (StreamListEntry entry in CheckedItems)
             {
@@ -307,6 +309,23 @@ namespace Nmkoder.UI
 
                 if (videoOnly && entry.Stream.Type != Stream.StreamType.Video) // Skip all non-video streams if videoOnly == true
                     continue;
+
+                // Data and attachment tracks are ticked by default, and almost no container takes them:
+                // attachments are a Matroska feature, data streams a QuickTime one. Left in they fail the
+                // mux, so they are dropped and named. Refusing the encode instead would be worse - there
+                // is no way to keep them in a container that cannot hold them, so the user would only be
+                // told to untick tracks they never chose.
+                if (entry.Stream.Type == Stream.StreamType.Data && !Containers.CanCopyDataStream(container))
+                {
+                    dropped.Add("data");
+                    continue;
+                }
+
+                if (entry.Stream.Type == Stream.StreamType.Attachment && !Containers.CanCopyAttachment(container))
+                {
+                    dropped.Add("attachment");
+                    continue;
+                }
 
                 if (accountForFilterChain && !hasSkippedFirstVideoStream && entry.Stream.Type == Stream.StreamType.Video && !noVideoEncode)
                 {
@@ -320,6 +339,9 @@ namespace Nmkoder.UI
 
                 args.Add($"-map {fileIdx}:{entry.Stream.Index}");
             }
+
+            foreach (var kind in dropped.GroupBy(x => x))
+                Logger.Log($"{kind.Count()} {kind.Key} track{(kind.Count() == 1 ? "" : "s")} left out: {container.ToString().ToUpper()} cannot store {kind.Key} streams.");
 
             return string.Join(" ", args);
         }
