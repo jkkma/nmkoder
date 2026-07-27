@@ -142,7 +142,7 @@ namespace Nmkoder.UI.Tasks
                 if (unsupported.Count < 1)
                     return "";
 
-                string names = string.Join(", ", unsupported.Select(x => Aliases.GetNicerCodecName(x.Codec)).Distinct());
+                string names = string.Join(", ", unsupported.Select(GetCodecName).Distinct());
                 return $"{containerName} cannot store {names} subtitles, so they cannot be copied into it.\n\n" +
                     $"{GetAcceptedSubCodecs(container)}\n\n" +
                     $"Change the container, re-encode the subtitles, or set the subtitle codec to " +
@@ -158,7 +158,7 @@ namespace Nmkoder.UI.Tasks
 
             if (bitmapStreams.Count > 0)
             {
-                string names = string.Join(", ", bitmapStreams.Select(x => Aliases.GetNicerCodecName(x.Codec)).Distinct());
+                string names = string.Join(", ", bitmapStreams.Select(GetCodecName).Distinct());
                 return $"{names} subtitles are image-based and cannot be encoded to {GetShortName(sEnc)}, which is text-based.\n\n" +
                     $"Copy them without re-encoding into a container that stores them (MKV), " +
                     $"or convert them to text first with the \"OCR Bitmap Subtitles\" utility.";
@@ -177,6 +177,13 @@ namespace Nmkoder.UI.Tasks
                 return $"{name} cannot hold subtitles in any format.";
 
             return $"{name} accepts {string.Join(" and ", supported.Select(x => GetShortName(CodecUtils.GetCodec(x))))}.";
+        }
+
+        /// <summary> A track's codec for display, with a fallback for streams ffprobe gave no codec name. </summary>
+        private static string GetCodecName(Data.Streams.SubtitleStream s)
+        {
+            string name = Aliases.GetNicerCodecName(s.Codec ?? "").Trim();
+            return name.IsEmpty() ? "unrecognized" : name;
         }
 
         /// <summary> An encoder's friendly name without the trailing " - For MKV" style container hint. </summary>
