@@ -116,7 +116,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6" };
         public int PresetDefault { get; } = 3;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuva420P8, PixelFormats.Yuv444P8, PixelFormats.Yuv420P10, PixelFormats.Yuv444P10 };
-        public int ColorFormatDefault { get; } = 0;
+        public int ColorFormatDefault { get; } = 3; // 10-bit 4:2:0 - VP9 encodes 8-bit sources better in profile 2
         public int QMin { get; } = 0;
         public int QMax { get; } = 50;
         public int QDefault { get; } = 20;

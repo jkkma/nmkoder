@@ -19,7 +19,9 @@ namespace Nmkoder.UI.Tasks
     class Av1an
     {
         public enum QualityMode { Crf, TargetVmaf }
-        public enum ChunkMethod { BestSource, LSMASH, DGDecNV, FFMS2, Segment, Hybrid, Select }
+        // DGDecNV is deliberately absent: it needs a proprietary decoder that is not bundled and
+        // cannot be, so offering it only produced an option that always failed.
+        public enum ChunkMethod { BestSource, LSMASH, FFMS2, Segment, Hybrid, Select }
 
         public static void Init()
         {
@@ -87,6 +89,18 @@ namespace Nmkoder.UI.Tasks
                     Logger.Log($"Preparing encoding arguments...");
                     CodecUtils.Av1anCodec vCodec = GetCurrentCodecV();
                     CodecUtils.AudioCodec aCodec = GetCurrentCodecA();
+                    bool mp4 = IsMp4Output();
+
+                    // av1an insists on mkvmerge to stitch x265 back together, and mkvmerge cannot
+                    // write MP4 - so the two cannot be had at once, and saying which is better than
+                    // letting av1an refuse the command after the settings have been forgotten.
+                    if (mp4 && vCodec == CodecUtils.Av1anCodec.X265)
+                    {
+                        RunTask.Cancel("av1an needs mkvmerge to concatenate H.265, and mkvmerge cannot write MP4.\n\n" +
+                            "Choose MKV as the container, or a different video encoder.");
+                        return;
+                    }
+
                     inPath = TrackList.current.File.ImportPath;
                     ValidatePath();
                     outPath = UiData.GetOutPath();
@@ -95,9 +109,12 @@ namespace Nmkoder.UI.Tasks
                     string vf = await GetVideoFilterArgs(codecArgs);
                     string ffAud = CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi()).Arguments;
                     var form = Program.MainWin;
-                    string ffSubs = form.CheckAv1anCopySubs.IsChecked == true ? "-c:s copy" : "-sn";
+                    // MP4 carries neither Matroska's text subtitles nor its attachments: copied
+                    // across as-is they fail the mux outright, so subtitles are converted to the
+                    // one format MP4 does take and attachments are left behind.
+                    string ffSubs = form.CheckAv1anCopySubs.IsChecked == true ? (mp4 ? "-c:s mov_text" : "-c:s copy") : "-sn";
                     string ffDat = form.CheckAv1anCopyData.IsChecked == true ? "" : "-dn";
-                    string ffAttach = form.CheckAv1anCopyAttachs.IsChecked == true ? "-map 0:t?" : "-map -0:t?";
+                    string ffAttach = form.CheckAv1anCopyAttachs.IsChecked == true && !mp4 ? "-map 0:t?" : "-map -0:t?";
 
                     if (RunTask.canceled) return;
 

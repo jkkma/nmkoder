@@ -43,8 +43,9 @@ namespace Nmkoder.UI.Tasks
             Form.Av1anAudCodecBox.SetItems(Enum.GetValues<CodecUtils.AudioCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
             ConfigParser.LoadComboxIndex(Form.Av1anAudCodecBox);
 
-            // av1an only muxes into MKV or WEBM
-            Form.Av1anContainerBox.SetItems(new[] { Containers.Container.Mkv, Containers.Container.Webm }.Select(c => (object)c.ToString().Upper()), 0);
+            // MP4 is appended rather than ordered with the rest: the selected index is what gets
+            // saved, so inserting ahead of the others would repoint saved settings.
+            Form.Av1anContainerBox.SetItems(new[] { Containers.Container.Mkv, Containers.Container.Webm, Containers.Container.Mp4 }.Select(c => (object)c.ToString().Upper()), 0);
         }
 
         public static void InitFile(string path)
@@ -280,8 +281,20 @@ namespace Nmkoder.UI.Tasks
             return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
         }
 
+        /// <summary> Whether the chosen container is MP4, which the muxing below has to work around. </summary>
+        public static bool IsMp4Output()
+        {
+            return Form.Av1anContainerBox.GetText().Trim().Lower() == "mp4";
+        }
+
         public static string GetConcatMethodArgs()
         {
+            // mkvmerge writes Matroska and nothing else. Pointed at an .mp4 it does not refuse - it
+            // writes a Matroska file under that name - so MP4 goes out through ffmpeg whatever the
+            // dropdown says, rather than producing a file that lies about what it is.
+            if (IsMp4Output())
+                return "-c ffmpeg";
+
             return $"-c {Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim()}";
         }
 
