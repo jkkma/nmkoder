@@ -490,6 +490,7 @@ namespace Nmkoder.UI.Tasks
         {
             List<Av1anFolderEntry> pending = GetResumableEncodes();
             Form.Av1anResumeBtn.Content = pending.Count > 0 ? $"Resume… ({pending.Count})" : "Resume…";
+            Form.Av1anClearTempBtn.IsEnabled = pending.Count > 0; // Nothing to clear reads better than a dialog saying so
 
             if (!logIfAny || pending.Count < 1)
                 return;
