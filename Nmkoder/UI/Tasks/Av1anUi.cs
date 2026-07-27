@@ -453,7 +453,7 @@ namespace Nmkoder.UI.Tasks
                 return;
 
             if (File.Exists(UiData.GetOutPath()))
-                Form.Av1anOutputPathBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(UiData.GetOutPath(), ".av1an"), null);
+                Form.Av1anOutputPathBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(UiData.GetOutPath()), null);
         }
 
         public static Fraction GetUiFps()
