@@ -45,11 +45,11 @@ namespace Nmkoder.UI.Tasks
                 CodecUtils.SubtitleCodec sCodec = ResolveSubtitleCodec(GetCurrentCodecS(), vCodec);
                 bool anyVideoStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video);
                 bool anyAudioStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio);
-                string subProblem = GetSubtitleProblem(sCodec, vCodec);
+                string problem = GetContainerProblem(GetCurrentCodecV(), aCodec, sCodec);
 
-                if (subProblem.IsNotEmpty())
+                if (problem.IsNotEmpty())
                 {
-                    RunTask.Cancel(subProblem);
+                    RunTask.Cancel(problem);
                     return;
                 }
 
@@ -154,6 +154,109 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// Describes why the chosen codecs cannot go into the chosen container, or "" if they can.
+        /// ffmpeg reports these only once it is already muxing, which on a long encode means finding out
+        /// at the very end, so the ones visible from the selection are caught before it starts.
+        /// </summary>
+        private static string GetContainerProblem(CodecUtils.VideoCodec vCodec, CodecUtils.AudioCodec aCodec, CodecUtils.SubtitleCodec sCodec)
+        {
+            IEncoder vEnc = CodecUtils.GetCodec(vCodec);
+
+            // Fixed formats (GIF/PNG/JPG) write a format of their own and are mapped video-only, so the
+            // container dropdown is hidden and no other stream reaches a muxer.
+            if (vEnc.IsFixedFormat)
+                return "";
+
+            Containers.Container container = GetCurrentContainer();
+            string problem = GetVideoProblem(vCodec, container);
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            problem = GetAudioProblem(aCodec, container);
+
+            return problem.IsNotEmpty() ? problem : GetSubtitleProblem(sCodec, vEnc);
+        }
+
+        private static string GetVideoProblem(CodecUtils.VideoCodec vCodec, Containers.Container container)
+        {
+            List<Data.Streams.Stream> streams = GetCheckedStreams(Data.Streams.Stream.StreamType.Video);
+
+            if (vCodec == CodecUtils.VideoCodec.StripVideo || streams.Count < 1)
+                return "";
+
+            string name = container.ToString().ToUpper();
+
+            if (vCodec == CodecUtils.VideoCodec.CopyVideo)
+            {
+                var unsupported = streams.Where(x => !Containers.CanCopyVideoCodec(container, x.Codec)).ToList();
+
+                if (unsupported.Count < 1)
+                    return "";
+
+                return $"{name} cannot store {CodecNames(unsupported)} video, so it cannot be copied into it.\n\n" +
+                    $"{Accepts(name, Containers.GetSupportedVideoCodecs(container).Select(x => CodecUtils.GetCodec(x)), "video")}\n\n" +
+                    $"Change the container, or re-encode the video instead of copying it.";
+            }
+
+            if (Containers.GetSupportedVideoCodecs(container).Contains(vCodec))
+                return "";
+
+            return $"{name} does not support {GetShortName(CodecUtils.GetCodec(vCodec))} video.\n\n" +
+                $"{Accepts(name, Containers.GetSupportedVideoCodecs(container).Select(x => CodecUtils.GetCodec(x)), "video")}";
+        }
+
+        private static string GetAudioProblem(CodecUtils.AudioCodec aCodec, Containers.Container container)
+        {
+            List<Data.Streams.Stream> streams = GetCheckedStreams(Data.Streams.Stream.StreamType.Audio);
+
+            if (aCodec == CodecUtils.AudioCodec.StripAudio || streams.Count < 1)
+                return "";
+
+            string name = container.ToString().ToUpper();
+
+            if (aCodec == CodecUtils.AudioCodec.CopyAudio)
+            {
+                var unsupported = streams.Where(x => !Containers.CanCopyAudioCodec(container, x.Codec)).ToList();
+
+                if (unsupported.Count < 1)
+                    return "";
+
+                return $"{name} cannot store {CodecNames(unsupported)} audio, so it cannot be copied into it.\n\n" +
+                    $"{Accepts(name, Containers.GetSupportedAudioCodecs(container).Select(x => CodecUtils.GetCodec(x)), "audio")}\n\n" +
+                    $"Change the container, or re-encode the audio instead of copying it.";
+            }
+
+            if (Containers.GetSupportedAudioCodecs(container).Contains(aCodec))
+                return "";
+
+            return $"{name} does not support {GetShortName(CodecUtils.GetCodec(aCodec))} audio.\n\n" +
+                $"{Accepts(name, Containers.GetSupportedAudioCodecs(container).Select(x => CodecUtils.GetCodec(x)), "audio")}";
+        }
+
+        /// <summary> "MP4 accepts H.264, H.265." - or that it takes none of that kind at all. </summary>
+        private static string Accepts(string containerName, IEnumerable<IEncoder> encoders, string kind)
+        {
+            List<string> names = encoders.Select(GetShortName).ToList();
+
+            if (names.Count < 1)
+                return $"{containerName} holds no {kind} at all.";
+
+            return $"{containerName} accepts {string.Join(", ", names)}.";
+        }
+
+        private static List<Data.Streams.Stream> GetCheckedStreams(Data.Streams.Stream.StreamType type)
+        {
+            return TrackList.CheckedItems.Where(x => x.Stream.Type == type).Select(x => x.Stream).ToList();
+        }
+
+        /// <summary> The distinct codecs of a set of streams, for naming them in a message. </summary>
+        private static string CodecNames(IEnumerable<Data.Streams.Stream> streams)
+        {
+            return string.Join(", ", streams.Select(x => GetCodecName(x.Codec)).Distinct());
+        }
+
+        /// <summary>
         /// Describes why the selected subtitle codec cannot produce the requested output, or "" if it can.
         /// ffmpeg only reports these mismatches once it is already muxing, which on a long encode means
         /// finding out at the very end, so the ones that can be seen from the selection are caught here.
@@ -176,7 +279,7 @@ namespace Nmkoder.UI.Tasks
                 if (unsupported.Count < 1)
                     return "";
 
-                string names = string.Join(", ", unsupported.Select(GetCodecName).Distinct());
+                string names = string.Join(", ", unsupported.Select(x => GetCodecName(x.Codec)).Distinct());
                 return $"{containerName} cannot store {names} subtitles, so they cannot be copied into it.\n\n" +
                     $"{GetAcceptedSubCodecs(container)}\n\n" +
                     $"Change the container, re-encode the subtitles, or set the subtitle codec to " +
@@ -192,7 +295,7 @@ namespace Nmkoder.UI.Tasks
 
             if (bitmapStreams.Count > 0)
             {
-                string names = string.Join(", ", bitmapStreams.Select(GetCodecName).Distinct());
+                string names = string.Join(", ", bitmapStreams.Select(x => GetCodecName(x.Codec)).Distinct());
                 return $"{names} subtitles are image-based and cannot be encoded to {GetShortName(sEnc)}, which is text-based.\n\n" +
                     $"Copy them without re-encoding into a container that stores them (MKV), " +
                     $"or convert them to text first with the \"OCR Bitmap Subtitles\" utility.";
@@ -222,9 +325,9 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> A track's codec for display, with a fallback for streams ffprobe gave no codec name. </summary>
-        private static string GetCodecName(Data.Streams.SubtitleStream s)
+        private static string GetCodecName(string codec)
         {
-            string name = Aliases.GetNicerCodecName(s.Codec ?? "").Trim();
+            string name = Aliases.GetNicerCodecName(codec ?? "").Trim();
             return name.IsEmpty() ? "unrecognized" : name;
         }
 
