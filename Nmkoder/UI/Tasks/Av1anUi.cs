@@ -371,7 +371,11 @@ namespace Nmkoder.UI.Tasks
             IEnumerable<int> dropped = webm && copySubs ? (bitmapSubIndices ?? Enumerable.Empty<int>()) : Enumerable.Empty<int>();
             string bitmapSubs = string.Join(" ", dropped.Select(i => $"-map -0:s:{i}"));
 
-            string data = copyData ? "" : "-dn";
+            // Always dropped, whatever the checkbox says. Everything here passes through an
+            // intermediate audio.mkv, and Matroska stores no data streams at all - "Only audio, video,
+            // and subtitles are supported for Matroska" - so asking to keep them fails that step and
+            // takes the audio down with it. The caller says so when the box was ticked.
+            string data = "-dn";
             // av1an's own '-map 0' has already taken the attachments, so they only need naming here in
             // order to drop them - mapping them a second time writes every font twice.
             string attachments = copyAttachments && !mp4 && !webm ? "" : "-map -0:t?";

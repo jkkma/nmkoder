@@ -151,6 +151,9 @@ namespace Nmkoder.UI.Tasks
                     List<int> bitmapSubs = GetBitmapSubtitleIndices(TrackList.current?.File);
                     string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm, bitmapSubs);
 
+                    if (form.CheckAv1anCopyData.IsChecked == true && (TrackList.current?.File.DataStreams.Count ?? 0) > 0)
+                        Logger.Log("Note: data streams are being left out. av1an muxes through an intermediate Matroska file, which stores none, so they cannot be carried either way.");
+
                     if (copySubs && mp4)
                         subsToAddAfter = GetTextSubtitleIndices(TrackList.current?.File);
 
