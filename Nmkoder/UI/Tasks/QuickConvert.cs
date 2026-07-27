@@ -58,6 +58,11 @@ namespace Nmkoder.UI.Tasks
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
 
                 string inFiles = TrackList.GetInputFilesString();
+                // Has to happen here rather than when the file was loaded: the check reads the output
+                // path through UiData.GetOutPath, which only resolves once RunningTask is set, so every
+                // earlier call was comparing against an empty string and finding nothing. Without it
+                // ffmpeg is handed the colliding name with -y and the existing file is overwritten.
+                ValidatePath();
                 string outPath = GetFfmpegOutPath(vCodec);
                 string map = await TrackList.GetMapArgs(vCodec, vCodec.IsFixedFormat, vCodec.DoesNotEncode);
                 string a = anyAudioStreams ? CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi(), TrackList.current.File).Arguments : "";
