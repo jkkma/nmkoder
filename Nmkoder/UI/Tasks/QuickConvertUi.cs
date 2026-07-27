@@ -440,6 +440,23 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// Where a file sits among the '-i' arguments, which is what a filtergraph stream reference has
+        /// to name. Batch mode passes a single input and it is always the current file; muxing passes
+        /// the whole file list in order, and the file being encoded need not be the first of them.
+        /// Resolved the same way <see cref="TrackList.GetMapArgs"/> resolves it for -map, so a filter
+        /// and the maps alongside it cannot end up pointing at different inputs.
+        /// </summary>
+        private static int GetInputFileIndex(MediaFile file)
+        {
+            FileListEntry entry = FileList.Items.FirstOrDefault(x => x.File == file);
+
+            if (RunTask.currentFileListMode == RunTask.FileListMode.Batch || entry == null)
+                return 0;
+
+            return FileList.Items.IndexOf(entry);
+        }
+
+        /// <summary>
         /// The track to burn in, as an index into <paramref name="file"/>'s subtitle streams, or -1 for
         /// none. The dropdown is filled from whichever file was loaded when it was last refreshed and a
         /// batch run deliberately leaves it alone - rebuilding it would reset the selection and turn
@@ -536,9 +553,10 @@ namespace Nmkoder.UI.Tasks
 
                 if (bitmapSubs)
                 {
-                    // The subtitle stream is an input of its own, seeked along with the video, so it
-                    // stays in step without any correction.
-                    filters.Add($"[0:s:{subIndex}]overlay=shortest=1");
+                    // Read as a filtergraph input, so it has to name where the file sits among the '-i'
+                    // arguments rather than assuming it is the first of them. Being an input of its own
+                    // it is seeked along with the video, so it needs no timestamp correction.
+                    filters.Add($"[{GetInputFileIndex(currFile)}:s:{subIndex}]overlay=shortest=1");
                 }
                 else
                 {
