@@ -102,13 +102,20 @@ prefer_assets() {
 ASSET_RELEASE_TAG=""
 
 gh_release_assets() {
-  local repo="$1" pattern="$2"
+  local repo="$1" pattern="$2" tag="${3:-}"
 
+  # A caller may name the release its asset lives on. That release is looked at first and the
+  # usual search still follows, so a pin costs nothing if the asset also turns up elsewhere.
+  # Without one, an asset attached to a release once slides out of view as newer releases
+  # accumulate past the scan below - which is exactly how vpxenc went missing from 2.0.11.
+  #
   # The stable release first, then the recent ones. That order matters: "releases/latest"
   # skips prereleases, while the scan includes them along with rolling nightly tags like
   # av1an's, so a stable binary is preferred and a nightly is still found if it is all
   # that exists.
   {
+    [ -n "$tag" ] && gh_api_asset_urls "$repo" "releases/tags/$tag"
+
     if [ -n "${ASSET_RELEASE_TAG:-}" ]; then
       gh_api_asset_urls "$repo" "releases/tags/$ASSET_RELEASE_TAG"
     else
@@ -206,12 +213,12 @@ install_binary() {
 # called as `handler <downloaded-file> <extracted-dir>`, where an empty extracted dir means
 # the asset was a bare binary rather than an archive. Sets LAST_ASSET on success.
 try_assets() {
-  local repo="$1" primary="$2" fallback="$3" handler="$4"
+  local repo="$1" primary="$2" fallback="$3" handler="$4" tag="${5:-}"
   local urls=() url file dir n=0
 
-  mapfile -t urls < <(gh_release_assets "$repo" "$primary")
+  mapfile -t urls < <(gh_release_assets "$repo" "$primary" "$tag")
   if [ "${#urls[@]}" -eq 0 ] && [ -n "$fallback" ]; then
-    mapfile -t urls < <(gh_release_assets "$repo" "$fallback")
+    mapfile -t urls < <(gh_release_assets "$repo" "$fallback" "$tag")
   fi
   [ "${#urls[@]}" -gt 0 ] || return 1
 
@@ -754,6 +761,13 @@ VPXENC_REPO="${VPXENC_REPO-${GITHUB_REPOSITORY:-}}"
 # would reject every future one.
 VPXENC_ASSET_SHA1="${VPXENC_ASSET_SHA1-d9d12249316e893ae8198e22c4937e91816db21a}"
 
+# The release that binary is attached to. Named outright because the asset search otherwise
+# reaches only the most recent handful of releases: attached once to v2.0.3, it stayed findable
+# for seven releases and then slid out of view, and the build quietly fell back to a third-party
+# URL whose certificate had expired. Pinned, how often releases go out stops mattering. The
+# ordinary search still runs afterwards, so attaching vpxenc.exe to a newer release also works.
+VPXENC_ASSET_TAG="${VPXENC_ASSET_TAG-v2.0.3}"
+
 # Where that build came from, for the notice file. libvpx ships no Windows binaries of its
 # own, so this is a community build rather than an official one, and saying so is the point
 # - a user reading THIRD-PARTY.txt should be able to tell the difference.
@@ -821,7 +835,7 @@ bundle_vpxenc() {
     return
   fi
 
-  if [ -n "$VPXENC_REPO" ] && try_assets "$VPXENC_REPO" '[Vv]pxenc.*\.(exe|zip|7z)$' '' install_vpxenc_asset; then
+  if [ -n "$VPXENC_REPO" ] && try_assets "$VPXENC_REPO" '[Vv]pxenc.*\.(exe|zip|7z)$' '' install_vpxenc_asset "$VPXENC_ASSET_TAG"; then
     verify_vpxenc "$LAST_ASSET from $VPXENC_REPO releases" "$VPXENC_ASSET_SHA1" "$VPXENC_CREDIT" && return
   fi
 
