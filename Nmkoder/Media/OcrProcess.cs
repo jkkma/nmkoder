@@ -48,7 +48,7 @@ namespace Nmkoder.Media
                 Program.MainWin?.SetProgress(0);
 
             if (trackProgress)
-                OcrUtils.procsFinished++;
+                OcrUtils.progressTracker[args] = 100; // The process is done, whatever its last progress line said
         }
 
         public static void LogOutput(string line, bool hidden, bool trackProg, string args)

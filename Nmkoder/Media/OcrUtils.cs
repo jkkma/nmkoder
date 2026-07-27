@@ -19,8 +19,6 @@ namespace Nmkoder.Media
     class OcrUtils
     {
         public static ConcurrentDictionary<string, int> progressTracker = new ConcurrentDictionary<string, int>();
-        public static int procsStarted = 0;
-        public static int procsFinished = 0;
 
         public static async Task<bool> RunOcrOnStreams(string inPath, List<SubtitleStream> streams, string outDir)
         {
@@ -28,14 +26,23 @@ namespace Nmkoder.Media
             Directory.CreateDirectory(tempDir);
             IoUtils.DeleteContentsOfDir(tempDir);
             Logger.Log($"Muxing subs from input to all-subs.mkv", true, false, "ocr");
-            string ffArgs = $"-i {inPath.Wrap()} -map 0:s -c copy \"{tempDir}/subs.mkv\"";
+            string subsMkvPath = Path.Combine(tempDir, "subs.mkv");
+            string ffArgs = $"-i {inPath.Wrap()} -map 0:s -c copy {subsMkvPath.Wrap()}";
             AvProcess.FfmpegSettings settings = new AvProcess.FfmpegSettings() { Args = ffArgs, LoggingMode = AvProcess.LogMode.Hidden };
             await AvProcess.RunFfmpeg(settings);
 
+            // Copying the tracks into Matroska fails for formats it cannot store, mov_text among them.
+            // Starting OCR tasks that have nothing to read is what used to leave the wait below spinning forever.
+            if (!File.Exists(subsMkvPath))
+            {
+                Logger.Log($"Failed to extract the subtitle tracks from '{Path.GetFileName(inPath)}' - cannot run OCR on them.");
+                return false;
+            }
+
             Logger.Log($"starting {streams.Count} ocr tasks", true, false, "ocr");
 
-            procsStarted = streams.Count;
-            procsFinished = 0;
+            progressTracker.Clear(); // Entries left over from an earlier run would skew the average
+            List<Task> tasks = new List<Task>();
 
             for (int i = 0; i < streams.Count; i++)
             {
@@ -43,24 +50,41 @@ namespace Nmkoder.Media
                 int subStreamIdx = TrackList.current.File.SubtitleStreams.IndexOf(streams[iCopy]);
                 string srtDir = Path.Combine(tempDir, $"{subStreamIdx}");
                 Directory.CreateDirectory(srtDir);
-                Task.Run(() => RunOcrOnSingleStream(tempDir, outDir, streams[iCopy], subStreamIdx));
+                tasks.Add(Task.Run(() => RunOcrOnSingleStream(tempDir, outDir, streams[iCopy], subStreamIdx)));
             }
 
-            while (procsFinished < procsStarted)
+            // Waiting on the tasks themselves rather than on a counter they increment as their last
+            // statement: one that returns early or throws still completes the task, but never got as
+            // far as the counter, so the wait could not end.
+            Task allTasks = Task.WhenAll(tasks);
+
+            while (!allTasks.IsCompleted)
             {
-                if (progressTracker != null && progressTracker.Count > 0)
+                if (RunTask.canceled)
+                    break;
+
+                if (progressTracker.Count > 0)
                 {
                     int progSum = progressTracker.Select(x => x.Value).Sum();
                     int avgProg = ((float)progSum / progressTracker.Count).RoundToInt();
                     int running = progressTracker.Where(x => x.Value < 100).Count();
                     Logger.Log($"Running {running} OCR Instances - Average Progress: {avgProg}%", false, Logger.LastUiLine.EndsWith("%"));
                     Program.MainWin?.SetProgress(avgProg);
-
-                    if (RunTask.canceled)
-                        break;
                 }
 
                 await Task.Delay(100);
+            }
+
+            if (!RunTask.canceled)
+            {
+                try
+                {
+                    await allTasks; // Already complete - awaited to surface what fire-and-forget swallowed
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"An OCR task failed: {ex.Message}\n{ex.StackTrace}", true, false, "ocr");
+                }
             }
 
             Logger.Log($"All OCR processes have finished.", false, Logger.LastUiLine.EndsWith("%"));

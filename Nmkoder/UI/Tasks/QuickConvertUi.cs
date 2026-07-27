@@ -185,6 +185,11 @@ namespace Nmkoder.UI.Tasks
             return (CodecUtils.SubtitleCodec)Math.Max(0, Form.EncSubCodecBox.SelectedIndex);
         }
 
+        public static Containers.Container GetCurrentContainer()
+        {
+            return (Containers.Container)Math.Max(0, Form.FfmpegContainerBox.SelectedIndex);
+        }
+
         #endregion
 
         public static Dictionary<string, string> GetVideoArgsFromUi(bool vbr)
@@ -431,8 +436,7 @@ namespace Nmkoder.UI.Tasks
 
         public static string GetMuxingArgs()
         {
-            Containers.Container c = (Containers.Container)Math.Max(0, Form.FfmpegContainerBox.SelectedIndex);
-            return Containers.GetMuxingArgs(c);
+            return Containers.GetMuxingArgs(GetCurrentContainer());
         }
 
         public static string GetMiscInputArgs()

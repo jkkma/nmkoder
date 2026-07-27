@@ -45,6 +45,14 @@ namespace Nmkoder.UI.Tasks
                 CodecUtils.SubtitleCodec sCodec = GetCurrentCodecS();
                 bool anyVideoStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video);
                 bool anyAudioStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio);
+                string subProblem = GetSubtitleProblem(sCodec, vCodec);
+
+                if (subProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(subProblem);
+                    return;
+                }
+
                 bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
@@ -107,6 +115,74 @@ namespace Nmkoder.UI.Tasks
 
             AvProcess.FfmpegSettings settings = new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true };
             await AvProcess.RunFfmpeg(settings);
+        }
+
+        /// <summary>
+        /// Describes why the selected subtitle codec cannot produce the requested output, or "" if it can.
+        /// ffmpeg only reports these mismatches once it is already muxing, which on a long encode means
+        /// finding out at the very end, so the ones that can be seen from the selection are caught here.
+        /// </summary>
+        private static string GetSubtitleProblem(CodecUtils.SubtitleCodec sCodec, IEncoder vCodec)
+        {
+            List<Data.Streams.SubtitleStream> subStreams = TrackList.CheckedItems
+                .Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Subtitle)
+                .Select(x => (Data.Streams.SubtitleStream)x.Stream).ToList();
+
+            // Fixed formats (GIF/PNG/JPG) map video only, so no subtitle reaches the muxer either way
+            if (sCodec == CodecUtils.SubtitleCodec.StripSubs || subStreams.Count < 1 || vCodec.IsFixedFormat)
+                return "";
+
+            Containers.Container container = GetCurrentContainer();
+            string containerName = container.ToString().ToUpper();
+
+            if (sCodec == CodecUtils.SubtitleCodec.CopySubs)
+            {
+                var unsupported = subStreams.Where(x => !Containers.CanCopySubtitleCodec(container, x.Codec)).ToList();
+
+                if (unsupported.Count < 1)
+                    return "";
+
+                string names = string.Join(", ", unsupported.Select(x => Aliases.GetNicerCodecName(x.Codec)).Distinct());
+                return $"{containerName} cannot store {names} subtitles, so they cannot be copied into it.\n\n" +
+                    $"{GetAcceptedSubCodecs(container)}\n\n" +
+                    $"Change the container, re-encode the subtitles, or set the subtitle codec to " +
+                    $"\"{CodecUtils.GetCodec(CodecUtils.SubtitleCodec.StripSubs).FriendlyName}\".";
+            }
+
+            IEncoder sEnc = CodecUtils.GetCodec(sCodec);
+
+            if (!Containers.GetSupportedSubtitleCodecs(container).Contains(sCodec))
+                return $"{containerName} does not support {GetShortName(sEnc)} subtitles.\n\n{GetAcceptedSubCodecs(container)}";
+
+            var bitmapStreams = subStreams.Where(x => x.Bitmap).ToList();
+
+            if (bitmapStreams.Count > 0)
+            {
+                string names = string.Join(", ", bitmapStreams.Select(x => Aliases.GetNicerCodecName(x.Codec)).Distinct());
+                return $"{names} subtitles are image-based and cannot be encoded to {GetShortName(sEnc)}, which is text-based.\n\n" +
+                    $"Copy them without re-encoding into a container that stores them (MKV), " +
+                    $"or convert them to text first with the \"OCR Bitmap Subtitles\" utility.";
+            }
+
+            return "";
+        }
+
+        /// <summary> What a container takes when re-encoding, phrased for an error message. </summary>
+        private static string GetAcceptedSubCodecs(Containers.Container c)
+        {
+            CodecUtils.SubtitleCodec[] supported = Containers.GetSupportedSubtitleCodecs(c);
+            string name = c.ToString().ToUpper();
+
+            if (supported.Length < 1)
+                return $"{name} cannot hold subtitles in any format.";
+
+            return $"{name} accepts {string.Join(" and ", supported.Select(x => GetShortName(CodecUtils.GetCodec(x))))}.";
+        }
+
+        /// <summary> An encoder's friendly name without the trailing " - For MKV" style container hint. </summary>
+        private static string GetShortName(IEncoder enc)
+        {
+            return enc.FriendlyName.Split(" - ")[0].Trim();
         }
 
         private static string GetFfmpegOutPath(IEncoder c)
