@@ -257,7 +257,7 @@ namespace Nmkoder.UI.Tasks
                 await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
 
             Program.MainWin.SetWorking(false);
-            await AskDeleteTempFolder(tempDir);
+            DeleteTempFolder(tempDir, RunTask.canceled);
         }
 
         /// <summary>
