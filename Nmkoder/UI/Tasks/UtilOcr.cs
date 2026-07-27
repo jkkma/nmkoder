@@ -20,36 +20,60 @@ namespace Nmkoder.UI.Tasks
         public static async Task Run ()
         {
             Program.MainWin.SetWorking(true);
-            List<StreamListEntry> checkedStreams = TrackList.CheckedItems.ToList();
-            List<SubtitleStream> subStreams = checkedStreams.Where(x => x.Stream.Type == Stream.StreamType.Subtitle).Select(x => (SubtitleStream)x.Stream).ToList();
 
-            List<SubtitleStream> streamsText = subStreams.Where(x => !x.Bitmap).ToList();
-            List<SubtitleStream> streamsBitmap = subStreams.Where(x => x.Bitmap).ToList();
-
-            string inPath = TrackList.current.File.ImportPath;
-            string outDirName = Path.GetFileNameWithoutExtension(inPath).CleanString().Trunc(50, false) + "-Subtitles";
-            string outDir = Path.Combine(new FileInfo(inPath).DirectoryName, outDirName);
-
-            if(!Directory.Exists(OcrProcess.GetDir()) || IoUtils.GetAmountOfFiles(OcrProcess.GetDir(), true, "*.exe") < 1)
+            // Every exit below used to leave the window in its working state, which is unrecoverable
+            // without restarting - and two of them are the ordinary "nothing to do here" cases.
+            try
             {
-                Logger.Log($"OCR binaries not found! Did you download a build without OCR?");
-                return;
-            }
+                MediaFile file = TrackList.current?.File;
 
-            if(streamsBitmap.Count < 1)
+                if (file == null)
+                {
+                    Logger.Log($"No input file loaded!");
+                    return;
+                }
+
+                // This runs on the loaded file alone: the tracks are extracted from it and the output
+                // folder is named after it. Tracks belonging to other files in the list are not in that
+                // extract, and looking them up in it returns no position at all, so they are named and
+                // skipped rather than taken for whichever track happens to sit where they are not.
+                List<StreamListEntry> checkedSubs = TrackList.CheckedItems.Where(x => x.Stream.Type == Stream.StreamType.Subtitle).ToList();
+                List<StreamListEntry> otherFiles = checkedSubs.Where(x => x.MediaFile == null || x.MediaFile.ImportPath != file.ImportPath).ToList();
+                List<SubtitleStream> subStreams = checkedSubs.Except(otherFiles).Select(x => (SubtitleStream)x.Stream).ToList();
+
+                List<SubtitleStream> streamsText = subStreams.Where(x => !x.Bitmap).ToList();
+                List<SubtitleStream> streamsBitmap = subStreams.Where(x => x.Bitmap).ToList();
+
+                if (!Directory.Exists(OcrProcess.GetDir()) || IoUtils.GetAmountOfFiles(OcrProcess.GetDir(), true, "*.exe") < 1)
+                {
+                    Logger.Log($"OCR binaries not found! Did you download a build without OCR?");
+                    return;
+                }
+
+                if (otherFiles.Count > 0)
+                    Logger.Log($"Skipping {otherFiles.Count} checked subtitle track{(otherFiles.Count == 1 ? "" : "s")} from other files - " +
+                        $"OCR runs on the loaded file only ('{file.Name.Trunc(40)}'). Load another file to convert its tracks.");
+
+                if (streamsBitmap.Count < 1)
+                {
+                    Logger.Log($"No bitmap subtitles found to convert!");
+                    return;
+                }
+
+                string outDirName = Path.GetFileNameWithoutExtension(file.ImportPath).CleanString().Trunc(50, false) + "-Subtitles";
+                string outDir = Path.Combine(new FileInfo(file.ImportPath).DirectoryName, outDirName);
+
+                Logger.Log($"Preparing to run OCR on subtitle streams {string.Join(", ", streamsBitmap.Select(x => $"#{x.Index + 1}"))}.");
+
+                await OcrUtils.RunOcrOnStreams(file, streamsBitmap, outDir);
+
+                if (streamsText.Count > 0)
+                    Logger.Log($"Won't run OCR on subtitle stream{(streamsText.Count == 1 ? "" : "s")} {string.Join(", ", streamsText.Select(x => $"#{x.Index + 1}"))} as they are text-based.");
+            }
+            finally
             {
-                Logger.Log($"No bitmap subtitles found to convert!");
-                return;
+                Program.MainWin.SetWorking(false);
             }
-
-            Logger.Log($"Preparing to run OCR on subtitle streams {string.Join(", ", streamsBitmap.Select(x => $"#{x.Index + 1}"))}.");
-
-            await OcrUtils.RunOcrOnStreams(inPath, streamsBitmap, outDir);
-
-            if(streamsText.Count > 0)
-                Logger.Log($"Won't run OCR on subtitle streams{(streamsText.Count == 1 ? "" : "s")} {string.Join(", ", streamsText.Select(x => $"#{x.Index + 1}"))} as they are text-based.");
-
-            Program.MainWin.SetWorking(false);
         }
     }
 }

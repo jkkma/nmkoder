@@ -1,11 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using VC = Nmkoder.Data.CodecUtils.VideoCodec;
+﻿using VC = Nmkoder.Data.CodecUtils.VideoCodec;
 using AC = Nmkoder.Data.CodecUtils.AudioCodec;
 using SC = Nmkoder.Data.CodecUtils.SubtitleCodec;
 using Nmkoder.IO;
-using Nmkoder.Data.Codecs;
 
 namespace Nmkoder.Data
 {
@@ -13,10 +9,16 @@ namespace Nmkoder.Data
     {
         public enum Container { Mp4, Mkv, Webm, Mov, M4a, Ogg };
 
+        // Both tables below were checked encoder by encoder against ffmpeg rather than reasoned about:
+        // each codec was muxed into each container and the ones that came out are the ones listed. The
+        // earlier lists were narrower than ffmpeg in several places, which is the direction that hurts -
+        // it refuses combinations that would have worked.
+
         public static VC[] GetSupportedVideoCodecs (Container c)
         {
+            // VP9 does go into MP4, contrary to what this used to say
             if (c == Container.Mp4)
-                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibSvtAv1, VC.LibAomAv1 };
+                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
 
             if (c == Container.Mkv)
                 return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1, VC.Png, VC.Jpg };
@@ -24,31 +26,41 @@ namespace Nmkoder.Data
             if (c == Container.Webm)
                 return new VC[] { VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
 
+            // MOV takes H.264/H.265 but not VP9 or AV1
             if (c == Container.Mov)
                 return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc };
 
-            return new VC[0];
+            // .m4a goes to the ipod muxer, not the mp4 one, and that muxer's tag table is much shorter:
+            // H.264 muxes, H.265 and VP9 and AV1 do not. Listing it does not put video in an audio file,
+            // it only stops a working combination being called invalid.
+            if (c == Container.M4a)
+                return new VC[] { VC.Libx264, VC.H264Nvenc };
+
+            return new VC[0]; // OGG holds none of the video codecs offered here
         }
 
         public static AC[] GetSupportedAudioCodecs(Container c)
         {
+            // MP4 is the permissive one: everything offered here muxes into it
             if (c == Container.Mp4)
-                return new AC[] { AC.Aac, AC.Mp3 };
+                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Eac3, AC.Mp3, AC.Flac };
 
             if (c == Container.Mkv)
-                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Mp3, AC.Flac };
+                return new AC[] { AC.Aac, AC.Opus, AC.Vorbis, AC.Eac3, AC.Mp3, AC.Flac };
 
             if (c == Container.Webm)
                 return new AC[] { AC.Opus, AC.Vorbis };
 
+            // Opus and FLAC are the two MP4 takes and MOV does not - ffmpeg says so in as many words:
+            // "opus only supported in MP4", "flac only supported in MP4".
             if (c == Container.Mov)
-                return new AC[] { AC.Aac, AC.Mp3 };
+                return new AC[] { AC.Aac, AC.Vorbis, AC.Eac3, AC.Mp3 };
 
             if (c == Container.M4a)
-                return new AC[] { AC.Aac };
+                return new AC[] { AC.Aac }; // ipod muxer again - AAC and nothing else offered here
 
             if (c == Container.Ogg)
-                return new AC[] { AC.Opus, AC.Vorbis };
+                return new AC[] { AC.Opus, AC.Vorbis, AC.Flac };
 
             return new AC[0];
         }
@@ -89,38 +101,61 @@ namespace Nmkoder.Data
             return false; // M4A and OGG carry no subtitles at all
         }
 
-        public static bool ContainerSupports(Container c, IEncoder enc)
+        // The three checks below answer a different question from the tables above: not "can this
+        // container hold what we are about to encode" but "can it hold what the source already is",
+        // which is what copying asks. Source files carry codecs this app cannot produce - AC-3, DTS,
+        // TrueHD, PCM, ProRes - so the encode tables cannot answer it.
+        //
+        // Where a container is narrow and well defined the codecs it takes are listed outright; where
+        // it is broad the few that fail are listed instead and everything else passes. Erring towards
+        // passing is deliberate: letting a bad combination through only reproduces what happens today,
+        // ffmpeg refusing it, whereas blocking a good one stops work that would have succeeded.
+
+        /// <summary> Whether "-c:a copy" will mux a source audio stream of this codec into <paramref name="c"/>. </summary>
+        public static bool CanCopyAudioCodec(Container c, string ffprobeCodecName)
         {
-            string name = enc.Name;
-            //Logger.Log($"ContainerSupports - Container {c}, IEncoder.Name {enc.Name} - Container supports {string.Join("/", GetSupportedVideoCodecs(c).Select(x => x.ToString()))}");
+            string codec = (ffprobeCodecName ?? "").Trim().ToLower();
 
-            if(enc.Type == Streams.Stream.StreamType.Video)
-                return name == VC.CopyVideo.ToString() || name == VC.StripVideo.ToString() || GetSupportedVideoCodecs(c).Select(x => x.ToString()).Contains(name);
+            if (c == Container.Mkv)
+                return true; // Matroska took every audio codec tried against it
 
-            if (enc.Type == Streams.Stream.StreamType.Audio)
-                return name == AC.CopyAudio.ToString() || name == AC.StripAudio.ToString() || GetSupportedAudioCodecs(c).Select(x => x.ToString()).Contains(name);
+            if (c == Container.Webm)
+                return codec == "opus" || codec == "vorbis";
 
-            if (enc.Type == Streams.Stream.StreamType.Subtitle)
-                return name == SC.CopySubs.ToString() || name == SC.StripSubs.ToString() || GetSupportedSubtitleCodecs(c).Select(x => x.ToString()).Contains(name);
+            if (c == Container.Ogg)
+                return codec == "opus" || codec == "vorbis" || codec == "flac";
 
-            return false;
+            if (c == Container.M4a)
+                return codec == "aac" || codec == "ac3" || codec == "alac";
+
+            if (c == Container.Mov)
+                return !(codec == "opus" || codec == "flac" || codec == "truehd"); // ffmpeg: "opus only supported in MP4"
+
+            return !(codec.StartsWith("wma") || codec == "truehd"); // MP4 takes the rest, including DTS and PCM
         }
 
-        public static Container GetSupportedContainer(IEncoder cv, IEncoder ca, IEncoder cs)
+        /// <summary> Whether "-c:v copy" will mux a source video stream of this codec into <paramref name="c"/>. </summary>
+        public static bool CanCopyVideoCodec(Container c, string ffprobeCodecName)
         {
-            if (ContainerSupports(Container.Mp4, cv) && ContainerSupports(Container.Mp4, ca) && ContainerSupports(Container.Mp4, cs))
-                return Container.Mp4;
+            string codec = (ffprobeCodecName ?? "").Trim().ToLower();
 
-            if (ContainerSupports(Container.Mkv, cv) && ContainerSupports(Container.Mkv, ca) && ContainerSupports(Container.Mkv, cs))
-                return Container.Mkv;
+            if (c == Container.Mkv)
+                return true; // Matroska took every video codec tried against it
 
-            if (ContainerSupports(Container.Webm, cv) && ContainerSupports(Container.Webm, ca) && ContainerSupports(Container.Webm, cs))
-                return Container.Webm;
+            if (c == Container.Webm)
+                return codec == "av1" || codec == "vp8" || codec == "vp9";
 
-            if (ContainerSupports(Container.Mov, cv) && ContainerSupports(Container.Mov, ca) && ContainerSupports(Container.Mov, cs))
-                return Container.Mov;
+            if (c == Container.Ogg)
+                return codec == "theora" || codec == "vp8";
 
-            return Container.Mkv;
+            if (c == Container.M4a)
+                return codec == "h264" || codec == "mpeg4"; // ipod muxer, and an audio container besides
+
+            if (c == Container.Mov)
+                return !(codec == "av1" || codec == "vp8" || codec == "vp9");
+
+            return !(codec == "vp8" || codec == "prores" || codec == "theora" ||
+                     codec.StartsWith("wmv") || codec.StartsWith("msmpeg4")); // MP4 takes the rest
         }
 
         public static string GetMuxingArgs(Container c)

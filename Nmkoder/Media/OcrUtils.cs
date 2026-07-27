@@ -20,8 +20,15 @@ namespace Nmkoder.Media
     {
         public static ConcurrentDictionary<string, int> progressTracker = new ConcurrentDictionary<string, int>();
 
-        public static async Task<bool> RunOcrOnStreams(string inPath, List<SubtitleStream> streams, string outDir)
+        /// <summary>
+        /// Runs OCR over <paramref name="streams"/>, which have to be tracks of <paramref name="file"/>:
+        /// they are located by their position among its subtitle streams, and read out of an extract
+        /// taken from it. The file is passed in rather than read from the track list so that the two
+        /// cannot describe different files.
+        /// </summary>
+        public static async Task<bool> RunOcrOnStreams(MediaFile file, List<SubtitleStream> streams, string outDir)
         {
+            string inPath = file.ImportPath;
             string tempDir = Path.Combine(Paths.GetSessionDataPath(), "subs-temp");
             Directory.CreateDirectory(tempDir);
             IoUtils.DeleteContentsOfDir(tempDir);
@@ -47,7 +54,16 @@ namespace Nmkoder.Media
             for (int i = 0; i < streams.Count; i++)
             {
                 int iCopy = i;
-                int subStreamIdx = TrackList.current.File.SubtitleStreams.IndexOf(streams[iCopy]);
+                int subStreamIdx = file.SubtitleStreams.IndexOf(streams[iCopy]);
+
+                // Not one of this file's tracks, so it is not in the extract either. Left in, it would
+                // name a temp folder "-1" and ask Subtitle Edit for track number 0.
+                if (subStreamIdx < 0)
+                {
+                    Logger.Log($"Skipping a subtitle track that does not belong to '{file.Name}'.", true, false, "ocr");
+                    continue;
+                }
+
                 string srtDir = Path.Combine(tempDir, $"{subStreamIdx}");
                 Directory.CreateDirectory(srtDir);
                 tasks.Add(Task.Run(() => RunOcrOnSingleStream(tempDir, outDir, streams[iCopy], subStreamIdx)));
