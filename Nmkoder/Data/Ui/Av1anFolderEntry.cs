@@ -38,15 +38,8 @@ namespace Nmkoder.Data.Ui
             if (jsonInfo.ContainsKey("filePath"))
                 InputFile = File.Exists(jsonInfo["filePath"]) ? new FileInfo(jsonInfo["filePath"]) : null;
 
-            CreationDate = new DateTime(1970, 1, 1, 0, 0, 0, 0);
-
-            if (jsonInfo.ContainsKey("creationTimestamp"))
-                CreationDate = CreationDate.AddMilliseconds(long.Parse(jsonInfo["creationTimestamp"]));
-
-            LastRunDate = new DateTime(1970, 1, 1, 0, 0, 0, 0);
-
-            if (jsonInfo.ContainsKey("lastRunTimestamp"))
-                LastRunDate = LastRunDate.AddMilliseconds(long.Parse(jsonInfo["lastRunTimestamp"]));
+            CreationDate = ParseTimestamp(jsonInfo, "creationTimestamp");
+            LastRunDate = ParseTimestamp(jsonInfo, "lastRunTimestamp");
 
             if (jsonInfo.ContainsKey("tempFolderName"))
                 TempFolderName = jsonInfo["tempFolderName"];
@@ -56,6 +49,29 @@ namespace Nmkoder.Data.Ui
 
             TimeSinceCreation = DateTime.Now - CreationDate;
             TimeSinceLastRun = DateTime.Now - LastRunDate;
+        }
+
+        /// <summary>
+        /// A unix millisecond timestamp from the info json as a date, or the epoch - which the display
+        /// reads as "unknown" - for anything it cannot make one out of. A resumed encode whose original
+        /// json had no creation time is deliberately written as "-1" and lands here too. Throwing
+        /// instead lost the whole entry, and with it the only offer to resume that encode.
+        /// </summary>
+        private static DateTime ParseTimestamp(Dictionary<string, string> json, string key)
+        {
+            DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);
+
+            if (json == null || !json.ContainsKey(key) || !long.TryParse(json[key], out long ms) || ms <= 0)
+                return epoch;
+
+            try
+            {
+                return epoch.AddMilliseconds(ms);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return epoch; // Far enough out of range to fall off the calendar
+            }
         }
 
         public override string ToString()

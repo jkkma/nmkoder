@@ -263,6 +263,9 @@ namespace Nmkoder.IO
             }
 
             if (key == Key.Av1anOptsChunkModeBox)       return WriteDefault(key, "1");
+            // Scene change detection, not "None" - index 0 would otherwise become the default purely
+            // because an unset key reads as zero, which is not the mode anyone wants to encode in.
+            if (key == Key.Av1anOptsSplitModeBox)       return WriteDefault(key, "1");
             // Taken from the enum rather than written out, so reordering the codecs cannot leave
             // this pointing at a different one. Opus defaults to 128 kbps for stereo on its own.
             if (key == Key.Av1anAudCodecBox)            return WriteDefault(key, ((int)CodecUtils.AudioCodec.Opus).ToString());
@@ -301,6 +304,7 @@ namespace Nmkoder.IO
             Av1anAudCodecBox,
             Av1anThreadsUpDown,
             Av1anOptsChunkModeBox,
+            Av1anOptsSplitModeBox,
             Av1anOptsWorkerCountUpDown,
             CmdDebugMode,
             DefaultKeyIntSecs,

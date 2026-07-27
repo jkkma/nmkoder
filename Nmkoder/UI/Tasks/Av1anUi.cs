@@ -112,11 +112,14 @@ namespace Nmkoder.UI.Tasks
             ValidateContainer();
         }
 
+        /// <summary>
+        /// The encoder's default bitrate, for a stereo track. The channel multiplier is deliberately
+        /// left off: it is applied again where the arguments are built, so pre-multiplying it here
+        /// encoded a 5.1 track at twice the bitrate the box was showing.
+        /// </summary>
         static void LoadAudBitrate(IEncoder enc)
         {
-            int channels = Form.Av1anAudChannelsBox.GetText().Split(' ')[0].GetInt();
-            decimal value = enc.QDefault >= 0 ? (enc.QDefault * MiscUtils.GetAudioBitrateMultiplier(channels)).RoundToInt() : 0;
-            Form.Av1anAudQualUpDown.SetValueClamped(value);
+            Form.Av1anAudQualUpDown.SetValueClamped(enc.QDefault >= 0 ? enc.QDefault : 0);
         }
 
         #region Load Info After Selecting Encoder
@@ -407,7 +410,7 @@ namespace Nmkoder.UI.Tasks
             return indices;
         }
 
-        public static string GetConcatMethodArgs()
+        public static string GetConcatMethodArgs(CodecUtils.Av1anCodec vCodec)
         {
             // mkvmerge writes Matroska and nothing else. Pointed at an .mp4 it does not refuse - it
             // writes a Matroska file under that name - so MP4 goes out through ffmpeg whatever the
@@ -415,7 +418,33 @@ namespace Nmkoder.UI.Tasks
             if (IsMp4Output())
                 return "-c ffmpeg";
 
-            return $"-c {Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim()}";
+            string chosen = GetConcatMethodName();
+
+            // ffmpeg cannot join raw HEVC chunks back up, and av1an refuses the pairing outright rather
+            // than discovering it at the end. Correcting the one setting beats failing the whole encode.
+            if (vCodec == CodecUtils.Av1anCodec.X265 && chosen != "mkvmerge")
+            {
+                Logger.Log($"Note: H.265 can only be concatenated by mkvmerge, so that is being used rather than {chosen}.");
+                return "-c mkvmerge";
+            }
+
+            return $"-c {chosen}";
+        }
+
+        /// <summary> av1an's name for the selected concatenation method. </summary>
+        public static string GetConcatMethodName()
+        {
+            return Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim();
+        }
+
+        /// <summary>
+        /// Whether the IVF concatenator is selected. IVF is a bare video stream - no audio, no
+        /// subtitles, and only VP8, VP9 or AV1 - so none of the containers on offer describes what it
+        /// would actually write.
+        /// </summary>
+        public static bool IsUsingIvfConcat()
+        {
+            return GetConcatMethodName() == "ivf";
         }
 
         /// <summary> av1an's ChunkOrdering values, in the same order as the dropdown items. </summary>
@@ -468,17 +497,30 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static List<Av1anFolderEntry> GetResumableEncodes()
         {
+            List<Av1anFolderEntry> entries = new List<Av1anFolderEntry>();
+
             try
             {
-                return new DirectoryInfo(Paths.GetAv1anTempPath()).GetDirectories()
-                    .Select(x => new Av1anFolderEntry(x.FullName))
-                    .OrderBy(x => x.TimeSinceLastRun.TotalMilliseconds).ToList();
+                foreach (DirectoryInfo dir in new DirectoryInfo(Paths.GetAv1anTempPath()).GetDirectories())
+                {
+                    // Read one at a time. A single unreadable folder used to take the whole list down
+                    // with it, and every other encode then went unmentioned and unresumable.
+                    try
+                    {
+                        entries.Add(new Av1anFolderEntry(dir.FullName));
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Log($"Skipping av1an temp folder '{dir.Name}': {e.Message}", true);
+                    }
+                }
             }
             catch (Exception e)
             {
                 Logger.Log($"Failed to look for resumable encodes: {e.Message}", true);
-                return new List<Av1anFolderEntry>();
             }
+
+            return entries.OrderBy(x => x.TimeSinceLastRun.TotalMilliseconds).ToList();
         }
 
         /// <summary>
@@ -506,13 +548,18 @@ namespace Nmkoder.UI.Tasks
         /// Finished: deleted without asking. Stopped by an error: kept, since that was not a decision
         /// anyone made. Stopped by the user: asked about, because stopping an encode and abandoning it
         /// are different intentions and the folder is the whole of what Resume works from.
+        /// <para/>
+        /// 'succeeded' has to mean av1an actually finished and wrote the file. Taking "was not
+        /// canceled" for success threw away every finished chunk whenever av1an died on its own - a
+        /// crashed encoder, a full disk, a parameter it would not take - which is exactly when
+        /// resuming is worth the most.
         /// </summary>
-        public static async Task HandleTempFolder(string dir, bool canceled, bool canceledByUser)
+        public static async Task HandleTempFolder(string dir, bool succeeded, bool canceledByUser)
         {
             if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
                 return;
 
-            if (!canceled) // Ran to the end - nothing left to resume from, and asking would be the same answer every time
+            if (succeeded) // Ran to the end - nothing left to resume from, and asking would be the same answer every time
             {
                 DeleteTempFolder(dir);
                 return;

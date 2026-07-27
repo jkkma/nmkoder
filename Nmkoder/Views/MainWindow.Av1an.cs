@@ -97,6 +97,7 @@ namespace Nmkoder.Views
             ConfigParser.LoadComboxIndex(Av1anCodecBox);
             ConfigParser.LoadComboxIndex(Av1anAudCodecBox);
             ConfigParser.LoadComboxIndex(Av1anOptsChunkModeBox);
+            ConfigParser.LoadComboxIndex(Av1anOptsSplitModeBox);
             ConfigParser.LoadComboxIndex(Av1anOptsConcatModeBox);
             ConfigParser.LoadComboxIndex(Av1anOptsChunkOrderBox);
             ConfigParser.LoadGuiElement(Av1anOptsWorkerCountUpDown, false);
@@ -112,6 +113,7 @@ namespace Nmkoder.Views
             ConfigParser.SaveComboxIndex(Av1anCodecBox);
             ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
             ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
+            ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
             ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
             ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
             ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);

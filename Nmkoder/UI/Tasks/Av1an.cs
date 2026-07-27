@@ -80,6 +80,8 @@ namespace Nmkoder.UI.Tasks
             string inPath = "";
             string outPath = "";
             string tempDir = "";
+            string tempDirName = "";
+            string creationTimestamp = "";
             string timestamp = ((long)(DateTime.Now - new DateTime(1970, 1, 1)).TotalMilliseconds).ToString();
             // Set only when the arguments are built from the UI: replaying saved arguments means running
             // exactly what was saved, and may not even have a file loaded to take the subtitles from.
@@ -123,6 +125,18 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    // IVF holds one raw video stream and nothing else - no audio, no subtitles, and only
+                    // VP8, VP9 or AV1. MKV and WebM are neither, so what it wrote would carry their name
+                    // over a file that is not one, missing every track that is not video and with nothing
+                    // having said so. MP4 is exempt only because it already overrides the dropdown below.
+                    if (!mp4 && IsUsingIvfConcat())
+                    {
+                        RunTask.Cancel("The IVF concatenator writes a raw video stream, not an MKV or WebM file, " +
+                            "and it holds no audio or subtitles.\n\n" +
+                            "Choose MKVMerge or FFmpeg as the concatenation method.");
+                        return;
+                    }
+
                     // The check above only covers re-encoding. Copying is a separate question - it turns
                     // on what the source already is, and a track the container cannot hold fails the
                     // final mux just the same, having by then encoded the whole video for nothing.
@@ -145,6 +159,9 @@ namespace Nmkoder.UI.Tasks
                     TrackList.current.File.ColorData = await ColorDataUtils.GetColorData(TrackList.current.File.SourcePath);
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(GetVideoArgsFromUi(), TrackList.current.File, Data.Codecs.Pass.OneOfOne);
                     string vf = await GetVideoFilterArgs(codecArgs);
+                    // Deliberately built without the media file: that is what tells the audio arguments
+                    // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
+                    // audio track, and this tab has one bitrate and one channel count for all of them.
                     string ffAud = CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi()).Arguments;
                     var form = Program.MainWin;
                     bool copySubs = form.CheckAv1anCopySubs.IsChecked == true;
@@ -172,7 +189,7 @@ namespace Nmkoder.UI.Tasks
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
                         $"{GetChunkGenMethod()} " +
-                        $"{GetConcatMethodArgs()} " +
+                        $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
                         $"--sc-downscale-height {GetScDownscaleHeight()} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
@@ -192,35 +209,44 @@ namespace Nmkoder.UI.Tasks
                 }
                 else
                 {
-                    inPath = overrideArgs.Split("-i \"")[1].Split("\"")[0].Trim();
-                    outPath = overrideArgs.Split(" -o \"").Last().Remove("\"").Trim();
+                    inPath = ParseQuotedArg(overrideArgs, "-i");
+                    outPath = ParseQuotedArg(overrideArgs, "-o");
                     args = overrideArgs;
+
+                    if (inPath.IsEmpty() || outPath.IsEmpty())
+                    {
+                        Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
                 }
 
                 if (outPath == inPath)
                 {
                     Logger.Log($"Output path can't be the same as the input path!");
+                    Program.MainWin.SetWorking(false);
                     return;
                 }
 
                 if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
                     Logger.Log($"Output path must have a valid file extension!");
+                    Program.MainWin.SetWorking(false);
                     return;
                 }
 
-                string tempDirName = overrideTempDir.IsNotEmpty() ? overrideTempDir : timestamp;
+                tempDirName = overrideTempDir.IsNotEmpty() ? overrideTempDir : timestamp;
                 tempDir = Directory.CreateDirectory(Path.Combine(Paths.GetAv1anTempPath(), tempDirName)).FullName;
                 AvProcess.lastTempDirAv1an = tempDir;
 
                 args = $"{(resume ? "-r" : "")} --temp {tempDir.Wrap()} {args}";
-
-                string creationTimestamp = (resume ? (LoadJson(overrideTempDir).ContainsKey("creationTimestamp") ? LoadJson(overrideTempDir)["creationTimestamp"] : "-1") : timestamp);
-                SaveJson(inPath, tempDirName, args, creationTimestamp, timestamp);
+                creationTimestamp = (resume ? (LoadJson(overrideTempDir).ContainsKey("creationTimestamp") ? LoadJson(overrideTempDir)["creationTimestamp"] : "-1") : timestamp);
             }
             catch (Exception e)
             {
                 Logger.Log($"Error creating av1an command: {e.Message}\n{e.StackTrace}");
+                DiscardUnusedTempFolder(tempDir, resume);
+                Program.MainWin.SetWorking(false);
                 return;
             }
 
@@ -230,12 +256,17 @@ namespace Nmkoder.UI.Tasks
 
                 if (string.IsNullOrWhiteSpace(edited))
                 {
+                    DiscardUnusedTempFolder(tempDir, resume);
                     Program.MainWin.SetWorking(false);
                     return;
                 }
 
                 args = edited;
             }
+
+            // Written only now, so that what a resume replays is the command that actually ran. Saving
+            // it before the edit window meant holding Shift to fix a command left the broken one on disk.
+            SaveJson(inPath, tempDirName, args, creationTimestamp, timestamp);
 
             try
             {
@@ -244,21 +275,73 @@ namespace Nmkoder.UI.Tasks
             catch (Exception e)
             {
                 Logger.Log($"Failed to create output folder: {e.Message}");
+                DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
             }
 
             Logger.Log($"Running:\nav1an {args}", true, false, "av1an");
 
-            _ = Task.Run(() => CreateAttachmentMkv(args, tempDir));
-            await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
+            if (!resume) // A resumed encode finds audio.mkv already written, attachment and all
+                _ = Task.Run(() => CreateAttachmentMkv(args, tempDir));
+
+            int exitCode = await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
 
             if (subsToAddAfter.Count > 0 && !RunTask.canceled)
                 await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
 
             Program.MainWin.SetWorking(false);
-            await HandleTempFolder(tempDir, RunTask.canceled, RunTask.canceledManually);
+
+            // Both halves matter. av1an failing on its own - a crashed encoder, a full disk, an argument
+            // it would not take - sets nothing on RunTask and used to be indistinguishable from success,
+            // so the finished chunks were deleted at exactly the moment they were worth the most.
+            bool succeeded = exitCode == 0 && !RunTask.canceled && IoUtils.GetFilesize(outPath) > 0;
+
+            if (!succeeded && !RunTask.canceled)
+                Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+
+            await HandleTempFolder(tempDir, succeeded, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one
+        }
+
+        /// <summary>
+        /// Removes a temp folder that was created for a run which then never started. Only ever the
+        /// folder minted for this run: the one a resume points at holds the chunks being resumed from,
+        /// and backing out of a resume is not a reason to throw those away.
+        /// </summary>
+        private static void DiscardUnusedTempFolder(string tempDir, bool resume)
+        {
+            if (resume || tempDir.IsEmpty())
+                return;
+
+            DeleteTempFolder(tempDir);
+            AvProcess.lastTempDirAv1an = "";
+        }
+
+        /// <summary>
+        /// The value of a quoted argument such as -i or -o, read back out of a command line.
+        /// <para/>
+        /// Reading to the end of the string instead only worked while the flag was last, and -o is not:
+        /// the target quality options are appended after it. A resumed VMAF encode therefore took its
+        /// output path to be the path plus every flag that followed, and died creating a folder for it.
+        /// </summary>
+        private static string ParseQuotedArg(string args, string flag)
+        {
+            string token = $"{flag} \"";
+
+            for (int at = args.IndexOf(token); at >= 0; at = args.IndexOf(token, at + 1))
+            {
+                if (at > 0 && !char.IsWhiteSpace(args[at - 1])) // The tail of a longer flag, not this one
+                    continue;
+
+                int start = at + token.Length;
+                int end = args.IndexOf('"', start);
+
+                if (end >= 0)
+                    return args.Substring(start, end - start).Trim();
+            }
+
+            return "";
         }
 
         /// <summary>
@@ -337,10 +420,20 @@ namespace Nmkoder.UI.Tasks
                 string jsonPath = Path.Combine(Paths.GetAv1anTempPath(), $"{tempFolderName}.json");
                 Dictionary<string, string> info = new Dictionary<string, string>();
 
+                // Everything from -i onwards: the resume flag and the temp folder are set again by
+                // whoever resumes, so saving this run's would point the next one at the wrong place.
+                int inputAt = args.IndexOf(" -i ");
+
+                if (inputAt < 0)
+                {
+                    Logger.Log($"Not saving resume info: the command names no input file.", true);
+                    return;
+                }
+
                 info.Add("fileName", Path.GetFileName(inputFilePath));
                 info.Add("filePath", inputFilePath);
                 info.Add("tempFolderName", tempFolderName);
-                info.Add("args", "-i " + args.Split(" -i ")[1]);
+                info.Add("args", args.Substring(inputAt + 1).Trim());
                 info.Add("creationTimestamp", creationTimestamp);
                 info.Add("lastRunTimestamp", lastRunTimestamp);
 
