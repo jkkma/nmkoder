@@ -53,7 +53,7 @@ namespace Nmkoder.UI.Tasks
             try
             {
                 if (path.IsNotEmpty())
-                    Form.Av1anOutputPathBox.Text = Path.ChangeExtension(path, null);
+                    Form.Av1anOutputPathBox.Text = UiData.GetDefaultOutPath(path);
 
                 if (!RunTask.runningBatch) // Don't load new values into UI in batch mode since we apply the same for all files
                     InitAudioChannels(TrackList.current?.File.AudioStreams.FirstOrDefault()?.Channels);

@@ -56,7 +56,7 @@ namespace Nmkoder.UI.Tasks
             {
                 if (path.IsNotEmpty())
                 {
-                    Form.FfmpegOutputBox.Text = Path.ChangeExtension(path, null);
+                    Form.FfmpegOutputBox.Text = UiData.GetDefaultOutPath(path);
                     ValidateContainer();
                 }
 

@@ -1,9 +1,44 @@
 using Nmkoder.Extensions;
+using Nmkoder.IO;
+using System;
+using System.IO;
 
 namespace Nmkoder.UI
 {
     internal class UiData
     {
+        /// <summary>
+        /// Where to offer to save a newly loaded file, without an extension - the container adds that.
+        /// The source's own name, in the folder set as the default destination, or beside the source
+        /// when no default is set.
+        /// </summary>
+        public static string GetDefaultOutPath(string sourcePath)
+        {
+            string besideSource = Path.ChangeExtension(sourcePath, null);
+            string dir = Config.Get(Config.Key.DefaultOutputDir, "").Trim().Trim('"');
+
+            if (dir.IsEmpty())
+                return besideSource;
+
+            // A default pointing somewhere gone - a drive not plugged in, a folder since deleted - would
+            // otherwise be handed to ffmpeg, which does not create directories and fails at the last step.
+            if (!Directory.Exists(dir))
+            {
+                Logger.Log($"Default output folder '{dir}' does not exist - saving next to the source file instead.");
+                return besideSource;
+            }
+
+            try
+            {
+                return Path.Combine(dir, Path.GetFileName(besideSource));
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Default output folder '{dir}' cannot be used ({e.Message}) - saving next to the source file instead.");
+                return besideSource;
+            }
+        }
+
         public static string GetOutPath(bool includeExtension = true)
         {
             var f = Program.MainWin;

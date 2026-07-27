@@ -304,6 +304,7 @@ namespace Nmkoder.IO
             Av1anOptsWorkerCountUpDown,
             CmdDebugMode,
             DefaultKeyIntSecs,
+            DefaultOutputDir,
             metaMode,
             mp4Faststart,
             ResetSettingsList,
