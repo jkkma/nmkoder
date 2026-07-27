@@ -326,17 +326,38 @@ namespace Nmkoder.UI.Tasks
         /// streams into whichever container was asked for, so everything named here has to be legal in
         /// Matroska *and* in that container.
         /// </summary>
-        public static string BuildMuxArgs(bool copySubs, bool copyData, bool copyAttachments, bool mp4, bool webm)
+        public static string BuildMuxArgs(bool copySubs, bool copyData, bool copyAttachments, bool mp4, bool webm, IEnumerable<int> bitmapSubIndices = null)
         {
             // No subtitle codec survives both hops into MP4 - Matroska refuses mov_text, and MP4 refuses
             // both SRT and WebVTT - so for MP4 they have to go. Asking anyway fails the audio step
             // outright, and the encode then finishes with no sound either.
             string subs = copySubs && !mp4 ? (webm ? "-c:s webvtt" : "-c:s copy") : "-sn"; // WebM takes WebVTT and nothing else
+
+            // WebVTT is text, and ffmpeg refuses to turn an image-based track into text, so naming one
+            // for that conversion fails the audio step exactly as mov_text did - taking the audio with
+            // it. WebM cannot store them in any form, so they are dropped instead of converted.
+            IEnumerable<int> dropped = webm && copySubs ? (bitmapSubIndices ?? Enumerable.Empty<int>()) : Enumerable.Empty<int>();
+            string bitmapSubs = string.Join(" ", dropped.Select(i => $"-map -0:s:{i}"));
+
             string data = copyData ? "" : "-dn";
             // av1an's own '-map 0' has already taken the attachments, so they only need naming here in
             // order to drop them - mapping them a second time writes every font twice.
             string attachments = copyAttachments && !mp4 && !webm ? "" : "-map -0:t?";
-            return string.Join(" ", new[] { subs, data, attachments }.Where(x => x.IsNotEmpty()));
+            return string.Join(" ", new[] { subs, bitmapSubs, data, attachments }.Where(x => x.IsNotEmpty()));
+        }
+
+        /// <summary> Positions of the image-based tracks among a file's subtitle streams, for "-0:s:N". </summary>
+        public static List<int> GetBitmapSubtitleIndices(MediaFile file)
+        {
+            var indices = new List<int>();
+
+            for (int i = 0; file != null && i < file.SubtitleStreams.Count; i++)
+            {
+                if (file.SubtitleStreams[i].Bitmap)
+                    indices.Add(i);
+            }
+
+            return indices;
         }
 
         public static string GetConcatMethodArgs()

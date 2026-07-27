@@ -134,10 +134,14 @@ namespace Nmkoder.UI.Tasks
                     string ffAud = CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi()).Arguments;
                     var form = Program.MainWin;
                     bool copySubs = form.CheckAv1anCopySubs.IsChecked == true;
-                    string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm);
+                    List<int> bitmapSubs = GetBitmapSubtitleIndices(TrackList.current?.File);
+                    string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm, bitmapSubs);
 
                     if (copySubs && mp4)
                         Logger.Log("Note: av1an cannot carry subtitles into MP4, so they are being left out. Use MKV to keep them.");
+                    else if (copySubs && webm && bitmapSubs.Count > 0)
+                        Logger.Log($"Note: WebM only holds text subtitles, so {bitmapSubs.Count} image-based " +
+                            $"track{(bitmapSubs.Count == 1 ? " is" : "s are")} being left out. Use MKV to keep them.");
 
                     if (RunTask.canceled) return;
 
