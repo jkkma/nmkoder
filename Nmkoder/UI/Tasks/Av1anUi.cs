@@ -462,6 +462,44 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// The unfinished encodes sitting in the av1an temp folder, the one that ran most recently
+        /// first. Nothing removes these on its own - a cancelled or crashed encode keeps its folder so
+        /// it can be resumed - so this is also what they cost in disk.
+        /// </summary>
+        public static List<Av1anFolderEntry> GetResumableEncodes()
+        {
+            try
+            {
+                return new DirectoryInfo(Paths.GetAv1anTempPath()).GetDirectories()
+                    .Select(x => new Av1anFolderEntry(x.FullName))
+                    .OrderBy(x => x.TimeSinceLastRun.TotalMilliseconds).ToList();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to look for resumable encodes: {e.Message}", true);
+                return new List<Av1anFolderEntry>();
+            }
+        }
+
+        /// <summary>
+        /// Puts the number of resumable encodes on the Resume button. Without it the button reads the
+        /// same whether there are none or ten, and opening it is the only way anything says so - an
+        /// encode interrupted before a restart is otherwise not mentioned again.
+        /// </summary>
+        public static void RefreshResumeButton(bool logIfAny = false)
+        {
+            List<Av1anFolderEntry> pending = GetResumableEncodes();
+            Form.Av1anResumeBtn.Content = pending.Count > 0 ? $"Resume… ({pending.Count})" : "Resume…";
+
+            if (!logIfAny || pending.Count < 1)
+                return;
+
+            long bytes = pending.Sum(x => x.ChunkFiles.Sum(f => f.Length));
+            Logger.Log($"{pending.Count} unfinished av1an encode{(pending.Count == 1 ? "" : "s")} can be resumed " +
+                $"({FormatUtils.Bytes(bytes)} of chunks) - see Resume in the AV1AN tab.");
+        }
+
+        /// <summary>
         /// Clears away an encode's temp folder. It used to ask first, which put a dialog at the end of
         /// every encode to be answered the same way every time - and left the chunks on disk until
         /// someone came back to the machine to answer it.

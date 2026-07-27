@@ -258,6 +258,7 @@ namespace Nmkoder.UI.Tasks
 
             Program.MainWin.SetWorking(false);
             DeleteTempFolder(tempDir, RunTask.canceled);
+            RefreshResumeButton(); // This run either added a resumable folder or cleared one
         }
 
         /// <summary>

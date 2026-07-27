@@ -99,6 +99,7 @@ namespace Nmkoder.Views
             Av1anUi.InitAdvFilterGrid();
             UpdateResetSettingsText();
             QuickConvertUi.InitFile();
+            Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
             _initialized = true;
 
