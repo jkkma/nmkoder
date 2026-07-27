@@ -119,8 +119,9 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// The subtitle codec to actually encode with. MP4 and MOV store no text subtitle format other
-        /// than tx3g, so copying SRT into them cannot work - converting is the only way the tracks
-        /// survive, and carrying them over is what choosing to copy them asked for.
+        /// than tx3g, and WebM none other than WebVTT, so copying SRT into either cannot work -
+        /// converting is the only way the tracks survive, and carrying them over is what choosing to
+        /// copy them asked for.
         /// </summary>
         private static CodecUtils.SubtitleCodec ResolveSubtitleCodec(CodecUtils.SubtitleCodec sCodec, IEncoder vCodec)
         {
@@ -128,23 +129,28 @@ namespace Nmkoder.UI.Tasks
                 return sCodec;
 
             Containers.Container container = GetCurrentContainer();
-
-            if (container != Containers.Container.Mp4 && container != Containers.Container.Mov)
-                return sCodec;
-
             List<Data.Streams.SubtitleStream> subStreams = GetCheckedSubtitleStreams();
 
-            // Nothing to carry over, or already tx3g and copyable without a round trip through the encoder
-            if (subStreams.Count < 1 || subStreams.All(x => (x.Codec ?? "").Trim().ToLower() == "mov_text"))
+            // Nothing to carry over, or the tracks already go in as they are and need no round trip
+            // through the encoder
+            if (subStreams.Count < 1 || subStreams.All(x => Containers.CanCopySubtitleCodec(container, x.Codec)))
                 return sCodec;
 
-            // Image-based tracks cannot become tx3g either. They are left to GetSubtitleProblem, which
-            // says so rather than dropping them quietly.
-            IEncoder movText = CodecUtils.GetCodec(CodecUtils.SubtitleCodec.MovText);
-            Logger.Log($"{container.ToString().ToUpper()} stores no text subtitle format other than " +
-                $"{GetShortName(movText)}, so the subtitles are being converted to it rather than copied.");
+            // Only substitute where the container leaves exactly one choice. MKV takes both SRT and
+            // WebVTT, so picking one would be guessing at a preference; M4A and OGG take neither, and
+            // there is nothing to substitute. Both are left to GetSubtitleProblem to explain.
+            CodecUtils.SubtitleCodec[] supported = Containers.GetSupportedSubtitleCodecs(container);
 
-            return CodecUtils.SubtitleCodec.MovText;
+            if (supported.Length != 1)
+                return sCodec;
+
+            // Image-based tracks cannot be converted to a text format either. They are left to
+            // GetSubtitleProblem, which says so rather than dropping them quietly.
+            Logger.Log($"{container.ToString().ToUpper()} stores no text subtitle format other than " +
+                $"{GetShortName(CodecUtils.GetCodec(supported[0]))}, so the subtitles are being converted " +
+                $"to it rather than copied.");
+
+            return supported[0];
         }
 
         /// <summary>
