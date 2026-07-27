@@ -123,6 +123,17 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    // The check above only covers re-encoding. Copying is a separate question - it turns
+                    // on what the source already is, and a track the container cannot hold fails the
+                    // final mux just the same, having by then encoded the whole video for nothing.
+                    string audioProblem = GetCopiedAudioProblem(aCodec, GetCurrentContainer(), TrackList.current?.File);
+
+                    if (audioProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(audioProblem);
+                        return;
+                    }
+
                     // MP4 forces the ffmpeg concatenator (mkvmerge cannot write MP4), and av1an itself
                     // warns that vpx chunks come out of that path with the wrong frame rate.
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)

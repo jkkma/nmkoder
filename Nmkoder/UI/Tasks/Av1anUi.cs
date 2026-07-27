@@ -308,16 +308,48 @@ namespace Nmkoder.UI.Tasks
             return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
         }
 
+        /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>
+        public static Containers.Container GetCurrentContainer()
+        {
+            return Enum.TryParse(Form.Av1anContainerBox.GetText().Trim(), true, out Containers.Container c) ? c : Containers.Container.Mkv;
+        }
+
         /// <summary> Whether the chosen container is MP4, which the muxing below has to work around. </summary>
         public static bool IsMp4Output()
         {
-            return Form.Av1anContainerBox.GetText().Trim().Lower() == "mp4";
+            return GetCurrentContainer() == Containers.Container.Mp4;
         }
 
         /// <summary> Whether the chosen container is WebM, which takes only a subset of what Matroska does. </summary>
         public static bool IsWebmOutput()
         {
-            return Form.Av1anContainerBox.GetText().Trim().Lower() == "webm";
+            return GetCurrentContainer() == Containers.Container.Webm;
+        }
+
+        /// <summary>
+        /// Why the source's audio cannot be copied into the chosen container, or "" if it can. av1an
+        /// muxes the audio into an intermediate audio.mkv and later copies that file's streams into the
+        /// output, so a copied track has to be legal in both. Matroska takes everything, which leaves
+        /// the output container to object - and it objects at the final mux, once the encode has
+        /// already run.
+        /// </summary>
+        public static string GetCopiedAudioProblem(CodecUtils.AudioCodec aCodec, Containers.Container container, MediaFile file)
+        {
+            if (aCodec != CodecUtils.AudioCodec.CopyAudio || file == null)
+                return "";
+
+            var unsupported = file.AudioStreams.Where(x => !Containers.CanCopyAudioCodec(container, x.Codec)).ToList();
+
+            if (unsupported.Count < 1)
+                return "";
+
+            string name = container.ToString().Upper();
+            string codecs = string.Join(", ", unsupported.Select(x => Aliases.GetNicerCodecName(x.Codec ?? "")).Distinct());
+            string accepted = string.Join(", ", Containers.GetSupportedAudioCodecs(container).Select(x => CodecUtils.GetCodec(x).FriendlyName));
+
+            return $"{name} cannot store {codecs} audio, so it cannot be copied into it.\n\n" +
+                $"{name} accepts {accepted}.\n\n" +
+                $"Pick one of those to re-encode the audio, or a different container.";
         }
 
         /// <summary>
