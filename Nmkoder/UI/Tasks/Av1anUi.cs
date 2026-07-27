@@ -500,24 +500,55 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Clears away an encode's temp folder. It used to ask first, which put a dialog at the end of
-        /// every encode to be answered the same way every time - and left the chunks on disk until
-        /// someone came back to the machine to answer it.
+        /// Decides what becomes of an encode's temp folder, by how the encode ended.
         /// <para/>
-        /// A cancelled encode keeps its folder. That folder is the whole of what Resume picks up -
-        /// the resume list is built by enumerating them - so deleting it would throw away the chunks
-        /// already encoded and the only thing able to continue from them.
+        /// Finished: deleted without asking. Stopped by an error: kept, since that was not a decision
+        /// anyone made. Stopped by the user: asked about, because stopping an encode and abandoning it
+        /// are different intentions and the folder is the whole of what Resume works from.
         /// </summary>
-        public static void DeleteTempFolder(string dir, bool keepForResume)
+        public static async Task HandleTempFolder(string dir, bool canceled, bool canceledByUser)
         {
             if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
                 return;
 
-            if (keepForResume)
+            if (!canceled) // Ran to the end - nothing left to resume from, and asking would be the same answer every time
+            {
+                DeleteTempFolder(dir);
+                return;
+            }
+
+            // Stopped by a bad setting or an error rather than by the user. Not their decision to make,
+            // and they may well want to fix whatever it was and carry on from the chunks already done.
+            if (!canceledByUser)
             {
                 Logger.Log($"Keeping the temp folder so this encode can be resumed ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))} in '{Path.GetFileName(dir)}').");
                 return;
             }
+
+            // Stopping an encode is not the same as abandoning it, and only the user knows which they
+            // meant. The chunks are worth however long they took, so this one is worth asking about.
+            string size = FormatUtils.Bytes(IoUtils.GetDirSize(dir, true));
+            int chunks = IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Where(x => x.Length >= 1024).Count();
+            string msg = $"This encode has been canceled.\n\nKeep its temporary files so it can be resumed later? " +
+                $"They are {size} and hold {chunks} encoded video chunk{(chunks == 1 ? "" : "s")}.\n\n" +
+                $"Choosing No deletes them, and the encode would have to start over from the beginning.";
+
+            var result = await UiUtils.ShowMessageBox(msg, "Resume this encode later?", UiUtils.MessageButtons.YesNo);
+
+            if (result == UiUtils.DialogResult.Yes)
+            {
+                Logger.Log($"Keeping the temp folder so this encode can be resumed ({size} in '{Path.GetFileName(dir)}').");
+                return;
+            }
+
+            DeleteTempFolder(dir);
+        }
+
+        /// <summary> Removes a temp folder along with the resume arguments saved beside it. </summary>
+        public static void DeleteTempFolder(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+                return;
 
             Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
             IoUtils.TryDeleteIfExists(dir);

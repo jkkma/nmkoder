@@ -339,6 +339,7 @@ namespace Nmkoder.Views
 
         private void Stop_Click(object sender, RoutedEventArgs e)
         {
+            RunTask.canceledManually = true; // Distinguishes this from a task stopping itself, which is not the user's decision to review
             RunTask.Cancel("Canceled manually.", true);
         }
 

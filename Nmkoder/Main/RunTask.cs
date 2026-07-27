@@ -21,6 +21,8 @@ namespace Nmkoder.Main
 
         public static bool runningBatch = false;
         public static bool canceled = false;
+        /// <summary> Set when the user pressed Stop, as against a task stopping itself over a bad setting or an error. </summary>
+        public static bool canceledManually = false;
 
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
@@ -79,7 +81,7 @@ namespace Nmkoder.Main
                 return;
             }
 
-            canceled = false;
+            canceled = canceledManually = false;
             FfmpegOutputHandler.overrideTargetDurationMs = -1;
             NmkdStopwatch sw = new NmkdStopwatch();
 
@@ -101,7 +103,7 @@ namespace Nmkoder.Main
 
         public static async Task StartBatch()
         {
-            canceled = false;
+            canceled = canceledManually = false;
             TaskType batchTask = Program.MainWin.SelectedTask;
 
             if (batchTask == TaskType.None)

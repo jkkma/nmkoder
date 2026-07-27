@@ -52,7 +52,7 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static async Task RunResume(string overrideTempDir, string overrideArgs)
         {
-            RunTask.canceled = false;
+            RunTask.canceled = RunTask.canceledManually = false;
             Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
 
             try
@@ -257,7 +257,7 @@ namespace Nmkoder.UI.Tasks
                 await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
 
             Program.MainWin.SetWorking(false);
-            DeleteTempFolder(tempDir, RunTask.canceled);
+            await HandleTempFolder(tempDir, RunTask.canceled, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one
         }
 
