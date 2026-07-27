@@ -150,6 +150,60 @@ namespace Nmkoder.Data.Codecs.Video
         }
     }
 
+    class X264 : IEncoder
+    {
+        public Streams.Stream.StreamType Type { get; } = Streams.Stream.StreamType.Video;
+        public string Name { get { return GetType().Name; } }
+        public string FriendlyName { get; } = "H.264 / AVC (x264)";
+        public string[] Presets { get; } = new string[] { "veryslow", "slower", "slow", "medium", "fast", "faster", "veryfast", "superfast", "ultrafast" };
+        public int PresetDefault { get; } = 3;
+        public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuv422P8, PixelFormats.Yuv444P8, PixelFormats.Yuv420P10, PixelFormats.Yuv422P10, PixelFormats.Yuv444P10 };
+        public int ColorFormatDefault { get; } = 0;
+        public int QMin { get; } = 0;
+        public int QMax { get; } = 51;
+        public int QDefault { get; } = 20;
+        public string QInfo { get; } = "CRF (0-51 - Lower is better)";
+        public string PresetInfo { get; } = "Slower = Better compression";
+
+        public bool SupportsTwoPass { get; } = false;
+        public bool ForceTwoPass { get; } = false;
+        public bool DoesNotEncode { get; } = false;
+        public bool IsFixedFormat { get; } = false;
+        public bool IsSequence { get; } = false;
+
+        public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
+        {
+            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
+            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
+            string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
+            int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(pixFmt);
+            string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
+            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
+            string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : "";
+            string colors = "";
+
+            if (mediaFile != null && mediaFile.ColorData != null)
+            {
+                string prims = ColorDataUtils.GetColorPrimariesStringX264(mediaFile.ColorData.ColorPrimaries);
+                string transfer = ColorDataUtils.GetColorTransferStringX264(mediaFile.ColorData.ColorTransfer);
+                string matrix = ColorDataUtils.GetColorMatrixCoeffsStringX264(mediaFile.ColorData.ColorMatrixCoeffs);
+                string range = ColorDataUtils.GetColorRangeString(mediaFile.ColorData.ColorRange); // x264 speaks tv/pc
+                colors = $"{(prims != "" ? $"--colorprim {prims}" : "")} {(transfer != "" ? $"--transfer {transfer}" : "")} " +
+                    $"{(matrix != "" ? $"--colormatrix {matrix}" : "")} {(range != "" ? $"--range {range}" : "")}";
+            }
+
+            // 8-bit is x264's own default, and a build without high bit depth support rejects the
+            // flag outright, so it is only worth sending when something other than 8 is wanted.
+            string depth = bitDepth > 8 ? $"--output-depth {bitDepth}" : "";
+
+            // No --keyint: av1an cuts the scenes itself and sets "--keyint infinite --scenecut 0"
+            // for x264, so every chunk already opens on a keyframe. Sending an interval here would
+            // override that and put more of them inside the chunks.
+            return new CodecArgs($" -e x264 --force -v \" {(!vmaf ? $"--crf {q}" : "")} --preset {preset} --threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+        }
+    }
+
     class X265 : IEncoder
     {
         public Streams.Stream.StreamType Type { get; } = Streams.Stream.StreamType.Video;

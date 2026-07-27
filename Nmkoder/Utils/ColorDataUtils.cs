@@ -265,6 +265,41 @@ namespace Nmkoder.Utils
             return colorspace.Replace("bt2020-10", "bt2020-10bit").Replace("bt2020-12", "bt2020-12bit");
         }
 
+        #region x264 spellings
+
+        // x264 takes colour by name and rejects anything it does not recognise, and it spells
+        // several of these differently to the aom-style names below. Translating only where they
+        // differ keeps the tables above as the single source; anything with no x264 equivalent
+        // stays empty, so the flag is left off rather than failing the encode over a tag.
+
+        public static string GetColorPrimariesStringX264(int n) => GetColorPrimariesString(n) switch
+        {
+            "bt601" => "smpte170m",
+            var s => s,
+        };
+
+        public static string GetColorTransferStringX264(int n) => GetColorTransferString(n) switch
+        {
+            "gamma22" => "bt470m",
+            "gamma28" => "bt470bg",
+            "bt601" => "smpte170m",
+            "bt1361" => "bt1361e",
+            "srgb" => "iec61966-2-1",
+            "bt2100" => "arib-std-b67",
+            var s => s,
+        };
+
+        public static string GetColorMatrixCoeffsStringX264(int n) => GetColorMatrixCoeffsString(n) switch
+        {
+            "bt601" => "smpte170m",
+            "ycgco" => "YCgCo",
+            "bt2020ncl" => "bt2020nc",
+            "bt2020" => "bt2020c",
+            var s => s,
+        };
+
+        #endregion
+
         #region Get string from int
 
         public static string GetColorPrimariesString(int n)

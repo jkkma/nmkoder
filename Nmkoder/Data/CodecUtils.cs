@@ -21,7 +21,9 @@ namespace Nmkoder.Data
     {
         //public enum CodecType { Video, AnimImage, Image, Audio }
 
-        public enum Av1anCodec { AomAv1, SvtAv1, Vpx, X265 };
+        // Appended rather than ordered by codec: the dropdown is built straight from this enum and
+        // the selected index is what gets saved, so inserting anywhere else repoints saved settings.
+        public enum Av1anCodec { AomAv1, SvtAv1, Vpx, X265, X264 };
         public enum VideoCodec { CopyVideo, StripVideo, Libx264, Libx265, H264Nvenc, H265Nvenc, LibVpx, LibSvtAv1, LibAomAv1, Gif, Png, Jpg };
         public enum AudioCodec { CopyAudio, StripAudio, Aac, Opus, Vorbis, Eac3, Mp3, Flac };
         public enum SubtitleCodec { CopySubs, StripSubs, MovText, Srt, WebVtt };
@@ -49,6 +51,7 @@ namespace Nmkoder.Data
             if (c == Av1anCodec.SvtAv1) return new SvtAv1();
             if (c == Av1anCodec.Vpx) return new Vpx();
             if (c == Av1anCodec.X265) return new X265();
+            if (c == Av1anCodec.X264) return new X264();
             return null;
         }
 

@@ -7,7 +7,7 @@
 #   bin/av1an/av1an[.exe]          the av1an binary itself
 #   bin/av1an/vsynth/              VapourSynth portable + embedded Python, supplies VSPipe
 #   bin/av1an/vsynth/vs-plugins/   source plugins, autoloaded by VapourSynth
-#   bin/av1an/enc/                 encoders: SvtAv1EncApp, aomenc, vpxenc, x265
+#   bin/av1an/enc/                 encoders: SvtAv1EncApp, aomenc, vpxenc, x265, x264
 #
 # vsynth and enc are prepended to av1an's PATH by the app, so nothing needs installing.
 #
@@ -630,7 +630,7 @@ bundle_svtav1() {
 # and MSYS2 packages one. Whichever runs first wins; the second sees it already staged.
 # vpxenc is deliberately absent: MSYS2's libvpx package ships the library without the CLI,
 # which a build confirmed. See bundle_vpxenc.
-MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom x265:mingw-w64-x86_64-x265 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
+MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom x265:mingw-w64-x86_64-x265 x264:mingw-w64-x86_64-x264 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
 
 # List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
 # handful of runtime libraries those encoders are known to link when ldd is unavailable.
@@ -655,6 +655,9 @@ encoder_licence() {
     vpxenc) note_licence "  vpxenc             BSD-3-Clause (libvpx)
                      Source: https://chromium.googlesource.com/webm/libvpx/
                      Build:  https://packages.msys2.org/package/mingw-w64-x86_64-libvpx" ;;
+    x264)   note_licence "  x264               GPL-2.0-or-later
+                     Source: https://www.videolan.org/developers/x264.html
+                     Build:  https://packages.msys2.org/package/mingw-w64-x86_64-x264" ;;
     x265)   note_licence "  x265               GPL-2.0-or-later
                      Source: https://bitbucket.org/multicoreware/x265_git
                      Build:  https://packages.msys2.org/package/mingw-w64-x86_64-x265" ;;
@@ -665,10 +668,10 @@ encoder_licence() {
 }
 
 bundle_msys2_encoders() {
-  local names="aomenc + x265 + SvtAv1EncApp"
+  local names="aomenc + x265 + x264 + SvtAv1EncApp"
 
   if [ "$RID" != "win-x64" ]; then
-    note_skip "$names" "no portable build for $RID - install the aom, vpx and x265 tools from your package manager"
+    note_skip "$names" "no portable build for $RID - install the aom, vpx, x264 and x265 tools from your package manager"
     return
   fi
 
