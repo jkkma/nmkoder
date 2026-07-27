@@ -1,0 +1,36 @@
+[
+  ["variance-boost-strength", "", "1-4 (default 2) - Strength of the variance-based bit allocation for AQ modes 0 and 2"],
+  ["variance-octile", "", "1-8 (default 5) - How selective variance boost is when boosting a superblock; lower is more selective"],
+  ["variance-boost-curve", "", "0-3 (default 0) - Variance boost curve, each with different bit allocation and look"],
+  ["ac-bias", "", "0.0-8.0 (default 1.0) - Psychovisual rate distortion, biasing towards preserving texture"],
+  ["tx-bias", "", "0-3 - Bias towards sharpness and detail retention, at the possible cost of more blocking"],
+  ["sharpness", "", "0-7 (default 1) - Deblocking sharpness; higher keeps more detail, lower smooths more"],
+  ["sharp-tx", "", "0-1 (default 1 in this build) - Sharper transform decisions"],
+  ["max-tx-size", "", "32 or 64 - Caps the largest transform size the encoder may pick"],
+  ["hbd-mds", "", "0-2 (default 0) - How much of the mode decision runs at high bit depth"],
+  ["alt-ssim-tuning", "", "0-1 (default 0) - Psychovisual tuning using an alternative SSIM calculation"],
+
+  ["tune", "", "0-5 - Metric the encoder tunes for; 5 favours retaining film grain"],
+  ["enable-dlf", "", "0-2 - Deblocking loop filter; 2 is the more accurate variant"],
+  ["enable-tf", "", "0-2 - Temporal filtering; 2 varies it adaptively"],
+  ["tf-strength", "", "0-4 (default 1) - Temporal filtering strength"],
+  ["kf-tf-strength", "", "0-4 (default 1) - Temporal filtering strength on keyframes only"],
+  ["qp-scale-compress-strength", "", "0.0-8.0 - Evens quality out across time"],
+  ["luminance-qp-bias", "", "0-100 - Shifts QP by average frame luminance, helping dark scenes"],
+  ["noise-adaptive-filtering", "", "0-4 (default 2) - Backs CDEF and restoration off where the source is noisy"],
+  ["cdef-scaling", "", "1-30 - CDEF strength; lower sharpens, higher smooths"],
+
+  ["chroma-qm-min", "", "0-15 (default 8 in this build) - Lowest chroma quantisation matrix level"],
+  ["chroma-qm-max", "", "0-15 (default 15) - Highest chroma quantisation matrix level"],
+
+  ["noise", "", "0-200 - Synthesises grain at this strength (this build's own grain control, separate from the Grain Synthesis boxes)"],
+  ["noise-chroma", "", "-1 to 200 (default -1) - Chroma grain strength; -1 tracks about 60% of --noise"],
+  ["noise-chroma-from-luma", "", "0-1 (default 0) - Derive chroma grain from the luma plane"],
+  ["noise-size", "", "-1 to 13 (default -1) - Grain size; -1 picks one from the resolution"],
+  ["noise-norm-strength", "", "0-4 (default 1) - Lifts AC coefficients in finely textured areas"],
+  ["adaptive-film-grain", "", "0-1 - Varies film grain block size with resolution"],
+  ["fgs-table", "", "Path to a film grain table file to apply instead of generating one"],
+
+  ["dolby-vision-rpu", "", "Path to a Dolby Vision RPU file to attach"],
+  ["hdr10plus-json", "", "Path to an HDR10+ metadata JSON file to attach"]
+]

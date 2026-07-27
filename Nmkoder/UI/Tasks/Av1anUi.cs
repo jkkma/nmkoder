@@ -146,14 +146,31 @@ namespace Nmkoder.UI.Tasks
                 enc.ColorFormats != null && enc.ColorFormats.Count > 0 ? enc.ColorFormatDefault : -1);
         }
 
-        public static void LoadAdvancedArgsGrid(IEncoder enc)
+        /// <summary>
+        /// The advanced grid's rows as encoder arguments, skipping every row the user has not filled
+        /// in. The grid is preloaded with an encoder's documented parameters so they can be read and
+        /// edited in place, so most rows are blank most of the time - passing those would put a
+        /// valueless flag on the command line and fail the encode before it started.
+        /// </summary>
+        public static string BuildAdvancedArgs(IEnumerable<EncoderArgRow> rows)
         {
-            Form.Av1anArgRows.Clear();
+            return string.Join(" ", rows
+                .Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty())
+                .Select(x => $"--{x.Argument.Trim().TrimStart('-')}={x.Value.Trim()}"));
+        }
 
+        /// <summary>
+        /// The parameters documented for an encoder, as [argument, value, description] rows. Values
+        /// come through blank: the list is there to be read and filled in, and only rows with a
+        /// value reach the command line. An encoder with no file simply has nothing to show.
+        /// </summary>
+        public static List<EncoderArgRow> ReadEncoderArgRows(IEncoder enc)
+        {
+            List<EncoderArgRow> rows = new List<EncoderArgRow>();
             string jsonPath = Path.Combine(Paths.GetBinPath(), "av1an", "encoderArgs", enc.Name + ".json");
 
             if (!File.Exists(jsonPath))
-                return;
+                return rows;
 
             List<string[]> args;
 
@@ -170,8 +187,18 @@ namespace Nmkoder.UI.Tasks
             foreach (string[] arg in args ?? new List<string[]>())
             {
                 if (arg.Length >= 3)
-                    Form.Av1anArgRows.Add(new EncoderArgRow(arg[0], arg[1], arg[2]));
+                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2]));
             }
+
+            return rows;
+        }
+
+        public static void LoadAdvancedArgsGrid(IEncoder enc)
+        {
+            Form.Av1anArgRows.Clear();
+
+            foreach (EncoderArgRow row in ReadEncoderArgRows(enc))
+                Form.Av1anArgRows.Add(row);
         }
 
         #endregion
@@ -208,7 +235,7 @@ namespace Nmkoder.UI.Tasks
             dict.Add("grainSynthDenoise", (Form.Av1anGrainSynthDenoiseBox.IsChecked == true).ToString());
             dict.Add("threads", Form.Av1anThreadsUpDown.Value.AsInt().ToString());
             dict.Add("custom", Form.Av1anCustomEncArgsBox.Text ?? "");
-            dict.Add("advanced", string.Join(" ", Form.Av1anArgRows.Select(x => $"--{x.Argument}={x.Value}")));
+            dict.Add("advanced", BuildAdvancedArgs(Form.Av1anArgRows));
             return dict;
         }
 
