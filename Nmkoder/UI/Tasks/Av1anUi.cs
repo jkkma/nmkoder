@@ -311,6 +311,88 @@ namespace Nmkoder.UI.Tasks
             return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
         }
 
+        /// <summary> The selected chunk method. The dropdown is filled from the enum, so index is value. </summary>
+        public static Av1an.ChunkMethod GetCurrentChunkMethod()
+        {
+            return (Av1an.ChunkMethod)Math.Max(0, Form.Av1anOptsChunkModeBox.SelectedIndex);
+        }
+
+        /// <summary> The chunk methods that read the source through vspipe, and so run a VapourSynth script at all. </summary>
+        private static readonly Av1an.ChunkMethod[] VapourSynthChunkMethods =
+            { Av1an.ChunkMethod.BestSource, Av1an.ChunkMethod.LSMASH, Av1an.ChunkMethod.FFMS2 };
+
+        /// <summary>
+        /// Which converter av1an should reach the chosen pixel format with. By default it pipes the
+        /// decoded frames through a second ffmpeg process to convert them; "vs-resize" instead has the
+        /// VapourSynth script it already generates do it with resize.Bicubic, which drops that process
+        /// from every chunk and puts the resampling through zimg rather than swscale.
+        /// <para/>
+        /// Returns "" - leaving av1an on ffmpeg - whenever any condition av1an attaches to the flag is
+        /// unmet, and each one has to be checked here rather than left to av1an. Selecting vs-resize is
+        /// what makes it skip building the converting ffmpeg pipe, so asking for it where the script
+        /// cannot deliver does not fall back to ffmpeg: it hands the encoder whatever the source
+        /// already was, or fails the chunk outright.
+        /// </summary>
+        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters)
+        {
+            const string flag = "--pix-format-converter";
+
+            // Every reason for staying on ffmpeg is logged quietly. Nothing here is a setting anyone
+            // chose - it is picked per encode from what av1an, the chunk method and the source allow -
+            // so a visible note would be telling most users, every time, about a thing they did not ask
+            // for and an outcome that is not wrong. The log file still says which condition it was.
+            if (pixFmt.IsEmpty()) // No color format to convert to - the encoder chose it, and av1an is not being told
+                return "";
+
+            // Unreleased as of av1an 0.5.2, which is what gets bundled. An older binary refuses the
+            // whole command over an unknown flag, so this cannot simply be passed and left to be ignored.
+            if (!await AvProcess.Av1anSupportsFlag(flag))
+            {
+                Logger.Log($"This av1an has no {flag}, so ffmpeg is converting the pixel format.", true);
+                return "";
+            }
+
+            Av1an.ChunkMethod chunkMethod = GetCurrentChunkMethod();
+
+            // The conversion is a step in a VapourSynth script, so it only exists for the chunk methods
+            // that have one. The others decode with ffmpeg, which knows nothing of the setting.
+            if (!VapourSynthChunkMethods.Contains(chunkMethod))
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - VapourSynth can only do it for the " +
+                    $"{string.Join(", ", VapourSynthChunkMethods)} chunk methods, and this encode uses {chunkMethod}.", true);
+                return "";
+            }
+
+            // av1an disregards the setting entirely when it has filters to apply, since those run in the
+            // very ffmpeg step that vs-resize exists to remove.
+            if (hasFfmpegFilters)
+            {
+                Logger.Log("ffmpeg is converting the pixel format, because the video filters set on this tab run in the same step.", true);
+                return "";
+            }
+
+            if (PixFmtUtils.GetVapourSynthPreset(pixFmt).IsEmpty())
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - VapourSynth has no preset format for {pixFmt}.", true);
+                return "";
+            }
+
+            // resize.Bicubic has to be told which matrix to take RGB to YUV with, and neither av1an's
+            // script nor this flag gives it one, so an RGB source would stop at a VapourSynth error.
+            string sourceFmt = (TrackList.current?.File.VideoStreams.FirstOrDefault()?.PixelFormat ?? "").ToLower();
+
+            if (sourceFmt.StartsWith("rgb") || sourceFmt.StartsWith("bgr") || sourceFmt.StartsWith("gbr"))
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - the source is {sourceFmt}, and VapourSynth needs a color matrix to take RGB to YUV.", true);
+                return "";
+            }
+
+            // Worth saying out loud, unlike the fallbacks: this is the one outcome that changes which
+            // resampler the video actually goes through.
+            Logger.Log($"Converting the pixel format to {pixFmt} with VapourSynth's resize rather than ffmpeg.");
+            return $"{flag} vs-resize";
+        }
+
         /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>
         public static Containers.Container GetCurrentContainer()
         {

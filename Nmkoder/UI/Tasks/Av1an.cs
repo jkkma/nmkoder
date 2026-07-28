@@ -157,7 +157,10 @@ namespace Nmkoder.UI.Tasks
                     ValidatePath();
                     outPath = UiData.GetOutPath();
                     TrackList.current.File.ColorData = await ColorDataUtils.GetColorData(TrackList.current.File.SourcePath);
-                    CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(GetVideoArgsFromUi(), TrackList.current.File, Data.Codecs.Pass.OneOfOne);
+                    // Kept rather than built inline: the pixel format the color format box resolved to is
+                    // needed again below, to work out who should convert to it.
+                    Dictionary<string, string> videoArgs = GetVideoArgsFromUi();
+                    CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
                     string vf = await GetVideoFilterArgs(codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
@@ -185,6 +188,8 @@ namespace Nmkoder.UI.Tasks
 
                     string ffArgs = $"{ffAud} {ffMux}";
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
+                    string pixFmtConverter = await GetPixelFormatConverterArgs(
+                        videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "", ffFilters.IsNotEmpty());
 
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
@@ -194,6 +199,7 @@ namespace Nmkoder.UI.Tasks
                         $"--sc-downscale-height {GetScDownscaleHeight()} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
+                        $"{pixFmtConverter} " +
                         $"{ffFilters}" +
                         $"-a \" {ffArgs} \" " +
                         $"-w {form.Av1anOptsWorkerCountUpDown.Value.AsInt()} " +
