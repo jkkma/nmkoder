@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Nmkoder.Data;
@@ -10,6 +11,7 @@ using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -120,9 +122,58 @@ namespace Nmkoder.Views
             ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
         }
 
+        /// <summary> The category tabs' grids, kept for committing pending edits on save. </summary>
+        private readonly List<DataGrid> av1anArgGrids = new List<DataGrid>();
+
+        /// <summary>
+        /// Rebuilds the Advanced tab's category tabs from whatever is in Av1anArgRows, one tab per
+        /// category in the order the encoder's JSON introduces them. Each grid shows the master
+        /// list's own row objects, so edits land in Av1anArgRows and everything reading it - arg
+        /// building, saving, the hbd-mds warning - is unaffected by the grouping.
+        /// </summary>
+        public void LoadAv1anArgCategoryTabs()
+        {
+            // Encoders share category names, so the open category survives an encoder switch
+            string selected = (Av1anArgCategoryTabs.SelectedItem as TabItem)?.Header?.ToString();
+            av1anArgGrids.Clear();
+            List<TabItem> tabs = new List<TabItem>();
+
+            foreach (var category in Av1anArgRows.GroupBy(r => r.Category.IsEmpty() ? "Other" : r.Category))
+            {
+                DataGrid grid = CreateAv1anArgsGrid(category.ToList());
+                av1anArgGrids.Add(grid);
+                tabs.Add(new TabItem { Header = category.Key, Content = grid });
+            }
+
+            Av1anArgCategoryTabs.ItemsSource = tabs;
+            int index = tabs.FindIndex(t => t.Header?.ToString() == selected);
+            Av1anArgCategoryTabs.SelectedIndex = index >= 0 ? index : (tabs.Count > 0 ? 0 : -1);
+        }
+
+        /// <summary> One category's grid, with the same columns the single flat grid used to have. </summary>
+        private DataGrid CreateAv1anArgsGrid(List<EncoderArgRow> rows)
+        {
+            DataGrid grid = new DataGrid
+            {
+                ItemsSource = rows,
+                AutoGenerateColumns = false,
+                CanUserSortColumns = false,
+                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+                HeadersVisibility = DataGridHeadersVisibility.Column,
+            };
+
+            // Values are nearly always a single digit, so the column is sized for one rather than
+            // splitting the width evenly; the descriptions take the slack.
+            grid.Columns.Add(new DataGridTextColumn { Header = "Argument", Binding = new Binding(nameof(EncoderArgRow.Argument)), IsReadOnly = true, Width = DataGridLength.Auto, MinWidth = 180 });
+            grid.Columns.Add(new DataGridTextColumn { Header = "Value", Binding = new Binding(nameof(EncoderArgRow.Value)), Width = new DataGridLength(110) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "Description, Possible Values", Binding = new Binding(nameof(EncoderArgRow.Description)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            grid.CellEditEnded += Av1anAdvancedArg_CellEditEnded;
+            return grid;
+        }
+
         /// <summary>
         /// Saved as each cell is committed, not only on close: selecting another encoder rebuilds
-        /// the grid from that encoder's list, so anything not already stored would be gone.
+        /// the grids from that encoder's list, so anything not already stored would be gone.
         /// </summary>
         private void Av1anAdvancedArg_CellEditEnded(object sender, DataGridCellEditEndedEventArgs e)
         {
@@ -138,7 +189,9 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            Av1anAdvancedArgsGrid.CommitEdit();
+            foreach (DataGrid grid in av1anArgGrids)
+                grid.CommitEdit();
+
             Av1anUi.SaveAdvancedArgs(CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()));
         }
 

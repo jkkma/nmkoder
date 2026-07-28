@@ -1,13 +1,15 @@
 [
-  ["lag-in-frames", "", "0-35 (default 19) - Frames of lookahead available for reference frame placement"],
-  ["aq-mode", "", "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh"],
-  ["tune-content", "", "default or screen - Tune for ordinary footage or for screen recordings"],
-  ["enable-cdef", "", "0-1 (default 1) - Constrained directional enhancement filter"],
-  ["enable-qm", "", "0-1 (default 0) - Quantisation matrices"],
-  ["quant-b-adapt", "", "0-1 (default 0) - Adaptive use of quantize_b"],
-  ["mv-cost-upd-freq", "", "0-3 - How often motion vector costs are recalculated; higher is faster"],
-  ["arnr-maxframes", "", "0-15 (default 7) - Frames the alt-ref noise reduction filter may use"],
-  ["arnr-strength", "", "0-6 (default 5) - Strength of the alt-ref noise reduction filter"],
-  ["enable-fwd-kf", "", "0-1 (default 0) - Forward reference keyframes"],
-  ["enable-keyframe-filtering", "", "0-2 (default 1) - Temporal filtering on keyframes; 2 also writes an overlay"]
+  ["tune-content", "", "default or screen - Tune for ordinary footage or for screen recordings", "Tuning & Quantization"],
+  ["aq-mode", "", "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh", "Tuning & Quantization"],
+  ["enable-qm", "", "0-1 (default 0) - Quantisation matrices", "Tuning & Quantization"],
+  ["quant-b-adapt", "", "0-1 (default 0) - Adaptive use of quantize_b", "Tuning & Quantization"],
+
+  ["enable-cdef", "", "0-1 (default 1) - Constrained directional enhancement filter", "Filtering"],
+  ["arnr-maxframes", "", "0-15 (default 7) - Frames the alt-ref noise reduction filter may use", "Filtering"],
+  ["arnr-strength", "", "0-6 (default 5) - Strength of the alt-ref noise reduction filter", "Filtering"],
+  ["enable-keyframe-filtering", "", "0-2 (default 1) - Temporal filtering on keyframes; 2 also writes an overlay", "Filtering"],
+
+  ["lag-in-frames", "", "0-35 (default 19) - Frames of lookahead available for reference frame placement", "Frames & Motion"],
+  ["mv-cost-upd-freq", "", "0-3 - How often motion vector costs are recalculated; higher is faster", "Frames & Motion"],
+  ["enable-fwd-kf", "", "0-1 (default 0) - Forward reference keyframes", "Frames & Motion"]
 ]

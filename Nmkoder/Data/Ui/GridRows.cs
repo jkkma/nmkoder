@@ -69,13 +69,17 @@ namespace Nmkoder.Data.Ui
         public string Value { get => _value; set => Set(ref _value, value); }
         public string Description { get => _description; set => Set(ref _description, value); }
 
+        /// <summary> Which category tab the row is shown under. Fixed at load, so no notification. </summary>
+        public string Category { get; set; } = "";
+
         public EncoderArgRow() { }
 
-        public EncoderArgRow(string argument, string value, string description)
+        public EncoderArgRow(string argument, string value, string description, string category = "")
         {
             _argument = argument;
             _value = value;
             _description = description;
+            Category = category;
         }
     }
 

@@ -163,9 +163,11 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The parameters documented for an encoder, as [argument, value, description] rows. Values
-        /// come through blank: the list is there to be read and filled in, and only rows with a
-        /// value reach the command line. An encoder with no file simply has nothing to show.
+        /// The parameters documented for an encoder, as [argument, value, description, category]
+        /// rows. Values come through blank: the list is there to be read and filled in, and only
+        /// rows with a value reach the command line. An encoder with no file simply has nothing to
+        /// show. The category names the tab the row appears under; a row without one - the format
+        /// before categories existed - is grouped as "Other" rather than dropped.
         /// </summary>
         public static List<EncoderArgRow> ReadEncoderArgRows(IEncoder enc)
         {
@@ -190,7 +192,7 @@ namespace Nmkoder.UI.Tasks
             foreach (string[] arg in args ?? new List<string[]>())
             {
                 if (arg.Length >= 3)
-                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2]));
+                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2], arg.Length >= 4 ? arg[3] : ""));
             }
 
             return rows;
@@ -208,6 +210,8 @@ namespace Nmkoder.UI.Tasks
 
                 Form.Av1anArgRows.Add(row);
             }
+
+            Form.LoadAv1anArgCategoryTabs();
         }
 
         /// <summary>

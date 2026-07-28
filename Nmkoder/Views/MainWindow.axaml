@@ -284,17 +284,9 @@
                    the filters below size to their own content. -->
               <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="4">
                 <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
-                <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             CellEditEnded="Av1anAdvancedArg_CellEditEnded"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <!-- Values are nearly always a single digit, so the column is sized for one
-                         rather than splitting the width evenly; the descriptions take the slack. -->
-                    <dg:DataGridTextColumn Header="Argument" Binding="{Binding Argument}" IsReadOnly="True" Width="Auto" MinWidth="180" />
-                    <dg:DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="110" />
-                    <dg:DataGridTextColumn Header="Description, Possible Values" Binding="{Binding Description}" IsReadOnly="True" Width="*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
+                <!-- One tab per argument category. The tabs and their grids are built in code
+                     (LoadAv1anArgCategoryTabs) because every encoder has its own categories. -->
+                <TabControl Grid.Row="1" x:Name="Av1anArgCategoryTabs" />
 
                 <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
                   <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
