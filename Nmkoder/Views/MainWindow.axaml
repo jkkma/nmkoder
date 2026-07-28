@@ -13,8 +13,6 @@
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
       <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
-      <TextBlock Grid.Column="1" x:Name="TitleHintLabel" Classes="dim" VerticalAlignment="Center" Margin="12,0"
-                 Text="Drag &amp; drop media files anywhere in this window to load them." />
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
         <Button Content="Discord" Click="Discord_Click" />
         <Button Content="Patreon" Click="Patreon_Click" />
@@ -36,16 +34,42 @@
             </ComboBox>
           </StackPanel>
 
-          <ListBox Grid.Row="1" Grid.Column="0" x:Name="FileListBox" SelectionMode="Multiple"
-                   SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                  <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                </Border>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <Grid Grid.Row="1" Grid.Column="0">
+            <ListBox x:Name="FileListBox" SelectionMode="Multiple"
+                     SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
+                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- Shown while the list is empty, so the drop target says what it is. Not hit-testable:
+                 the list underneath still has to take the drop and the clicks. -->
+            <StackPanel x:Name="FileListEmptyHint" IsHitTestVisible="False" Spacing="18"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+              <!-- An open crate with an arrow dropping into it, drawn rather than bitmapped so it
+                   stays sharp at whatever size the panel gives it. -->
+              <Viewbox Width="150" Height="150" HorizontalAlignment="Center">
+                <Canvas Width="64" Height="64">
+                  <Path Stroke="#8A8A8A" StrokeThickness="2.6" StrokeLineCap="Round" StrokeJoin="Round"
+                        Data="M 10,34 L 32,26 L 54,34 L 32,42 Z
+                              M 10,34 L 10,50 L 32,58 L 54,50 L 54,34
+                              M 32,42 L 32,58
+                              M 10,34 L 3,27 L 25,19 L 32,26
+                              M 32,26 L 39,19 L 61,27 L 54,34
+                              M 10,34 L 4,40 L 26,48 L 32,42
+                              M 32,42 L 38,48 L 60,40 L 54,34
+                              M 32,2 L 32,17
+                              M 26,11 L 32,17 L 38,11" />
+                </Canvas>
+              </Viewbox>
+              <TextBlock Text="Drag &amp; drop media files anywhere in this window to load them."
+                         HorizontalAlignment="Center" FontSize="14" Foreground="#8A8A8A" />
+            </StackPanel>
+          </Grid>
 
           <!-- Preview, fixed 16:9 so it keeps the shape of the footage it is showing. The
                whole panel cycles thumbnails, not just the pixels the image happens to cover.
