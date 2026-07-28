@@ -181,7 +181,18 @@ namespace Nmkoder.Views
             grid.LoadingRow += (s, e) =>
             {
                 if (e.Row.DataContext is EncoderArgRow row)
-                    ToolTip.SetTip(e.Row, $"--{row.Argument}\n{row.Description}");
+                    ToolTip.SetTip(e.Row, $"--{row.Argument}\n{row.Description}\n\nRight-click for details and examples.");
+            };
+
+            // Right-clicking a row opens its long-form help. Handled on the grid rather than on each
+            // row: rows are recycled as the list scrolls, so per-row subscriptions would stack up.
+            // The cells inherit the row's DataContext, so whatever was clicked names the argument.
+            grid.ContextRequested += async (s, e) =>
+            {
+                e.Handled = true;
+
+                if (e.Source is Control control && control.DataContext is EncoderArgRow row)
+                    await EncoderArgInfoWindow.Show(row);
             };
 
             return grid;

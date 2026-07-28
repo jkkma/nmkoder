@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.EncoderArgInfoWindow"
+        Title="Argument Details"
+        Width="720" Height="560"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+    <TextBlock Grid.Row="0" x:Name="ArgNameLabel" FontSize="18" FontWeight="Bold"
+               FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" TextWrapping="Wrap" />
+
+    <!-- The same one-liner the grid shows, repeated so the ranges and defaults are on screen
+         next to the prose that explains them. -->
+    <TextBlock Grid.Row="1" x:Name="SummaryLabel" Classes="dim" TextWrapping="Wrap" Margin="0,4,0,10" />
+
+    <ScrollViewer Grid.Row="2">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="DetailsLabel" TextWrapping="Wrap" LineHeight="20" />
+
+        <TextBlock x:Name="ExamplesHeader" Classes="h" Text="Examples" IsVisible="False" />
+        <ItemsControl x:Name="ExamplesList">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Grid ColumnDefinitions="110,*" Margin="0,0,0,6">
+                <Border Grid.Column="0" Background="#242424" CornerRadius="3" Padding="6,2"
+                        HorizontalAlignment="Left" VerticalAlignment="Top">
+                  <TextBlock Text="{Binding Value}" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" Margin="8,2,0,0" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Button Grid.Row="3" Content="Close" HorizontalAlignment="Right" MinWidth="100" Margin="0,12,0,0"
+            IsDefault="True" IsCancel="True" Click="Close_Click" />
+  </Grid>
+
+</Window>

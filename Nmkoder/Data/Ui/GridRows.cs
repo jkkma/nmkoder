@@ -72,14 +72,26 @@ namespace Nmkoder.Data.Ui
         /// <summary> Which category tab the row is shown under. Fixed at load, so no notification. </summary>
         public string Category { get; set; } = "";
 
+        /// <summary>
+        /// The long-form explanation shown when the row is right-clicked. The grid's own description
+        /// is one clipped line, so this is where anything that needs room goes. Paragraphs are
+        /// separated by blank lines. Empty for arguments nothing has been written for yet.
+        /// </summary>
+        public string Details { get; set; } = "";
+
+        /// <summary> Example settings, one per line, each "value|what that value gets you". </summary>
+        public string Examples { get; set; } = "";
+
         public EncoderArgRow() { }
 
-        public EncoderArgRow(string argument, string value, string description, string category = "")
+        public EncoderArgRow(string argument, string value, string description, string category = "", string details = "", string examples = "")
         {
             _argument = argument;
             _value = value;
             _description = description;
             Category = category;
+            Details = details;
+            Examples = examples;
         }
     }
 
