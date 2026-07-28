@@ -36,11 +36,11 @@ namespace Nmkoder.Views
 
             if (StreamListBox.SelectedItem is not StreamListEntry entry)
             {
-                StreamDetailsBox.Text = "";
+                SetStreamDetails("");
                 return;
             }
 
-            StreamDetailsBox.Text = TrackList.GetStreamDetails(entry.Stream, entry.MediaFile);
+            SetStreamDetails(TrackList.GetStreamDetails(entry.Stream, entry.MediaFile));
         }
 
         public void UpdateTrackListBtnsState()

@@ -83,7 +83,12 @@
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                      <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Content="{Binding DisplayName}" />
+                      <!-- The name is deliberately not the CheckBox's content: clicking a track's
+                           text selects it, and only the box itself ticks it. -->
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" MinWidth="0" Padding="0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -113,7 +118,9 @@
             <Button x:Name="TrackListMoveDownBtn" Content="▼" Classes="icon" IsVisible="False" Click="TrackListMoveDown_Click" />
           </StackPanel>
 
-          <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+          <!-- Collapsed until a track is selected; see SetStreamDetails() -->
+          <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsVisible="False"
+                   IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                    ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
                    Height="110" Margin="0,8,0,0" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
 
@@ -123,6 +130,174 @@
             <TextBlock Classes="field" Text="Default Subtitles" />
             <ComboBox x:Name="TrackListDefaultSubsBox" Width="260" />
           </StackPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- ─────────── AV1AN ─────────── -->
+      <TabItem Header="AV1AN">
+        <Grid RowDefinitions="*,Auto" Margin="8">
+          <TabControl Grid.Row="0" x:Name="Av1anTabs">
+
+            <TabItem Header="Video">
+              <ScrollViewer>
+                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anContainerBox" SelectionChanged="Av1anContainer_SelectionChanged" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anQualModeBox" SelectionChanged="Av1anQualityMode_SelectionChanged" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
+                  <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="Av1anQualityUpDown" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="30" />
+
+                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
+                  <ComboBox Grid.Row="4" Grid.Column="1" x:Name="Av1anPresetBox" Classes="short" />
+
+                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
+                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="Av1anColorSpaceBox" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Grain Synthesis" />
+                  <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Horizontal" Spacing="10">
+                    <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0" />
+                    <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
+                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
+                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                    <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
+                    <TextBlock Text="x" VerticalAlignment="Center" />
+                    <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />
+                  <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                    <ComboBox x:Name="Av1anCropBox" Width="260" SelectionChanged="Av1anCrop_SelectionChanged">
+                      <ComboBoxItem Content="Disabled" />
+                      <ComboBoxItem Content="Automatic (detect black bars)" />
+                      <ComboBoxItem Content="Manual" />
+                    </ComboBox>
+                    <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
+                  </StackPanel>
+                </Grid>
+              </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Audio &amp; Tracks">
+              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
+                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anAudCodecBox" SelectionChanged="Av1anAudCodec_SelectionChanged" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
+                <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="Av1anAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Channels" />
+                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anAudChannelsBox" Width="230" HorizontalAlignment="Left">
+                  <ComboBoxItem Content="0 (Keep original)" />
+                  <ComboBoxItem Content="2 (Stereo)" />
+                  <ComboBoxItem Content="6 (5.1 Surround)" />
+                  <ComboBoxItem Content="8 (7.1 Surround)" />
+                </ComboBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Also Copy" />
+                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                  <CheckBox x:Name="CheckAv1anCopySubs" Content="Subtitles" IsChecked="True" />
+                  <CheckBox x:Name="CheckAv1anCopyData" Content="Data Tracks" />
+                  <CheckBox x:Name="CheckAv1anCopyAttachs" Content="Attachments" IsChecked="True" />
+                </StackPanel>
+              </Grid>
+            </TabItem>
+
+            <TabItem Header="Av1an Options">
+              <ScrollViewer>
+                <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
+                    <ComboBoxItem Content="None" />
+                    <ComboBoxItem Content="Scene Change Detection" />
+                  </ComboBox>
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Chunk Method" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anOptsChunkModeBox" SelectionChanged="Av1anOption_SelectionChanged" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Concat Method" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anOptsConcatModeBox" SelectionChanged="Av1anOption_SelectionChanged">
+                    <ComboBoxItem Content="MKVMerge" />
+                    <ComboBoxItem Content="FFmpeg" />
+                    <ComboBoxItem Content="IVF" />
+                  </ComboBox>
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
+                  <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Av1anOptsChunkOrderBox" SelectionChanged="Av1anOption_SelectionChanged">
+                    <ComboBoxItem Content="Long-to-Short (Best CPU utilization)" />
+                    <ComboBoxItem Content="Short-to-Long (Not very useful)" />
+                    <ComboBoxItem Content="Sequential (Same order as input video)" />
+                    <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
+                  </ComboBox>
+
+                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Workers" />
+                  <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anOption_ValueChanged" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
+                  <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Custom av1an Args" />
+                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anCustomArgsBox" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Custom Encoder Args" />
+                  <TextBox Grid.Row="3" Grid.Column="4" x:Name="Av1anCustomEncArgsBox" />
+                </Grid>
+              </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Advanced">
+              <!-- The argument list is the long one, so it takes every row the tab can spare and
+                   the filters below size to their own content. -->
+              <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="4">
+                <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
+                <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                  <dg:DataGrid.Columns>
+                    <!-- Values are nearly always a single digit, so the column is sized for one
+                         rather than splitting the width evenly; the descriptions take the slack. -->
+                    <dg:DataGridTextColumn Header="Argument" Binding="{Binding Argument}" IsReadOnly="True" Width="Auto" MinWidth="180" />
+                    <dg:DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="110" />
+                    <dg:DataGridTextColumn Header="Description, Possible Values" Binding="{Binding Description}" IsReadOnly="True" Width="*" />
+                  </dg:DataGrid.Columns>
+                </dg:DataGrid>
+
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
+                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
+                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="Av1anFilterAdd_Click" />
+                  <Button Grid.Column="2" Content="Remove" Click="Av1anFilterRemove_Click" />
+                </Grid>
+
+                <dg:DataGrid Grid.Row="3" x:Name="Av1anAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                             MaxHeight="180" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                  <dg:DataGrid.Columns>
+                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
+                  </dg:DataGrid.Columns>
+                </dg:DataGrid>
+              </Grid>
+            </TabItem>
+
+          </TabControl>
+
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
+            <TextBox Grid.Column="1" x:Name="Av1anOutputPathBox" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="6,0,0,0">
+              <Button Content="…" Classes="icon" Click="BrowseAv1anOutput_Click" />
+              <Button x:Name="Av1anResumeBtn" Content="Resume…" Click="Av1anResume_Click" />
+              <Button x:Name="Av1anClearTempBtn" Content="Clear Temp…" Click="Av1anClearTemp_Click"
+                      ToolTip.Tip="Delete the temporary files of every unfinished encode. They cannot be resumed afterwards." />
+            </StackPanel>
+          </Grid>
         </Grid>
       </TabItem>
 
@@ -279,170 +454,6 @@
         </Grid>
       </TabItem>
 
-      <!-- ─────────── AV1AN ─────────── -->
-      <TabItem Header="AV1AN">
-        <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="Av1anTabs">
-
-            <TabItem Header="Video">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anContainerBox" SelectionChanged="Av1anContainer_SelectionChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anQualModeBox" SelectionChanged="Av1anQualityMode_SelectionChanged" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
-                  <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="Av1anQualityUpDown" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="30" />
-
-                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
-                  <ComboBox Grid.Row="4" Grid.Column="1" x:Name="Av1anPresetBox" Classes="short" />
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
-                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="Av1anColorSpaceBox" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Grain Synthesis" />
-                  <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Horizontal" Spacing="10">
-                    <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0" />
-                    <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
-                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                    <TextBlock Text="x" VerticalAlignment="Center" />
-                    <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />
-                  <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <ComboBox x:Name="Av1anCropBox" Width="260" SelectionChanged="Av1anCrop_SelectionChanged">
-                      <ComboBoxItem Content="Disabled" />
-                      <ComboBoxItem Content="Automatic (detect black bars)" />
-                      <ComboBoxItem Content="Manual" />
-                    </ComboBox>
-                    <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
-                  </StackPanel>
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Audio &amp; Tracks">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anAudCodecBox" SelectionChanged="Av1anAudCodec_SelectionChanged" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
-                <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="Av1anAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
-
-                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Channels" />
-                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anAudChannelsBox" Width="230" HorizontalAlignment="Left">
-                  <ComboBoxItem Content="0 (Keep original)" />
-                  <ComboBoxItem Content="2 (Stereo)" />
-                  <ComboBoxItem Content="6 (5.1 Surround)" />
-                  <ComboBoxItem Content="8 (7.1 Surround)" />
-                </ComboBox>
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Also Copy" />
-                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                  <CheckBox x:Name="CheckAv1anCopySubs" Content="Subtitles" IsChecked="True" />
-                  <CheckBox x:Name="CheckAv1anCopyData" Content="Data Tracks" />
-                  <CheckBox x:Name="CheckAv1anCopyAttachs" Content="Attachments" IsChecked="True" />
-                </StackPanel>
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Av1an Options">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="None" />
-                    <ComboBoxItem Content="Scene Change Detection" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Chunk Method" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anOptsChunkModeBox" SelectionChanged="Av1anOption_SelectionChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Concat Method" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anOptsConcatModeBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="MKVMerge" />
-                    <ComboBoxItem Content="FFmpeg" />
-                    <ComboBoxItem Content="IVF" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
-                  <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Av1anOptsChunkOrderBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="Long-to-Short (Best CPU utilization)" />
-                    <ComboBoxItem Content="Short-to-Long (Not very useful)" />
-                    <ComboBoxItem Content="Sequential (Same order as input video)" />
-                    <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Workers" />
-                  <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anOption_ValueChanged" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
-                  <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Custom av1an Args" />
-                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anCustomArgsBox" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Custom Encoder Args" />
-                  <TextBox Grid.Row="3" Grid.Column="4" x:Name="Av1anCustomEncArgsBox" />
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Advanced">
-              <Grid RowDefinitions="Auto,2*,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
-                <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Argument" Binding="{Binding Argument}" IsReadOnly="True" Width="2*" />
-                    <dg:DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" />
-                    <dg:DataGridTextColumn Header="Description, Possible Values" Binding="{Binding Description}" IsReadOnly="True" Width="5*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
-                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="Av1anFilterAdd_Click" />
-                  <Button Grid.Column="2" Content="Remove" Click="Av1anFilterRemove_Click" />
-                </Grid>
-
-                <dg:DataGrid Grid.Row="3" x:Name="Av1anAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
-
-          </TabControl>
-
-          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
-            <TextBox Grid.Column="1" x:Name="Av1anOutputPathBox" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="6,0,0,0">
-              <Button Content="…" Classes="icon" Click="BrowseAv1anOutput_Click" />
-              <Button x:Name="Av1anResumeBtn" Content="Resume…" Click="Av1anResume_Click" />
-              <Button x:Name="Av1anClearTempBtn" Content="Clear Temp…" Click="Av1anClearTemp_Click"
-                      ToolTip.Tip="Delete the temporary files of every unfinished encode. They cannot be resumed afterwards." />
-            </StackPanel>
-          </Grid>
-        </Grid>
-      </TabItem>
-
       <!-- ─────────── Utilities ─────────── -->
       <TabItem Header="Utilities">
         <ScrollViewer>
@@ -506,28 +517,22 @@
           <StackPanel Margin="8" Spacing="6" MaxWidth="800" HorizontalAlignment="Left">
             <TextBlock Classes="h" Text="General" Margin="0,0,0,2" />
 
-            <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-              <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="After adding files" />
-              <ComboBox Grid.Row="0" Grid.Column="1" x:Name="TaskModeBox" SelectionChanged="TaskMode_SelectionChanged">
-                <ComboBoxItem Content="Wait for me to press Run" />
-                <ComboBoxItem Content="Run the selected task immediately" />
-              </ComboBox>
-
-              <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Console window" />
-              <ComboBox Grid.Row="1" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
+            <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Console window" />
+              <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
                 <ComboBoxItem Content="Hidden (Default)" />
                 <ComboBoxItem Content="Visible" />
                 <ComboBoxItem Content="Visible, stays open after finishing" />
               </ComboBox>
 
-              <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
-              <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+              <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
+              <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
 
-              <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
-              <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+              <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
+              <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
 
-              <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Save encodes to" />
-              <Grid Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
+              <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Save encodes to" />
+              <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
                 <TextBox Grid.Column="0" x:Name="DefaultOutDirBox" Width="430" LostFocus="DefaultOutDir_Changed"
                          PlaceholderText="Leave empty to save next to the source file" />
                 <Button Grid.Column="1" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseDefaultOutDir_Click" />

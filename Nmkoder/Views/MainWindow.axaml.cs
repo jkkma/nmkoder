@@ -103,6 +103,10 @@ namespace Nmkoder.Views
 
             _initialized = true;
 
+            // The window opens on the File List tab, so MainTabs_SelectionChanged never fires for it
+            // and the Run button would keep the enabled state it has in XAML.
+            UpdateRunButtonState();
+
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
         }
@@ -122,7 +126,6 @@ namespace Nmkoder.Views
         void LoadUiConfig()
         {
             ConfigParser.LoadComboxIndex(FileListModeBox);
-            ConfigParser.LoadComboxIndex(TaskModeBox);
             // Quick Convert
             ConfigParser.LoadGuiElement(FfmpegContainerBox);
             ConfigParser.LoadComboxIndex(EncVidCodecsBox);
@@ -141,7 +144,6 @@ namespace Nmkoder.Views
                 return;
 
             ConfigParser.SaveComboxIndex(FileListModeBox);
-            ConfigParser.SaveComboxIndex(TaskModeBox);
             // Quick Convert
             ConfigParser.SaveGuiElement(FfmpegContainerBox);
             ConfigParser.SaveComboxIndex(EncVidCodecsBox);
@@ -158,6 +160,13 @@ namespace Nmkoder.Views
         public TextBox CustomArgsInBox => EncCustomArgsIn;
         public TextBox CustomArgsOutBox => EncCustomArgsOut;
         public ComboBox Av1anColorsBox => Av1anColorSpaceBox;
+
+        /// <summary>
+        /// The top-level tabs, in the order they are declared in XAML. Anything keyed off the
+        /// selected tab goes through this, so reordering the tabs means reordering this and
+        /// nothing else.
+        /// </summary>
+        private enum MainTab { FileList, TrackList, Av1an, QuickConvert, Utilities, Settings }
 
         /// <summary> Index of the selected top-level tab (0 = File List, 1 = Track List, ...). </summary>
         public int SelectedMainTab
@@ -180,15 +189,25 @@ namespace Nmkoder.Views
             TrackThumbLabel.Text = label;
         }
 
+        /// <summary>
+        /// Fills the stream details pane, which is only worth its height when a track is
+        /// actually selected - the rest of the time the list above it can have the space.
+        /// </summary>
+        public void SetStreamDetails(string details)
+        {
+            StreamDetailsBox.Text = details;
+            StreamDetailsBox.IsVisible = !string.IsNullOrWhiteSpace(details);
+        }
+
         public RunTask.TaskType SelectedTask
         {
             get
             {
-                switch (MainTabs.SelectedIndex)
+                switch ((MainTab)MainTabs.SelectedIndex)
                 {
-                    case 2: return RunTask.TaskType.Convert;
-                    case 3: return RunTask.TaskType.Av1an;
-                    case 4: return GetUtilsTaskType();
+                    case MainTab.QuickConvert: return RunTask.TaskType.Convert;
+                    case MainTab.Av1an: return RunTask.TaskType.Av1an;
+                    case MainTab.Utilities: return GetUtilsTaskType();
                     default: return RunTask.TaskType.None;
                 }
             }
@@ -219,8 +238,14 @@ namespace Nmkoder.Views
 
             RunOnUi(() =>
             {
-                RunBtn.IsEnabled = !state;
                 RunBtn.IsVisible = !state;
+
+                // Coming back from a task, whether Run is usable again depends on the tab that
+                // happens to be open - the user is free to have switched during the encode.
+                if (state)
+                    RunBtn.IsEnabled = false;
+                else
+                    UpdateRunButtonState();
                 StopBtn.IsVisible = state && allowCancel;
 
                 if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
@@ -369,24 +394,31 @@ namespace Nmkoder.Views
 
         #region Tab switching
 
+        /// <summary> Run only has something to start on the tabs that carry a task. </summary>
+        private void UpdateRunButtonState()
+        {
+            MainTab tab = (MainTab)MainTabs.SelectedIndex;
+            RunBtn.IsEnabled = tab is MainTab.Av1an or MainTab.QuickConvert or MainTab.Utilities;
+        }
+
         private async void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)
                 return;
 
-            int index = MainTabs.SelectedIndex;
-            RunBtn.IsEnabled = index == 2 || index == 3 || index == 4;
+            MainTab tab = (MainTab)MainTabs.SelectedIndex;
+            UpdateRunButtonState();
 
-            if (index == 0)
+            if (tab == MainTab.FileList)
                 await RefreshFileListUi();
 
-            if (index == 1)
+            if (tab == MainTab.TrackList)
                 RefreshStreamListUi();
 
-            if (index == 2)
+            if (tab == MainTab.QuickConvert)
                 QuickConvertUi.ValidatePath();
 
-            if (index == 3)
+            if (tab == MainTab.Av1an)
                 Av1anUi.ValidatePath();
         }
 

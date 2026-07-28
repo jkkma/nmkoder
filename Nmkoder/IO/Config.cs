@@ -17,11 +17,35 @@ namespace Nmkoder.IO
         private static string configPath;
         public static Dictionary<string, string> cachedValues = new Dictionary<string, string>();
 
+        /// <summary>
+        /// Keys earlier versions wrote for settings that no longer exist. A config file written by
+        /// one of those keeps carrying them otherwise, since nothing reads them to overwrite them.
+        /// </summary>
+        private static readonly string[] retiredKeys = { "TaskModeBox", "taskMode" };
+
         public static void Init()
         {
             configPath = Path.Combine(Paths.GetDataPath(), "config.json");
             IoUtils.CreateFileIfNotExists(configPath);
             Reload();
+            DropRetiredKeys();
+        }
+
+        private static void DropRetiredKeys()
+        {
+            List<string> dropped = new List<string>();
+
+            foreach (string key in retiredKeys)
+            {
+                if (cachedValues.Remove(key))
+                    dropped.Add(key);
+            }
+
+            if (dropped.Count < 1)
+                return;
+
+            Logger.Log($"Config: Dropped retired {(dropped.Count == 1 ? "entry" : "entries")}: {string.Join(", ", dropped)}", true);
+            WriteConfig();
         }
 
         public static async Task Reset(int retries = 3)
