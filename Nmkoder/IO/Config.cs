@@ -293,6 +293,9 @@ namespace Nmkoder.IO
             // Taken from the enum rather than written out, so reordering the codecs cannot leave
             // this pointing at a different one. Opus defaults to 128 kbps for stereo on its own.
             if (key == Key.Av1anAudCodecBox)            return WriteDefault(key, ((int)CodecUtils.AudioCodec.Opus).ToString());
+            // Likewise from the enum. SVT-AV1 rather than the first entry: it is the AV1 encoder
+            // worth reaching for by default, and index 0 would only win by being index 0.
+            if (key == Key.Av1anCodecBox)               return WriteDefault(key, ((int)CodecUtils.Av1anCodec.SvtAv1).ToString());
             if (key == Key.DefaultKeyIntSecs)           return WriteDefault(key, "10");
             if (key == Key.Av1anOptsWorkerCountUpDown)  return WriteDefault(key, $"{Av1an.GetDefaultWorkerCount()}");
             if (key == Key.Av1anThreadsUpDown)          return WriteDefault(key, "2");
@@ -326,6 +329,7 @@ namespace Nmkoder.IO
             AutoCropSamples,
             Av1anCmdVisible,
             Av1anAudCodecBox,
+            Av1anCodecBox,
             Av1anThreadsUpDown,
             Av1anOptsChunkModeBox,
             Av1anOptsSplitModeBox,
