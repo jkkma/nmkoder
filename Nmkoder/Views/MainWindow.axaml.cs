@@ -103,6 +103,10 @@ namespace Nmkoder.Views
 
             _initialized = true;
 
+            // The window opens on the File List tab, so MainTabs_SelectionChanged never fires for it
+            // and the Run button would keep the enabled state it has in XAML.
+            UpdateRunButtonState();
+
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
         }
@@ -236,8 +240,14 @@ namespace Nmkoder.Views
 
             RunOnUi(() =>
             {
-                RunBtn.IsEnabled = !state;
                 RunBtn.IsVisible = !state;
+
+                // Coming back from a task, whether Run is usable again depends on the tab that
+                // happens to be open - the user is free to have switched during the encode.
+                if (state)
+                    RunBtn.IsEnabled = false;
+                else
+                    UpdateRunButtonState();
                 StopBtn.IsVisible = state && allowCancel;
 
                 if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
@@ -386,13 +396,20 @@ namespace Nmkoder.Views
 
         #region Tab switching
 
+        /// <summary> Run only has something to start on the tabs that carry a task. </summary>
+        private void UpdateRunButtonState()
+        {
+            MainTab tab = (MainTab)MainTabs.SelectedIndex;
+            RunBtn.IsEnabled = tab is MainTab.Av1an or MainTab.QuickConvert or MainTab.Utilities;
+        }
+
         private async void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)
                 return;
 
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
-            RunBtn.IsEnabled = tab is MainTab.Av1an or MainTab.QuickConvert or MainTab.Utilities;
+            UpdateRunButtonState();
 
             if (tab == MainTab.FileList)
                 await RefreshFileListUi();
