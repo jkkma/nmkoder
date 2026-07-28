@@ -7,7 +7,7 @@
   ["sharpness", "", "0-7 (default 1) - Deblocking sharpness; higher keeps more detail, lower smooths more"],
   ["sharp-tx", "", "0-1 (default 1 in this build) - Sharper transform decisions"],
   ["max-tx-size", "", "32 or 64 - Caps the largest transform size the encoder may pick"],
-  ["hbd-mds", "", "0-2 (default 0) - How much of the mode decision runs at high bit depth"],
+  ["hbd-mds", "", "-1 to 2 (default -1, follows the preset) - How much of the mode decision runs at high bit depth. 0: all 8-bit, 1: all 10-bit, 2: hybrid. 10-bit only does anything on a 10-bit input, i.e. a 10 bit Color Format"],
   ["alt-ssim-tuning", "", "0-1 (default 0) - Psychovisual tuning using an alternative SSIM calculation"],
 
   ["tune", "", "0-5 - Metric the encoder tunes for; 5 favours retaining film grain"],
