@@ -76,7 +76,7 @@ namespace Nmkoder.Data.Codecs.Video
         public int ColorFormatDefault { get; } = 1;
         public int QMin { get; } = 0;
         public int QMax { get; } = 63;
-        public int QDefault { get; } = 20;
+        public int QDefault { get; } = 35;
         public string QInfo { get; } = "CRF (0-50 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
