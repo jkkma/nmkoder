@@ -175,6 +175,15 @@ namespace Nmkoder.Views
             grid.Columns.Add(new DataGridTextColumn { Header = "Value", Binding = new Binding(nameof(EncoderArgRow.Value)), Width = new DataGridLength(110) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Description, Possible Values", Binding = new Binding(nameof(EncoderArgRow.Description)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             grid.CellEditEnded += Av1anAdvancedArg_CellEditEnded;
+
+            // The description is one clipped line, and narrowing the window clips it further, so the
+            // row carries the whole of it as a tooltip - the ranges and defaults are the point of it.
+            grid.LoadingRow += (s, e) =>
+            {
+                if (e.Row.DataContext is EncoderArgRow row)
+                    ToolTip.SetTip(e.Row, $"--{row.Argument}\n{row.Description}");
+            };
+
             return grid;
         }
 
