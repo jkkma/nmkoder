@@ -160,6 +160,7 @@ namespace Nmkoder.UI.Tasks
                     // Kept rather than built inline: the pixel format the color format box resolved to is
                     // needed again below, to work out who should convert to it.
                     Dictionary<string, string> videoArgs = GetVideoArgsFromUi();
+                    string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
                     string vf = await GetVideoFilterArgs(codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
@@ -170,6 +171,11 @@ namespace Nmkoder.UI.Tasks
                     bool copySubs = form.CheckAv1anCopySubs.IsChecked == true;
                     List<int> bitmapSubs = GetBitmapSubtitleIndices(TrackList.current?.File);
                     string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm, bitmapSubs);
+
+                    string hbdProblem = GetHbdModeDecisionProblem(vCodec, pixFmt);
+
+                    if (hbdProblem.IsNotEmpty())
+                        Logger.Log(hbdProblem);
 
                     if (form.CheckAv1anCopyData.IsChecked == true && (TrackList.current?.File.DataStreams.Count ?? 0) > 0)
                         Logger.Log("Note: data streams are being left out. av1an muxes through an intermediate Matroska file, which stores none, so they cannot be carried either way.");
@@ -188,8 +194,7 @@ namespace Nmkoder.UI.Tasks
 
                     string ffArgs = $"{ffAud} {ffMux}";
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
-                    string pixFmtConverter = await GetPixelFormatConverterArgs(
-                        videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "", ffFilters.IsNotEmpty());
+                    string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty());
 
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +

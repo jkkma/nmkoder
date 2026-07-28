@@ -393,6 +393,41 @@ namespace Nmkoder.UI.Tasks
             return $"{flag} vs-resize";
         }
 
+        /// <summary>
+        /// Why the SVT-AV1 mode decision depth that has been asked for cannot be delivered, or "" if
+        /// there is nothing wrong.
+        /// <para/>
+        /// hbd-mds puts some or all of mode decision at 10-bit precision, which SVT-AV1 only does on a
+        /// 10-bit input. Set against an 8-bit color format it is accepted, encodes, and changes nothing
+        /// - an outcome indistinguishable from it having worked, on a setting whose whole point is a
+        /// quality difference too small to see by eye.
+        /// </summary>
+        public static string GetHbdModeDecisionProblem(CodecUtils.Av1anCodec vCodec, string pixFmt)
+        {
+            // The advanced grid is reloaded per encoder, so no other encoder can be carrying this row.
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1)
+                return "";
+
+            // 0 means an unrecognised format rather than 8-bit, and guessing at one is not worth a
+            // warning that would then be wrong.
+            if (FormatUtils.GetBitDepthFromPixelFormat(pixFmt) != 8)
+                return "";
+
+            string value = Form.Av1anArgRows
+                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == "hbd-mds")
+                .Select(x => (x.Value ?? "").Trim())
+                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+
+            // -1 leaves the choice to the preset and 0 is all 8-bit, so neither is asking the input for
+            // something it does not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            if (value != "1" && value != "2")
+                return "";
+
+            return $"Note: hbd-mds is set to {value}, which asks for {(value == "1" ? "all of" : "part of")} the mode decision " +
+                $"at 10-bit, but SVT-AV1 only does that on a 10-bit input and the Color Format is 8-bit ({pixFmt}). " +
+                $"Pick a 10 bit Color Format for it to have any effect.";
+        }
+
         /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>
         public static Containers.Container GetCurrentContainer()
         {
