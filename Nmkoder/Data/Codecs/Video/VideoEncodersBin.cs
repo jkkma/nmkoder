@@ -71,7 +71,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "AV1 (SVT-AV1)";
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" };
-        public int PresetDefault { get; } = 5;
+        public int PresetDefault { get; } = 4;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuv420P10 };
         public int ColorFormatDefault { get; } = 1;
         public int QMin { get; } = 0;
