@@ -83,7 +83,12 @@
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                      <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Content="{Binding DisplayName}" />
+                      <!-- The name is deliberately not the CheckBox's content: clicking a track's
+                           text selects it, and only the box itself ticks it. -->
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" MinWidth="0" Padding="0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
