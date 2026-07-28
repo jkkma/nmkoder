@@ -123,7 +123,7 @@ namespace Nmkoder.Views
         }
 
         /// <summary> The category tabs' grids, kept for committing pending edits on save. </summary>
-        private readonly List<DataGrid> av1anArgGrids = new List<DataGrid>();
+        private readonly List<DataGrid> _av1anArgGrids = new List<DataGrid>();
 
         /// <summary>
         /// Rebuilds the Advanced tab's category tabs from whatever is in Av1anArgRows, one tab per
@@ -135,19 +135,24 @@ namespace Nmkoder.Views
         {
             // Encoders share category names, so the open category survives an encoder switch
             string selected = (Av1anArgCategoryTabs.SelectedItem as TabItem)?.Header?.ToString();
-            av1anArgGrids.Clear();
+            _av1anArgGrids.Clear();
             List<TabItem> tabs = new List<TabItem>();
 
             foreach (var category in Av1anArgRows.GroupBy(r => r.Category.IsEmpty() ? "Other" : r.Category))
             {
                 DataGrid grid = CreateAv1anArgsGrid(category.ToList());
-                av1anArgGrids.Add(grid);
+                _av1anArgGrids.Add(grid);
                 tabs.Add(new TabItem { Header = category.Key, Content = grid });
             }
 
+            // A missing or unparseable JSON leaves no rows at all. Without this the heading would sit
+            // over a bare void; an empty grid keeps the column chrome visible, like the flat grid did.
+            if (tabs.Count == 0)
+                tabs.Add(new TabItem { Header = "Arguments", Content = CreateAv1anArgsGrid(new List<EncoderArgRow>()) });
+
             Av1anArgCategoryTabs.ItemsSource = tabs;
             int index = tabs.FindIndex(t => t.Header?.ToString() == selected);
-            Av1anArgCategoryTabs.SelectedIndex = index >= 0 ? index : (tabs.Count > 0 ? 0 : -1);
+            Av1anArgCategoryTabs.SelectedIndex = index >= 0 ? index : 0;
         }
 
         /// <summary> One category's grid, with the same columns the single flat grid used to have. </summary>
@@ -163,8 +168,10 @@ namespace Nmkoder.Views
             };
 
             // Values are nearly always a single digit, so the column is sized for one rather than
-            // splitting the width evenly; the descriptions take the slack.
-            grid.Columns.Add(new DataGridTextColumn { Header = "Argument", Binding = new Binding(nameof(EncoderArgRow.Argument)), IsReadOnly = true, Width = DataGridLength.Auto, MinWidth = 180 });
+            // splitting the width evenly; the descriptions take the slack. The argument column is a
+            // fixed width rather than Auto because every category tab is its own grid - each would
+            // measure its own longest name, and the columns would jump when switching tabs.
+            grid.Columns.Add(new DataGridTextColumn { Header = "Argument", Binding = new Binding(nameof(EncoderArgRow.Argument)), IsReadOnly = true, Width = new DataGridLength(250) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Value", Binding = new Binding(nameof(EncoderArgRow.Value)), Width = new DataGridLength(110) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Description, Possible Values", Binding = new Binding(nameof(EncoderArgRow.Description)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             grid.CellEditEnded += Av1anAdvancedArg_CellEditEnded;
@@ -189,7 +196,7 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            foreach (DataGrid grid in av1anArgGrids)
+            foreach (DataGrid grid in _av1anArgGrids)
                 grid.CommitEdit();
 
             Av1anUi.SaveAdvancedArgs(CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()));
