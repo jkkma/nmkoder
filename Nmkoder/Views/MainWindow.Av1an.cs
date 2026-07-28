@@ -121,14 +121,24 @@ namespace Nmkoder.Views
         }
 
         /// <summary>
-        /// Saved as each cell is committed rather than on close: selecting another encoder rebuilds
+        /// Saved as each cell is committed, not only on close: selecting another encoder rebuilds
         /// the grid from that encoder's list, so anything not already stored would be gone.
         /// </summary>
         private void Av1anAdvancedArg_CellEditEnded(object sender, DataGridCellEditEndedEventArgs e)
         {
+            SaveAv1anAdvancedArgs();
+        }
+
+        /// <summary>
+        /// Also runs on close, where the edit has to be committed first: a cell the user is still
+        /// typing in has not ended its edit, so nothing would have saved that last value.
+        /// </summary>
+        public void SaveAv1anAdvancedArgs()
+        {
             if (!_initialized)
                 return;
 
+            Av1anAdvancedArgsGrid.CommitEdit();
             Av1anUi.SaveAdvancedArgs(CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()));
         }
 

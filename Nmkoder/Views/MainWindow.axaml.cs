@@ -115,6 +115,7 @@ namespace Nmkoder.Views
         {
             SaveUiConfig();
             SaveConfigAv1an();
+            SaveAv1anAdvancedArgs();
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
