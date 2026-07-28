@@ -199,9 +199,61 @@ namespace Nmkoder.UI.Tasks
         public static void LoadAdvancedArgsGrid(IEncoder enc)
         {
             Form.Av1anArgRows.Clear();
+            ReadSavedArgs().TryGetValue(enc.Name, out Dictionary<string, string> saved);
 
             foreach (EncoderArgRow row in ReadEncoderArgRows(enc))
+            {
+                if (saved != null && saved.TryGetValue(row.Argument, out string value))
+                    row.Value = value;
+
                 Form.Av1anArgRows.Add(row);
+            }
+        }
+
+        /// <summary>
+        /// Values typed into the advanced argument grid, kept per encoder. The rows themselves are
+        /// rebuilt from the encoder's JSON every time it is selected, which is what used to throw
+        /// the values away - on a restart and on every switch between encoders.
+        /// </summary>
+        public static void SaveAdvancedArgs(IEncoder enc)
+        {
+            if (enc == null)
+                return;
+
+            Dictionary<string, Dictionary<string, string>> all = ReadSavedArgs();
+
+            // Blank rows are the normal state, and storing them would grow the config with nothing
+            Dictionary<string, string> filled = Form.Av1anArgRows
+                .Where(r => r.Argument.IsNotEmpty() && r.Value.IsNotEmpty())
+                .GroupBy(r => r.Argument.Trim())
+                .ToDictionary(g => g.Key, g => g.Last().Value.Trim());
+
+            if (filled.Count > 0)
+                all[enc.Name] = filled;
+            else
+                all.Remove(enc.Name);
+
+            Config.Set(Config.Key.Av1anEncoderArgs, JsonConvert.SerializeObject(all));
+        }
+
+        private static Dictionary<string, Dictionary<string, string>> ReadSavedArgs()
+        {
+            try
+            {
+                string json = Config.Get(Config.Key.Av1anEncoderArgs);
+
+                if (json.IsEmpty())
+                    return new Dictionary<string, Dictionary<string, string>>();
+
+                return JsonConvert.DeserializeObject<Dictionary<string, Dictionary<string, string>>>(json)
+                    ?? new Dictionary<string, Dictionary<string, string>>();
+            }
+            catch (Exception e)
+            {
+                // A hand-edited or truncated entry should cost the saved values, not the whole tab
+                Logger.Log($"Failed to read saved encoder arguments: {e.Message}", true);
+                return new Dictionary<string, Dictionary<string, string>>();
+            }
         }
 
         #endregion

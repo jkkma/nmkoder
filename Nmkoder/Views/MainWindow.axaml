@@ -285,6 +285,7 @@
               <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="4">
                 <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
                 <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                             CellEditEnded="Av1anAdvancedArg_CellEditEnded"
                              GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                   <dg:DataGrid.Columns>
                     <!-- Values are nearly always a single digit, so the column is sized for one

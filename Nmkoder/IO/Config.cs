@@ -330,6 +330,7 @@ namespace Nmkoder.IO
             Av1anCmdVisible,
             Av1anAudCodecBox,
             Av1anCodecBox,
+            Av1anEncoderArgs,
             Av1anThreadsUpDown,
             Av1anOptsChunkModeBox,
             Av1anOptsSplitModeBox,
