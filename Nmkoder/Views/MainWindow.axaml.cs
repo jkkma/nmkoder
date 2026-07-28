@@ -126,7 +126,6 @@ namespace Nmkoder.Views
         void LoadUiConfig()
         {
             ConfigParser.LoadComboxIndex(FileListModeBox);
-            ConfigParser.LoadComboxIndex(TaskModeBox);
             // Quick Convert
             ConfigParser.LoadGuiElement(FfmpegContainerBox);
             ConfigParser.LoadComboxIndex(EncVidCodecsBox);
@@ -145,7 +144,6 @@ namespace Nmkoder.Views
                 return;
 
             ConfigParser.SaveComboxIndex(FileListModeBox);
-            ConfigParser.SaveComboxIndex(TaskModeBox);
             // Quick Convert
             ConfigParser.SaveGuiElement(FfmpegContainerBox);
             ConfigParser.SaveComboxIndex(EncVidCodecsBox);

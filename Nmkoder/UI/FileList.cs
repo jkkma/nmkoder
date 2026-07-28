@@ -58,10 +58,7 @@ namespace Nmkoder.UI
                 Logger.ClearLogBox();
             }
 
-            bool runInstantly = RunTask.RunInstantly();
-
-            if (!runInstantly)
-                Program.MainWin.SelectedMainTab = 0;
+            Program.MainWin.SelectedMainTab = 0;
 
             Logger.Log($"Added {paths.Length} file{((paths.Length == 1) ? "" : "s")} to list.");
             await LoadFiles(paths, clearExisting);
@@ -78,9 +75,6 @@ namespace Nmkoder.UI
                     QuickConvertUi.InitFile();
                 }
             }
-
-            if (runInstantly)
-                Program.MainWin.RunBtnClick();
         }
     }
 }

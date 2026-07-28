@@ -72,7 +72,6 @@ namespace Nmkoder.Views
         private void GeneralSetting_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e) => SaveGeneralSettings();
         private void CmdDebugMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => SaveGeneralSettings();
 
-        private void TaskMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => SaveUiConfig();
 
         private async void ResetSettingsConf_Click(object sender, RoutedEventArgs e)
         {

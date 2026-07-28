@@ -517,28 +517,22 @@
           <StackPanel Margin="8" Spacing="6" MaxWidth="800" HorizontalAlignment="Left">
             <TextBlock Classes="h" Text="General" Margin="0,0,0,2" />
 
-            <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-              <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="After adding files" />
-              <ComboBox Grid.Row="0" Grid.Column="1" x:Name="TaskModeBox" SelectionChanged="TaskMode_SelectionChanged">
-                <ComboBoxItem Content="Wait for me to press Run" />
-                <ComboBoxItem Content="Run the selected task immediately" />
-              </ComboBox>
-
-              <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Console window" />
-              <ComboBox Grid.Row="1" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
+            <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Console window" />
+              <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
                 <ComboBoxItem Content="Hidden (Default)" />
                 <ComboBoxItem Content="Visible" />
                 <ComboBoxItem Content="Visible, stays open after finishing" />
               </ComboBox>
 
-              <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
-              <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+              <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
+              <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
 
-              <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
-              <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+              <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
+              <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
 
-              <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Save encodes to" />
-              <Grid Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
+              <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Save encodes to" />
+              <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
                 <TextBox Grid.Column="0" x:Name="DefaultOutDirBox" Width="430" LostFocus="DefaultOutDir_Changed"
                          PlaceholderText="Leave empty to save next to the source file" />
                 <Button Grid.Column="1" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseDefaultOutDir_Click" />

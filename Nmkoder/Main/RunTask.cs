@@ -75,9 +75,7 @@ namespace Nmkoder.Main
 
             if (task == TaskType.None)
             {
-                if (!RunInstantly())
-                    await UiUtils.ShowMessageBox("No task selected! Please select an option (Quick Encode or one of the actions in Utilities).");
-
+                await UiUtils.ShowMessageBox("No task selected! Please select an option (Quick Encode or one of the actions in Utilities).");
                 return;
             }
 
@@ -140,11 +138,6 @@ namespace Nmkoder.Main
             runningBatch = false;
 
             Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}");
-        }
-
-        public static bool RunInstantly()
-        {
-            return Config.GetInt("taskMode") == 1;
         }
     }
 }

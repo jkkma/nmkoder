@@ -191,7 +191,7 @@ namespace Nmkoder.UI
             if (setWorking)
                 Program.MainWin.SetWorking(false);
 
-            if (switchToList && !RunTask.RunInstantly())
+            if (switchToList)
                 Program.MainWin.SelectedMainTab = 1;
 
             Program.MainWin.ignoreStreamListCheck = false;
