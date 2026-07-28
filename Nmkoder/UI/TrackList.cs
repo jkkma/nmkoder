@@ -41,7 +41,7 @@ namespace Nmkoder.UI
             if (clearStreamList)
                 Items.Clear();
 
-            f.StreamDetailsBox.Text = "";
+            f.SetStreamDetails("");
             f.FormatInfoLabel.Text = "";
             f.MetadataRows.Clear();
             ThumbnailView.ClearUi();

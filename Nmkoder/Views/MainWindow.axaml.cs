@@ -180,6 +180,16 @@ namespace Nmkoder.Views
             TrackThumbLabel.Text = label;
         }
 
+        /// <summary>
+        /// Fills the stream details pane, which is only worth its height when a track is
+        /// actually selected - the rest of the time the list above it can have the space.
+        /// </summary>
+        public void SetStreamDetails(string details)
+        {
+            StreamDetailsBox.Text = details;
+            StreamDetailsBox.IsVisible = !string.IsNullOrWhiteSpace(details);
+        }
+
         public RunTask.TaskType SelectedTask
         {
             get

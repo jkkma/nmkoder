@@ -113,7 +113,9 @@
             <Button x:Name="TrackListMoveDownBtn" Content="▼" Classes="icon" IsVisible="False" Click="TrackListMoveDown_Click" />
           </StackPanel>
 
-          <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+          <!-- Collapsed until a track is selected; see SetStreamDetails() -->
+          <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsVisible="False"
+                   IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                    ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
                    Height="110" Margin="0,8,0,0" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
 
