@@ -28,6 +28,7 @@ namespace Nmkoder.Views
             AddTracksFromFileBtn.IsEnabled = RunTask.currentFileListMode == RunTask.FileListMode.Mux && anySelected;
 
             int count = FileList.Items.Count;
+            FileListEmptyHint.IsVisible = count < 1;
 
             FileCountLabel.Text = $"{count} file{(count != 1 ? "s" : "")} loaded. " +
                 $"{(count > 1 && RunTask.currentFileListMode == RunTask.FileListMode.Mux ? "Double click any of them or use the Load Tracks button to load their tracks." : "")}";

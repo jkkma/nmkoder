@@ -120,6 +120,18 @@ namespace Nmkoder.Views
             ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
         }
 
+        /// <summary>
+        /// Saved as each cell is committed rather than on close: selecting another encoder rebuilds
+        /// the grid from that encoder's list, so anything not already stored would be gone.
+        /// </summary>
+        private void Av1anAdvancedArg_CellEditEnded(object sender, DataGridCellEditEndedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            Av1anUi.SaveAdvancedArgs(CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()));
+        }
+
         private void Av1anFilterAdd_Click(object sender, RoutedEventArgs e)
         {
             Av1anFilterRows.Add(new FilterRow(""));
