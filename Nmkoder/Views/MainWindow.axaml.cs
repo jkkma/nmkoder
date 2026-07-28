@@ -159,6 +159,13 @@ namespace Nmkoder.Views
         public TextBox CustomArgsOutBox => EncCustomArgsOut;
         public ComboBox Av1anColorsBox => Av1anColorSpaceBox;
 
+        /// <summary>
+        /// The top-level tabs, in the order they are declared in XAML. Anything keyed off the
+        /// selected tab goes through this, so reordering the tabs means reordering this and
+        /// nothing else.
+        /// </summary>
+        private enum MainTab { FileList, TrackList, Av1an, QuickConvert, Utilities, Settings }
+
         /// <summary> Index of the selected top-level tab (0 = File List, 1 = Track List, ...). </summary>
         public int SelectedMainTab
         {
@@ -194,11 +201,11 @@ namespace Nmkoder.Views
         {
             get
             {
-                switch (MainTabs.SelectedIndex)
+                switch ((MainTab)MainTabs.SelectedIndex)
                 {
-                    case 2: return RunTask.TaskType.Convert;
-                    case 3: return RunTask.TaskType.Av1an;
-                    case 4: return GetUtilsTaskType();
+                    case MainTab.QuickConvert: return RunTask.TaskType.Convert;
+                    case MainTab.Av1an: return RunTask.TaskType.Av1an;
+                    case MainTab.Utilities: return GetUtilsTaskType();
                     default: return RunTask.TaskType.None;
                 }
             }
@@ -384,19 +391,19 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            int index = MainTabs.SelectedIndex;
-            RunBtn.IsEnabled = index == 2 || index == 3 || index == 4;
+            MainTab tab = (MainTab)MainTabs.SelectedIndex;
+            RunBtn.IsEnabled = tab is MainTab.Av1an or MainTab.QuickConvert or MainTab.Utilities;
 
-            if (index == 0)
+            if (tab == MainTab.FileList)
                 await RefreshFileListUi();
 
-            if (index == 1)
+            if (tab == MainTab.TrackList)
                 RefreshStreamListUi();
 
-            if (index == 2)
+            if (tab == MainTab.QuickConvert)
                 QuickConvertUi.ValidatePath();
 
-            if (index == 3)
+            if (tab == MainTab.Av1an)
                 Av1anUi.ValidatePath();
         }
 

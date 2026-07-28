@@ -133,159 +133,6 @@
         </Grid>
       </TabItem>
 
-      <!-- ─────────── Quick Convert ─────────── -->
-      <TabItem Header="Quick Convert">
-        <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="QuickEncTabs">
-
-            <TabItem Header="Video">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FfmpegContainerBox" SelectionChanged="Container_SelectionChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EncQualModeBox" SelectionChanged="EncQualityMode_SelectionChanged" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
-                  <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <NumericUpDown x:Name="EncVidQualityBox" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="20" />
-                    <TextBlock x:Name="QInfoLabel" Classes="hint" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
-                  <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <ComboBox x:Name="EncVidPresetBox" Classes="short" />
-                    <TextBlock x:Name="PresetInfoLabel" Classes="hint" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
-                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="EncVidColorsBox" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Frame Rate" />
-                  <TextBox Grid.Row="1" Grid.Column="4" x:Name="EncVidFpsBox" Classes="num" PlaceholderText="Keep original" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                  <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                    <TextBlock Text="x" VerticalAlignment="Center" />
-                    <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Crop" />
-                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <ComboBox x:Name="EncCropModeBox" Width="260" SelectionChanged="EncCropMode_SelectionChanged">
-                      <ComboBoxItem Content="Disabled" />
-                      <ComboBoxItem Content="Automatic (detect black bars)" />
-                      <ComboBoxItem Content="Manual" />
-                    </ComboBox>
-                    <Button x:Name="EncCropConfBtn" Content="Configure…" IsVisible="False" Click="EncCropConf_Click" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
-                  <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Audio">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncAudCodecBox" SelectionChanged="EncAudCodec_SelectionChanged" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Configuration" />
-                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <ComboBox x:Name="EncAudConfModeBox" Width="270" SelectionChanged="EncAudConfMode_SelectionChanged">
-                    <ComboBoxItem Content="Same settings for all tracks" />
-                    <ComboBoxItem Content="Configure each track separately" />
-                  </ComboBox>
-                  <Button x:Name="EncAudConfigureBtn" Content="Configure…" IsVisible="False" Click="EncAudConfigure_Click" />
-                </StackPanel>
-
-                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
-                <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="EncAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Channels" />
-                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="EncAudChannelsBox" Width="230" HorizontalAlignment="Left">
-                  <ComboBoxItem Content="0 (Keep original)" />
-                  <ComboBoxItem Content="1 (Mono)" />
-                  <ComboBoxItem Content="2 (Stereo)" />
-                  <ComboBoxItem Content="6 (5.1 Surround)" />
-                  <ComboBoxItem Content="8 (7.1 Surround)" />
-                </ComboBox>
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Subtitles">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncSubCodecBox" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Burn In" />
-                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="EncSubBurnBox" />
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Metadata">
-              <Grid RowDefinitions="Auto,Auto,*" Margin="4">
-                <Grid Classes="form" Grid.Row="0" ColumnDefinitions="150,320,40,150,320,*">
-                  <TextBlock Grid.Column="0" Classes="field" Text="Copy Metadata From" />
-                  <ComboBox Grid.Column="1" x:Name="EncMetaCopySource" />
-                  <TextBlock Grid.Column="3" Classes="field" Text="Copy Chapters From" />
-                  <ComboBox Grid.Column="4" x:Name="EncMetaChapterSource" />
-                </Grid>
-
-                <CheckBox Grid.Row="1" x:Name="EncMetaApplyGrid" Content="Apply the titles and languages below" IsChecked="True" Margin="0,8,0,6" />
-
-                <dg:DataGrid Grid.Row="2" x:Name="EncMetadataGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Track" Binding="{Binding Field}" IsReadOnly="True" Width="2*" />
-                    <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="5*" />
-                    <dg:DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="Auto" MinWidth="80" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Advanced">
-              <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Classes="h" Text="Custom Arguments" Margin="0,0,0,4" />
-                <Grid Classes="form" Grid.Row="1" ColumnDefinitions="130,640,*" RowDefinitions="Auto,Auto">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Input Args" />
-                  <TextBox Grid.Row="0" Grid.Column="1" x:Name="EncCustomArgsIn" />
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Output Args" />
-                  <TextBox Grid.Row="1" Grid.Column="1" x:Name="EncCustomArgsOut" />
-                </Grid>
-
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
-                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="EncFilterAdd_Click" />
-                  <Button Grid.Column="2" Content="Remove" Click="EncFilterRemove_Click" />
-                </Grid>
-
-                <dg:DataGrid Grid.Row="3" x:Name="EncAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
-
-          </TabControl>
-
-          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
-            <TextBox Grid.Column="1" x:Name="OutputPathBox" />
-            <Button Grid.Column="2" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseFfmpegOutput_Click" />
-          </Grid>
-        </Grid>
-      </TabItem>
-
       <!-- ─────────── AV1AN ─────────── -->
       <TabItem Header="AV1AN">
         <Grid RowDefinitions="*,Auto" Margin="8">
@@ -450,6 +297,159 @@
               <Button x:Name="Av1anClearTempBtn" Content="Clear Temp…" Click="Av1anClearTemp_Click"
                       ToolTip.Tip="Delete the temporary files of every unfinished encode. They cannot be resumed afterwards." />
             </StackPanel>
+          </Grid>
+        </Grid>
+      </TabItem>
+
+      <!-- ─────────── Quick Convert ─────────── -->
+      <TabItem Header="Quick Convert">
+        <Grid RowDefinitions="*,Auto" Margin="8">
+          <TabControl Grid.Row="0" x:Name="QuickEncTabs">
+
+            <TabItem Header="Video">
+              <ScrollViewer>
+                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FfmpegContainerBox" SelectionChanged="Container_SelectionChanged" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EncQualModeBox" SelectionChanged="EncQualityMode_SelectionChanged" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
+                  <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <NumericUpDown x:Name="EncVidQualityBox" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="20" />
+                    <TextBlock x:Name="QInfoLabel" Classes="hint" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
+                  <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <ComboBox x:Name="EncVidPresetBox" Classes="short" />
+                    <TextBlock x:Name="PresetInfoLabel" Classes="hint" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
+                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="EncVidColorsBox" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Frame Rate" />
+                  <TextBox Grid.Row="1" Grid.Column="4" x:Name="EncVidFpsBox" Classes="num" PlaceholderText="Keep original" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
+                  <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                    <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" />
+                    <TextBlock Text="x" VerticalAlignment="Center" />
+                    <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Crop" />
+                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                    <ComboBox x:Name="EncCropModeBox" Width="260" SelectionChanged="EncCropMode_SelectionChanged">
+                      <ComboBoxItem Content="Disabled" />
+                      <ComboBoxItem Content="Automatic (detect black bars)" />
+                      <ComboBoxItem Content="Manual" />
+                    </ComboBox>
+                    <Button x:Name="EncCropConfBtn" Content="Configure…" IsVisible="False" Click="EncCropConf_Click" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
+                  <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
+                </Grid>
+              </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Audio">
+              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
+                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncAudCodecBox" SelectionChanged="EncAudCodec_SelectionChanged" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Configuration" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <ComboBox x:Name="EncAudConfModeBox" Width="270" SelectionChanged="EncAudConfMode_SelectionChanged">
+                    <ComboBoxItem Content="Same settings for all tracks" />
+                    <ComboBoxItem Content="Configure each track separately" />
+                  </ComboBox>
+                  <Button x:Name="EncAudConfigureBtn" Content="Configure…" IsVisible="False" Click="EncAudConfigure_Click" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
+                <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="EncAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Channels" />
+                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="EncAudChannelsBox" Width="230" HorizontalAlignment="Left">
+                  <ComboBoxItem Content="0 (Keep original)" />
+                  <ComboBoxItem Content="1 (Mono)" />
+                  <ComboBoxItem Content="2 (Stereo)" />
+                  <ComboBoxItem Content="6 (5.1 Surround)" />
+                  <ComboBoxItem Content="8 (7.1 Surround)" />
+                </ComboBox>
+              </Grid>
+            </TabItem>
+
+            <TabItem Header="Subtitles">
+              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,*" Margin="4">
+                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncSubCodecBox" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Burn In" />
+                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="EncSubBurnBox" />
+              </Grid>
+            </TabItem>
+
+            <TabItem Header="Metadata">
+              <Grid RowDefinitions="Auto,Auto,*" Margin="4">
+                <Grid Classes="form" Grid.Row="0" ColumnDefinitions="150,320,40,150,320,*">
+                  <TextBlock Grid.Column="0" Classes="field" Text="Copy Metadata From" />
+                  <ComboBox Grid.Column="1" x:Name="EncMetaCopySource" />
+                  <TextBlock Grid.Column="3" Classes="field" Text="Copy Chapters From" />
+                  <ComboBox Grid.Column="4" x:Name="EncMetaChapterSource" />
+                </Grid>
+
+                <CheckBox Grid.Row="1" x:Name="EncMetaApplyGrid" Content="Apply the titles and languages below" IsChecked="True" Margin="0,8,0,6" />
+
+                <dg:DataGrid Grid.Row="2" x:Name="EncMetadataGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                  <dg:DataGrid.Columns>
+                    <dg:DataGridTextColumn Header="Track" Binding="{Binding Field}" IsReadOnly="True" Width="2*" />
+                    <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="5*" />
+                    <dg:DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="Auto" MinWidth="80" />
+                  </dg:DataGrid.Columns>
+                </dg:DataGrid>
+              </Grid>
+            </TabItem>
+
+            <TabItem Header="Advanced">
+              <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
+                <TextBlock Grid.Row="0" Classes="h" Text="Custom Arguments" Margin="0,0,0,4" />
+                <Grid Classes="form" Grid.Row="1" ColumnDefinitions="130,640,*" RowDefinitions="Auto,Auto">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Input Args" />
+                  <TextBox Grid.Row="0" Grid.Column="1" x:Name="EncCustomArgsIn" />
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Output Args" />
+                  <TextBox Grid.Row="1" Grid.Column="1" x:Name="EncCustomArgsOut" />
+                </Grid>
+
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
+                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
+                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="EncFilterAdd_Click" />
+                  <Button Grid.Column="2" Content="Remove" Click="EncFilterRemove_Click" />
+                </Grid>
+
+                <dg:DataGrid Grid.Row="3" x:Name="EncAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                  <dg:DataGrid.Columns>
+                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
+                  </dg:DataGrid.Columns>
+                </dg:DataGrid>
+              </Grid>
+            </TabItem>
+
+          </TabControl>
+
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
+            <TextBox Grid.Column="1" x:Name="OutputPathBox" />
+            <Button Grid.Column="2" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseFfmpegOutput_Click" />
           </Grid>
         </Grid>
       </TabItem>
