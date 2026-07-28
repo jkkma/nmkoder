@@ -409,9 +409,11 @@
                 <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
                              GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                   <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Argument" Binding="{Binding Argument}" IsReadOnly="True" Width="2*" />
-                    <dg:DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" />
-                    <dg:DataGridTextColumn Header="Description, Possible Values" Binding="{Binding Description}" IsReadOnly="True" Width="5*" />
+                    <!-- Values are nearly always a single digit, so the column is sized for one
+                         rather than splitting the width evenly; the descriptions take the slack. -->
+                    <dg:DataGridTextColumn Header="Argument" Binding="{Binding Argument}" IsReadOnly="True" Width="Auto" MinWidth="180" />
+                    <dg:DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="110" />
+                    <dg:DataGridTextColumn Header="Description, Possible Values" Binding="{Binding Description}" IsReadOnly="True" Width="*" />
                   </dg:DataGrid.Columns>
                 </dg:DataGrid>
 
