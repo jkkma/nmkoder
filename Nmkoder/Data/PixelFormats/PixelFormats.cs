@@ -43,7 +43,7 @@ namespace Nmkoder.Data.Colors
             if (fmt == PF.Yuv420P8) name = "yuv420p";
             else if (fmt == PF.Yuva420P8) name = "yuva420p";
             else if (fmt == PF.Yuv420P10) name = "yuv420p10le";
-            else if (fmt == PF.Yuv422P8) name = "yuv422p10le";
+            else if (fmt == PF.Yuv422P8) name = "yuv422p";
             else if (fmt == PF.Yuv422P10) name = "yuv422p10le";
             else if (fmt == PF.Yuv444P8) name = "yuv444p";
             else if (fmt == PF.Yuv444P10) name = "yuv444p10le";
