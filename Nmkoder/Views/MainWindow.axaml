@@ -402,7 +402,9 @@
             </TabItem>
 
             <TabItem Header="Advanced">
-              <Grid RowDefinitions="Auto,2*,Auto,*" Margin="4">
+              <!-- The argument list is the long one, so it takes every row the tab can spare and
+                   the filters below size to their own content. -->
+              <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="4">
                 <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
                 <dg:DataGrid Grid.Row="1" x:Name="Av1anAdvancedArgsGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
                              GridLinesVisibility="Horizontal" HeadersVisibility="Column">
@@ -420,7 +422,7 @@
                 </Grid>
 
                 <dg:DataGrid Grid.Row="3" x:Name="Av1anAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                             MaxHeight="180" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                   <dg:DataGrid.Columns>
                     <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
                   </dg:DataGrid.Columns>
