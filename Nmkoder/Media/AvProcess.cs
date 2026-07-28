@@ -268,6 +268,69 @@ namespace Nmkoder.Media
             }
         }
 
+        /// <summary> av1an's own --help, read once per session. "" if it could not be read at all. </summary>
+        private static string av1anHelpText = null;
+
+        /// <summary>
+        /// Whether the av1an that would actually run understands a given flag.
+        /// <para/>
+        /// Worth asking rather than assuming, because av1an gains options between releases and rejects
+        /// the entire command over one it does not know - so a flag that is merely newer than the
+        /// installed binary does not degrade into being ignored, it stops the encode before it starts.
+        /// Nothing pins which av1an is in use either: the bundled one, a packaged one and one the user
+        /// dropped in themselves are all reachable through the same lookup.
+        /// </summary>
+        public static async Task<bool> Av1anSupportsFlag(string flag)
+        {
+            return (await GetAv1anHelp()).Contains(flag);
+        }
+
+        private static async Task<string> GetAv1anHelp()
+        {
+            if (av1anHelpText != null)
+                return av1anHelpText;
+
+            // Set before the work, not after: an av1an that cannot be found or cannot be run will not
+            // start answering later, and retrying it before every encode only delays each one.
+            av1anHelpText = "";
+
+            try
+            {
+                string dir = Path.Combine(Paths.GetBinPath(), "av1an");
+                string[] toolDirs = new[] { dir, Path.Combine(dir, "enc"), Path.Combine(dir, "vsynth"), Paths.GetBinPath() };
+                string path = GetToolPath("av1an", toolDirs);
+
+                if (path.IsEmpty())
+                    return av1anHelpText;
+
+                Process av1an = OsUtils.NewProcess(true, NmkoderProcess.ProcessType.Background, path);
+                OsUtils.SetPathVar(av1an, toolDirs);
+                av1an.StartInfo.Arguments = "--help";
+                av1an.Start();
+
+                // Both pipes are drained at once. Reading one to the end first deadlocks as soon as the
+                // other fills its buffer, and av1an's help is long enough to do exactly that.
+                Task<string> stdout = av1an.StandardOutput.ReadToEndAsync();
+                Task<string> stderr = av1an.StandardError.ReadToEndAsync();
+                Task both = Task.WhenAll(stdout, stderr);
+
+                if (await Task.WhenAny(both, Task.Delay(5000)) != both)
+                {
+                    Logger.Log("av1an did not answer --help in time - assuming it takes no optional flags.", true);
+                    OsUtils.KillProcessTree(av1an.Id);
+                    return av1anHelpText;
+                }
+
+                av1anHelpText = $"{stdout.Result}\n{stderr.Result}";
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read av1an's --help: {e.Message}", true);
+            }
+
+            return av1anHelpText;
+        }
+
         /// <summary> av1an's -e values mapped to the executable it expects to find on PATH. </summary>
         private static readonly Dictionary<string, string> av1anEncoderBinaries = new Dictionary<string, string>
         {

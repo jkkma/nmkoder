@@ -311,6 +311,130 @@ namespace Nmkoder.UI.Tasks
             return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
         }
 
+        /// <summary> The selected chunk method. The dropdown is filled from the enum, so index is value. </summary>
+        public static Av1an.ChunkMethod GetCurrentChunkMethod()
+        {
+            return (Av1an.ChunkMethod)Math.Max(0, Form.Av1anOptsChunkModeBox.SelectedIndex);
+        }
+
+        /// <summary> The chunk methods that read the source through vspipe, and so run a VapourSynth script at all. </summary>
+        private static readonly Av1an.ChunkMethod[] VapourSynthChunkMethods =
+            { Av1an.ChunkMethod.BestSource, Av1an.ChunkMethod.LSMASH, Av1an.ChunkMethod.FFMS2 };
+
+        /// <summary>
+        /// Which converter av1an should reach the chosen pixel format with. By default it pipes the
+        /// decoded frames through a second ffmpeg process to convert them; "vs-resize" instead has the
+        /// VapourSynth script it already generates do it with resize.Bicubic, which drops that process
+        /// from every chunk and puts the resampling through zimg rather than swscale.
+        /// <para/>
+        /// Returns "" - leaving av1an on ffmpeg - whenever a condition av1an attaches to the flag is
+        /// unmet, for two different reasons depending on which condition it is.
+        /// <para/>
+        /// Where VapourSynth would be the one converting, asking it for something it cannot express
+        /// fails the chunk rather than falling back: a format vs.PresetVideoFormat has no name for
+        /// raises a KeyError, and an RGB source stops at "Matrix must be specified when converting to
+        /// YUV or GRAY from RGB", since neither av1an's script nor this flag supplies one.
+        /// <para/>
+        /// The chunk method and filter conditions are milder - there the flag is inert rather than
+        /// harmful, because those chunks are read by an ffmpeg source command that already carries
+        /// -pix_fmt and converts on its own. Passing it anyway still encodes correctly; it is left off
+        /// so the command does not name a converter that has no part in how the chunk is read.
+        /// </summary>
+        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters)
+        {
+            const string flag = "--pix-format-converter";
+
+            // Every reason for staying on ffmpeg is logged quietly. Nothing here is a setting anyone
+            // chose - it is picked per encode from what av1an, the chunk method and the source allow -
+            // so a visible note would be telling most users, every time, about a thing they did not ask
+            // for and an outcome that is not wrong. The log file still says which condition it was.
+            if (pixFmt.IsEmpty()) // No color format to convert to - the encoder chose it, and av1an is not being told
+                return "";
+
+            // Unreleased as of av1an 0.5.2, which is what gets bundled. An older binary refuses the
+            // whole command over an unknown flag, so this cannot simply be passed and left to be ignored.
+            if (!await AvProcess.Av1anSupportsFlag(flag))
+            {
+                Logger.Log($"This av1an has no {flag}, so ffmpeg is converting the pixel format.", true);
+                return "";
+            }
+
+            Av1an.ChunkMethod chunkMethod = GetCurrentChunkMethod();
+
+            // The conversion is a step in a VapourSynth script, so it only exists for the chunk methods
+            // that have one. The others decode with ffmpeg, which knows nothing of the setting.
+            if (!VapourSynthChunkMethods.Contains(chunkMethod))
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - VapourSynth can only do it for the " +
+                    $"{string.Join(", ", VapourSynthChunkMethods)} chunk methods, and this encode uses {chunkMethod}.", true);
+                return "";
+            }
+
+            // av1an disregards the setting entirely when it has filters to apply, since those run in the
+            // very ffmpeg step that vs-resize exists to remove.
+            if (hasFfmpegFilters)
+            {
+                Logger.Log("ffmpeg is converting the pixel format, because the video filters set on this tab run in the same step.", true);
+                return "";
+            }
+
+            if (PixFmtUtils.GetVapourSynthPreset(pixFmt).IsEmpty())
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - VapourSynth has no preset format for {pixFmt}.", true);
+                return "";
+            }
+
+            // resize.Bicubic has to be told which matrix to take RGB to YUV with, and neither av1an's
+            // script nor this flag gives it one, so an RGB source would stop at a VapourSynth error.
+            string sourceFmt = (TrackList.current?.File.VideoStreams.FirstOrDefault()?.PixelFormat ?? "").ToLower();
+
+            if (sourceFmt.StartsWith("rgb") || sourceFmt.StartsWith("bgr") || sourceFmt.StartsWith("gbr"))
+            {
+                Logger.Log($"ffmpeg is converting the pixel format - the source is {sourceFmt}, and VapourSynth needs a color matrix to take RGB to YUV.", true);
+                return "";
+            }
+
+            // Worth saying out loud, unlike the fallbacks: this is the one outcome that changes which
+            // resampler the video actually goes through.
+            Logger.Log($"Converting the pixel format to {pixFmt} with VapourSynth's resize rather than ffmpeg.");
+            return $"{flag} vs-resize";
+        }
+
+        /// <summary>
+        /// Why the SVT-AV1 mode decision depth that has been asked for cannot be delivered, or "" if
+        /// there is nothing wrong.
+        /// <para/>
+        /// hbd-mds puts some or all of mode decision at 10-bit precision, which SVT-AV1 only does on a
+        /// 10-bit input. Set against an 8-bit color format it is accepted, encodes, and changes nothing
+        /// - an outcome indistinguishable from it having worked, on a setting whose whole point is a
+        /// quality difference too small to see by eye.
+        /// </summary>
+        public static string GetHbdModeDecisionProblem(CodecUtils.Av1anCodec vCodec, string pixFmt)
+        {
+            // The advanced grid is reloaded per encoder, so no other encoder can be carrying this row.
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1)
+                return "";
+
+            // 0 means an unrecognised format rather than 8-bit, and guessing at one is not worth a
+            // warning that would then be wrong.
+            if (FormatUtils.GetBitDepthFromPixelFormat(pixFmt) != 8)
+                return "";
+
+            string value = Form.Av1anArgRows
+                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == "hbd-mds")
+                .Select(x => (x.Value ?? "").Trim())
+                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+
+            // -1 leaves the choice to the preset and 0 is all 8-bit, so neither is asking the input for
+            // something it does not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            if (value != "1" && value != "2")
+                return "";
+
+            return $"Note: hbd-mds is set to {value}, which asks for {(value == "1" ? "all of" : "part of")} the mode decision " +
+                $"at 10-bit, but SVT-AV1 only does that on a 10-bit input and the Color Format is 8-bit ({pixFmt}). " +
+                $"Pick a 10 bit Color Format for it to have any effect.";
+        }
+
         /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>
         public static Containers.Container GetCurrentContainer()
         {
