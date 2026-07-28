@@ -102,7 +102,6 @@ namespace Nmkoder.Views
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
             _initialized = true;
-            UpdatePreviewVisibility();
 
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
@@ -365,7 +364,6 @@ namespace Nmkoder.Views
 
             int index = MainTabs.SelectedIndex;
             RunBtn.IsEnabled = index == 2 || index == 3 || index == 4;
-            UpdatePreviewVisibility();
 
             if (index == 0)
                 await RefreshFileListUi();
@@ -378,34 +376,6 @@ namespace Nmkoder.Views
 
             if (index == 3)
                 Av1anUi.ValidatePath();
-        }
-
-        private void SubTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (!_initialized)
-                return;
-
-            UpdatePreviewVisibility();
-        }
-
-        /// <summary>
-        /// The preview shares the work area with the tabs, so it gives up its space on the tabs
-        /// that are about the app rather than the loaded media, and on the ones whose grids want
-        /// the full width.
-        /// </summary>
-        private void UpdatePreviewVisibility()
-        {
-            bool show;
-
-            switch (MainTabs.SelectedIndex)
-            {
-                case 2: show = QuickEncTabs.SelectedIndex < 3; break; // Not Metadata or Advanced
-                case 3: show = Av1anTabs.SelectedIndex < 3; break;    // Not Advanced
-                case 5: show = false; break;                          // Settings
-                default: show = true; break;
-            }
-
-            PreviewPanel.IsVisible = show;
         }
 
         #endregion

@@ -3,16 +3,15 @@
         xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
         x:Class="Nmkoder.Views.MainWindow"
         Title="NMKODER"
-        Width="1360" Height="880" MinWidth="1120" MinHeight="680"
+        Width="1360" Height="880" MinWidth="1040" MinHeight="680"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource NmkoderBackground}">
 
-  <!-- Tabs and media preview share the work area, the log runs along the bottom,
-       run controls sit in the footer -->
-  <Grid RowDefinitions="Auto,*,Auto,220,Auto" ColumnDefinitions="*,Auto" Margin="10">
+  <!-- Work area on top, the log along the bottom, run controls in the footer -->
+  <Grid RowDefinitions="Auto,*,Auto,220,Auto" Margin="10">
 
     <!-- ══════════════ Header ══════════════ -->
-    <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
       <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
       <TextBlock Grid.Column="1" x:Name="TitleHintLabel" Classes="dim" VerticalAlignment="Center" Margin="12,0"
                  Text="Drag &amp; drop media files anywhere in this window to load them." />
@@ -24,12 +23,12 @@
     </Grid>
 
     <!-- ══════════════ Main area ══════════════ -->
-    <TabControl Grid.Row="1" Grid.Column="0" x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
+    <TabControl Grid.Row="1" x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
 
       <!-- ─────────── File List ─────────── -->
       <TabItem Header="File List">
-        <Grid RowDefinitions="Auto,*,Auto" Margin="8">
-          <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+        <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="8">
+          <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
             <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
               <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
@@ -37,7 +36,7 @@
             </ComboBox>
           </StackPanel>
 
-          <ListBox Grid.Row="1" x:Name="FileListBox" SelectionMode="Multiple"
+          <ListBox Grid.Row="1" Grid.Column="0" x:Name="FileListBox" SelectionMode="Multiple"
                    SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
             <ListBox.ItemTemplate>
               <DataTemplate>
@@ -48,7 +47,17 @@
             </ListBox.ItemTemplate>
           </ListBox>
 
-          <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+          <!-- The one place the preview lives. Fixed 16:9 so it keeps the shape of the
+               footage it is showing; the whole panel cycles thumbnails, not just the
+               pixels the image happens to cover. -->
+          <StackPanel Grid.Row="1" Grid.Column="1" Width="384" Margin="10,0,0,0" VerticalAlignment="Top">
+            <Border Classes="card" Padding="0" Height="216" ClipToBounds="True" PointerPressed="Thumbnail_Click">
+              <Image x:Name="ThumbnailBox" Stretch="Uniform" />
+            </Border>
+            <TextBlock x:Name="ThumbLabel" Classes="dim" Margin="2,6,2,0" />
+          </StackPanel>
+
+          <Grid Grid.Row="2" Grid.Column="0" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
             <TextBlock Grid.Column="0" x:Name="FileCountLabel" Classes="dim" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
               <Button x:Name="AddFilesBtn" Content="Add Files…" Click="AddFiles_Click" />
@@ -112,11 +121,11 @@
       <!-- ─────────── Quick Convert ─────────── -->
       <TabItem Header="Quick Convert">
         <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="QuickEncTabs" SelectionChanged="SubTabs_SelectionChanged">
+          <TabControl Grid.Row="0" x:Name="QuickEncTabs">
 
             <TabItem Header="Video">
               <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,310,32,130,310,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                   <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -265,11 +274,11 @@
       <!-- ─────────── AV1AN ─────────── -->
       <TabItem Header="AV1AN">
         <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="Av1anTabs" SelectionChanged="SubTabs_SelectionChanged">
+          <TabControl Grid.Row="0" x:Name="Av1anTabs">
 
             <TabItem Header="Video">
               <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,310,32,130,310,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                   <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -344,7 +353,7 @@
 
             <TabItem Header="Av1an Options">
               <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,300,32,160,300,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
+                <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
                   <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
                     <ComboBoxItem Content="None" />
@@ -535,23 +544,12 @@
 
     </TabControl>
 
-    <!-- ══════════════ Media preview ══════════════
-         Hidden on the tabs that are about the app rather than the media, and on the
-         grid-heavy ones that want the whole width. See UpdatePreviewVisibility(). -->
-    <Grid x:Name="PreviewPanel" Grid.Row="1" Grid.Column="1" RowDefinitions="*,Auto" Width="320" Margin="8,0,0,0">
-      <!-- The whole panel cycles thumbnails, not just the pixels the image happens to cover -->
-      <Border Grid.Row="0" Classes="card" Padding="4" PointerPressed="Thumbnail_Click">
-        <Image x:Name="ThumbnailBox" Stretch="Uniform" />
-      </Border>
-      <TextBlock Grid.Row="1" x:Name="ThumbLabel" Classes="dim" Margin="2,4,2,0" />
-    </Grid>
-
     <!-- ══════════════ Log divider ══════════════ -->
-    <GridSplitter Grid.Row="2" Grid.ColumnSpan="2" Height="6" HorizontalAlignment="Stretch" ResizeDirection="Rows"
+    <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" ResizeDirection="Rows"
                   Background="#2B2B2B" ToolTip.Tip="Drag to resize the log" />
 
     <!-- ══════════════ Log ══════════════ -->
-    <Grid Grid.Row="3" Grid.ColumnSpan="2" RowDefinitions="Auto,*">
+    <Grid Grid.Row="3" RowDefinitions="Auto,*">
       <TextBlock Grid.Row="0" Classes="h" Text="Log" Margin="0,0,0,2" />
       <TextBox Grid.Row="1" x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -559,7 +557,7 @@
     </Grid>
 
     <!-- ══════════════ Footer: progress + run controls ══════════════ -->
-    <Grid Grid.Row="4" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+    <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
       <StackPanel Grid.Column="0" VerticalAlignment="Center">
         <TextBlock x:Name="CurrentActionLabel" Classes="dim" />
         <ProgressBar x:Name="ProgBar" Minimum="0" Maximum="100" Height="8" Margin="0,4,0,0" />
