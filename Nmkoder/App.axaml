@@ -24,6 +24,13 @@
       <Setter Property="Margin" Value="0,0,8,0" />
     </Style>
 
+    <!-- Explanatory text that sits next to a field instead of below it -->
+    <Style Selector="TextBlock.hint">
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
     <Style Selector="ComboBox">
       <Setter Property="MinHeight" Value="28" />
       <Setter Property="Padding" Value="8,2" />
@@ -37,6 +44,34 @@
 
     <Style Selector="NumericUpDown">
       <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <!-- Rows of a label/field form. The field column is a fixed width, so inputs stay
+         readable instead of stretching across the whole window. -->
+    <Style Selector="Grid.form > :is(Control)">
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Inputs that only ever hold a few characters get sized to their content -->
+    <Style Selector="NumericUpDown.num">
+      <Setter Property="Width" Value="120" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+    <Style Selector="TextBox.num">
+      <Setter Property="Width" Value="120" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+    <Style Selector="ComboBox.short">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+    <Style Selector="ComboBox.wide">
+      <Setter Property="Width" Value="520" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
     </Style>
 
     <Style Selector="Button">

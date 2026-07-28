@@ -111,7 +111,11 @@ namespace Nmkoder.IO
                     }
 
                     box.Text = current.Length > 0 ? current + Environment.NewLine + msg : msg;
-                    box.CaretIndex = box.Text.Length;
+
+                    // Parking the caret at the start of the last line scrolls the box down to it without
+                    // also scrolling it to the right, which would hide the start of every line.
+                    int lastBreak = box.Text.LastIndexOf('\n');
+                    box.CaretIndex = lastBreak < 0 ? 0 : lastBreak + 1;
                 }
                 catch { }
             }

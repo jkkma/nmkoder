@@ -56,7 +56,7 @@ namespace Nmkoder.Views
             EncAdvancedFiltersGrid.ItemsSource = EncFilterRows;
             Av1anAdvancedFiltersGrid.ItemsSource = Av1anFilterRows;
             Av1anAdvancedArgsGrid.ItemsSource = Av1anArgRows;
-            ThumbnailBox.Source = AppImages.Placeholder;
+            SetThumbnail(AppImages.Placeholder, "");
 
             ListEntryBase.CheckedChanged += (s, e) => OnStreamCheckedChanged();
 
@@ -167,6 +167,18 @@ namespace Nmkoder.Views
         }
 
         public bool IsInFocus() => IsActive;
+
+        /// <summary>
+        /// The File List and Track List tabs each have a preview panel, and both show the
+        /// thumbnail of the same loaded file, so they are always written together.
+        /// </summary>
+        public void SetThumbnail(Bitmap image, string label)
+        {
+            ThumbnailBox.Source = image;
+            ThumbLabel.Text = label;
+            TrackThumbnailBox.Source = image;
+            TrackThumbLabel.Text = label;
+        }
 
         public RunTask.TaskType SelectedTask
         {

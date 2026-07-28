@@ -43,8 +43,7 @@ namespace Nmkoder.UI
                 if (Program.MainWin == null)
                     return;
 
-                Program.MainWin.ThumbnailBox.Source = image;
-                Program.MainWin.ThumbLabel.Text = label;
+                Program.MainWin.SetThumbnail(image, label);
             }
 
             if (Dispatcher.UIThread.CheckAccess())
