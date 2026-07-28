@@ -55,7 +55,8 @@ namespace Nmkoder.Views
             EncMetadataGrid.ItemsSource = MetadataRows;
             EncAdvancedFiltersGrid.ItemsSource = EncFilterRows;
             Av1anAdvancedFiltersGrid.ItemsSource = Av1anFilterRows;
-            Av1anAdvancedArgsGrid.ItemsSource = Av1anArgRows;
+            // Av1anArgRows has no grid of its own: the category tabs each show a slice of it,
+            // built in LoadAv1anArgCategoryTabs whenever the rows are reloaded.
             SetThumbnail(AppImages.Placeholder, "");
 
             ListEntryBase.CheckedChanged += (s, e) => OnStreamCheckedChanged();
