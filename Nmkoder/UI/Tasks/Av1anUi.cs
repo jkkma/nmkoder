@@ -327,11 +327,18 @@ namespace Nmkoder.UI.Tasks
         /// VapourSynth script it already generates do it with resize.Bicubic, which drops that process
         /// from every chunk and puts the resampling through zimg rather than swscale.
         /// <para/>
-        /// Returns "" - leaving av1an on ffmpeg - whenever any condition av1an attaches to the flag is
-        /// unmet, and each one has to be checked here rather than left to av1an. Selecting vs-resize is
-        /// what makes it skip building the converting ffmpeg pipe, so asking for it where the script
-        /// cannot deliver does not fall back to ffmpeg: it hands the encoder whatever the source
-        /// already was, or fails the chunk outright.
+        /// Returns "" - leaving av1an on ffmpeg - whenever a condition av1an attaches to the flag is
+        /// unmet, for two different reasons depending on which condition it is.
+        /// <para/>
+        /// Where VapourSynth would be the one converting, asking it for something it cannot express
+        /// fails the chunk rather than falling back: a format vs.PresetVideoFormat has no name for
+        /// raises a KeyError, and an RGB source stops at "Matrix must be specified when converting to
+        /// YUV or GRAY from RGB", since neither av1an's script nor this flag supplies one.
+        /// <para/>
+        /// The chunk method and filter conditions are milder - there the flag is inert rather than
+        /// harmful, because those chunks are read by an ffmpeg source command that already carries
+        /// -pix_fmt and converts on its own. Passing it anyway still encodes correctly; it is left off
+        /// so the command does not name a converter that has no part in how the chunk is read.
         /// </summary>
         public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters)
         {
