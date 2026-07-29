@@ -1,22 +1,104 @@
 [
-  ["tune", "", "psnr, ssim, grain, zero-latency, fast-decode or animation - Tune for a type of source", "Tuning & Profile"],
-  ["profile", "", "main, main10, main444-10 and so on - Force compliance with a profile", "Tuning & Profile"],
-  ["level-idc", "", "Decoder level to comply with, e.g. 4.1; also turns on VBV in CRF mode", "Tuning & Profile"],
-  ["deblock", "", "tC:Beta offsets, each -6 to 6 (default 0:0) - Deblocking filter strength", "Tuning & Profile"],
-
-  ["bframes", "", "0-16 (default 4) - Longest run of consecutive B-frames", "Frames & Motion"],
-  ["ref", "", "1-16 (default 3) - Reference frames the motion search may use", "Frames & Motion"],
-  ["rc-lookahead", "", "0-250 (default 20) - Frames looked ahead when deciding slice types", "Frames & Motion"],
-  ["subme", "", "0-7 (default 2) - Subpixel refinement passes in the motion search", "Frames & Motion"],
-  ["merange", "", "0-32768 (default 57) - Motion search range in pixels", "Frames & Motion"],
-
-  ["aq-mode", "", "0-4 (default 2) - Adaptive quantisation: 0 off, 2 auto-variance, 3 dark-scene bias, 4 edge aware", "Quantization & Psychovisual"],
-  ["aq-strength", "", "0.0-3.0 (default 1.0) - How strongly adaptive quantisation shifts QP", "Quantization & Psychovisual"],
-  ["psy-rd", "", "0.0-5.0 (default 2.0) - Preserves the source's energy in the reconstruction", "Quantization & Psychovisual"],
-  ["psy-rdoq", "", "0.0-50.0 (default 0.0, 1.0 on slow presets) - Favours higher energy through quantisation", "Quantization & Psychovisual"],
-  ["rd", "", "1-6 (default 3) - Rate-distortion optimisation level; higher looks harder", "Quantization & Psychovisual"],
-  ["qcomp", "", "0.5-1.0 (default 0.6) - Quantiser curve compression; 1.0 behaves like constant QP", "Quantization & Psychovisual"],
-
-  ["master-display", "", "SMPTE ST 2086 mastering display volume for HDR, as G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min)", "HDR Metadata"],
-  ["max-cll", "", "MaxCLL,MaxFALL - Content and frame-average light levels for HDR", "HDR Metadata"]
+  [
+    "tune",
+    "",
+    "psnr, ssim, grain, zero-latency, fast-decode, animation (default none) - Grain keeps film noise, animation suits cel art",
+    "Tuning & Profile"
+  ],
+  [
+    "profile",
+    "",
+    "main, main10, main444-10, main12, the -intra variants and more - Caps tools so a target decoder accepts the stream",
+    "Tuning & Profile"
+  ],
+  [
+    "level-idc",
+    "",
+    "0 for auto or an Annex A level like 4.1 or 51 (default 0) - Constrains the stream for hardware decoders, forces VBV in CRF",
+    "Tuning & Profile"
+  ],
+  [
+    "deblock",
+    "",
+    "tC:Beta offsets, each -6 to 6 (default 0:0) - Deblocking strength; raise to hide blocking at low rates, lower to keep detail",
+    "Tuning & Profile"
+  ],
+  [
+    "bframes",
+    "",
+    "0-16 (default 4) - Longest run of consecutive B-frames; raise for static scenes, use 0 for low-latency P/I only output",
+    "Frames & Motion"
+  ],
+  [
+    "ref",
+    "",
+    "1-16 (default 3) - L0 reference frames the motion search may use; more helps repetitive motion but over 6 breaks conformance",
+    "Frames & Motion"
+  ],
+  [
+    "rc-lookahead",
+    "",
+    "Above bframes, up to 250 (default 20) - Frames looked ahead for slice types; longer sharpens scenecuts and cutree",
+    "Frames & Motion"
+  ],
+  [
+    "subme",
+    "",
+    "0-7 (default 2) - Subpixel refinement passes in the motion search; higher costs speed but helps fine or fast motion",
+    "Frames & Motion"
+  ],
+  [
+    "merange",
+    "",
+    "0-32767 (default 57) - Motion search range in pixels; raise past 57 only for fast pans at high resolution",
+    "Frames & Motion"
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-4 (default 2) - Adaptive quantisation: 0 off, 1 plain, 2 auto-variance, 3 dark-scene bias, 4 edge aware",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "aq-strength",
+    "",
+    "0.0-3.0 (default 1.0) - How strongly adaptive quantisation shifts QP; raise for flat gradients, lower if rates swing",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "psy-rd",
+    "",
+    "0.0-5.0 (default 2.0) - Preserves the source's energy in the reconstruction; needs rd 3 or above, costs PSNR and SSIM",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "psy-rdoq",
+    "",
+    "0.0-50.0 (default 0.0, 1.0 on slow presets) - Favours higher energy through quantisation; needs rdoq-level 1 or 2",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "rd",
+    "",
+    "1-6 (default 3) - Rate-distortion optimisation level; higher looks harder and shrinks output, 4 aliases 3 and 6 aliases 5",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "qcomp",
+    "",
+    "0.5-1.0 (default 0.6) - Quantiser curve compression; 1.0 behaves like constant QP, raise to give busy scenes more bits",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "master-display",
+    "",
+    "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min) in SMPTE ST 2086 units, no default - Signals HDR10 mastering display volume",
+    "HDR Metadata"
+  ],
+  [
+    "max-cll",
+    "",
+    "MaxCLL,MaxFALL in cd/m2, e.g. 1000,400, no default - Signals HDR10 content and frame-average light levels to displays",
+    "HDR Metadata"
+  ]
 ]

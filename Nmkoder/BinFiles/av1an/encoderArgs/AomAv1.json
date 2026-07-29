@@ -1,15 +1,68 @@
 [
-  ["tune-content", "", "default or screen - Tune for ordinary footage or for screen recordings", "Tuning & Quantization"],
-  ["aq-mode", "", "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh", "Tuning & Quantization"],
-  ["enable-qm", "", "0-1 (default 0) - Quantisation matrices", "Tuning & Quantization"],
-  ["quant-b-adapt", "", "0-1 (default 0) - Adaptive use of quantize_b", "Tuning & Quantization"],
-
-  ["enable-cdef", "", "0-1 (default 1) - Constrained directional enhancement filter", "Filtering"],
-  ["arnr-maxframes", "", "0-15 (default 7) - Frames the alt-ref noise reduction filter may use", "Filtering"],
-  ["arnr-strength", "", "0-6 (default 5) - Strength of the alt-ref noise reduction filter", "Filtering"],
-  ["enable-keyframe-filtering", "", "0-2 (default 1) - Temporal filtering on keyframes; 2 also writes an overlay", "Filtering"],
-
-  ["lag-in-frames", "", "0-35 (default 19) - Frames of lookahead available for reference frame placement", "Frames & Motion"],
-  ["mv-cost-upd-freq", "", "0-3 - How often motion vector costs are recalculated; higher is faster", "Frames & Motion"],
-  ["enable-fwd-kf", "", "0-1 (default 0) - Forward reference keyframes", "Frames & Motion"]
+  [
+    "tune-content",
+    "",
+    "default, screen, film (default default) - screen enables palette and intra block copy; film has the decoder synthesise grain",
+    "Tuning & Quantization"
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh; 1 favours flat areas like skies",
+    "Tuning & Quantization"
+  ],
+  [
+    "enable-qm",
+    "",
+    "0-1 (default 0) - Quantisation matrices; often improves detail retention at low bitrates, tuned via qm-min and qm-max",
+    "Tuning & Quantization"
+  ],
+  [
+    "quant-b-adapt",
+    "",
+    "0-1 (default 0) - Adaptive use of the quantize_b path; small efficiency gain for a little extra encode time",
+    "Tuning & Quantization"
+  ],
+  [
+    "enable-cdef",
+    "",
+    "0-3 (default 1) - CDEF deringing filter: 0 off, 1 on, 2 skip non-ref frames, 3 by qindex; off preserves fine grain",
+    "Filtering"
+  ],
+  [
+    "arnr-maxframes",
+    "",
+    "0-15 (default 7) - Frames the alt-ref temporal filter may use; fewer suits high motion, more smooths noisy sources",
+    "Filtering"
+  ],
+  [
+    "arnr-strength",
+    "",
+    "0-6 (default 5) - Strength of the alt-ref temporal filter; lower preserves grain, higher cleans up noisy sources",
+    "Filtering"
+  ],
+  [
+    "enable-keyframe-filtering",
+    "",
+    "0-2 (default 1) - Temporal filtering on keyframes; 2 adds an overlay frame but can break seeking in some players",
+    "Filtering"
+  ],
+  [
+    "lag-in-frames",
+    "",
+    "0-48 (default 35) - Lookahead for alt-ref placement and bitrate allocation; lower cuts memory use and latency",
+    "Frames & Motion"
+  ],
+  [
+    "mv-cost-upd-freq",
+    "",
+    "0-3 (default 0) - Motion vector cost updates: 0 per superblock, 1 per SB row, 2 per tile, 3 off; higher is faster",
+    "Frames & Motion"
+  ],
+  [
+    "enable-fwd-kf",
+    "",
+    "0-1 (default 0) - Forward reference keyframes, letting a keyframe also serve as a forward reference to save bits",
+    "Frames & Motion"
+  ]
 ]

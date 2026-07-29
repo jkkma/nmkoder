@@ -1,22 +1,110 @@
 [
-  ["tune", "", "psnr or ssim - Which metric the encoder favours", "Tuning & Quality"],
-  ["tune-content", "", "default, screen or film - Tune for the type of content", "Tuning & Quality"],
-  ["sharpness", "", "0-7 - Trades PSNR for a sharper picture", "Tuning & Quality"],
-  ["static-thresh", "", "Motion detection threshold; above 0 skips near-static blocks", "Tuning & Quality"],
-  ["frame-boost", "", "0-1 (default 0) - Periodic boost of frame quality", "Tuning & Quality"],
-
-  ["auto-alt-ref", "", "0-6 - Automatic alt reference frames; 2 and above enables multi-layer", "Alt-Ref & Frames"],
-  ["lag-in-frames", "", "Frames of lookahead the encoder may hold; more helps alt-ref placement", "Alt-Ref & Frames"],
-  ["arnr-maxframes", "", "0-15 - Frames the alt-ref noise reduction filter may use", "Alt-Ref & Frames"],
-  ["arnr-strength", "", "0-6 - Strength of the alt-ref noise reduction filter", "Alt-Ref & Frames"],
-  ["alt-ref-aq", "", "Adaptive quantisation applied specifically to alt reference frames", "Alt-Ref & Frames"],
-  ["frame-parallel", "", "0-1 - Frame parallel decodability; 0 encodes slightly better", "Alt-Ref & Frames"],
-
-  ["aq-mode", "", "0-3 (default 0 off) - Adaptive quantisation mode; 1 is variance based", "Quantization & Rate Control"],
-  ["min-q", "", "Best quantiser the encoder may choose", "Quantization & Rate Control"],
-  ["max-q", "", "Worst quantiser the encoder may choose", "Quantization & Rate Control"],
-  ["enable-tpl", "", "0-1 - Temporal dependency model, improving bit allocation", "Quantization & Rate Control"],
-  ["corpus-complexity", "", "Midpoint used by corpus VBR complexity estimation", "Quantization & Rate Control"],
-  ["undershoot-pct", "", "0-100 - How far under the target rate the encoder may run", "Quantization & Rate Control"],
-  ["overshoot-pct", "", "0-100 - How far over the target rate the encoder may run", "Quantization & Rate Control"]
+  [
+    "tune",
+    "",
+    "psnr or ssim (default psnr) - Metric the encoder optimises for; ssim scales RD per block and often looks better",
+    "Tuning & Quality"
+  ],
+  [
+    "tune-content",
+    "",
+    "default, screen or film (default default) - Content hint; screen suits desktop capture, film retains grain",
+    "Tuning & Quality"
+  ],
+  [
+    "sharpness",
+    "",
+    "0-7 (default 0) - Keeps fine detail by curbing coefficient and skip optimisation, costing PSNR and bitrate",
+    "Tuning & Quality"
+  ],
+  [
+    "static-thresh",
+    "",
+    "0 or higher (default 0 off) - Codes low-motion blocks as skip below this distortion; speeds up real-time",
+    "Tuning & Quality"
+  ],
+  [
+    "frame-boost",
+    "",
+    "0-1 (default 0) - Allows periodic frame-level Q boosts, spending bits where they help most on calm content",
+    "Tuning & Quality"
+  ],
+  [
+    "auto-alt-ref",
+    "",
+    "0-6 (default 1) - Alt reference frames; 2 and above enables multi-layer ARF, usually a quality gain",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "lag-in-frames",
+    "",
+    "0-25 (default 25) - Lookahead depth; more improves alt-ref placement, 0 gives low delay at a quality cost",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "arnr-maxframes",
+    "",
+    "0-15 (default 7) - Frames blended by the alt-ref temporal filter; lower keeps grain, higher denoises more",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "arnr-strength",
+    "",
+    "0-6 (default 5) - Alt-ref filter strength; drop to 1-2 to preserve film grain, raise for noisy sources",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "alt-ref-aq",
+    "",
+    "0-1 (default 0) - Extra adaptive quantisation on alt-ref frames; skipped at low bitrates where it costs more",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "frame-parallel",
+    "",
+    "0-1 (default 1) - Frame parallel decodability; 0 allows backward probability updates and compresses better",
+    "Alt-Ref & Frames"
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-4 (default 0 off) - Adaptive quantisation: 1 variance, 2 complexity, 3 cyclic refresh, 4 equator360",
+    "Quantization & Rate Control"
+  ],
+  [
+    "min-q",
+    "",
+    "0-63 (default 0) - Best quantiser allowed; raise it to stop easy scenes from soaking up bitrate",
+    "Quantization & Rate Control"
+  ],
+  [
+    "max-q",
+    "",
+    "0-63 (default 63) - Worst quantiser allowed; lower it to keep hard scenes from collapsing in VBR encodes",
+    "Quantization & Rate Control"
+  ],
+  [
+    "enable-tpl",
+    "",
+    "0-1 (default 1) - Temporal dependency model; improves bit allocation between frames, disable only to save time",
+    "Quantization & Rate Control"
+  ],
+  [
+    "corpus-complexity",
+    "",
+    "0-10000 (default 0 off) - Corpus VBR complexity midpoint; holds quality steady across a library of clips",
+    "Quantization & Rate Control"
+  ],
+  [
+    "undershoot-pct",
+    "",
+    "0-100 (default 25) - How far under target rate a section may run; higher lets easy scenes save more bits",
+    "Quantization & Rate Control"
+  ],
+  [
+    "overshoot-pct",
+    "",
+    "0-100 (default 25) - How far over target rate a section may run; higher lets hard scenes spend more bits",
+    "Quantization & Rate Control"
+  ]
 ]

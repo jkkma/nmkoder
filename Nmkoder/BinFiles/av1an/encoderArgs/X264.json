@@ -1,24 +1,116 @@
 [
-  ["tune", "", "film, animation, grain, stillimage, psnr, ssim, fastdecode or zerolatency - Tune for a type of source", "Tuning & Profile"],
-  ["profile", "", "baseline, main, high, high10, high422 or high444 - Force the limits of a profile", "Tuning & Profile"],
-  ["level", "", "Decoder level to comply with, e.g. 4.1", "Tuning & Profile"],
-  ["deblock", "", "alpha:beta offsets (default 0:0) - Loop filter parameters", "Tuning & Profile"],
-
-  ["bframes", "", "0-16 (default 3) - B-frames between I and P frames", "Frames & Motion"],
-  ["b-adapt", "", "0-2 (default 1) - How B-frame placement is decided: 0 off, 1 fast, 2 optimal", "Frames & Motion"],
-  ["ref", "", "1-16 (default 3) - Reference frames the motion search may use", "Frames & Motion"],
-  ["weightp", "", "0-2 (default 2) - Weighted prediction for P-frames", "Frames & Motion"],
-  ["rc-lookahead", "", "0-250 (default 40) - Frames looked ahead when deciding frame types", "Frames & Motion"],
-  ["me", "", "dia, hex, umh, esa or tesa (default hex) - Integer pixel motion estimation method", "Frames & Motion"],
-  ["subme", "", "0-11 (default 7) - Subpixel motion estimation and mode decision quality", "Frames & Motion"],
-  ["merange", "", "Integer (default 16) - Largest motion vector search range", "Frames & Motion"],
-
-  ["aq-mode", "", "0-3 (default 1) - Adaptive quantisation: 0 off, 1 variance, 2 auto-variance, 3 with dark-scene bias", "Quantization & Psychovisual"],
-  ["aq-strength", "", "Float (default 1.0) - Reduces blocking and blurring in flat and textured areas", "Quantization & Psychovisual"],
-  ["psy-rd", "", "rd:trellis floats (default 0.0:0.0) - Strength of the psychovisual optimisation", "Quantization & Psychovisual"],
-  ["trellis", "", "0-2 (default 1) - Trellis rate-distortion quantisation", "Quantization & Psychovisual"],
-  ["qcomp", "", "0.0-1.0 (default 0.60) - QP curve compression; 1.0 behaves like constant QP", "Quantization & Psychovisual"],
-
-  ["vbv-maxrate", "", "kbit/s - Ceiling on local bitrate, for decoder compliance", "Rate Control"],
-  ["vbv-bufsize", "", "kbit - Size of the VBV buffer, used with vbv-maxrate", "Rate Control"]
+  [
+    "tune",
+    "",
+    "film, animation, grain, stillimage, psnr, ssim, fastdecode or zerolatency - Preset tweaks for a source or delivery need",
+    "Tuning & Profile"
+  ],
+  [
+    "profile",
+    "",
+    "baseline, main, high, high10, high422 or high444 - Caps the tools used so limited decoders can play the file",
+    "Tuning & Profile"
+  ],
+  [
+    "level",
+    "",
+    "1 to 6.2, including 1b (default auto) - Decoder level written to the stream; x264 only warns when settings exceed its limits",
+    "Tuning & Profile"
+  ],
+  [
+    "deblock",
+    "",
+    "alpha:beta, each -6 to 6 (default 0:0) - Loop filter strength; negative keeps grain and detail, positive hides blocking",
+    "Tuning & Profile"
+  ],
+  [
+    "bframes",
+    "",
+    "0-16 (default 3) - B-frames between I and P frames; more helps low-motion and animated sources, costs latency",
+    "Frames & Motion"
+  ],
+  [
+    "b-adapt",
+    "",
+    "0-2 (default 1) - How B-frame placement is decided: 0 off, 1 fast, 2 optimal but slow with high bframes",
+    "Frames & Motion"
+  ],
+  [
+    "ref",
+    "",
+    "1-16 (default 3) - Reference frames the motion search may use; more helps animation, costs speed and compatibility",
+    "Frames & Motion"
+  ],
+  [
+    "weightp",
+    "",
+    "0-2 (default 2) - Weighted prediction for P-frames: 0 off, 1 weighted refs, 2 also duplicates; helps fades",
+    "Frames & Motion"
+  ],
+  [
+    "rc-lookahead",
+    "",
+    "0-250 (default 40) - Frames looked ahead when deciding frame types and mb-tree; higher paces bits better",
+    "Frames & Motion"
+  ],
+  [
+    "me",
+    "",
+    "dia, hex, umh, esa or tesa (default hex) - Integer pixel motion search; umh and up pay off on high-motion HD",
+    "Frames & Motion"
+  ],
+  [
+    "subme",
+    "",
+    "0-11 (default 7) - Subpixel motion estimation and mode decision quality; the main quality-versus-speed dial",
+    "Frames & Motion"
+  ],
+  [
+    "merange",
+    "",
+    "4-1024 (default 16) - Largest motion vector search range; only exceeds 16 with me umh, esa or tesa",
+    "Frames & Motion"
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-3 (default 1) - Adaptive quantisation: 0 off, 1 variance, 2 auto-variance, 3 with dark-scene bias",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "aq-strength",
+    "",
+    "0.0-3.0 (default 1.0) - Strength of adaptive quantisation; raise to cut blocking in flat areas, lower for grain",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "psy-rd",
+    "",
+    "rd:trellis, each 0.0-10.0 (default 1.0:0.0) - Keeps detail over PSNR; rd needs subme 6+, trellis needs trellis on",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "trellis",
+    "",
+    "0-2 (default 1) - Trellis rate-distortion quantisation: 0 off, 1 on the final macroblock encode, 2 on all decisions",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "qcomp",
+    "",
+    "0.0-1.0 (default 0.60) - QP curve compression; 0.0 acts like constant bitrate, 1.0 like constant QP",
+    "Quantization & Psychovisual"
+  ],
+  [
+    "vbv-maxrate",
+    "",
+    "kbit/s (default 0, off) - Ceiling on local bitrate; set with vbv-bufsize for streaming or hardware decoders",
+    "Rate Control"
+  ],
+  [
+    "vbv-bufsize",
+    "",
+    "kbit (default 0, off) - Size of the VBV buffer; smaller windows hold the maxrate ceiling more tightly",
+    "Rate Control"
+  ]
 ]

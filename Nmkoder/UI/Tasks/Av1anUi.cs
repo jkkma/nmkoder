@@ -485,8 +485,8 @@ namespace Nmkoder.UI.Tasks
                 .Select(x => (x.Value ?? "").Trim())
                 .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
 
-            // -1 leaves the choice to the preset and 0 is all 8-bit, so neither is asking the input for
-            // something it does not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            // 0 leaves the choice to the preset, so it is not asking the input for something it does
+            // not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
             if (value != "1" && value != "2")
                 return "";
 
