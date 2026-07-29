@@ -80,17 +80,18 @@ VapourSynth's portable build is Windows-only, and the encoders come from MSYS2's
 packages, so Linux and macOS builds carry ffmpeg and the VMAF models and leave the rest to
 the package manager. One thing the package managers do not cover: Target SSIMULACRA2 scores
 its probes through the [vszip](https://github.com/dnjulek/vapoursynth-zip) VapourSynth plugin
-and Target Butteraugli through the [julek plugin](https://github.com/dnjulek/vapoursynth-julek-plugin)
-(the GPU-accelerated [vship](https://github.com/Line-fr/Vship) covers both), and those have to
-be installed into VapourSynth's plugin directory by hand on Linux and macOS - without them,
-those quality modes fail once av1an starts probing. Target XPSNR needs no plugin: av1an scores
-it with ffmpeg's `xpsnr` filter, present in the bundled ffmpeg and in any FFmpeg from 7.1 on.
+(or the GPU-accelerated [vship](https://github.com/Line-fr/Vship)), which has to be installed
+into VapourSynth's plugin directory by hand on Linux and macOS - without it, that quality mode
+fails once av1an starts probing. Target Butteraugli needs vship specifically, for the reason
+below. Target XPSNR needs no plugin: av1an scores it with ffmpeg's `xpsnr` filter, present in
+the bundled ffmpeg and in any FFmpeg from 7.1 on.
 
-One caveat on Butteraugli: every av1an release to date calls the julek plugin by the wrong
-function name (`butteraugli` where the plugin registers `Butteraugli`), so the CPU scoring path
-fails at probe time no matter what is installed. Until av1an fixes the invoke, Target Butteraugli
-works only through [vship](https://github.com/Line-fr/Vship), and the app stops the encode up
-front when the bundled plugin folder holds no Vship rather than letting it die minutes in.
+The caveat on Butteraugli: every av1an release to date calls the CPU scoring plugin
+([julek](https://github.com/dnjulek/vapoursynth-julek-plugin)) by the wrong function name
+(`butteraugli` where the plugin registers `Butteraugli`), so that path fails at probe time no
+matter what is installed. Until av1an fixes the invoke, Target Butteraugli works only through
+[vship](https://github.com/Line-fr/Vship); the app stops the encode up front when the bundled
+plugin folder holds no Vship, and warns where there is no such folder to check.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
@@ -98,7 +99,8 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
-                             and vszip + julek, which score Target SSIMULACRA2 / Butteraugli probes
+                             vszip, which scores Target SSIMULACRA2 probes, and julek, staged
+                             for Butteraugli until av1an can call it (see the caveat above)
 bin/av1an/enc/               SvtAv1EncApp, aomenc and x265
 ```
 

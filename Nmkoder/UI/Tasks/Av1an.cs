@@ -159,20 +159,6 @@ namespace Nmkoder.UI.Tasks
                     {
                         string metric = GetTargetMetricName(qualMode);
 
-                        // av1an scores SSIMULACRA2 and Butteraugli probes through VapourSynth, so it
-                        // insists on a chunk method that decodes through it and refuses the pairing at
-                        // startup. XPSNR is exempt: at the probing rate this tab uses, av1an scores it
-                        // with ffmpeg's xpsnr filter, which works with every chunk method - and an
-                        // ffmpeg too old to have the filter is likewise refused at startup, before any
-                        // encoding work has happened.
-                        if (qualMode != QualityMode.TargetXpsnr && !IsVapourSynthChunkMethod(chunkMethod))
-                        {
-                            RunTask.Cancel($"Target {metric} scores its probes through VapourSynth, so av1an " +
-                                "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
-                                "Pick one of those as the Chunk Method, or a different quality mode.");
-                            return;
-                        }
-
                         // av1an's releases to date (through 0.5.2, and unfixed upstream as of July
                         // 2026) invoke the julek plugin's scoring function as "butteraugli", but the
                         // plugin registers it as "Butteraugli", and VapourSynth's lookup is case-
@@ -181,8 +167,10 @@ namespace Nmkoder.UI.Tasks
                         // the exact name av1an calls, so it works; its absence is only worth stopping
                         // on where the portable plugin folder exists to be inspected - a system
                         // VapourSynth keeps its plugins wherever it likes, so there nothing is known
-                        // and the run proceeds on a warning instead. Remove this guard when an av1an
-                        // release fixes the invoke (compare_butteraugli in vapoursynth.rs).
+                        // and the run proceeds on a warning instead. Checked ahead of the chunk
+                        // method: this verdict is terminal for the mode, so it should not come out
+                        // only after a chunk method was dutifully corrected for it. Remove this guard
+                        // when an av1an release fixes the invoke (compare_butteraugli in vapoursynth.rs).
                         if (qualMode == QualityMode.TargetButteraugli)
                         {
                             bool? vship = HasVshipInPortablePlugins();
@@ -201,6 +189,20 @@ namespace Nmkoder.UI.Tasks
                             if (vship == null)
                                 Logger.Log("Note: av1an calls the CPU Butteraugli plugin (julek) by the wrong " +
                                     "function name, so probing fails unless the Vship plugin is installed.");
+                        }
+
+                        // av1an scores SSIMULACRA2 and Butteraugli probes through VapourSynth, so it
+                        // insists on a chunk method that decodes through it and refuses the pairing at
+                        // startup. XPSNR is exempt: at the probing rate this tab uses, av1an scores it
+                        // with ffmpeg's xpsnr filter, which works with every chunk method - and an
+                        // ffmpeg too old to have the filter is likewise refused at startup, before any
+                        // encoding work has happened.
+                        if (qualMode != QualityMode.TargetXpsnr && !IsVapourSynthChunkMethod(chunkMethod))
+                        {
+                            RunTask.Cancel($"Target {metric} scores its probes through VapourSynth, so av1an " +
+                                "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
+                                "Pick one of those as the Chunk Method, or a different quality mode.");
+                            return;
                         }
 
                         // Added in av1an 0.5.0, with every metric this tab offers - xpsnr included -

@@ -592,8 +592,8 @@ VSJULEK_TAG="${VSJULEK_TAG:-r3}"
 # Target XPSNR needs neither - av1an scores it with the bundled ffmpeg's xpsnr filter.
 # julek is staged for the day av1an can actually use it: every av1an release to date
 # invokes it as "butteraugli" where the plugin registers "Butteraugli", a case mismatch
-# VapourSynth does not forgive, so the app blocks Target Butteraugli unless Vship is
-# present (see the guard in Av1an.Run).
+# VapourSynth does not forgive, so the app stops Target Butteraugli when it can see that
+# Vship is absent, and warns where it cannot look (see the guard in Av1an.Run).
 # Vship, the GPU-accelerated alternative av1an accepts for both plugin-scored metrics,
 # is deliberately not bundled: it is hardware-specific (AMD HIP / CUDA), and av1an
 # prefers it on its own when a user drops it into vs-plugins themselves.
@@ -621,7 +621,7 @@ bundle_vs_metric_plugins() {
                      Source: https://github.com/dnjulek/vapoursynth-julek-plugin"
   else
     ASSET_RELEASE_TAG=""
-    note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - Target Butteraugli needs it"
+    note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - staged for when av1an can call it"
   fi
 }
 
