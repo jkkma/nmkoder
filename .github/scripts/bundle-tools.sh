@@ -581,10 +581,15 @@ bundle_vs_source_plugins() {
 # (the bundled av1an speaks both the pre-R7 and R7+ vszip interfaces).
 VSZIP_TAG="${VSZIP_TAG:-R13}"
 
-# vszip supplies the SSIMULACRA2 scoring that the AV1AN tab's Target SSIMULACRA2 quality
-# mode probes with. av1an reaches the metric through VapourSynth (com.julek.vszip), not
-# through ffmpeg, so without this plugin that quality mode fails at probe time. Vship,
-# the GPU-accelerated alternative av1an also accepts, is deliberately not bundled: it is
+# The julek plugin supplies the butteraugli scoring behind Target Butteraugli, reached as
+# com.julek.plugin. r3 is its newest release; the "vapoursynht" spelling in the asset
+# names is upstream's own, so the match keys on the win64 suffix instead.
+VSJULEK_TAG="${VSJULEK_TAG:-r3}"
+
+# These score the AV1AN tab's metric-targeted quality modes. av1an reaches the metrics
+# through VapourSynth, not through ffmpeg, so without the plugin a mode fails at probe
+# time: vszip (com.julek.vszip) scores SSIMULACRA2, julek scores butteraugli. Vship, the
+# GPU-accelerated alternative av1an accepts for both, is deliberately not bundled: it is
 # hardware-specific (AMD HIP / CUDA), and av1an prefers it on its own when a user drops
 # it into vs-plugins themselves.
 bundle_vs_metric_plugins() {
@@ -599,6 +604,19 @@ bundle_vs_metric_plugins() {
   else
     ASSET_RELEASE_TAG=""
     note_skip "vapoursynth plugin: vszip" "no windows-x86_64 asset in $VSZIP_TAG - Target SSIMULACRA2 needs it"
+  fi
+
+  VS_PLUGIN_DLL='julek.dll'
+  ASSET_RELEASE_TAG="$VSJULEK_TAG"
+
+  if try_assets "${VSJULEK_REPO:-dnjulek/vapoursynth-julek-plugin}" 'win64.*\.(zip|7z)$' '' install_vs_plugin; then
+    ASSET_RELEASE_TAG=""
+    note_ok "vapoursynth plugin: julek ($LAST_ASSET)"
+    note_licence "  julek-plugin       MIT (VapourSynth metric plugin, scores butteraugli)
+                     Source: https://github.com/dnjulek/vapoursynth-julek-plugin"
+  else
+    ASSET_RELEASE_TAG=""
+    note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - Target Butteraugli needs it"
   fi
 }
 

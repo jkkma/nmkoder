@@ -33,7 +33,7 @@ namespace Nmkoder.UI.Tasks
             // Load quality modes
             Form.Av1anQualModeBox.SetItems(Enum.GetValues<Av1an.QualityMode>()
                 .Select(qm => (object)qm.ToString().Replace("Crf", "CRF").Replace("TargetVmaf", "Target VMAF")
-                    .Replace("TargetSsimu2", "Target SSIMULACRA2")), 0);
+                    .Replace("TargetSsimu2", "Target SSIMULACRA2").Replace("TargetButteraugli", "Target Butteraugli")), 0);
 
             Form.Av1anOptsSplitModeBox.SelectedIndex = 1;
 

@@ -43,6 +43,10 @@ namespace Nmkoder.Views
 
             Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
 
+            // Whole numbers unless the metric needs finer steps - butteraugli overrides below.
+            Av1anQualityUpDown.Increment = 1;
+            Av1anQualityUpDown.FormatString = "";
+
             if (mode == Av1an.QualityMode.TargetVmaf)
             {
                 Av1anQualityUpDown.SetRange(10, 99);
@@ -55,6 +59,18 @@ namespace Nmkoder.Views
                 // counterpart of the VMAF default of 95 above.
                 Av1anQualityUpDown.SetRange(30, 99);
                 Av1anQualityUpDown.Value = 80;
+            }
+            else if (mode == Av1an.QualityMode.TargetButteraugli)
+            {
+                // Butteraugli runs the scale the other way: it measures distortion, so 0 is
+                // identical and higher is worse, with ~1 the classic just-noticeable
+                // distance. The useful targets sit between whole numbers, hence the tenths.
+                // 2.0 is the counterpart of the defaults above - high quality without
+                // paying for transparency.
+                Av1anQualityUpDown.Increment = 0.1m;
+                Av1anQualityUpDown.FormatString = "0.0##";
+                Av1anQualityUpDown.SetRange(0.5m, 10);
+                Av1anQualityUpDown.Value = 2.0m;
             }
             else
             {
