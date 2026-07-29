@@ -108,7 +108,7 @@
     "",
     "0-63 (default 0) - Best quantiser allowed; raise it to stop easy scenes from soaking up bitrate",
     "Quantization & Rate Control",
-    "The best quantiser the rate controller may choose, which is a floor on how many bits it will spend on any one frame. A lower number means higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes soaking up bitrate they do not need - a static shot encoded at a very low quantiser can consume a surprising share of a target - which leaves more for the difficult material in a rate-targeted encode.\n\nIn constant-quality encoding it does nothing unless the target sits below it.",
+    "The best quantiser the rate controller may choose, which is a floor on how many bits it will spend on any one frame. A lower number means higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes soaking up bitrate they do not need - a static shot encoded at a very low quantiser can consume a surprising share of a target - which leaves more for the difficult material in a rate-targeted encode.\n\nIn constant-quality encoding it does nothing unless the target sits below it.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
     "0|The default; no floor.\n15|Stops easy scenes from spending more than they need.\n20|A tighter floor for bitrate-constrained delivery."
   ],
   [
@@ -116,7 +116,7 @@
     "",
     "0-63 (default 63) - Worst quantiser allowed; lower it to keep hard scenes from collapsing in VBR encodes",
     "Quantization & Rate Control",
-    "The worst quantiser the rate controller may choose, bounding how far quality may fall on difficult material. A higher number is lower quality.\n\nLowering it stops hard scenes collapsing into blocking when the rate controller runs short of bits. The consequence is that the encoder can no longer meet its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nSet it when a minimum acceptable quality matters more than hitting the target exactly.",
+    "The worst quantiser the rate controller may choose, bounding how far quality may fall on difficult material. A higher number is lower quality.\n\nLowering it stops hard scenes collapsing into blocking when the rate controller runs short of bits. The consequence is that the encoder can no longer meet its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nSet it when a minimum acceptable quality matters more than hitting the target exactly.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
     "63|The default; no ceiling on quantiser.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
   ],
   [
