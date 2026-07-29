@@ -38,8 +38,8 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 
 - Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
 - Video Formats: **H265 (x265), VP9 (VPX), AV1 (AOM or SVT-AV1)**
-- Quality Modes: Either use a **constant quality** or target a **VMAF** or **SSIMULACRA2** score (experimental;
-  SSIMULACRA2 needs the vszip VapourSynth plugin, bundled on Windows)
+- Quality Modes: Either use a **constant quality** or target a **VMAF**, **SSIMULACRA2** or **Butteraugli**
+  score (experimental; SSIMULACRA2 and Butteraugli need a VapourSynth metric plugin, bundled on Windows)
 - Same audio and video options as FFmpeg encoding
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
@@ -79,9 +79,10 @@ VapourSynth's portable build is Windows-only, and the encoders come from MSYS2's
 packages, so Linux and macOS builds carry ffmpeg and the VMAF models and leave the rest to
 the package manager. One thing the package managers do not cover: Target SSIMULACRA2 scores
 its probes through the [vszip](https://github.com/dnjulek/vapoursynth-zip) VapourSynth plugin
-(the GPU-accelerated [vship](https://github.com/Line-fr/Vship) also works), which has to be
-installed into VapourSynth's plugin directory by hand on Linux and macOS - without one of
-them, that quality mode fails once av1an starts probing.
+and Target Butteraugli through the [julek plugin](https://github.com/dnjulek/vapoursynth-julek-plugin)
+(the GPU-accelerated [vship](https://github.com/Line-fr/Vship) covers both), and those have to
+be installed into VapourSynth's plugin directory by hand on Linux and macOS - without them,
+those quality modes fail once av1an starts probing.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
@@ -89,7 +90,7 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
-                             and vszip, which scores Target SSIMULACRA2 probes
+                             and vszip + julek, which score Target SSIMULACRA2 / Butteraugli probes
 bin/av1an/enc/               SvtAv1EncApp, aomenc and x265
 ```
 
@@ -101,8 +102,8 @@ Binaries are resolved from each project's releases at build time, except SvtAv1E
 aomenc and x265, which upstream does not publish for Windows and so come from MSYS2's
 mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
 `VAPOURSYNTH_REPO`, `LSMASH_REPO`, `FFMS2_REPO`, `BESTSOURCE_REPO`, `VSZIP_REPO`,
-`VSZIP_TAG`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN`
-and `MKVTOOLNIX_VERSION` environment variables.
+`VSZIP_TAG`, `VSJULEK_REPO`, `VSJULEK_TAG`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`,
+`MSYS2_ROOT`, `GH_RELEASE_SCAN` and `MKVTOOLNIX_VERSION` environment variables.
 
 **vpxenc comes from a third-party build.** No project publishes a prebuilt Windows
 vpxenc: the WebM project ships source only, ShiftMediaProject builds the library rather

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -18,7 +19,7 @@ namespace Nmkoder.UI.Tasks
 {
     class Av1an
     {
-        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2 }
+        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2, TargetButteraugli }
         // DGDecNV is deliberately absent: it needs a proprietary decoder that is not bundled and
         // cannot be, so offering it only produced an option that always failed.
         public enum ChunkMethod { BestSource, LSMASH, FFMS2, Segment, Hybrid, Select }
@@ -101,7 +102,7 @@ namespace Nmkoder.UI.Tasks
                     // again later could validate one mode's settings and emit another's.
                     QualityMode qualMode = GetCurrentQualityMode();
                     ChunkMethod chunkMethod = GetCurrentChunkMethod();
-                    int quality = Program.MainWin.Av1anQualityUpDown.Value.AsInt();
+                    decimal quality = Program.MainWin.Av1anQualityUpDown.Value ?? 0;
 
                     // av1an insists on mkvmerge to stitch x265 back together, and mkvmerge cannot
                     // write MP4 - so the two cannot be had at once, and saying which is better than
@@ -154,24 +155,31 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
-                    if (qualMode == QualityMode.TargetSsimu2)
+                    if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli)
                     {
-                        // av1an scores SSIMULACRA2 probes through VapourSynth, so it insists on a
+                        string metric = qualMode == QualityMode.TargetSsimu2 ? "SSIMULACRA2" : "Butteraugli";
+
+                        // av1an scores these probes through VapourSynth, so it insists on a
                         // chunk method that decodes through it and refuses the pairing at startup.
                         if (!IsVapourSynthChunkMethod(chunkMethod))
                         {
-                            RunTask.Cancel("Target SSIMULACRA2 scores its probes through VapourSynth, so av1an " +
+                            RunTask.Cancel($"Target {metric} scores its probes through VapourSynth, so av1an " +
                                 "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
                                 "Pick one of those as the Chunk Method, or a different quality mode.");
                             return;
                         }
 
-                        // Added in av1an 0.5.0. An older binary refuses the entire command over the
-                        // unknown flag, so this cannot simply be passed and left to be ignored.
-                        if (!await AvProcess.Av1anSupportsFlag("--target-metric"))
+                        // Added in av1an 0.5.0. An older binary refuses the entire command over
+                        // the unknown flag, so a help text that lacks it is worth stopping on.
+                        // A help text that could not be read at all is not: stopping on that
+                        // grounded up-to-date binaries whose first launch was still being
+                        // virus-scanned, over a flag they knew. When nothing is known the flag
+                        // is passed, and an av1an that really is too old refuses it at startup,
+                        // before any encoding work has happened.
+                        if (await AvProcess.Av1anHelpKnown() && !await AvProcess.Av1anSupportsFlag("--target-metric"))
                         {
-                            RunTask.Cancel("This av1an has no --target-metric option (added in av1an 0.5.0), " +
-                                "so it cannot target SSIMULACRA2.\n\nUpdate av1an, or pick a different quality mode.");
+                            RunTask.Cancel($"This av1an has no --target-metric option (added in av1an 0.5.0), " +
+                                $"so it cannot target {metric}.\n\nUpdate av1an, or pick a different quality mode.");
                             return;
                         }
                     }
@@ -191,7 +199,7 @@ namespace Nmkoder.UI.Tasks
                     // Pinned to the snapshot - GetVideoArgsFromUi read the boxes again, and these
                     // two decide whether the encoder emits its own quality flag at all.
                     videoArgs["qMode"] = ((int)qualMode).ToString();
-                    videoArgs["q"] = quality.ToString();
+                    videoArgs["q"] = ((int)quality).ToString();
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
                     string vf = await GetVideoFilterArgs(codecArgs);
@@ -245,23 +253,35 @@ namespace Nmkoder.UI.Tasks
 
                     if (qualMode != QualityMode.Crf)
                     {
-                        if (qualMode == QualityMode.TargetSsimu2)
+                        if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli)
                         {
-                            // SSIMULACRA2 is scored through VapourSynth (vszip or vship), not libvmaf,
-                            // so none of the --vmaf-* flags apply - including --vmaf-filter, which is
-                            // how the VMAF branch shows the probes its filtered frames. There is no
-                            // equivalent for SSIMULACRA2: probes are compared against the unfiltered
-                            // source, so any filter that visibly alters the frames skews the search.
+                            // These metrics are scored through VapourSynth (vszip, the julek plugin
+                            // or vship), not libvmaf, so none of the --vmaf-* flags apply - including
+                            // --vmaf-filter, which is how the VMAF branch shows the probes its
+                            // filtered frames. There is no equivalent here: probes are compared
+                            // against the unfiltered source, so any filter that visibly alters the
+                            // frames skews the search.
                             if (vf.Length > 3)
-                                Logger.Log("Note: video filters are not applied when scoring SSIMULACRA2 probes, " +
+                                Logger.Log("Note: video filters are not applied when scoring " +
+                                    $"{(qualMode == QualityMode.TargetSsimu2 ? "SSIMULACRA2" : "Butteraugli")} probes, " +
                                     "so any filter that visibly changes the frames will skew the target quality search.");
 
-                            args += $" --target-metric ssimulacra2 --target-quality {quality}";
+                            // The INF norm rather than the 3-norm, because av1an only scores the
+                            // 3-norm through the GPU plugin (Vship), while INF also works on the
+                            // bundled CPU plugin (julek).
+                            string metricName = qualMode == QualityMode.TargetSsimu2 ? "ssimulacra2" : "butteraugli-inf";
+                            // Butteraugli measures distortion - 0 is identical, and the useful
+                            // targets sit between whole numbers - so it keeps its decimals, while
+                            // the 0-100 metrics stay the whole numbers they always were.
+                            string target = qualMode == QualityMode.TargetButteraugli
+                                ? quality.ToString("0.0##", CultureInfo.InvariantCulture)
+                                : ((int)quality).ToString();
+                            args += $" --target-metric {metricName} --target-quality {target}";
                         }
                         else
                         {
                             string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
-                            args += $" --target-quality {quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
                         }
                     }
                 }

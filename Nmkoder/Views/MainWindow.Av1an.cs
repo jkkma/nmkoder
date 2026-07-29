@@ -43,6 +43,10 @@ namespace Nmkoder.Views
 
             Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
 
+            // Whole numbers unless the metric needs finer steps - butteraugli overrides below.
+            Av1anQualityUpDown.Increment = 1;
+            Av1anQualityUpDown.FormatString = "";
+
             if (mode == Av1an.QualityMode.TargetVmaf)
             {
                 Av1anQualityUpDown.SetRange(10, 99);
@@ -55,6 +59,19 @@ namespace Nmkoder.Views
                 // counterpart of the VMAF default of 95 above.
                 Av1anQualityUpDown.SetRange(30, 99);
                 Av1anQualityUpDown.Value = 80;
+            }
+            else if (mode == Av1an.QualityMode.TargetButteraugli)
+            {
+                // Butteraugli runs the scale the other way: it measures distortion, so 0 is
+                // identical and higher is worse, and the useful targets sit between whole
+                // numbers, hence the tenths. av1an scores it at 203 nits rather than the 80
+                // the classic "under 1 is fine" lore was calibrated on, so scores read
+                // higher here - av1an's own docs target 5.4 - and 4 sits between that and
+                // the stricter targets seen in the wild.
+                Av1anQualityUpDown.Increment = 0.1m;
+                Av1anQualityUpDown.FormatString = "0.0##";
+                Av1anQualityUpDown.SetRange(0.5m, 10);
+                Av1anQualityUpDown.Value = 4.0m;
             }
             else
             {

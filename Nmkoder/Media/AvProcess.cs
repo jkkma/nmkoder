@@ -285,13 +285,25 @@ namespace Nmkoder.Media
             return (await GetAv1anHelp()).Contains(flag);
         }
 
+        /// <summary>
+        /// Whether av1an's --help has actually been read this session. A missing flag only means
+        /// something when it is missing from a help text that exists - "" is an av1an that could
+        /// not be found, run or waited out, which says nothing about what it supports.
+        /// </summary>
+        public static async Task<bool> Av1anHelpKnown()
+        {
+            return (await GetAv1anHelp()).IsNotEmpty();
+        }
+
         private static async Task<string> GetAv1anHelp()
         {
             if (av1anHelpText != null)
                 return av1anHelpText;
 
             // Set before the work, not after: an av1an that cannot be found or cannot be run will not
-            // start answering later, and retrying it before every encode only delays each one.
+            // start answering later, and retrying it before every encode only delays each one. The
+            // timeout below is the one exception, undone where it happens: that av1an may merely
+            // still be being virus-scanned or paged in, and answers fine on the next attempt.
             av1anHelpText = "";
 
             try
@@ -314,11 +326,14 @@ namespace Nmkoder.Media
                 Task<string> stderr = av1an.StandardError.ReadToEndAsync();
                 Task both = Task.WhenAll(stdout, stderr);
 
-                if (await Task.WhenAny(both, Task.Delay(5000)) != both)
+                // Generous because the first launch of a freshly unpacked av1an.exe sits behind a
+                // virus scan that alone can take longer than the help call itself.
+                if (await Task.WhenAny(both, Task.Delay(15000)) != both)
                 {
-                    Logger.Log("av1an did not answer --help in time - assuming it takes no optional flags.", true);
+                    Logger.Log("av1an did not answer --help in time - trying again on the next encode.", true);
                     OsUtils.KillProcessTree(av1an.Id);
-                    return av1anHelpText;
+                    av1anHelpText = null;
+                    return "";
                 }
 
                 av1anHelpText = $"{stdout.Result}\n{stderr.Result}";
