@@ -590,6 +590,10 @@ VSJULEK_TAG="${VSJULEK_TAG:-r3}"
 # metrics through VapourSynth, not through ffmpeg, so without the plugin a mode fails at
 # probe time: vszip (com.julek.vszip) scores SSIMULACRA2, julek scores butteraugli.
 # Target XPSNR needs neither - av1an scores it with the bundled ffmpeg's xpsnr filter.
+# julek is staged for the day av1an can actually use it: every av1an release to date
+# invokes it as "butteraugli" where the plugin registers "Butteraugli", a case mismatch
+# VapourSynth does not forgive, so the app blocks Target Butteraugli unless Vship is
+# present (see the guard in Av1an.Run).
 # Vship, the GPU-accelerated alternative av1an accepts for both plugin-scored metrics,
 # is deliberately not bundled: it is hardware-specific (AMD HIP / CUDA), and av1an
 # prefers it on its own when a user drops it into vs-plugins themselves.

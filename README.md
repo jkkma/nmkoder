@@ -39,8 +39,8 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
 - Video Formats: **H265 (x265), VP9 (VPX), AV1 (AOM or SVT-AV1)**
 - Quality Modes: Either use a **constant quality** or target a **VMAF**, **SSIMULACRA2**, **Butteraugli**
-  or **XPSNR** score (experimental; SSIMULACRA2 and Butteraugli need a VapourSynth metric plugin,
-  bundled on Windows, while XPSNR is scored by ffmpeg)
+  or **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
+  XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship - see below)
 - Same audio and video options as FFmpeg encoding
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
@@ -85,6 +85,12 @@ and Target Butteraugli through the [julek plugin](https://github.com/dnjulek/vap
 be installed into VapourSynth's plugin directory by hand on Linux and macOS - without them,
 those quality modes fail once av1an starts probing. Target XPSNR needs no plugin: av1an scores
 it with ffmpeg's `xpsnr` filter, present in the bundled ffmpeg and in any FFmpeg from 7.1 on.
+
+One caveat on Butteraugli: every av1an release to date calls the julek plugin by the wrong
+function name (`butteraugli` where the plugin registers `Butteraugli`), so the CPU scoring path
+fails at probe time no matter what is installed. Until av1an fixes the invoke, Target Butteraugli
+works only through [vship](https://github.com/Line-fr/Vship), and the app stops the encode up
+front when the bundled plugin folder holds no Vship rather than letting it die minutes in.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
