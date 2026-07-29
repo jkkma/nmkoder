@@ -32,7 +32,8 @@ namespace Nmkoder.UI.Tasks
 
             // Load quality modes
             Form.Av1anQualModeBox.SetItems(Enum.GetValues<Av1an.QualityMode>()
-                .Select(qm => (object)qm.ToString().Replace("Crf", "CRF").Replace("TargetVmaf", "Target VMAF")), 0);
+                .Select(qm => (object)qm.ToString().Replace("Crf", "CRF").Replace("TargetVmaf", "Target VMAF")
+                    .Replace("TargetSsimu2", "Target SSIMULACRA2")), 0);
 
             Form.Av1anOptsSplitModeBox.SelectedIndex = 1;
 
@@ -126,7 +127,7 @@ namespace Nmkoder.UI.Tasks
 
         static void LoadQualityLevel(IEncoder enc)
         {
-            if (IsUsingVmaf())
+            if (IsUsingTargetQuality()) // The spinner holds a metric score, not this encoder's CRF scale
                 return;
 
             Form.Av1anQualityUpDown.SetRange(enc.QMin, enc.QMax > 0 ? enc.QMax : 100);
@@ -366,9 +367,11 @@ namespace Nmkoder.UI.Tasks
             return $"--split-method {(Form.Av1anOptsSplitModeBox.SelectedIndex == 0 ? "none" : "av-scenechange")}";
         }
 
-        public static string GetChunkGenMethod()
+        /// <summary> Takes the method as a value rather than reading the dropdown, so the caller can
+        /// emit the same one it validated - the box stays editable while the arguments are built. </summary>
+        public static string GetChunkGenMethod(Av1an.ChunkMethod method)
         {
-            return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
+            return $"-m {method.ToString().ToLower()}";
         }
 
         /// <summary> The selected chunk method. The dropdown is filled from the enum, so index is value. </summary>
@@ -380,6 +383,12 @@ namespace Nmkoder.UI.Tasks
         /// <summary> The chunk methods that read the source through vspipe, and so run a VapourSynth script at all. </summary>
         private static readonly Av1an.ChunkMethod[] VapourSynthChunkMethods =
             { Av1an.ChunkMethod.BestSource, Av1an.ChunkMethod.LSMASH, Av1an.ChunkMethod.FFMS2 };
+
+        /// <summary> Whether a chunk method decodes through VapourSynth - which SSIMULACRA2 probing requires. </summary>
+        public static bool IsVapourSynthChunkMethod(Av1an.ChunkMethod method)
+        {
+            return VapourSynthChunkMethods.Contains(method);
+        }
 
         /// <summary>
         /// Which converter av1an should reach the chosen pixel format with. By default it pipes the
@@ -400,7 +409,7 @@ namespace Nmkoder.UI.Tasks
         /// -pix_fmt and converts on its own. Passing it anyway still encodes correctly; it is left off
         /// so the command does not name a converter that has no part in how the chunk is read.
         /// </summary>
-        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters)
+        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters, Av1an.ChunkMethod chunkMethod)
         {
             const string flag = "--pix-format-converter";
 
@@ -418,8 +427,6 @@ namespace Nmkoder.UI.Tasks
                 Logger.Log($"This av1an has no {flag}, so ffmpeg is converting the pixel format.", true);
                 return "";
             }
-
-            Av1an.ChunkMethod chunkMethod = GetCurrentChunkMethod();
 
             // The conversion is a step in a VapourSynth script, so it only exists for the chunk methods
             // that have one. The others decode with ffmpeg, which knows nothing of the setting.
@@ -787,9 +794,19 @@ namespace Nmkoder.UI.Tasks
             IoUtils.DeleteIfExists(dir + ".json");
         }
 
-        public static bool IsUsingVmaf()
+        /// <summary> The selected quality mode. The dropdown is filled from the enum, so index is value. </summary>
+        public static Av1an.QualityMode GetCurrentQualityMode()
         {
-            return Form.Av1anQualModeBox.SelectedIndex == 1;
+            return (Av1an.QualityMode)Math.Max(0, Form.Av1anQualModeBox.SelectedIndex);
+        }
+
+        /// <summary>
+        /// Whether a target quality mode is selected rather than a fixed CRF - the modes where
+        /// av1an's probing chooses the quantiser and the quality box holds a metric score.
+        /// </summary>
+        public static bool IsUsingTargetQuality()
+        {
+            return GetCurrentQualityMode() != Av1an.QualityMode.Crf;
         }
     }
 }

@@ -18,7 +18,7 @@ namespace Nmkoder.UI.Tasks
 {
     class Av1an
     {
-        public enum QualityMode { Crf, TargetVmaf }
+        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2 }
         // DGDecNV is deliberately absent: it needs a proprietary decoder that is not bundled and
         // cannot be, so offering it only produced an option that always failed.
         public enum ChunkMethod { BestSource, LSMASH, FFMS2, Segment, Hybrid, Select }
@@ -96,6 +96,12 @@ namespace Nmkoder.UI.Tasks
                     CodecUtils.AudioCodec aCodec = GetCurrentCodecA();
                     bool mp4 = IsMp4Output();
                     bool webm = IsWebmOutput();
+                    // Snapshotted once, because the tab stays editable through the awaits below
+                    // (the color probe, the auto-crop scan, av1an's --help) - reading the boxes
+                    // again later could validate one mode's settings and emit another's.
+                    QualityMode qualMode = GetCurrentQualityMode();
+                    ChunkMethod chunkMethod = GetCurrentChunkMethod();
+                    int quality = Program.MainWin.Av1anQualityUpDown.Value.AsInt();
 
                     // av1an insists on mkvmerge to stitch x265 back together, and mkvmerge cannot
                     // write MP4 - so the two cannot be had at once, and saying which is better than
@@ -148,6 +154,28 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    if (qualMode == QualityMode.TargetSsimu2)
+                    {
+                        // av1an scores SSIMULACRA2 probes through VapourSynth, so it insists on a
+                        // chunk method that decodes through it and refuses the pairing at startup.
+                        if (!IsVapourSynthChunkMethod(chunkMethod))
+                        {
+                            RunTask.Cancel("Target SSIMULACRA2 scores its probes through VapourSynth, so av1an " +
+                                "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
+                                "Pick one of those as the Chunk Method, or a different quality mode.");
+                            return;
+                        }
+
+                        // Added in av1an 0.5.0. An older binary refuses the entire command over the
+                        // unknown flag, so this cannot simply be passed and left to be ignored.
+                        if (!await AvProcess.Av1anSupportsFlag("--target-metric"))
+                        {
+                            RunTask.Cancel("This av1an has no --target-metric option (added in av1an 0.5.0), " +
+                                "so it cannot target SSIMULACRA2.\n\nUpdate av1an, or pick a different quality mode.");
+                            return;
+                        }
+                    }
+
                     // MP4 forces the ffmpeg concatenator (mkvmerge cannot write MP4), and av1an itself
                     // warns that vpx chunks come out of that path with the wrong frame rate.
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
@@ -160,6 +188,10 @@ namespace Nmkoder.UI.Tasks
                     // Kept rather than built inline: the pixel format the color format box resolved to is
                     // needed again below, to work out who should convert to it.
                     Dictionary<string, string> videoArgs = GetVideoArgsFromUi();
+                    // Pinned to the snapshot - GetVideoArgsFromUi read the boxes again, and these
+                    // two decide whether the encoder emits its own quality flag at all.
+                    videoArgs["qMode"] = ((int)qualMode).ToString();
+                    videoArgs["q"] = quality.ToString();
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
                     string vf = await GetVideoFilterArgs(codecArgs);
@@ -194,11 +226,11 @@ namespace Nmkoder.UI.Tasks
 
                     string ffArgs = $"{ffAud} {ffMux}";
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
-                    string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty());
+                    string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty(), chunkMethod);
 
                     args = $"-i {inPath.Wrap()} -y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
-                        $"{GetChunkGenMethod()} " +
+                        $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
                         $"--sc-downscale-height {GetScDownscaleHeight()} " +
@@ -211,11 +243,26 @@ namespace Nmkoder.UI.Tasks
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
                         $"-o {outPath.Wrap()}";
 
-                    if (IsUsingVmaf())
+                    if (qualMode != QualityMode.Crf)
                     {
-                        int q = form.Av1anQualityUpDown.Value.AsInt();
-                        string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
-                        args += $" --target-quality {q} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                        if (qualMode == QualityMode.TargetSsimu2)
+                        {
+                            // SSIMULACRA2 is scored through VapourSynth (vszip or vship), not libvmaf,
+                            // so none of the --vmaf-* flags apply - including --vmaf-filter, which is
+                            // how the VMAF branch shows the probes its filtered frames. There is no
+                            // equivalent for SSIMULACRA2: probes are compared against the unfiltered
+                            // source, so any filter that visibly alters the frames skews the search.
+                            if (vf.Length > 3)
+                                Logger.Log("Note: video filters are not applied when scoring SSIMULACRA2 probes, " +
+                                    "so any filter that visibly changes the frames will skew the target quality search.");
+
+                            args += $" --target-metric ssimulacra2 --target-quality {quality}";
+                        }
+                        else
+                        {
+                            string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
+                            args += $" --target-quality {quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                        }
                     }
                 }
                 else

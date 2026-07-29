@@ -41,10 +41,20 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            if (Av1anUi.IsUsingVmaf())
+            Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
+
+            if (mode == Av1an.QualityMode.TargetVmaf)
             {
                 Av1anQualityUpDown.SetRange(10, 99);
                 Av1anQualityUpDown.Value = 95;
+            }
+            else if (mode == Av1an.QualityMode.TargetSsimu2)
+            {
+                // SSIMULACRA2's anchors sit lower than VMAF's - 70 is high quality, 80
+                // imperceptible side-by-side, 90 visually lossless - so 80 is the
+                // counterpart of the VMAF default of 95 above.
+                Av1anQualityUpDown.SetRange(30, 99);
+                Av1anQualityUpDown.Value = 80;
             }
             else
             {

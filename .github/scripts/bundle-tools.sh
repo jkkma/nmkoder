@@ -500,6 +500,7 @@ bundle_vapoursynth() {
   CPython            Python Software Foundation License 2.0 (embeddable distribution)
                      Source: https://www.python.org/downloads/"
     bundle_vs_source_plugins
+    bundle_vs_metric_plugins
   else
     ASSET_RELEASE_TAG=""
     note_skip "vapoursynth" "no portable asset in $VAPOURSYNTH_TAG"
@@ -570,6 +571,34 @@ bundle_vs_source_plugins() {
                      Source: https://github.com/FFMS/ffms2"
   else
     note_skip "vapoursynth plugin: FFMS2" "no asset with an ffms2 DLL"
+  fi
+}
+
+# Pinned rather than tracking the newest release, because releases after R13 publish no
+# prebuilt Windows binary - only Zig source - so "latest" would quietly bundle nothing.
+# When bumping, confirm a release actually carries a windows-x86_64 asset, that its DLL
+# still loads under the VSPipe of $VAPOURSYNTH_TAG, and that av1an still takes its API
+# (the bundled av1an speaks both the pre-R7 and R7+ vszip interfaces).
+VSZIP_TAG="${VSZIP_TAG:-R13}"
+
+# vszip supplies the SSIMULACRA2 scoring that the AV1AN tab's Target SSIMULACRA2 quality
+# mode probes with. av1an reaches the metric through VapourSynth (com.julek.vszip), not
+# through ffmpeg, so without this plugin that quality mode fails at probe time. Vship,
+# the GPU-accelerated alternative av1an also accepts, is deliberately not bundled: it is
+# hardware-specific (AMD HIP / CUDA), and av1an prefers it on its own when a user drops
+# it into vs-plugins themselves.
+bundle_vs_metric_plugins() {
+  VS_PLUGIN_DLL='vszip.dll'
+  ASSET_RELEASE_TAG="$VSZIP_TAG"
+
+  if try_assets "${VSZIP_REPO:-dnjulek/vapoursynth-zip}" '(windows|win).*x86_64.*\.(zip|7z)$' '' install_vs_plugin; then
+    ASSET_RELEASE_TAG=""
+    note_ok "vapoursynth plugin: vszip ($LAST_ASSET)"
+    note_licence "  vapoursynth-zip    MIT (VapourSynth metric plugin, scores SSIMULACRA2)
+                     Source: https://github.com/dnjulek/vapoursynth-zip"
+  else
+    ASSET_RELEASE_TAG=""
+    note_skip "vapoursynth plugin: vszip" "no windows-x86_64 asset in $VSZIP_TAG - Target SSIMULACRA2 needs it"
   fi
 }
 

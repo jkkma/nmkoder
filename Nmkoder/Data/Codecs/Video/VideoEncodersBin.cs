@@ -31,8 +31,8 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
-            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
-            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
+            string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string grain = encArgs.ContainsKey("grainSynthStrength") ? encArgs["grainSynthStrength"] : "0";
@@ -58,9 +58,9 @@ namespace Nmkoder.Data.Codecs.Video
             // flag in without its value would make aomenc read the next argument as the interval.
             string kf = $"--disable-kf{(g.IsNotEmpty() ? $" --kf-min-dist=12 --kf-max-dist={g}" : "")}";
 
-            // --end-usage=q stays even in VMAF mode: av1an's target quality search only injects
+            // --end-usage=q stays even in the target quality modes: av1an's search only injects
             // --cq-level, which aomenc ignores unless constant quality rate control is selected.
-            return new CodecArgs($" -e aom -v \" --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
+            return new CodecArgs($" -e aom -v \" --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
                     $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
@@ -89,9 +89,9 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
-            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
+            bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
 
-            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string grain = encArgs.ContainsKey("grainSynthStrength") ? encArgs["grainSynthStrength"] : "0";
@@ -110,7 +110,7 @@ namespace Nmkoder.Data.Codecs.Video
             
             string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
 
-            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!vmaf ? $"--crf {q}" : "")} {keyint} --lp {thr} --film-grain {grain} --film-grain-denoise {denoise} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} --film-grain {grain} --film-grain-denoise {denoise} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
 
         /// <summary>
@@ -152,8 +152,8 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
-            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
-            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
+            string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
@@ -168,7 +168,7 @@ namespace Nmkoder.Data.Codecs.Video
             string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : ""; // No video stream to work an interval out from
 
             // As with aomenc, --end-usage=q has to be set for av1an's injected --cq-level to apply
-            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!vmaf ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
+            return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
                     $"--threads={thr} --row-mt=1 {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
@@ -196,8 +196,8 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
-            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
+            string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(pixFmt);
@@ -223,7 +223,7 @@ namespace Nmkoder.Data.Codecs.Video
             // No --keyint: av1an cuts the scenes itself and sets "--keyint infinite --scenecut 0"
             // for x264, so every chunk already opens on a keyframe. Sending an interval here would
             // override that and put more of them inside the chunks.
-            return new CodecArgs($" -e x264 --force -v \" {(!vmaf ? $"--crf {q}" : "")} --preset {preset} --threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e x264 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} --threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
 
@@ -251,8 +251,8 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
-            bool vmaf = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() == UI.Tasks.Av1an.QualityMode.TargetVmaf;
-            string q = vmaf ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
+            bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
+            string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(pixFmt);
@@ -270,7 +270,7 @@ namespace Nmkoder.Data.Codecs.Video
             string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
             string depth = bitDepth > 0 ? $"--output-depth {bitDepth}" : ""; // Unrecognised pixel format - let x265 pick
 
-            return new CodecArgs($" -e x265 --force -v \" {(!vmaf ? $"--crf {q}" : "")} --preset {preset} {keyint} --frame-threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e x265 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} {keyint} --frame-threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
 }
