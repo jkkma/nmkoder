@@ -18,7 +18,7 @@ namespace Nmkoder.UI.Tasks
 {
     class Av1an
     {
-        public enum QualityMode { Crf, TargetVmaf }
+        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2 }
         // DGDecNV is deliberately absent: it needs a proprietary decoder that is not bundled and
         // cannot be, so offering it only produced an option that always failed.
         public enum ChunkMethod { BestSource, LSMASH, FFMS2, Segment, Hybrid, Select }
@@ -148,6 +148,28 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    if (GetCurrentQualityMode() == QualityMode.TargetSsimu2)
+                    {
+                        // av1an scores SSIMULACRA2 probes through VapourSynth, so it insists on a
+                        // chunk method that decodes through it and refuses the pairing at startup.
+                        if (!IsVapourSynthChunkMethod(GetCurrentChunkMethod()))
+                        {
+                            RunTask.Cancel("Target SSIMULACRA2 scores its probes through VapourSynth, so av1an " +
+                                "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
+                                "Pick one of those as the Chunk Method, or a different quality mode.");
+                            return;
+                        }
+
+                        // Added in av1an 0.5.0. An older binary refuses the entire command over the
+                        // unknown flag, so this cannot simply be passed and left to be ignored.
+                        if (!await AvProcess.Av1anSupportsFlag("--target-metric"))
+                        {
+                            RunTask.Cancel("This av1an has no --target-metric option (added in av1an 0.5.0), " +
+                                "so it cannot target SSIMULACRA2.\n\nUpdate av1an, or pick a different quality mode.");
+                            return;
+                        }
+                    }
+
                     // MP4 forces the ffmpeg concatenator (mkvmerge cannot write MP4), and av1an itself
                     // warns that vpx chunks come out of that path with the wrong frame rate.
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
@@ -211,11 +233,28 @@ namespace Nmkoder.UI.Tasks
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
                         $"-o {outPath.Wrap()}";
 
-                    if (IsUsingVmaf())
+                    if (IsUsingTargetQuality())
                     {
                         int q = form.Av1anQualityUpDown.Value.AsInt();
-                        string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
-                        args += $" --target-quality {q} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+
+                        if (GetCurrentQualityMode() == QualityMode.TargetSsimu2)
+                        {
+                            // SSIMULACRA2 is scored through VapourSynth (vszip or vship), not libvmaf,
+                            // so none of the --vmaf-* flags apply - including --vmaf-filter, which is
+                            // how the VMAF branch shows the probes its filtered frames. There is no
+                            // equivalent for SSIMULACRA2: probes are compared against the unfiltered
+                            // source, so a filter that changes geometry or timing skews the search.
+                            if (vf.Length > 3)
+                                Logger.Log("Note: video filters are not applied when scoring SSIMULACRA2 probes, " +
+                                    "so filters that change geometry or frame rate will skew the target quality search.");
+
+                            args += $" --target-metric ssimulacra2 --target-quality {q}";
+                        }
+                        else
+                        {
+                            string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
+                            args += $" --target-quality {q} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                        }
                     }
                 }
                 else
