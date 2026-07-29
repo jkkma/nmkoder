@@ -19,7 +19,7 @@ namespace Nmkoder.UI.Tasks
 {
     class Av1an
     {
-        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2, TargetButteraugli }
+        public enum QualityMode { Crf, TargetVmaf, TargetSsimu2, TargetButteraugli, TargetXpsnr }
         // DGDecNV is deliberately absent: it needs a proprietary decoder that is not bundled and
         // cannot be, so offering it only produced an option that always failed.
         public enum ChunkMethod { BestSource, LSMASH, FFMS2, Segment, Hybrid, Select }
@@ -155,13 +155,17 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
-                    if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli)
+                    if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr)
                     {
-                        string metric = qualMode == QualityMode.TargetSsimu2 ? "SSIMULACRA2" : "Butteraugli";
+                        string metric = GetTargetMetricName(qualMode);
 
-                        // av1an scores these probes through VapourSynth, so it insists on a
-                        // chunk method that decodes through it and refuses the pairing at startup.
-                        if (!IsVapourSynthChunkMethod(chunkMethod))
+                        // av1an scores SSIMULACRA2 and Butteraugli probes through VapourSynth, so it
+                        // insists on a chunk method that decodes through it and refuses the pairing at
+                        // startup. XPSNR is exempt: at the probing rate this tab uses, av1an scores it
+                        // with ffmpeg's xpsnr filter, which works with every chunk method - and an
+                        // ffmpeg too old to have the filter is likewise refused at startup, before any
+                        // encoding work has happened.
+                        if (qualMode != QualityMode.TargetXpsnr && !IsVapourSynthChunkMethod(chunkMethod))
                         {
                             RunTask.Cancel($"Target {metric} scores its probes through VapourSynth, so av1an " +
                                 "requires the BestSource, LSMASH or FFMS2 chunk method.\n\n" +
@@ -169,7 +173,8 @@ namespace Nmkoder.UI.Tasks
                             return;
                         }
 
-                        // Added in av1an 0.5.0. An older binary refuses the entire command over
+                        // Added in av1an 0.5.0, with every metric this tab offers - xpsnr included -
+                        // there from the start. An older binary refuses the entire command over
                         // the unknown flag, so a help text that lacks it is worth stopping on.
                         // A help text that could not be read at all is not: stopping on that
                         // grounded up-to-date binaries whose first launch was still being
@@ -253,27 +258,32 @@ namespace Nmkoder.UI.Tasks
 
                     if (qualMode != QualityMode.Crf)
                     {
-                        if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli)
+                        if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr)
                         {
-                            // These metrics are scored through VapourSynth (vszip, the julek plugin
-                            // or vship), not libvmaf, so none of the --vmaf-* flags apply - including
+                            // These metrics are scored outside libvmaf - SSIMULACRA2 and Butteraugli
+                            // through VapourSynth (vszip, the julek plugin or vship), XPSNR by
+                            // ffmpeg's xpsnr filter - so none of the --vmaf-* flags apply, including
                             // --vmaf-filter, which is how the VMAF branch shows the probes its
                             // filtered frames. There is no equivalent here: probes are compared
                             // against the unfiltered source, so any filter that visibly alters the
                             // frames skews the search.
                             if (vf.Length > 3)
                                 Logger.Log("Note: video filters are not applied when scoring " +
-                                    $"{(qualMode == QualityMode.TargetSsimu2 ? "SSIMULACRA2" : "Butteraugli")} probes, " +
+                                    $"{GetTargetMetricName(qualMode)} probes, " +
                                     "so any filter that visibly changes the frames will skew the target quality search.");
 
                             // The INF norm rather than the 3-norm, because av1an only scores the
                             // 3-norm through the GPU plugin (Vship), while INF also works on the
-                            // bundled CPU plugin (julek).
-                            string metricName = qualMode == QualityMode.TargetSsimu2 ? "ssimulacra2" : "butteraugli-inf";
+                            // bundled CPU plugin (julek). XPSNR goes out as the weighted variant -
+                            // the (4·Y+U+V)/6 plane aggregation the metric's authors define for
+                            // video - where plain xpsnr takes the single worst plane instead.
+                            string metricName = qualMode == QualityMode.TargetSsimu2 ? "ssimulacra2"
+                                : qualMode == QualityMode.TargetButteraugli ? "butteraugli-inf" : "xpsnr-weighted";
                             // Butteraugli measures distortion - 0 is identical, and the useful
-                            // targets sit between whole numbers - so it keeps its decimals, while
-                            // the 0-100 metrics stay the whole numbers they always were.
-                            string target = qualMode == QualityMode.TargetButteraugli
+                            // targets sit between whole numbers - so it keeps its decimals, as does
+                            // XPSNR, a decibel scale where half a dB is a real step; the 0-100
+                            // metrics stay the whole numbers they always were.
+                            string target = qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr
                                 ? quality.ToString("0.0##", CultureInfo.InvariantCulture)
                                 : ((int)quality).ToString();
                             args += $" --target-metric {metricName} --target-quality {target}";
@@ -380,6 +390,14 @@ namespace Nmkoder.UI.Tasks
 
             await HandleTempFolder(tempDir, succeeded, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one
+        }
+
+        /// <summary> The metric a target quality mode steers by, as it is named in messages. </summary>
+        private static string GetTargetMetricName(QualityMode mode)
+        {
+            return mode == QualityMode.TargetSsimu2 ? "SSIMULACRA2"
+                : mode == QualityMode.TargetButteraugli ? "Butteraugli"
+                : mode == QualityMode.TargetXpsnr ? "XPSNR" : "VMAF";
         }
 
         /// <summary>

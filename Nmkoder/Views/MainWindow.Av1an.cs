@@ -43,7 +43,7 @@ namespace Nmkoder.Views
 
             Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
 
-            // Whole numbers unless the metric needs finer steps - butteraugli overrides below.
+            // Whole numbers unless the metric needs finer steps - butteraugli and XPSNR override below.
             Av1anQualityUpDown.Increment = 1;
             Av1anQualityUpDown.FormatString = "";
 
@@ -72,6 +72,18 @@ namespace Nmkoder.Views
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(0.5m, 10);
                 Av1anQualityUpDown.Value = 4.0m;
+            }
+            else if (mode == Av1an.QualityMode.TargetXpsnr)
+            {
+                // XPSNR is a PSNR-style decibel scale: 0 is worst and it rises with quality,
+                // with no fixed ceiling. Scored as the weighted variant ((4·Y+U+V)/6),
+                // the mid-30s read as good and the mid-40s as visually lossless, so 40 is
+                // the counterpart of the VMAF 95 / SSIMULACRA2 80 defaults above. Half-dB
+                // steps, because a whole decibel is a coarse jump on a logarithmic scale.
+                Av1anQualityUpDown.Increment = 0.5m;
+                Av1anQualityUpDown.FormatString = "0.0##";
+                Av1anQualityUpDown.SetRange(20, 60);
+                Av1anQualityUpDown.Value = 40m;
             }
             else
             {
