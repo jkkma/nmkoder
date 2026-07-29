@@ -367,9 +367,11 @@ namespace Nmkoder.UI.Tasks
             return $"--split-method {(Form.Av1anOptsSplitModeBox.SelectedIndex == 0 ? "none" : "av-scenechange")}";
         }
 
-        public static string GetChunkGenMethod()
+        /// <summary> Takes the method as a value rather than reading the dropdown, so the caller can
+        /// emit the same one it validated - the box stays editable while the arguments are built. </summary>
+        public static string GetChunkGenMethod(Av1an.ChunkMethod method)
         {
-            return $"-m {Form.Av1anOptsChunkModeBox.GetText().ToLower().Trim()}";
+            return $"-m {method.ToString().ToLower()}";
         }
 
         /// <summary> The selected chunk method. The dropdown is filled from the enum, so index is value. </summary>
@@ -407,7 +409,7 @@ namespace Nmkoder.UI.Tasks
         /// -pix_fmt and converts on its own. Passing it anyway still encodes correctly; it is left off
         /// so the command does not name a converter that has no part in how the chunk is read.
         /// </summary>
-        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters)
+        public static async Task<string> GetPixelFormatConverterArgs(string pixFmt, bool hasFfmpegFilters, Av1an.ChunkMethod chunkMethod)
         {
             const string flag = "--pix-format-converter";
 
@@ -425,8 +427,6 @@ namespace Nmkoder.UI.Tasks
                 Logger.Log($"This av1an has no {flag}, so ffmpeg is converting the pixel format.", true);
                 return "";
             }
-
-            Av1an.ChunkMethod chunkMethod = GetCurrentChunkMethod();
 
             // The conversion is a step in a VapourSynth script, so it only exists for the chunk methods
             // that have one. The others decode with ffmpeg, which knows nothing of the setting.

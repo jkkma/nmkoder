@@ -38,7 +38,8 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 
 - Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
 - Video Formats: **H265 (x265), VP9 (VPX), AV1 (AOM or SVT-AV1)**
-- Quality Modes: Either use a **constant quality** or target a **VMAF** or **SSIMULACRA2** score (experimental)
+- Quality Modes: Either use a **constant quality** or target a **VMAF** or **SSIMULACRA2** score (experimental;
+  SSIMULACRA2 needs the vszip VapourSynth plugin, bundled on Windows)
 - Same audio and video options as FFmpeg encoding
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
@@ -76,7 +77,11 @@ stages the external tools into `bin/`:
 Only Windows gets the av1an toolchain. av1an publishes prebuilt binaries for Windows only,
 VapourSynth's portable build is Windows-only, and the encoders come from MSYS2's mingw64
 packages, so Linux and macOS builds carry ffmpeg and the VMAF models and leave the rest to
-the package manager.
+the package manager. One thing the package managers do not cover: Target SSIMULACRA2 scores
+its probes through the [vszip](https://github.com/dnjulek/vapoursynth-zip) VapourSynth plugin
+(the GPU-accelerated [vship](https://github.com/Line-fr/Vship) also works), which has to be
+installed into VapourSynth's plugin directory by hand on Linux and macOS - without one of
+them, that quality mode fails once av1an starts probing.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
