@@ -32,6 +32,46 @@
     "0|The default; off.\n1|Adaptive selection, a small gain on slow encodes."
   ],
   [
+    "tune",
+    "",
+    "psnr, ssim, vmaf, vmaf_neg, butteraugli and variants (default psnr) - Which metric the encoder optimises for",
+    "Tuning & Quantization",
+    "Selects the distortion metric the encoder's decisions are scored against, which changes where bits go rather than just what gets reported. psnr minimises squared error, ssim weights by structural similarity, and the vmaf and butteraugli variants optimise against perceptual models.\n\nssim generally produces a picture people prefer over psnr. The vmaf modes optimise directly for a metric widely used to judge streaming quality, which is useful if you are being measured on it and questionable if you are not - tuning for a metric tends to exploit it.\n\nbutteraugli targets a perceptual difference model and is the most experimental of the set.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice.\nvmaf_neg|VMAF tuned to resist the usual enhancement gaming.\nbutteraugli|A perceptual difference model; experimental."
+  ],
+  [
+    "qm-min",
+    "",
+    "0-15 (default 8) - Lowest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "With quantisation matrices enabled, the encoder picks a matrix per frame from a range of flatness levels. This sets the lowest level it may choose, where lower numbers mean a more aggressively shaped matrix that treats high frequencies differently from low ones.\n\nA shaped matrix keeps more of the fine texture that flat quantisation rounds away, which is why enabling matrices is a common recommendation for grainy and detailed sources.\n\nIt does nothing unless enable-qm is set to 1, and it must not exceed qm-max.",
+    "8|The default.\n5|Allows more aggressive shaping, retaining more fine texture.\n0|The flattest-shaped extreme of the range.\n10|A narrow, conservative range near the top."
+  ],
+  [
+    "qm-max",
+    "",
+    "0-15 (default 15) - Highest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "The upper end of the quantisation matrix range the encoder may select from. Level 15 is effectively unshaped, treating all frequencies alike, so leaving the maximum here lets the encoder fall back to ordinary flat quantisation when shaping would not help.\n\nLowering it forces shaping to be applied even where the encoder would rather not, which retains texture more consistently and costs efficiency.\n\nLike qm-min it requires enable-qm 1, and it must not fall below qm-min.",
+    "15|The default; the encoder may use an unshaped matrix.\n12|Forces at least mild shaping throughout.\n10|Consistent shaping, at a cost in efficiency."
+  ],
+  [
+    "sharpness",
+    "",
+    "0-7 (default 0) - Biases transform coefficient decisions towards sharpness at a cost in measured error",
+    "Tuning & Quantization",
+    "Biases the rate-distortion decisions made about transform coefficients towards keeping the ones that carry sharpness, rather than dropping them because they are expensive relative to the error they remove.\n\nHigher values retain more fine detail and edge definition, and cost both bitrate and measured quality, since the encoder is deliberately choosing something a plain error metric scores lower.\n\nIt is a milder tool than the psychovisual settings in x264 and x265, and it is worth a try on detailed sources that come out looking soft.",
+    "0|The default; no bias.\n2|A mild sharpness bias for detailed live action.\n4|Noticeably sharper, at a real bitrate cost.\n7|The maximum."
+  ],
+  [
+    "deltaq-mode",
+    "",
+    "0-4 (default 1) - Varies the quantiser within a frame; 3 and 4 target visual rather than metric quality",
+    "Tuning & Quantization",
+    "Allows the quantiser to vary across a frame rather than staying fixed, so bits can follow what matters within the picture. Mode 1 optimises for an objective metric, mode 3 targets keyframe visual quality, and mode 4 uses a user-rating-derived visual model.\n\nThe objective default improves measured scores. The visual modes deliberately spend bits where people look rather than where error is largest, which is usually the better choice for material anyone will actually watch.\n\nIt depends on the temporal dependency model being enabled, which it is by default outside realtime mode.",
+    "1|The default; objective optimisation.\n0|Off; a fixed quantiser across the frame.\n3|Targets keyframe visual quality.\n4|Visual quality from a user-rating model."
+  ],
+  [
     "enable-cdef",
     "",
     "0-3 (default 1) - CDEF deringing filter: 0 off, 1 on, 2 skip non-ref frames, 3 by qindex; off preserves fine grain",
@@ -64,6 +104,14 @@
     "1|The default; filtered keyframes.\n0|Unfiltered keyframes, for grain retention.\n2|Filtering with a correcting overlay frame."
   ],
   [
+    "enable-restoration",
+    "",
+    "0-1 (default 1 outside realtime) - The loop restoration filter, which repairs coding artefacts after deblocking",
+    "Filtering",
+    "Loop restoration is a filter that runs after deblocking and CDEF, fitting a correction to each region to bring the reconstructed picture back towards the source. It repairs ringing and general coding error that the earlier filters leave behind.\n\nIt is on by default for non-realtime encoding and is generally worth keeping, because the repaired frame is what later frames predict from, so the benefit compounds.\n\nGrain-preserving setups sometimes disable it, since like CDEF it cannot distinguish fine noise from the artefacts it is removing.",
+    "1|The default outside realtime; leave it on for normal encoding.\n0|Off, for grain retention at high bitrates."
+  ],
+  [
     "lag-in-frames",
     "",
     "0-48 (default 35) - Lookahead for alt-ref placement and bitrate allocation; lower cuts memory use and latency",
@@ -86,5 +134,37 @@
     "Frames & Motion",
     "Allows forward keyframes, which are keyframes that can still be predicted from across, letting the encoder place a keyframe without fully resetting prediction at that point. Ordinary keyframes break the prediction chain entirely, which costs bits every time one appears.\n\nEnabling this lets the encoder insert them more freely where a scene change makes one useful, without paying the full cost.\n\nIt changes the stream's random-access structure, so it is not appropriate where every keyframe must be a clean seek point.",
     "0|The default; conventional keyframes only.\n1|Allows forward keyframes, cheaper at scene changes."
+  ],
+  [
+    "min-q",
+    "",
+    "0-63 (default 0) - The best quantiser allowed; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, capping how many bits any one frame may be given. Lower quantisers mean higher quality, so this bounds how good the encode may get.\n\nRaising it stops easy scenes being encoded at a quality nobody would notice, which frees bits for difficult material in a rate-targeted encode and simply shrinks the file in constant quality mode.\n\nIt must not exceed max-q, and in constant quality encoding it does nothing unless the target sits below it.",
+    "0|The default; no floor.\n15|Stops easy scenes spending more than they need.\n20|A firmer cap for bitrate-constrained delivery."
+  ],
+  [
+    "max-q",
+    "",
+    "0-63 (default 63) - The worst quantiser allowed; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality may fall when the rate controller runs short of bits.\n\nLowering it prevents the blocking and smearing difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer meet its bitrate target there and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nIt must not fall below min-q.",
+    "63|The default; no ceiling.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
+  ],
+  [
+    "undershoot-pct",
+    "",
+    "0-100 (default 25) - How far under the target rate a section may run",
+    "Rate Control",
+    "How far below the target bitrate the encoder may let a section fall, as a percentage. It is permission to spend less than the target where the content does not need it.\n\nRaising it lets easy passages come in well under target, which suits varied material where some scenes genuinely need very little. Lowering it forces the encoder to keep pace with the target even when there is nothing worth spending on, which mostly wastes bits.\n\nValues above 100 are rejected.",
+    "25|The default.\n50|Lets easy scenes save considerably more.\n100|Maximum freedom to undershoot.\n0|Holds the rate at target regardless of content."
+  ],
+  [
+    "overshoot-pct",
+    "",
+    "0-100 (default 25) - How far over the target rate a section may run",
+    "Rate Control",
+    "How far above the target bitrate the encoder may let a section run, as a percentage. It is the permission a difficult scene needs in order to spend beyond its share rather than degrade.\n\nRaising it protects hard scenes at the cost of a less predictable size and a higher peak rate, which matters when the result has to fit a buffer or a delivery constraint. Lowering it holds the rate down and lets quality drop exactly where bits are most needed.\n\nValues above 100 are rejected.",
+    "25|The default.\n50|Gives difficult scenes more room to spend.\n0|Holds hard to the target, at a visible cost on hard scenes.\n100|Maximum freedom to overshoot."
   ]
 ]

@@ -120,6 +120,54 @@
     "0|The default; the preset decides, which means full 10-bit through preset 5.\n1|Full 10-bit mode decision, the useful setting on fast 10-bit presets.\n2|Hybrid 8/10-bit, recovering part of the gain for less of the slowdown."
   ],
   [
+    "enable-qm",
+    "",
+    "0-1 (default 1) - Quantisation matrices, which the qm-min, qm-max and chroma-qm settings all depend on",
+    "Quantization & Bit Allocation",
+    "Enables quantisation matrices, which weight quantisation by frequency instead of applying one step size across the whole transform block. That lets fine texture and grain be preserved or discarded independently of the underlying structure.\n\nThis is the switch the whole matrix family hangs off: qm-min, qm-max, chroma-qm-min and chroma-qm-max all have no effect while it is 0.\n\nIt is on by default in this build, so those settings work out of the box; turning it off reverts to uniform quantisation.",
+    "1|The default in this build; matrices enabled.\n0|Uniform quantisation, disabling the qm-min, qm-max and chroma-qm settings."
+  ],
+  [
+    "qm-min",
+    "",
+    "0-15 (default 6) - Lowest luma quantisation matrix flatness; needs enable-qm 1",
+    "Quantization & Bit Allocation",
+    "The lowest matrix flatness the encoder may select for luma, where lower numbers mean a more aggressively shaped matrix that treats high frequencies very differently from low ones.\n\nAllowing a lower floor lets the encoder shape quantisation harder where that helps, keeping fine texture that flat quantisation would round away. It is the luma counterpart to chroma-qm-min, and it is the more impactful of the two, since luma carries most of the detail.\n\nIt requires enable-qm 1 and must not exceed qm-max.",
+    "6|The default in this build.\n8|A narrower, more conservative range.\n2|Allows aggressive shaping, retaining more fine texture.\n0|The most aggressive shaping available."
+  ],
+  [
+    "qm-max",
+    "",
+    "0-15 (default 10) - Highest luma quantisation matrix flatness; needs enable-qm 1",
+    "Quantization & Bit Allocation",
+    "The upper end of the luma matrix range. Level 15 is effectively unshaped, so a high maximum lets the encoder fall back to ordinary flat quantisation wherever shaping would not help.\n\nLowering it forces shaping to be applied more consistently, which holds onto texture across the whole encode at some cost in efficiency.\n\nIt requires enable-qm 1 and must not fall below qm-min.",
+    "10|The default in this build.\n15|Allows a fully unshaped matrix, as mainline defaults to.\n8|Forces consistent shaping, at a cost in efficiency."
+  ],
+  [
+    "min-qp",
+    "",
+    "0-63 (default 0) - The best quantiser allowed; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, capping how many bits any one frame may receive. Lower quantisers mean higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes being encoded at a quality nobody would notice, which shrinks the file without touching the material that actually needs bits.\n\nIt must not exceed max-qp, and in constant quality encoding it only bites when the target sits below it.",
+    "0|The default; no floor.\n15|Stops easy scenes spending more than they need.\n20|A firmer cap for constrained delivery."
+  ],
+  [
+    "max-qp",
+    "",
+    "0-63 (default 63) - The worst quantiser allowed; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality may fall when the encoder runs short of bits.\n\nLowering it prevents the smearing and blocking difficult scenes show at constrained bitrates, at the cost of the encoder no longer being able to meet a bitrate target there - a quality floor and a size target cannot both be guaranteed.\n\nIt must not fall below min-qp.",
+    "63|The default; no ceiling.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
+  ],
+  [
+    "startup-qp-offset",
+    "",
+    "-63 to 63 (default 0) - Shifts the quantiser for the opening GOP, before the usual per-picture derivation",
+    "Rate Control",
+    "Adds an offset to the sequence quantiser for the start-up group of pictures, before the per-picture quantiser is worked out. It exists because the opening of a sequence has no history behind it, so the encoder's estimates there are at their least informed.\n\nA negative offset spends extra bits at the start, which gives everything predicting from those first frames a cleaner foundation and avoids the softness some encodes show for the first second.\n\nThat matters more than usual when a video is cut into chunks, since every chunk has its own start-up.",
+    "0|The default; no offset.\n-4|Extra quality at the opening, for a cleaner foundation.\n-8|A strong start-up boost.\n4|Fewer bits at the start, if the opening is unimportant."
+  ],
+  [
     "enable-dlf",
     "",
     "0-2 (default 1) - Deblocking loop filter; 2 is a slower, more accurate variant, 0 leaves block edges in place",
@@ -166,6 +214,22 @@
     "Filtering",
     "Scales the strength CDEF applies. CDEF is the directional filter that removes ringing along edges by filtering along the edge direction rather than across it; the scale here multiplies how hard it works, with 15 meaning normal strength.\n\nLower values filter less, keeping grain and fine texture that CDEF would otherwise take with the ringing, and leaving more ringing behind. Higher values smooth harder, which helps at low bitrates where ringing is the dominant artefact.\n\nDropping it is a gentler alternative to turning CDEF off outright.",
     "15|The default, meaning normal CDEF strength.\n8|Roughly half strength, keeping more grain and texture.\n1|The minimum; almost no CDEF, for high-bitrate grain retention.\n30|Double strength, for low bitrates where ringing dominates."
+  ],
+  [
+    "enable-cdef",
+    "",
+    "0-1 (default 1) - The constrained directional enhancement filter, which removes ringing along edges",
+    "Filtering",
+    "CDEF is an in-loop filter that removes ringing by filtering along the direction of an edge rather than across it, so it cleans up the halo around high-contrast detail without smearing the edge itself.\n\nLeaving it on is right for normal encoding: the filtered frame is what later frames predict from, so ringing left in place propagates.\n\nGrain-preserving setups sometimes turn it off because it takes fine noise along with the ringing, but that only makes sense at bitrates high enough that there is little ringing to remove. cdef-scaling is the gentler alternative.",
+    "1|The default; leave it on for normal encoding.\n0|Off, for grain retention at high bitrates."
+  ],
+  [
+    "enable-restoration",
+    "",
+    "0-1 (default 1) - The loop restoration filter, which repairs coding error after deblocking and CDEF",
+    "Filtering",
+    "Loop restoration runs after deblocking and CDEF, fitting a correction per region to bring the reconstruction back towards the source. It repairs the general coding error the earlier filters leave behind.\n\nIt is on by default and worth keeping for normal encoding, since the repaired frame is what everything afterwards predicts from.\n\nLike CDEF it cannot distinguish fine noise from artefacts, so grain-preserving setups sometimes disable it - and noise-adaptive-filtering exists precisely to back it off on noisy sources without turning it off outright.",
+    "1|The default; leave it on for normal encoding.\n0|Off, for maximum grain retention at high bitrates."
   ],
   [
     "noise",
@@ -222,6 +286,38 @@
     "Film Grain & Noise",
     "Applies a pre-generated film grain table instead of having the encoder analyse the source and derive grain parameters itself. The file describes the grain to synthesise, and can vary it over the course of the video rather than applying one description throughout.\n\nTables are produced by tools such as grav1synth, which analyses a source and writes out what it measured. That is the way to match the grain of a specific scan precisely, and to keep it consistent across an encode split into several parts.\n\nThe table replaces the noise settings rather than adding to them.",
     "/path/to/grain.tbl|A table generated from the source by grav1synth.\nC:\\\\encodes\\\\film_grain.tbl|A Windows path; quote it if it contains spaces.\n/mnt/media/scan_grain.tbl|A table shared across parts of a split encode, for consistent grain."
+  ],
+  [
+    "scm",
+    "",
+    "0-3 (default 2) - Screen content detection level, enabling palette and intra block copy for synthetic material",
+    "Encoding Tools",
+    "Controls the screen content coding tools - palette mode and intra block copy - which code large flat colour areas and repeated on-screen elements far more cheaply than ordinary prediction. The difference on a desktop capture, a slide deck or a game UI is large.\n\nThe default detects screen content and enables the tools when it finds it, which is usually right. Forcing them on helps when detection misses obviously synthetic material; forcing them off saves the analysis on footage that is plainly camera-shot.",
+    "2|The default; detect screen content and enable the tools when found.\n1|Force the tools on, for material detection is missing.\n0|Force them off, for ordinary camera footage."
+  ],
+  [
+    "fast-decode",
+    "",
+    "0-2 (default 0) - Avoids the tools that are most expensive to decode, for playback on weak hardware",
+    "Encoding Tools",
+    "Steers the encoder away from the coding tools that cost a decoder the most, producing a stream that plays back on hardware which would otherwise stutter. AV1 software decoding is demanding, and this is the setting that makes the difference on older machines.\n\nThe cost is compression: the tools being avoided are there because they help, so the same quality takes more bits.\n\nOnly worth setting when you know the target struggles, since it gives up efficiency for a benefit nothing else will show.",
+    "0|The default; no decoder-cost restrictions.\n1|A moderate reduction in decoding cost.\n2|The strongest reduction, at a real compression cost."
+  ],
+  [
+    "enable-overlays",
+    "",
+    "0-1 (default 0) - Inserts overlay pictures as extra references for base-layer frames",
+    "Encoding Tools",
+    "Allows the encoder to insert overlay pictures, which act as additional reference frames for base layer pictures. They give the prediction stage another, better-matched frame to work from at the points where the reference structure is weakest.\n\nThe gain is a modest compression improvement on content with steady motion, and the cost is encoding time and a slightly more complex reference structure.\n\nIt is off by default and is one of the cheaper quality options to try on an offline encode.",
+    "0|The default; off.\n1|Enables overlay pictures, a small gain on steady motion."
+  ],
+  [
+    "lookahead",
+    "",
+    "-1 for automatic, or 0-120 (default -1) - Frames looked ahead beyond the minigop, filtering and rate control",
+    "Encoding Tools",
+    "How far ahead the encoder looks beyond what the mini-GOP structure, temporal filtering and rate control already require. Lookahead is what lets it place references well and distribute bits across a scene rather than reacting frame by frame.\n\nLeft at -1 the encoder picks a depth from the other settings, which is a sensible choice in most cases. Setting it explicitly is a way to buy better bit distribution at the cost of memory and latency, or to cut both for low-delay use.\n\nBeyond the length of a typical shot there is nothing further to learn.",
+    "-1|The default; the encoder chooses a depth.\n120|The maximum; the most information for rate control.\n60|A generous fixed depth for offline encoding.\n0|No additional lookahead, for low delay."
   ],
   [
     "dolby-vision-rpu",

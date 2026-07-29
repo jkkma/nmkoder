@@ -40,6 +40,14 @@
     "0|The default; off.\n1|Enables periodic frame boosts, useful on calm content."
   ],
   [
+    "noise-sensitivity",
+    "",
+    "0-6 (default 0, off) - Temporal denoising before encoding, given as the number of frames blurred together",
+    "Tuning & Quality",
+    "Applies a temporal denoiser ahead of encoding, blending across the number of frames given. Noise is close to random and therefore very expensive to code, so removing it before the encoder sees it can save a great deal of bitrate on a noisy source.\n\nThe filter cannot tell sensor noise from fine texture or slight motion, so it removes both, and blending across more frames risks ghosting where anything moves.\n\nOnly worth using on genuinely noisy footage such as low-light video. For film grain you want to keep, leave it off.",
+    "0|The default; no denoising.\n1|The lightest setting, blending a single frame.\n3|Moderate denoising for noisy low-light footage.\n6|The maximum; strong, with a real risk of ghosting."
+  ],
+  [
     "auto-alt-ref",
     "",
     "0-6 (default 1) - Alt reference frames; 2 and above enables multi-layer ARF, usually a quality gain",
@@ -142,5 +150,29 @@
     "Quantization & Rate Control",
     "How far above the target rate the encoder is allowed to run over a section, as a percentage. It is the permission a difficult scene needs to spend beyond its share rather than degrade.\n\nRaising it protects hard scenes at the cost of a less predictable size and a higher peak rate, which matters if the result has to fit a buffer or a delivery constraint.\n\nLowering it holds the rate down and lets quality drop on the material that most needs bits.",
     "25|The default.\n50|Gives difficult scenes more room to spend.\n0|Holds hard to the target, at a visible cost on hard scenes.\n100|Maximum freedom to overshoot."
+  ],
+  [
+    "bias-pct",
+    "",
+    "0-100 (default 50) - Where rate control sits between constant bitrate at 0 and full variable bitrate at 100",
+    "Quantization & Rate Control",
+    "Positions the rate controller between constant and variable bitrate behaviour. At 0 it holds the rate steady regardless of what the content needs, which is what a fixed-bandwidth channel requires. At 100 it lets the rate follow the difficulty of the material freely.\n\nHigher values give hard scenes the bits they need and let easy ones come in small, which is what you want for a file. Lower values keep the rate predictable, which is what you want for a live stream.\n\nIt applies to rate-targeted encoding rather than constant quality.",
+    "50|The default; a balance between the two.\n100|Full variable bitrate; quality-led, size follows content.\n0|Constant bitrate behaviour, for fixed-bandwidth delivery.\n75|Leans towards variable while keeping some restraint."
+  ],
+  [
+    "minsection-pct",
+    "",
+    "0-100 (default 0) - Floor on what a GOP may spend, as a percentage of the target rate",
+    "Quantization & Rate Control",
+    "Sets the least a group of pictures may be given, expressed as a percentage of the target bitrate. It stops the rate controller starving a stretch of video that it judges easy.\n\nRaising it guarantees a minimum spend everywhere, which helps when the controller is being too pessimistic about apparently simple content - flat animation and slow scenes are often judged easier than they look.\n\nIt works with maxsection-pct to bracket how far the rate may swing between sections.",
+    "0|The default; no floor.\n40|Guarantees each section a reasonable minimum spend.\n60|A tight floor, keeping the rate more even."
+  ],
+  [
+    "maxsection-pct",
+    "",
+    "Percentage of target, 0 for unlimited (default 2000) - Ceiling on what a GOP may spend",
+    "Quantization & Rate Control",
+    "Sets the most a group of pictures may be given, as a percentage of the target bitrate. It caps how far a difficult stretch may run above its share.\n\nLowering it holds the peak rate down, which matters for streaming and for hardware with a fixed input rate, at the cost of quality on exactly the scenes that most need bits. Raising it lets hard scenes spend freely and makes the local bitrate less predictable.\n\nIt works with minsection-pct to bracket the swing between sections.",
+    "2000|The default; a generous ceiling.\n400|A firm cap, keeping the peak rate down for streaming.\n800|A moderate cap.\n0|Unlimited."
   ]
 ]
