@@ -169,9 +169,14 @@ namespace Nmkoder.UI.Tasks
                             return;
                         }
 
-                        // Added in av1an 0.5.0. An older binary refuses the entire command over the
-                        // unknown flag, so this cannot simply be passed and left to be ignored.
-                        if (!await AvProcess.Av1anSupportsFlag("--target-metric"))
+                        // Added in av1an 0.5.0. An older binary refuses the entire command over
+                        // the unknown flag, so a help text that lacks it is worth stopping on.
+                        // A help text that could not be read at all is not: stopping on that
+                        // grounded up-to-date binaries whose first launch was still being
+                        // virus-scanned, over a flag they knew. When nothing is known the flag
+                        // is passed, and an av1an that really is too old refuses it at startup,
+                        // before any encoding work has happened.
+                        if (await AvProcess.Av1anHelpKnown() && !await AvProcess.Av1anSupportsFlag("--target-metric"))
                         {
                             RunTask.Cancel($"This av1an has no --target-metric option (added in av1an 0.5.0), " +
                                 $"so it cannot target {metric}.\n\nUpdate av1an, or pick a different quality mode.");
