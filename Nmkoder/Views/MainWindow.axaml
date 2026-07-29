@@ -283,7 +283,13 @@
               <!-- The argument list is the long one, so it takes every row the tab can spare and
                    the filters below size to their own content. -->
               <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="4">
-                <TextBlock Grid.Row="0" Classes="h" Text="Encoder Arguments" Margin="0,0,0,4" />
+                <!-- The right-click window is the only place the long explanations live, and nothing
+                     else on screen would say so, so the heading carries the hint. -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                  <TextBlock Grid.Column="0" Classes="h" Text="Encoder Arguments" VerticalAlignment="Center" Margin="0" />
+                  <TextBlock Grid.Column="1" Classes="hint" Margin="12,0,0,0"
+                             Text="Right-click an argument for a full explanation and example values." />
+                </Grid>
                 <!-- One tab per argument category. The tabs and their grids are built in code
                      (LoadAv1anArgCategoryTabs) because every encoder has its own categories. -->
                 <TabControl Grid.Row="1" x:Name="Av1anArgCategoryTabs" />
