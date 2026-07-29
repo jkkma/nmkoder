@@ -175,6 +175,26 @@ namespace Nmkoder.Views
             grid.Columns.Add(new DataGridTextColumn { Header = "Value", Binding = new Binding(nameof(EncoderArgRow.Value)), Width = new DataGridLength(110) });
             grid.Columns.Add(new DataGridTextColumn { Header = "Description, Possible Values", Binding = new Binding(nameof(EncoderArgRow.Description)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             grid.CellEditEnded += Av1anAdvancedArg_CellEditEnded;
+
+            // The description is one clipped line, and narrowing the window clips it further, so the
+            // row carries the whole of it as a tooltip - the ranges and defaults are the point of it.
+            grid.LoadingRow += (s, e) =>
+            {
+                if (e.Row.DataContext is EncoderArgRow row)
+                    ToolTip.SetTip(e.Row, $"--{row.Argument}\n{row.Description}\n\nRight-click for details and examples.");
+            };
+
+            // Right-clicking a row opens its long-form help. Handled on the grid rather than on each
+            // row: rows are recycled as the list scrolls, so per-row subscriptions would stack up.
+            // The cells inherit the row's DataContext, so whatever was clicked names the argument.
+            grid.ContextRequested += async (s, e) =>
+            {
+                e.Handled = true;
+
+                if (e.Source is Control control && control.DataContext is EncoderArgRow row)
+                    await EncoderArgInfoWindow.Show(row);
+            };
+
             return grid;
         }
 

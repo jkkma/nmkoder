@@ -1,22 +1,274 @@
 [
-  ["tune", "", "psnr, ssim, grain, zero-latency, fast-decode or animation - Tune for a type of source", "Tuning & Profile"],
-  ["profile", "", "main, main10, main444-10 and so on - Force compliance with a profile", "Tuning & Profile"],
-  ["level-idc", "", "Decoder level to comply with, e.g. 4.1; also turns on VBV in CRF mode", "Tuning & Profile"],
-  ["deblock", "", "tC:Beta offsets, each -6 to 6 (default 0:0) - Deblocking filter strength", "Tuning & Profile"],
-
-  ["bframes", "", "0-16 (default 4) - Longest run of consecutive B-frames", "Frames & Motion"],
-  ["ref", "", "1-16 (default 3) - Reference frames the motion search may use", "Frames & Motion"],
-  ["rc-lookahead", "", "0-250 (default 20) - Frames looked ahead when deciding slice types", "Frames & Motion"],
-  ["subme", "", "0-7 (default 2) - Subpixel refinement passes in the motion search", "Frames & Motion"],
-  ["merange", "", "0-32768 (default 57) - Motion search range in pixels", "Frames & Motion"],
-
-  ["aq-mode", "", "0-4 (default 2) - Adaptive quantisation: 0 off, 2 auto-variance, 3 dark-scene bias, 4 edge aware", "Quantization & Psychovisual"],
-  ["aq-strength", "", "0.0-3.0 (default 1.0) - How strongly adaptive quantisation shifts QP", "Quantization & Psychovisual"],
-  ["psy-rd", "", "0.0-5.0 (default 2.0) - Preserves the source's energy in the reconstruction", "Quantization & Psychovisual"],
-  ["psy-rdoq", "", "0.0-50.0 (default 0.0, 1.0 on slow presets) - Favours higher energy through quantisation", "Quantization & Psychovisual"],
-  ["rd", "", "1-6 (default 3) - Rate-distortion optimisation level; higher looks harder", "Quantization & Psychovisual"],
-  ["qcomp", "", "0.5-1.0 (default 0.6) - Quantiser curve compression; 1.0 behaves like constant QP", "Quantization & Psychovisual"],
-
-  ["master-display", "", "SMPTE ST 2086 mastering display volume for HDR, as G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min)", "HDR Metadata"],
-  ["max-cll", "", "MaxCLL,MaxFALL - Content and frame-average light levels for HDR", "HDR Metadata"]
+  [
+    "tune",
+    "",
+    "psnr, ssim, grain, zero-latency, fast-decode, animation (default none) - grain keeps film noise, animation cel art",
+    "Tuning & Profile",
+    "Tune adjusts the preset's settings towards a kind of source or a delivery constraint. grain raises the psy settings and loosens deblocking and adaptive quantisation so film noise survives rather than being smoothed into patches. animation goes the other way, suiting flat cel artwork with strong AQ and more B-frames.\n\nfast-decode removes tools that cost the decoder, for weak playback hardware. zero-latency disables lookahead and frame reordering for live use.\n\npsnr and ssim disable the psychovisual optimisations, which raises those scores and makes the picture look worse. They are benchmarking aids, not delivery settings.",
+    "grain|Grainy film scans; the most commonly used tune in x265.\nanimation|Cel animation and flat 2D artwork.\nzero-latency|Live streaming, at a compression cost.\nfast-decode|Playback on weak hardware.\nssim|Metric benchmarking only; visibly softer output."
+  ],
+  [
+    "profile",
+    "",
+    "main, main10, main444-10, main12, the -intra variants and more - Caps tools so a target decoder accepts the stream",
+    "Tuning & Profile",
+    "Restricts the encoder to the coding tools and bit depths a given HEVC profile permits, so a decoder implementing only that profile can play the result. main is 8-bit 4:2:0, main10 is 10-bit 4:2:0, and the 444 and 12-bit variants cover higher chroma and precision.\n\nmain10 is worth knowing about: 10-bit encoding reduces banding and usually compresses slightly better even from an 8-bit source, and unlike H.264 it is widely supported by hardware.\n\nThe -intra variants code every frame as a keyframe, for editing and mastering rather than delivery.",
+    "main|8-bit 4:2:0; the broadest hardware compatibility.\nmain10|10-bit 4:2:0; better gradients and widely supported.\nmain444-10|10-bit 4:4:4 for mastering or screen content.\nmain-intra|All-intra output for editing workflows."
+  ],
+  [
+    "level-idc",
+    "",
+    "0 for auto or a level like 4.1 or 51 (default 0) - Constrains the stream for hardware, forces VBV in CRF",
+    "Tuning & Profile",
+    "The HEVC level written into the stream, bounding resolution, frame rate, bitrate and buffering so a decoder can tell in advance whether it can cope. Written either as a level number like 4.1 or as the integer form, 41.\n\nLeave it at 0 and x265 works out a level from the encode. Set it when a specific hardware target demands one.\n\nSetting it has a side effect worth knowing: it enables VBV in CRF mode, applying that level's rate and buffer limits. That constrains the bitrate on difficult scenes in a way plain CRF does not, so the file will no longer be constant quality.",
+    "0|The default; x265 derives the level from the encode.\n4.1|A common hardware ceiling for 1080p.\n5.1|4K delivery to modern decoders.\n5.0|4K30 within tighter limits than 5.1."
+  ],
+  [
+    "deblock",
+    "",
+    "tC:Beta offsets, each -6 to 6 (default 0:0) - Deblocking strength; raise to hide blocking, lower to keep detail",
+    "Tuning & Profile",
+    "Offsets for the in-loop deblocking filter, which smooths coded block edges before the frame is reused as a reference. The first number shifts the filter's strength, the second the threshold for treating an edge as worth filtering.\n\nNegative values filter less, so grain and fine detail survive the loop rather than being averaged away, at the cost of visible block edges when the bitrate is short. Positive values smooth harder, which hides blocking at low rates and costs texture.\n\ntune grain already loosens these, so an explicit setting replaces its choice.",
+    "0:0|The default, neutral filtering.\n-1:-1|A mild sharpening for detailed live action.\n-3:-3|Strong grain retention; needs bitrate behind it.\n1:1|More smoothing, for low bitrate encodes that block."
+  ],
+  [
+    "selective-sao",
+    "",
+    "0-4 (default 0) - Limits which slice types the sample adaptive offset filter runs on",
+    "Tuning & Profile",
+    "The sample adaptive offset filter corrects reconstructed samples against the source, cleaning up ringing and banding. It is effective at low bitrates and notorious for smoothing fine texture and grain at high ones.\n\nThis limits which slice types it runs on rather than turning it off wholesale: the levels progressively enable it for more slice types, so you can keep it where it helps most and leave the rest untouched.\n\nIt is the middle ground between leaving the filter on everywhere and disabling it, which grain-preserving setups often do.",
+    "0|The default; the filter follows the preset's own setting.\n1|Enabled for I-slices only, where ringing is most visible.\n2|I and P slices.\n4|All slice types."
+  ],
+  [
+    "bframes",
+    "",
+    "0-16 (default 4) - Longest run of consecutive B-frames; raise for static scenes, 0 for low-latency output",
+    "Frames & Motion",
+    "The longest run of consecutive B-frames allowed. B-frames predict from both directions and are much cheaper to code than P-frames, so longer runs let static material spend its bits on the parts of the sequence that actually change.\n\nStatic scenes and animation gain the most. On busy live action the returns fall away past five or six, and no source gains much beyond eight.\n\nEach B-frame adds reordering delay, so live and low-latency encoding sets this to 0 and accepts the efficiency loss.",
+    "4|The default, a sound balance.\n8|Animation and static footage, where long runs pay.\n0|Low-latency streaming; P and I frames only.\n16|The maximum; realistically no better than 8."
+  ],
+  [
+    "ref",
+    "",
+    "1-16 (default 3) - L0 reference frames the search may use; more helps repetitive motion, over 6 breaks conformance",
+    "Frames & Motion",
+    "How many L0 reference frames the motion search may predict from. More references help when content recurs - repetitive motion, cuts returning to an earlier shot, animation reusing artwork - because the encoder can point at a frame that genuinely matches.\n\nEncoding time grows with each one and the gains fall off quickly on ordinary live action.\n\nCompatibility is the real limit: HEVC levels bound the decoded picture buffer, and going past about six produces a stream many hardware decoders will refuse even though x265 encodes it happily.",
+    "3|The default, fine for general content.\n5|Detailed or repetitive material, encoded offline.\n1|Fastest, and the safest for constrained decoders.\n6|About as high as is worth going before conformance suffers."
+  ],
+  [
+    "rc-lookahead",
+    "",
+    "Above bframes, up to 250 (default 20) - Frames looked ahead for slice types; longer sharpens scenecuts and cutree",
+    "Frames & Motion",
+    "How many frames the encoder examines before fixing slice types and quantisers. The lookahead drives slice type decisions, scenecut detection and cutree, which spends bits on blocks that later frames will keep referring to.\n\nA longer lookahead paces bits better across a scene and sharpens cuts, because the encoder can see a scene change coming rather than reacting after it. It costs memory and latency.\n\nIt must be larger than bframes to be useful, and past the length of a typical shot there is nothing further to learn.",
+    "20|The default.\n40|Offline encoding, giving cutree more to work with.\n60|Long takes and slow scenes.\n10|Lower latency, at some rate control quality."
+  ],
+  [
+    "subme",
+    "",
+    "0-7 (default 2) - Subpixel refinement passes in the motion search; higher costs speed but helps fine or fast motion",
+    "Frames & Motion",
+    "How hard the encoder refines motion vectors below whole-pixel precision, and how many candidates it tests while doing so. Higher values run more refinement passes and evaluate more positions.\n\nThe gain shows up on fine detail and fast motion, where a vector that is half a pixel out leaves a visible residual that has to be coded. On flat or slow content the extra passes find little.\n\nIt is one of the main speed dials the presets move, and the cost is roughly linear in the value.",
+    "2|The default, matching the medium preset.\n4|Slower presets; a good offline compromise.\n7|The maximum, for the last of the quality at a steep price.\n0|Fastest, for real-time encoding."
+  ],
+  [
+    "merange",
+    "",
+    "0-32767 (default 57) - Motion search range in pixels; raise past 57 only for fast pans at high resolution",
+    "Frames & Motion",
+    "The radius in pixels of the motion search. It bounds how far from the predicted position the encoder will look for a match, so it decides whether fast motion is found or coded expensively as intra blocks.\n\nThe default is generous for 1080p. Raising it helps whip pans, sports and high resolution material where genuine displacement between frames is large; on ordinary content the extra range goes unused and only costs time.\n\nValues are capped below 32768, and search cost grows quickly, so large ranges are rarely worth it.",
+    "57|The default, ample for typical motion at 1080p.\n92|Fast pans and sports at 4K.\n32|Faster, adequate for slow or low resolution content.\n16|Real-time encoding where search cost dominates."
+  ],
+  [
+    "me",
+    "",
+    "dia, hex, umh, star, sea or full (default hex) - Motion search pattern; umh and above find large motion",
+    "Frames & Motion",
+    "The pattern the encoder follows when searching for a matching block in a reference frame. dia checks a small diamond, hex a hexagon, umh an uneven multi-hexagon that is far better at finding large or unusual motion, and star a different wide pattern. sea and full search exhaustively.\n\nhex is fine for ordinary content. umh is the upgrade that matters, and it matters most at high resolution and on fast motion, where the correct vector can sit a long way from the prediction.\n\nsea and full cost enormously and rarely beat umh by a visible margin.",
+    "hex|The default; a good speed to quality balance.\numh|Fast motion or high resolution; the worthwhile upgrade.\nstar|A wide search, between umh and exhaustive in cost.\ndia|Fastest, for real-time encoding."
+  ],
+  [
+    "max-merge",
+    "",
+    "1-5 (default 2) - How many merge candidates a block may consider before coding its own motion vector",
+    "Frames & Motion",
+    "HEVC lets a block inherit motion from a neighbour instead of coding its own vector, which is very cheap. This sets how many candidate neighbours the encoder evaluates before giving up and coding a vector.\n\nMore candidates means more chances to find an inheritable match, so fewer vectors need coding. The cost is analysis time roughly proportional to the number tested.\n\nRaising it helps most where motion is coherent across large areas - pans, static scenes with a moving subject - and the slower presets already do so.",
+    "2|The default.\n3|A modest step up, used by the slower presets.\n5|The maximum; the most thorough merge analysis.\n1|Fastest; nearly every block codes its own vector."
+  ],
+  [
+    "limit-refs",
+    "",
+    "0-3 (default 3) - How aggressively the encoder prunes which references it fully searches",
+    "Frames & Motion",
+    "Reference frames cost search time roughly in proportion to how many are checked for every block. This lets the encoder skip references that analysis of the parent block suggests are not worth checking.\n\nMode 1 prunes using the results at the previous depth, mode 2 using the current block's own analysis, and mode 3 uses both. Higher values are faster and risk missing a reference that would have matched.\n\nSet it to 0 when you have raised ref and want every reference genuinely searched, since otherwise the extra references may be skipped before they are tried.",
+    "3|The default; both pruning methods, the fastest option.\n0|No pruning; every reference is searched, which is what a high ref count assumes.\n1|Prunes from the previous depth only.\n2|Prunes from the current block's analysis only."
+  ],
+  [
+    "bframe-bias",
+    "",
+    "-90 to 100 (default 0) - Nudges the lookahead towards or away from choosing B-frames",
+    "Frames & Motion",
+    "Biases the decision the lookahead makes about whether a frame should be a B-frame. Positive values make B-frames more likely, negative values less.\n\nB-frames are cheap, so leaning towards them saves bitrate - but on high-motion content a B-frame that should have been a P-frame predicts badly and costs more than it saves. The lookahead usually judges this well.\n\nWorth nudging positive on static or animated content where you can see B-frames are being underused, and negative on fast motion where quality dips between P-frames.",
+    "0|The default; the lookahead decides unaided.\n20|Leans towards B-frames; suits static or animated content.\n-20|Leans away from them, for high-motion footage.\n50|A strong bias; expect the maximum B-frame run most of the time."
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-4 (default 2) - Adaptive quantisation: 0 off, 1 plain, 2 auto-variance, 3 dark-scene bias, 4 edge aware",
+    "Quantization & Psychovisual",
+    "Adaptive quantisation redistributes bits within a frame, taking them from busy areas where quantisation error is masked and giving them to flat ones where banding and blocking show. Dark and smooth regions are where an HEVC encode visibly breaks down first, and this is the main defence.\n\nMode 1 distributes by block variance. Mode 2 adapts the strength using the frame's own content. Mode 3 adds a bias towards dark areas, and mode 4 weights by edge density, which helps keep flat regions next to sharp edges clean.\n\nSwitching it off raises metric scores and looks worse.",
+    "2|The default, auto-variance.\n3|Dark and night scenes prone to banding.\n4|Edge-aware; useful on animation and mixed content.\n0|Off; better numbers, worse picture."
+  ],
+  [
+    "aq-strength",
+    "",
+    "0.0-3.0 (default 1.0) - How strongly adaptive quantisation shifts QP; raise for flat gradients, lower if rates swing",
+    "Quantization & Psychovisual",
+    "How far adaptive quantisation may shift the quantiser between blocks. Higher values move more bits out of detailed areas and into flat ones.\n\nRaise it when gradients, skies and fades show banding. Lower it on grainy or heavily textured sources, where a strong setting spends bits flattening the very noise the psy settings are trying to keep, and where it can make the bitrate swing between shots.\n\ntune grain lowers this, so setting it explicitly replaces that choice.",
+    "1.0|The default, suitable for most content.\n0.5|Grainy film, keeping bits on detail and steadying the rate.\n1.3|Flat, clean sources such as animation that band easily.\n0.0|Disables the redistribution."
+  ],
+  [
+    "psy-rd",
+    "",
+    "0.0-5.0 (default 2.0) - Preserves the source's energy in the reconstruction; needs rd 3 or above, costs PSNR and SSIM",
+    "Quantization & Psychovisual",
+    "Psychovisual rate-distortion biases mode decisions towards preserving the source's energy rather than minimising measurable error, so the encoder stops preferring a smooth block over a detailed one that is slightly wrong. Without it x265 output tends to look plasticky, especially on faces and grain.\n\nIt costs PSNR and SSIM by design - it is choosing what those metrics score lower - which is why the psnr and ssim tunes set it to 0.\n\nIt needs rd 3 or higher to have any effect, since below that the encoder is not doing the rate-distortion analysis this modifies.",
+    "2.0|The default, and a good general setting.\n1.0|Gentler, for clean digital sources.\n4.0|Strong detail retention on grainy film.\n0.0|Off, for metric benchmarking only."
+  ],
+  [
+    "psy-rdoq",
+    "",
+    "0.0-50.0 (default 0.0, 1.0 on slow presets) - Favours higher energy through quantisation; needs rdoq-level 1 or 2",
+    "Quantization & Psychovisual",
+    "The quantisation-stage counterpart to psy-rd. Where psy-rd influences which mode is chosen, this biases which transform coefficients survive quantisation, favouring those that carry the source's high-frequency energy.\n\nIt is the more effective of the two for keeping film grain alive, and correspondingly the more expensive in bitrate. Values well above the default are normal on grain-heavy material.\n\nIt requires rdoq-level 1 or 2, which the faster presets do not enable, so on those it silently does nothing.",
+    "1.0|The slow-preset default; a reasonable starting point.\n2.0|Noticeably stronger grain and texture retention.\n10.0|Aggressive; used in grain-preservation setups at high bitrates.\n0.0|Off, the default on faster presets."
+  ],
+  [
+    "rd",
+    "",
+    "1-6 (default 3) - Rate-distortion optimisation level; higher looks harder and shrinks output, 4 aliases 3",
+    "Quantization & Psychovisual",
+    "How thoroughly the encoder analyses each block before committing to a coding decision. Higher levels test more possibilities with a fuller cost model instead of estimating, which shrinks the output at the same quality.\n\nThe scale is not fully granular: 4 behaves as 3 and 6 behaves as 5, so the meaningful steps are 1, 2, 3 and 5. Level 3 is where full rate-distortion optimisation begins, and it is also the point below which psy-rd stops working.\n\nCost rises sharply at 5, which is why only the slowest presets use it.",
+    "3|The default, and the minimum for psy-rd to function.\n5|Slow presets; the last real quality step.\n2|Faster, for time-constrained encodes.\n1|Fastest, with visibly worse decisions."
+  ],
+  [
+    "qcomp",
+    "",
+    "0.5-1.0 (default 0.6) - Quantiser curve compression; 1.0 behaves like constant QP, raise to favour busy scenes",
+    "Quantization & Psychovisual",
+    "Compresses the curve mapping frame complexity to quantiser, setting how bitrate is shared between easy and hard scenes. At 1.0 every frame gets the same quantiser, which is constant quality and lets size follow content. Lower values push frames towards equal size, giving complex scenes less than they need.\n\nThe default leans towards size predictability. Raising it gives busy scenes more bits and improves how the encode holds up on the hardest material, at the cost of a less predictable file size.\n\ncutree uses this value too, so changes affect more than the scene-to-scene split.",
+    "0.6|The default.\n0.7|A common adjustment for grain and detailed content.\n0.8|Closer to constant quality across a wide difficulty range.\n1.0|Constant quantiser behaviour."
+  ],
+  [
+    "rdoq-level",
+    "",
+    "0-2 (default follows rd; on at rd 4-6) - Rate-distortion optimised quantisation, which psy-rdoq requires",
+    "Quantization & Psychovisual",
+    "Decides how coefficients are quantised. Level 0 rounds each one in isolation. Level 1 optimises which coefficients survive by weighing the bits each costs against what it contributes. Level 2 additionally optimises the coding decisions around them.\n\nThis is the setting psy-rdoq depends on: at level 0 there is no rate-distortion quantisation for it to bias, so psy-rdoq does nothing at all regardless of its value.\n\nx265 enables it implicitly at rd 4 and above, which means on faster presets it is off and psy-rdoq is silently inert. Setting it explicitly is how you get psychovisual quantisation on a quicker preset.",
+    "1|Rate-distortion optimised quantisation; enough for psy-rdoq to work.\n2|Also optimises the surrounding coding decisions; slower.\n0|Off, and psy-rdoq has no effect."
+  ],
+  [
+    "cbqpoffs",
+    "",
+    "-12 to 12 (default 0) - Shifts the Cb chroma quantiser relative to luma; negative spends more bits on blue-yellow",
+    "Quantization & Psychovisual",
+    "Offsets the quantiser used for the Cb chroma plane from the luma quantiser. Negative values quantise it more finely and spend more bits on that colour difference channel; positive values coarsen it.\n\nChroma is already subsampled in 4:2:0, so colour detail is the first thing to break down on saturated material - flat colour areas band, and strong reds and blues smear. A negative offset is the direct remedy.\n\nSet it alongside crqpoffs, since adjusting one channel and not the other shifts the colour balance of the artefacts.",
+    "0|The default.\n-2|Extra bits on chroma; useful for animation and saturated sources.\n-4|A strong chroma bias for colour-critical work.\n2|Coarser chroma, buying luma detail at low bitrates."
+  ],
+  [
+    "crqpoffs",
+    "",
+    "-12 to 12 (default 0) - Shifts the Cr chroma quantiser relative to luma; negative spends more bits on red-green",
+    "Quantization & Psychovisual",
+    "Offsets the quantiser used for the Cr chroma plane from the luma quantiser, the counterpart to cbqpoffs.\n\nRed detail is where 4:2:0 chroma subsampling is most visible, because red carries a lot of the perceived colour energy and very little of the luma. Saturated reds smearing or blocking is the usual symptom, and a negative offset here is what fixes it.\n\nNormally set to the same value as cbqpoffs unless you are correcting a specific channel.",
+    "0|The default.\n-2|Extra bits on red-green detail; pairs with cbqpoffs -2.\n-4|A strong bias, for saturated red-heavy material.\n2|Coarser chroma, buying luma detail at low bitrates."
+  ],
+  [
+    "ctu",
+    "",
+    "64, 32 or 16 (default 64) - The largest coding unit size; smaller helps fine detail at low resolution",
+    "Block Analysis",
+    "The size of the largest block the encoder may code as a unit. HEVC subdivides these down to the minimum size as the content demands, so this sets the top of that tree rather than a fixed block size.\n\nLarge units code flat areas very cheaply, which is why 64 is the default and why HEVC beats H.264 most clearly at high resolution. At low resolutions, or on very detailed content, a 64x64 unit rarely covers anything uniform and the encoder spends its time subdividing.\n\nDropping to 32 speeds up encoding and can help below 720p; it costs efficiency at 1080p and above.",
+    "64|The default; the right choice at 1080p and above.\n32|Faster, and sometimes better below 720p.\n16|Rarely useful; a substantial efficiency loss."
+  ],
+  [
+    "min-cu-size",
+    "",
+    "8, 16 or 32 (default 8) - The smallest coding unit; raising it is a speed measure that costs fine detail",
+    "Block Analysis",
+    "The smallest block the encoder is allowed to subdivide down to. Small units describe fine detail and complex motion accurately; large ones cannot, but are much faster to search.\n\nThe default of 8 lets the encoder go as fine as HEVC allows. Raising it prunes the bottom of the analysis tree, which saves a great deal of time and shows up as softness and blockiness wherever detail is finer than the limit.\n\nThis is a speed setting. There is no quality reason to raise it.",
+    "8|The default; full subdivision.\n16|Noticeably faster, at a visible cost in fine detail.\n32|Fastest, and clearly blocky on detailed content."
+  ],
+  [
+    "tu-intra-depth",
+    "",
+    "1-4 (default 1) - How far transform units may subdivide inside an intra block",
+    "Block Analysis",
+    "Transform units are the blocks the actual frequency transform is applied to, and they subdivide separately from coding units. This sets how many levels of subdivision are allowed inside an intra-predicted block.\n\nDeeper subdivision lets the transform follow detail more closely, so intra blocks - keyframes especially, and any area the encoder cannot predict - hold fine texture better. Each extra level multiplies the analysis work.\n\nRaising it is one of the more effective quality steps on detailed and high-resolution material, and the slower presets already do.",
+    "1|The default.\n2|A worthwhile step on detailed material; used by slower presets.\n3|Deeper analysis, with diminishing returns.\n4|The maximum; very slow."
+  ],
+  [
+    "tu-inter-depth",
+    "",
+    "1-4 (default 1) - How far transform units may subdivide inside an inter block",
+    "Block Analysis",
+    "The same transform subdivision control as tu-intra-depth, applied to inter-predicted blocks - those predicted from other frames, which is most of the picture in most sequences.\n\nDeeper subdivision lets the transform match the shape of the residual left after prediction, which matters where motion is complex and prediction leaves fine, uneven error behind.\n\nBecause inter blocks dominate the frame count, raising this costs more encoding time than the intra equivalent for a similar gain.",
+    "1|The default.\n2|A worthwhile step on complex motion; used by slower presets.\n3|Deeper analysis, with diminishing returns.\n4|The maximum; very slow."
+  ],
+  [
+    "rdpenalty",
+    "",
+    "0-2 (default 0) - Discourages 32x32 intra transform units, which can look blocky",
+    "Block Analysis",
+    "Applies a cost penalty to 32x32 transform units in intra-predicted blocks. Mode 1 makes them more expensive so the encoder picks them less often; mode 2 disables them outright.\n\nLarge intra transforms spread quantisation error across a wide area, which reads as visible blocking on detailed content even when the measured error is low. Penalising them pushes the encoder towards smaller transforms that keep the error local.\n\nIt costs bitrate, since the large transform is genuinely cheaper when it fits, so this is a picture-quality adjustment rather than an efficiency one.",
+    "0|The default; no penalty.\n1|Makes 32x32 intra transforms more expensive.\n2|Disables them entirely; the strongest anti-blocking setting."
+  ],
+  [
+    "qpmin",
+    "",
+    "0-69 (default 0) - The best quantiser rate control may use; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, which caps how many bits any one frame may receive. Lower quantisers mean higher quality, so this bounds how good the encode may get.\n\nRaising it stops easy scenes being encoded at a quality nobody would notice, which in a bitrate-targeted encode leaves more for the difficult material and in CRF simply shrinks the file.\n\nValues much above 10 begin to show on flat content, so treat it as a fine adjustment.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
+    "0|The default; no floor.\n10|Stops easy scenes spending more than they need.\n15|A firmer cap, giving noticeably smaller files."
+  ],
+  [
+    "qpmax",
+    "",
+    "0-69 (default 69) - The worst quantiser rate control may use; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality may fall when the rate controller runs short of bits.\n\nLowering it prevents the blocky collapse difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer meet its bitrate target there and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nThe default is effectively unlimited, so this only bites in bitrate-targeted encoding with a tight target.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
+    "69|The default; effectively unlimited.\n45|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
+  ],
+  [
+    "ipratio",
+    "",
+    "Float above 1.0 (default 1.4) - How much finer I-frames are quantised than P-frames",
+    "Rate Control",
+    "The quantiser ratio between I-frames and P-frames. An I-frame is coded without reference to anything else and everything after it predicts from it, so bits spent there pay off across the whole interval.\n\nRaising it gives keyframes more bits, which helps when scene starts look soft for a moment before sharpening. Lowering it evens the frame types out and can reduce the visible pulse some content shows at every keyframe.\n\nIt interacts with qcomp, which also shapes how bits are spread.",
+    "1.4|The default.\n1.3|Flatter distribution; less pulsing at keyframes.\n1.5|More bits on keyframes, sharpening scene starts."
+  ],
+  [
+    "pbratio",
+    "",
+    "Float above 1.0 (default 1.3) - How much coarser B-frames are quantised than P-frames",
+    "Rate Control",
+    "The quantiser ratio between P-frames and B-frames. B-frames that nothing references can be quantised more coarsely almost for free, since their error does not propagate.\n\nRaising it moves bits out of B-frames and into the P-frames everything predicts from. Lowering it evens them out, which is the right move when B-frames are being used as references, because then their error does propagate.\n\ntune animation lowers this, since animation leans heavily on long B-frame runs.",
+    "1.3|The default.\n1.2|Evens out B-frames; sensible when they act as references.\n1.4|More bits diverted to P-frames."
+  ],
+  [
+    "master-display",
+    "",
+    "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min) in SMPTE ST 2086 units, no default - Signals HDR10 mastering display volume",
+    "HDR Metadata",
+    "Signals the mastering display's colour volume for HDR10, in SMPTE ST 2086 form: the chromaticity of the green, blue and red primaries and the white point, then the display's maximum and minimum luminance. Coordinates are in units of 0.00002, and luminance in units of 0.0001 cd/m2.\n\nThis is metadata only. It does not change a single coded pixel - it tells the display what the content was graded on so it can tone-map sensibly to its own capabilities.\n\nTake the values from the source's own metadata rather than inventing them; a wrong volume produces worse tone mapping than none.",
+    "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)|Display P3 primaries with a D65 white point, 1000 cd/m2 peak.\nG(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,50)|Rec. 2020 primaries, 1000 cd/m2 peak and a 0.005 floor.\nG(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(40000000,50)|A 4000 cd/m2 grade, as used on many HDR masters."
+  ],
+  [
+    "max-cll",
+    "",
+    "MaxCLL,MaxFALL in cd/m2, e.g. 1000,400, no default - Signals HDR10 content and frame-average light levels to displays",
+    "HDR Metadata",
+    "Two HDR10 light-level figures: the maximum content light level, which is the brightest single pixel anywhere in the video, and the maximum frame-average light level, the brightest frame taken as a whole. Both are in cd/m2.\n\nLike master-display this is metadata and changes no pixels. Displays use it to decide how much tone mapping a title needs before it starts, rather than adapting scene by scene.\n\nThe values should be measured from the actual content - ffmpeg and mkvinfo can read them off a graded master - since guessed figures make displays tone-map for brightness that is not there.",
+    "1000,400|A typical 1000 cd/m2 grade.\n4000,1000|A 4000 cd/m2 master.\n0,0|Explicitly signals that the levels are unknown."
+  ]
 ]

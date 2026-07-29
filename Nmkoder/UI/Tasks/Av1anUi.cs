@@ -163,11 +163,12 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The parameters documented for an encoder, as [argument, value, description, category]
-        /// rows. Values come through blank: the list is there to be read and filled in, and only
-        /// rows with a value reach the command line. An encoder with no file simply has nothing to
-        /// show. The category names the tab the row appears under; a row without one - the format
-        /// before categories existed - is grouped as "Other" rather than dropped.
+        /// The parameters documented for an encoder, as [argument, value, description, category,
+        /// details, examples] rows. Values come through blank: the list is there to be read and
+        /// filled in, and only rows with a value reach the command line. An encoder with no file
+        /// simply has nothing to show. The category names the tab the row appears under; a row
+        /// without one - the format before categories existed - is grouped as "Other" rather than
+        /// dropped. Details and examples feed the right-click window and may be absent.
         /// </summary>
         public static List<EncoderArgRow> ReadEncoderArgRows(IEncoder enc)
         {
@@ -192,7 +193,10 @@ namespace Nmkoder.UI.Tasks
             foreach (string[] arg in args ?? new List<string[]>())
             {
                 if (arg.Length >= 3)
-                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2], arg.Length >= 4 ? arg[3] : ""));
+                {
+                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2], arg.Length >= 4 ? arg[3] : "",
+                        arg.Length >= 5 ? arg[4] : "", arg.Length >= 6 ? arg[5] : ""));
+                }
             }
 
             return rows;
@@ -481,8 +485,8 @@ namespace Nmkoder.UI.Tasks
                 .Select(x => (x.Value ?? "").Trim())
                 .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
 
-            // -1 leaves the choice to the preset and 0 is all 8-bit, so neither is asking the input for
-            // something it does not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            // 0 leaves the choice to the preset, so it is not asking the input for something it does
+            // not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
             if (value != "1" && value != "2")
                 return "";
 

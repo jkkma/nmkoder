@@ -1,15 +1,170 @@
 [
-  ["tune-content", "", "default or screen - Tune for ordinary footage or for screen recordings", "Tuning & Quantization"],
-  ["aq-mode", "", "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh", "Tuning & Quantization"],
-  ["enable-qm", "", "0-1 (default 0) - Quantisation matrices", "Tuning & Quantization"],
-  ["quant-b-adapt", "", "0-1 (default 0) - Adaptive use of quantize_b", "Tuning & Quantization"],
-
-  ["enable-cdef", "", "0-1 (default 1) - Constrained directional enhancement filter", "Filtering"],
-  ["arnr-maxframes", "", "0-15 (default 7) - Frames the alt-ref noise reduction filter may use", "Filtering"],
-  ["arnr-strength", "", "0-6 (default 5) - Strength of the alt-ref noise reduction filter", "Filtering"],
-  ["enable-keyframe-filtering", "", "0-2 (default 1) - Temporal filtering on keyframes; 2 also writes an overlay", "Filtering"],
-
-  ["lag-in-frames", "", "0-35 (default 19) - Frames of lookahead available for reference frame placement", "Frames & Motion"],
-  ["mv-cost-upd-freq", "", "0-3 - How often motion vector costs are recalculated; higher is faster", "Frames & Motion"],
-  ["enable-fwd-kf", "", "0-1 (default 0) - Forward reference keyframes", "Frames & Motion"]
+  [
+    "tune-content",
+    "",
+    "default, screen, film (default default) - screen enables palette and block copy; film synthesises grain at playback",
+    "Tuning & Quantization",
+    "Tells the encoder what kind of material it is looking at so it can enable tools suited to it. screen turns on palette mode and intra block copy, which code large flat colour areas and repeated UI elements far more cheaply than ordinary prediction - the difference on a desktop capture or a slide deck is dramatic.\n\nfilm is not a grain-preservation setting. It switches on AV1's film grain synthesis: the encoder denoises the picture, measures the grain it removed, and writes a parameter set so the decoder regenerates it at playback. That saves a great deal of bitrate, at the cost of grain that is statistically similar rather than identical.\n\ndefault suits ordinary camera footage.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy film, with the grain synthesised at playback rather than coded."
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh; 1 favours flat skies",
+    "Tuning & Quantization",
+    "Adaptive quantisation moves bits between blocks within a frame. Mode 1 distributes by variance, taking bits from busy areas where error is masked and giving them to flat ones where banding shows. Mode 2 works from a complexity estimate instead. Mode 3 is cyclic refresh, which refreshes part of each frame in turn and is aimed at low-bitrate streaming rather than file encoding.\n\nlibaom leaves this off by default because its other tools already handle much of the same problem, and the modes can hurt as often as they help on ordinary content.\n\nWorth trying on sources that band, and worth measuring rather than assuming.",
+    "0|The default; off.\n1|Variance-based, the usual choice if flat areas band.\n2|Complexity-based distribution.\n3|Cyclic refresh, for low-bitrate streaming."
+  ],
+  [
+    "enable-qm",
+    "",
+    "0-1 (default 0) - Quantisation matrices; often improves detail retention at low bitrates, tuned via qm-min and qm-max",
+    "Tuning & Quantization",
+    "Quantisation matrices weight quantisation by frequency rather than applying one step size across the whole transform block, so high-frequency coefficients - fine texture and grain - can be kept or discarded independently of the low-frequency structure.\n\nTurning them on generally helps retain texture at a given bitrate and is a common recommendation for grainy or detailed sources. It pairs with the qm-min and qm-max range settings that control how aggressive the shaping is.\n\nIt is off by default and costs essentially nothing to try.",
+    "0|The default; uniform quantisation.\n1|Enables the matrices; commonly a gain on detailed or grainy sources."
+  ],
+  [
+    "quant-b-adapt",
+    "",
+    "0-1 (default 0) - Adaptive use of the quantize_b path; small efficiency gain for a little extra encode time",
+    "Tuning & Quantization",
+    "Selects adaptively between the two entropy coding paths AV1 provides for transform coefficients, choosing per situation rather than using one throughout. The gain is small and comes entirely from more accurate coefficient coding, not from any change in what is encoded.\n\nIt costs a little encoding time and is off by default. On slow, quality-focused encodes it is a cheap fraction of a percent.",
+    "0|The default; off.\n1|Adaptive selection, a small gain on slow encodes."
+  ],
+  [
+    "tune",
+    "",
+    "psnr, ssim, vmaf, vmaf_neg, butteraugli and variants (default psnr) - Which metric the encoder optimises for",
+    "Tuning & Quantization",
+    "Selects the distortion metric the encoder's decisions are scored against, which changes where bits go rather than just what gets reported. psnr minimises squared error, ssim weights by structural similarity, and the vmaf and butteraugli variants optimise against perceptual models.\n\nssim generally produces a picture people prefer over psnr. The vmaf modes optimise directly for a metric widely used to judge streaming quality, which is useful if you are being measured on it and questionable if you are not - tuning for a metric tends to exploit it.\n\nbutteraugli targets a perceptual difference model and is the most experimental of the set.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice.\nvmaf_neg|VMAF tuned to resist the usual enhancement gaming.\nbutteraugli|A perceptual difference model; experimental."
+  ],
+  [
+    "qm-min",
+    "",
+    "0-15 (default 8) - Lowest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "With quantisation matrices enabled, the encoder picks a matrix per frame from a range of flatness levels. This sets the lowest level it may choose, where lower numbers mean a more aggressively shaped matrix that treats high frequencies differently from low ones.\n\nA shaped matrix keeps more of the fine texture that flat quantisation rounds away, which is why enabling matrices is a common recommendation for grainy and detailed sources.\n\nIt does nothing unless enable-qm is set to 1, and it must not exceed qm-max.",
+    "8|The default.\n5|Allows more aggressive shaping, retaining more fine texture.\n0|The flattest-shaped extreme of the range.\n10|A narrow, conservative range near the top."
+  ],
+  [
+    "qm-max",
+    "",
+    "0-15 (default 15) - Highest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "The upper end of the quantisation matrix range the encoder may select from. Level 15 is effectively unshaped, treating all frequencies alike, so leaving the maximum here lets the encoder fall back to ordinary flat quantisation when shaping would not help.\n\nLowering it forces shaping to be applied even where the encoder would rather not, which retains texture more consistently and costs efficiency.\n\nLike qm-min it requires enable-qm 1, and it must not fall below qm-min.",
+    "15|The default; the encoder may use an unshaped matrix.\n12|Forces at least mild shaping throughout.\n10|Consistent shaping, at a cost in efficiency."
+  ],
+  [
+    "sharpness",
+    "",
+    "0-7 (default 0) - Biases transform coefficient decisions towards sharpness at a cost in measured error",
+    "Tuning & Quantization",
+    "Biases the rate-distortion decisions made about transform coefficients towards keeping the ones that carry sharpness, rather than dropping them because they are expensive relative to the error they remove.\n\nHigher values retain more fine detail and edge definition, and cost both bitrate and measured quality, since the encoder is deliberately choosing something a plain error metric scores lower.\n\nIt is a milder tool than the psychovisual settings in x264 and x265, and it is worth a try on detailed sources that come out looking soft.",
+    "0|The default; no bias.\n2|A mild sharpness bias for detailed live action.\n4|Noticeably sharper, at a real bitrate cost.\n7|The maximum."
+  ],
+  [
+    "deltaq-mode",
+    "",
+    "0-4 (default 1) - Varies the quantiser within a frame; 3 and 4 target visual rather than metric quality",
+    "Tuning & Quantization",
+    "Allows the quantiser to vary across a frame rather than staying fixed, so bits can follow what matters within the picture. Mode 1 optimises for an objective metric, mode 3 targets keyframe visual quality, and mode 4 uses a user-rating-derived visual model.\n\nThe objective default improves measured scores. The visual modes deliberately spend bits where people look rather than where error is largest, which is usually the better choice for material anyone will actually watch.\n\nIt depends on the temporal dependency model, which is enabled by default outside realtime mode. Note also that HDR sources are already given a delta quantiser mode automatically, so a value set here replaces that rather than adding to it.",
+    "1|The default; objective optimisation.\n0|Off; a fixed quantiser across the frame.\n3|Targets keyframe visual quality.\n4|Visual quality from a user-rating model."
+  ],
+  [
+    "enable-cdef",
+    "",
+    "0-3 (default 1) - CDEF deringing filter: 0 off, 1 on, 2 skip non-ref frames, 3 by qindex; off preserves fine grain",
+    "Filtering",
+    "The constrained directional enhancement filter is an in-loop deblocking and deringing stage that follows edge directions, so it cleans up ringing around edges without smearing the edge itself.\n\nIt is on by default and generally worth leaving on: without it, ringing artefacts around high-contrast edges persist into the reference frames and propagate.\n\nGrain-preservation setups sometimes disable it because it removes fine noise along with the ringing, but that only makes sense at bitrates high enough that there is no ringing to remove.",
+    "1|The default; leave it on for normal encoding.\n0|Grain preservation at high bitrates, accepting some ringing."
+  ],
+  [
+    "arnr-maxframes",
+    "",
+    "0-15 (default 7) - Frames the alt-ref temporal filter may use; fewer suits high motion, more smooths noisy sources",
+    "Filtering",
+    "How many neighbouring frames the alternate-reference filter may blend together when it builds an alt-ref frame. The alt-ref is a synthetic, denoised frame that other frames predict from, and averaging several frames is what removes the noise.\n\nMore frames means a cleaner alt-ref and better prediction for the frames referring to it, which saves bits - but also means grain and fine motion detail are averaged away more thoroughly.\n\nGrain-preserving setups lower this, sometimes to 0, accepting the bitrate cost to keep noise intact.",
+    "7|The default.\n3|Reduced blending, keeping more grain and fine motion.\n0|Disables the temporal filter entirely, for maximum grain retention.\n15|The maximum; cleanest alt-ref, at the cost of fine detail."
+  ],
+  [
+    "arnr-strength",
+    "",
+    "0-6 (default 5) - Strength of the alt-ref temporal filter; lower preserves grain, higher cleans up noisy sources",
+    "Filtering",
+    "How aggressively the alternate-reference filter blends the frames it has gathered. Where arnr-maxframes decides how many frames are involved, this decides how much of each survives.\n\nHigher values give a smoother, cleaner reference that predicts well and saves bitrate, at the cost of grain and fine detail being averaged out of the reference and therefore out of everything predicting from it.\n\nLowering it to 1 or 2 is the usual move on grainy film; raising it helps genuinely noisy sources such as low-light video, where the noise is not something anyone wants to preserve.",
+    "5|The default.\n2|Grainy film, keeping noise and texture.\n0|No filtering; maximum grain retention.\n6|Noisy low-light footage where the noise is unwanted."
+  ],
+  [
+    "enable-keyframe-filtering",
+    "",
+    "0-2 (default 1) - Temporal filtering on keyframes; 2 adds an overlay frame but can break seeking in some players",
+    "Filtering",
+    "Applies the same temporal filtering used for alt-ref frames to keyframes as well, so a keyframe is built from several source frames rather than from one. A cleaner keyframe predicts better for everything that follows it.\n\nMode 2 additionally codes an overlay frame to correct the difference between the filtered keyframe and the actual source frame, which fixes the mismatch the filtering introduces.\n\nMode 2 is not compatible with all downstream pipelines and is best avoided unless you have reason to want it; grain-preserving encodes often set 0 for the same reasons they lower arnr strength.",
+    "1|The default; filtered keyframes.\n0|Unfiltered keyframes, for grain retention.\n2|Filtering with a correcting overlay frame."
+  ],
+  [
+    "enable-restoration",
+    "",
+    "0-1 (default 1 outside realtime) - The loop restoration filter, which repairs coding artefacts after deblocking",
+    "Filtering",
+    "Loop restoration is a filter that runs after deblocking and CDEF, fitting a correction to each region to bring the reconstructed picture back towards the source. It repairs ringing and general coding error that the earlier filters leave behind.\n\nIt is on by default for non-realtime encoding and is generally worth keeping, because the repaired frame is what later frames predict from, so the benefit compounds.\n\nGrain-preserving setups sometimes disable it, since like CDEF it cannot distinguish fine noise from the artefacts it is removing.",
+    "1|The default outside realtime; leave it on for normal encoding.\n0|Off, for grain retention at high bitrates."
+  ],
+  [
+    "lag-in-frames",
+    "",
+    "0-48 (default 35) - Lookahead for alt-ref placement and bitrate allocation; lower cuts memory use and latency",
+    "Frames & Motion",
+    "How many frames the encoder buffers before making decisions, which sets how far ahead it can see. Lookahead drives alt-ref placement, frame type decisions and bit allocation across a scene.\n\nAlt-ref frames in particular depend on it: the encoder needs frames in hand to build one and to decide where it belongs. Lowering this below about 20 measurably costs compression, and 0 disables lookahead entirely for low-delay use.\n\nThe cost is memory and latency, not encoding speed.",
+    "19|The default.\n35|The maximum; the most lookahead for offline encoding.\n25|A common setting balancing memory against compression.\n0|Low delay, at a substantial compression cost."
+  ],
+  [
+    "mv-cost-upd-freq",
+    "",
+    "0-3 (default 0) - Motion vector cost updates: 0 per superblock, 1 per SB row, 2 per tile, 3 off; higher is faster",
+    "Frames & Motion",
+    "How often the encoder recalculates the cost tables it uses to price motion vectors during the search. Recomputing them often keeps the prices accurate as the statistics change through a frame; recomputing them rarely saves time.\n\nHigher values update less often and encode faster, at a small cost in decision quality because the search is choosing vectors against slightly stale prices.\n\nIt is purely a speed dial and does not change what the format can express.",
+    "0|Most frequent updates; the most accurate decisions.\n1|Update per SB row, a reasonable compromise.\n2|Less frequent updates, noticeably faster.\n3|Least frequent; fastest, with the roughest cost estimates."
+  ],
+  [
+    "enable-fwd-kf",
+    "",
+    "0-1 (default 0) - Forward reference keyframes, letting a keyframe also serve as a forward reference to save bits",
+    "Frames & Motion",
+    "Allows forward keyframes, which are keyframes that can still be predicted from across, letting the encoder place a keyframe without fully resetting prediction at that point. Ordinary keyframes break the prediction chain entirely, which costs bits every time one appears.\n\nEnabling this lets the encoder insert them more freely where a scene change makes one useful, without paying the full cost.\n\nIt changes the stream's random-access structure, so it is not appropriate where every keyframe must be a clean seek point.",
+    "0|The default; conventional keyframes only.\n1|Allows forward keyframes, cheaper at scene changes."
+  ],
+  [
+    "min-q",
+    "",
+    "0-63 (default 0) - The best quantiser allowed; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, capping how many bits any one frame may be given. Lower quantisers mean higher quality, so this bounds how good the encode may get.\n\nRaising it stops easy scenes being encoded at a quality nobody would notice, which frees bits for difficult material in a rate-targeted encode and simply shrinks the file in constant quality mode.\n\nIt must not exceed max-q, and in constant quality encoding it does nothing unless the target sits below it.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
+    "0|The default; no floor.\n15|Stops easy scenes spending more than they need.\n20|A firmer cap for bitrate-constrained delivery."
+  ],
+  [
+    "max-q",
+    "",
+    "0-63 (default 63) - The worst quantiser allowed; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality may fall when the rate controller runs short of bits.\n\nLowering it prevents the blocking and smearing difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer meet its bitrate target there and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nIt must not fall below min-q.\n\nIn Target VMAF mode the quantiser is chosen by a search, and this bound applies to it as well. Setting it tightly can stop that search reaching the quality target, since the encoder is no longer allowed to go where the search wants to take it.",
+    "63|The default; no ceiling.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
+  ],
+  [
+    "undershoot-pct",
+    "",
+    "0-100 (default 25) - How far under the target rate a section may run",
+    "Rate Control",
+    "How far below the target bitrate the encoder may let a section fall, as a percentage. It is permission to spend less than the target where the content does not need it.\n\nRaising it lets easy passages come in well under target, which suits varied material where some scenes genuinely need very little. Lowering it forces the encoder to keep pace with the target even when there is nothing worth spending on, which mostly wastes bits.\n\nValues above 100 are rejected.",
+    "25|The default.\n50|Lets easy scenes save considerably more.\n100|Maximum freedom to undershoot.\n0|Holds the rate at target regardless of content."
+  ],
+  [
+    "overshoot-pct",
+    "",
+    "0-100 (default 25) - How far over the target rate a section may run",
+    "Rate Control",
+    "How far above the target bitrate the encoder may let a section run, as a percentage. It is the permission a difficult scene needs in order to spend beyond its share rather than degrade.\n\nRaising it protects hard scenes at the cost of a less predictable size and a higher peak rate, which matters when the result has to fit a buffer or a delivery constraint. Lowering it holds the rate down and lets quality drop exactly where bits are most needed.\n\nValues above 100 are rejected.",
+    "25|The default.\n50|Gives difficult scenes more room to spend.\n0|Holds hard to the target, at a visible cost on hard scenes.\n100|Maximum freedom to overshoot."
+  ]
 ]
