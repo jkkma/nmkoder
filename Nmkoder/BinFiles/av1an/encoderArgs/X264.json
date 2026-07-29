@@ -2,115 +2,153 @@
   [
     "tune",
     "",
-    "film, animation, grain, stillimage, psnr, ssim, fastdecode or zerolatency - Preset tweaks for a source or delivery need",
-    "Tuning & Profile"
+    "film, animation, grain, stillimage, psnr, ssim, fastdecode, zerolatency - Preset tweaks for a source or use",
+    "Tuning & Profile",
+    "Tune applies a set of adjustments on top of whatever preset is in use, aimed at a kind of source or a delivery constraint. film, animation, grain and stillimage move psy-rd, aq-strength, deblocking and the b-frame and reference counts to suit that material; grain in particular loosens deblocking and raises the psy settings so noise survives instead of being filtered into mush.\n\nfastdecode drops tools that cost the decoder rather than the encoder - CABAC, the loop filter, weighted prediction - so weak hardware can keep up. zerolatency turns off lookahead and B-frames for live streaming.\n\npsnr and ssim exist for benchmarking: they switch the psychovisual optimisations off, which raises those metric scores while making the picture look worse. Do not use them for anything anyone will watch.",
+    "film|Live action from a camera, the usual choice.\nanimation|Cel animation and 2D cartoons; adds B-frames and softens deblocking.\ngrain|Grainy film scans, preserving noise at a large bitrate cost.\nzerolatency|Live streaming, where lookahead delay is unacceptable.\nfastdecode|Playback on weak hardware, at some compression cost."
   ],
   [
     "profile",
     "",
     "baseline, main, high, high10, high422 or high444 - Caps the tools used so limited decoders can play the file",
-    "Tuning & Profile"
+    "Tuning & Profile",
+    "Restricts the encoder to the coding tools a given H.264 profile allows, so a decoder that only implements that profile can play the result. baseline drops CABAC and B-frames, main allows both at 8-bit 4:2:0, and high adds the 8x8 transform and is what essentially every current device decodes.\n\nThe high10, high422 and high444 profiles unlock higher bit depths and chroma subsampling, and are almost never played by hardware - they are for intermediate and mastering files, not delivery.\n\nSetting this overrides any other setting that would exceed the profile, so a profile plus an incompatible option is resolved in the profile's favour rather than refused.",
+    "high|The normal choice for delivery; universally supported.\nmain|Older hardware and Blu-ray authoring.\nbaseline|Very old mobile decoders, at a real efficiency cost.\nhigh10|10-bit output for archival or intermediate files, not for playback."
   ],
   [
     "level",
     "",
-    "1 to 6.2, including 1b (default auto) - Decoder level written to the stream; x264 only warns when settings exceed its limits",
-    "Tuning & Profile"
+    "1 to 6.2, including 1b (default auto) - Decoder level written to the stream; x264 only warns, it clamps nothing",
+    "Tuning & Profile",
+    "The decoder level written into the stream header. Levels bound resolution, frame rate, bitrate and how many reference frames may be buffered, and hardware decoders advertise the highest level they implement.\n\nx264 works out a suitable level on its own, so this is only worth setting when a target demands a specific one - Blu-ray at 4.1, or a device that refuses anything higher.\n\nBe aware that x264 only warns when your other settings exceed the level you asked for; it does not reduce ref frames or anything else to fit. Getting a conformant stream means setting those yourself.",
+    "4.1|Blu-ray, and a very common hardware ceiling for 1080p.\n5.1|4K delivery to modern decoders.\n3.0|Older mobile devices at standard definition.\n4.0|Broad compatibility for 1080p without Blu-ray's constraints."
   ],
   [
     "deblock",
     "",
-    "alpha:beta, each -6 to 6 (default 0:0) - Loop filter strength; negative keeps grain and detail, positive hides blocking",
-    "Tuning & Profile"
+    "alpha:beta, each -6 to 6 (default 0:0) - Loop filter strength; negative keeps grain, positive hides blocking",
+    "Tuning & Profile",
+    "Offsets for the in-loop deblocking filter, which smooths the edges between coded blocks before the frame is used as a reference. The first number shifts the filter's strength and the second the threshold at which an edge is considered worth filtering.\n\nNegative values filter less, so grain and fine texture survive the loop instead of being averaged away - at the cost of visible block edges if the bitrate is not there to support them. Positive values filter more, which hides blocking at low bitrates and costs detail.\n\ntune film and tune grain already move these, so setting both means yours wins.",
+    "0:0|The default, neutral filtering.\n-1:-1|A mild sharpening, common for detailed live action.\n-3:-3|Strongly preserves grain; needs a generous bitrate or it blocks.\n1:1|Smooths more, for low bitrate encodes where blocking shows."
   ],
   [
     "bframes",
     "",
     "0-16 (default 3) - B-frames between I and P frames; more helps low-motion and animated sources, costs latency",
-    "Frames & Motion"
+    "Frames & Motion",
+    "The longest run of consecutive B-frames the encoder may insert. B-frames predict from both earlier and later frames, which makes them by far the cheapest frames to code, so allowing longer runs lets static and slow material spend its bits where something is actually happening.\n\nReturns fall off past five or so on live action, and beyond about eight almost nothing is gained on any source. Animation and static footage benefit the most because long stretches genuinely do not change.\n\nEvery B-frame adds encoding latency and a frame of decode delay, which is why streaming presets set this to 0.",
+    "3|The default, a sound balance for live action.\n0|Baseline profile output and low-latency streaming.\n8|Animation and mostly static footage, where long runs pay off.\n16|The maximum; realistically no better than 8."
   ],
   [
     "b-adapt",
     "",
     "0-2 (default 1) - How B-frame placement is decided: 0 off, 1 fast, 2 optimal but slow with high bframes",
-    "Frames & Motion"
+    "Frames & Motion",
+    "Decides where in the sequence B-frames actually go, up to the limit bframes sets. 0 skips the decision and always uses the maximum run, which is fast and usually wasteful. 1 is a quick heuristic. 2 runs a proper search over the possibilities and picks the best arrangement.\n\nMode 2 is the one worth having on anything not being encoded in real time, but its cost grows with the bframes setting, so pairing b-adapt 2 with a large bframes value is where slow presets spend a lot of their time.",
+    "1|The default, a fast heuristic that is right most of the time.\n2|Slower and better; the choice for offline encoding.\n0|Fastest, always using the maximum run; for real-time only."
   ],
   [
     "ref",
     "",
     "1-16 (default 3) - Reference frames the motion search may use; more helps animation, costs speed and compatibility",
-    "Frames & Motion"
+    "Frames & Motion",
+    "How many previously decoded frames the motion search may predict from. More references help whenever the same content reappears - repetitive motion, cuts back to an earlier shot, animation that reuses cels - because the encoder can point at the frame that actually matches.\n\nCost is roughly linear in encoding time, and returns fall off quickly on ordinary live action past about five.\n\nHardware decoders limit this through the level: at 1080p, level 4.1 allows only four. Going higher produces a file that a compliant decoder is entitled to refuse.",
+    "3|The default, fine for general live action.\n5|A good offline setting for detailed or repetitive material.\n1|Fastest, and what some very limited decoders require.\n16|The maximum; useful on animation, and out of spec for most hardware."
   ],
   [
     "weightp",
     "",
     "0-2 (default 2) - Weighted prediction for P-frames: 0 off, 1 weighted refs, 2 also duplicates; helps fades",
-    "Frames & Motion"
+    "Frames & Motion",
+    "Weighted prediction lets a P-frame scale and offset the reference it predicts from, so a frame that is simply brighter or darker than the one before does not have to be re-coded from scratch. Fades, flashes and lighting changes are where it earns its keep.\n\nMode 1 applies the weighting; mode 2 also allows duplicate weighted references, which helps most on fades. Both are essentially free.\n\nSome older decoders and Blu-ray authoring require this off, and it is one of the tools fastdecode disables.",
+    "2|The default; the strongest form, and what you want for fades.\n1|Weighted references without duplicates, for stricter compatibility.\n0|Off, for Blu-ray authoring or very old decoders."
   ],
   [
     "rc-lookahead",
     "",
     "0-250 (default 40) - Frames looked ahead when deciding frame types and mb-tree; higher paces bits better",
-    "Frames & Motion"
+    "Frames & Motion",
+    "How many frames ahead the encoder looks before committing to a frame type and a quantiser. The lookahead drives both frame type decisions and mb-tree, which spends bits on blocks that later frames will keep referencing.\n\nLonger lookahead paces bits better across a scene and makes mb-tree's estimates more useful, at the cost of memory and encoding latency. Past roughly the length of a typical shot there is nothing left to learn.\n\nSetting it to 0 disables mb-tree entirely, which is why low-latency presets look worse at the same bitrate.",
+    "40|The default, a good match for most content.\n60|Longer scenes and offline encoding, giving mb-tree more to work with.\n0|Disables lookahead and mb-tree, for minimum latency.\n250|The maximum; memory-hungry with little to show for it."
   ],
   [
     "me",
     "",
     "dia, hex, umh, esa or tesa (default hex) - Integer pixel motion search; umh and up pay off on high-motion HD",
-    "Frames & Motion"
+    "Frames & Motion",
+    "The integer-pixel motion search pattern. dia checks a tiny diamond around the predicted vector, hex a hexagon, and umh runs an uneven multi-hexagon search that is far more likely to find large or unusual motion. esa and tesa search the whole merange exhaustively.\n\nhex is the sensible default. umh is the one upgrade worth paying for, and it matters most at high resolution and on fast motion, where the right vector can be a long way from the prediction.\n\nesa and tesa are exhaustive rather than clever: they cost enormously and almost never beat umh by enough to notice.",
+    "hex|The default, and a good speed to quality balance.\numh|High resolution or fast motion; the worthwhile upgrade.\ndia|Fastest, for real-time encoding.\ntesa|Exhaustive and extremely slow, for benchmarking rather than delivery."
   ],
   [
     "subme",
     "",
     "0-11 (default 7) - Subpixel motion estimation and mode decision quality; the main quality-versus-speed dial",
-    "Frames & Motion"
+    "Frames & Motion",
+    "Controls how hard the encoder refines a motion vector below whole-pixel precision, and how carefully it decides between modes. This is the single most effective quality-versus-speed dial x264 has.\n\nThe scale changes behaviour as it climbs: from 6 upward, rate-distortion optimisation is used for P and B frames, which is also the point at which psy-rd starts doing anything. From 8 upward, motion vectors and intra modes get an RD refinement pass. 10 and 11 additionally require trellis 2.\n\nBelow 6 the encoder is making mode decisions on a rough estimate rather than on actual coding cost, which shows.",
+    "7|The default, and already past the point where psy-rd works.\n10|Slow presets; RD refinement on vectors and intra modes.\n11|The maximum, for the last fraction of a percent.\n2|Real-time encoding, where mode decisions have to be cheap."
   ],
   [
     "merange",
     "",
     "4-1024 (default 16) - Largest motion vector search range; only exceeds 16 with me umh, esa or tesa",
-    "Frames & Motion"
+    "Frames & Motion",
+    "The radius, in pixels, of the integer motion search. It bounds how far from the predicted position the encoder is willing to look for a match.\n\nRaising it only does anything with a search pattern that can use the room: dia and hex have fixed shapes and ignore it, so it applies to umh, esa and tesa. With those, a larger range catches fast pans and whip motion at high resolution that would otherwise be coded as expensive intra blocks.\n\nCost grows quickly, and on ordinary content the extra range simply goes unused.",
+    "16|The default, enough for typical motion at up to 1080p.\n24|Fast motion at 1080p and above, paired with me umh.\n32|Whip pans and sports at 4K.\n64|Rarely justified; the search cost is substantial."
   ],
   [
     "aq-mode",
     "",
     "0-3 (default 1) - Adaptive quantisation: 0 off, 1 variance, 2 auto-variance, 3 with dark-scene bias",
-    "Quantization & Psychovisual"
+    "Quantization & Psychovisual",
+    "Adaptive quantisation moves bits between blocks within a frame, taking them from busy areas where quantisation error hides and giving them to flat ones where banding and blocking are obvious. Without it, dark and smooth regions are where an encode visibly falls apart first.\n\nMode 1 distributes by variance. Mode 2 adjusts the strength per frame using the frame's own content, which spreads bits more evenly across a varied sequence. Mode 3 adds a bias towards dark regions, which is where banding is most visible.\n\nTurning it off raises PSNR and makes the result look worse, which is why psnr and ssim tunes do exactly that.",
+    "1|The default variance-based distribution.\n2|Auto-variance, adapting per frame; a good offline choice.\n3|Auto-variance with a dark-scene bias, for night and shadow detail.\n0|Off; higher metric scores, visibly worse picture."
   ],
   [
     "aq-strength",
     "",
     "0.0-3.0 (default 1.0) - Strength of adaptive quantisation; raise to cut blocking in flat areas, lower for grain",
-    "Quantization & Psychovisual"
+    "Quantization & Psychovisual",
+    "How far adaptive quantisation is allowed to shift the quantiser between blocks. Higher values take more bits out of detailed areas and put more into flat ones.\n\nRaise it when flat regions - skies, walls, gradients, fades to black - show banding or blocking. Lower it when the source is grainy or heavily textured, because there the bits are better left where the detail is, and a strong setting will smooth the grain the rest of your settings are trying to keep.\n\ntune grain and tune film already move this, so an explicit value overrides theirs.",
+    "1.0|The default, suitable for most live action.\n0.6|Grainy or heavily textured sources, keeping bits on detail.\n1.3|Flat, clean sources such as animation that band easily.\n0.0|Disables the strength entirely, equivalent to turning AQ off."
   ],
   [
     "psy-rd",
     "",
     "rd:trellis, each 0.0-10.0 (default 1.0:0.0) - Keeps detail over PSNR; rd needs subme 6+, trellis needs trellis on",
-    "Quantization & Psychovisual"
+    "Quantization & Psychovisual",
+    "Psychovisual rate-distortion, given as two numbers. The first biases mode decisions towards keeping the same amount of visual energy as the source rather than towards the lowest measurable error, so the encoder stops preferring a smooth block over a detailed one that is slightly wrong. The second applies the same idea inside trellis quantisation.\n\nThis is what stops x264 output looking soft, and it is exactly why it costs PSNR and SSIM: it is deliberately choosing something those metrics score lower.\n\nThe first value needs subme 6 or higher to do anything, and the second needs trellis enabled. tune grain and tune film raise these; psnr and ssim zero them.",
+    "1.0:0.0|The default; psy-rd on, psy-trellis off.\n1.0:0.15|A mild trellis component, for detailed live action.\n1.5:0.0|Stronger detail retention on grainy sources.\n0.0:0.0|Off, for metric benchmarking only."
   ],
   [
     "trellis",
     "",
     "0-2 (default 1) - Trellis rate-distortion quantisation: 0 off, 1 on the final macroblock encode, 2 on all decisions",
-    "Quantization & Psychovisual"
+    "Quantization & Psychovisual",
+    "Trellis quantisation chooses which transform coefficients to keep by weighing what each one costs in bits against what it contributes, rather than rounding each in isolation. It recovers a useful amount of quality for the bitrate.\n\nMode 1 applies it only to the final encode of each macroblock. Mode 2 applies it during mode decision as well, so the choice between modes is made on the cost they will actually have - better, and slower.\n\nsubme 10 and 11 require mode 2. Trellis also has to be on for the second half of psy-rd to do anything.",
+    "1|The default; trellis on the final macroblock encode.\n2|On all mode decisions; the offline choice and required by subme 10+.\n0|Off, for real-time encoding."
   ],
   [
     "qcomp",
     "",
     "0.0-1.0 (default 0.60) - QP curve compression; 0.0 acts like constant bitrate, 1.0 like constant QP",
-    "Quantization & Psychovisual"
+    "Quantization & Psychovisual",
+    "Compresses the curve that maps frame complexity to quantiser, deciding how bitrate is shared between easy and hard scenes. At 0.0 every frame is pushed to the same size, which is constant bitrate behaviour and makes complex scenes fall apart. At 1.0 every frame gets the same quantiser, which is constant quality and lets file size follow the content.\n\nThe default sits between the two, giving hard scenes more bits than constant quality would while still holding overall size near the target.\n\nIt interacts with mb-tree, which uses this value in its own calculations, so large changes affect more than the scene-to-scene split.",
+    "0.60|The default, a sound balance for VBR.\n0.75|Closer to constant quality; better on content with a wide difficulty range.\n0.50|Tighter size control, at the cost of the hardest scenes.\n1.00|Constant quantiser behaviour."
   ],
   [
     "vbv-maxrate",
     "",
     "kbit/s (default 0, off) - Ceiling on local bitrate; set with vbv-bufsize for streaming or hardware decoders",
-    "Rate Control"
+    "Rate Control",
+    "Caps the bitrate over any window the buffer covers, rather than over the file as a whole. Without it, a constant-quality encode is free to spend whatever a difficult scene needs, which is fine for a local file and fatal for a stream or a hardware decoder with a fixed input rate.\n\nIt only takes effect alongside vbv-bufsize; a maxrate with no buffer size does nothing.\n\nConstraining the rate necessarily costs quality exactly where the content is hardest, so set it to what the target actually requires and no lower.",
+    "6000|Roughly a 1080p streaming ceiling.\n3000|A conservative cap for constrained connections.\n40000|Blu-ray's video ceiling.\n0|The default; no cap."
   ],
   [
     "vbv-bufsize",
     "",
     "kbit (default 0, off) - Size of the VBV buffer; smaller windows hold the maxrate ceiling more tightly",
-    "Rate Control"
+    "Rate Control",
+    "The size of the notional buffer the maxrate is enforced over, in kilobits. Together the two say how much the bitrate may vary and over what period.\n\nA buffer equal to the maxrate allows one second of variation, which is the usual streaming arrangement. Smaller buffers hold the ceiling more tightly and hurt quality on hard scenes; larger ones let the encoder spend where it needs to at the cost of a longer startup delay and more risk of underrun.\n\nLike maxrate, this does nothing on its own.",
+    "6000|One second of buffer against a 6000 kbit/s ceiling.\n12000|Two seconds; gentler on difficult scenes, slower to start.\n30000|Blu-ray's buffer size.\n0|The default; no buffer constraint."
   ]
 ]

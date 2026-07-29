@@ -3,108 +3,144 @@
     "tune",
     "",
     "psnr or ssim (default psnr) - Metric the encoder optimises for; ssim scales RD per block and often looks better",
-    "Tuning & Quality"
+    "Tuning & Quality",
+    "Selects the distortion metric the encoder optimises its decisions against. psnr minimises squared error; ssim weights decisions by structural similarity, which changes rate-distortion scaling per block.\n\nssim generally produces a picture people prefer, because it spends bits on structure rather than on wherever squared error happens to be largest, and it usually scores better on perceptual metrics too.\n\nNeither is a psychovisual setting in the sense x264's psy-rd is; VP9 has no equivalent, which is part of why its output tends to look softer than a comparable x264 encode.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice."
   ],
   [
     "tune-content",
     "",
     "default, screen or film (default default) - Content hint; screen suits desktop capture, film retains grain",
-    "Tuning & Quality"
+    "Tuning & Quality",
+    "Tells the encoder what kind of material it is coding. screen enables tools for desktop capture and UI recordings, where large flat areas and repeated elements code far more cheaply with the right prediction modes.\n\nfilm adjusts the encoder's behaviour to retain grain rather than filtering it away. Note this is not the same as the option of the same name in aomenc, which synthesises grain at the decoder - VP9 has no grain synthesis, so here it genuinely means keeping more of the noise that is there.\n\ndefault suits ordinary camera footage.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy sources, retaining noise rather than smoothing it."
   ],
   [
     "sharpness",
     "",
     "0-7 (default 0) - Keeps fine detail by curbing coefficient and skip optimisation, costing PSNR and bitrate",
-    "Tuning & Quality"
+    "Tuning & Quality",
+    "Trades measurable accuracy for a sharper-looking picture by curbing the optimisations that quietly smooth the result - the coefficient decisions and skip choices that drop small amounts of detail because they are cheap to lose.\n\nHigher values keep more of that fine detail and cost both PSNR and bitrate. The effect is subtle compared with the equivalent controls in x264 and x265.\n\nIt also feeds the loop filter level, so raising it reduces deblocking as well.",
+    "0|The default; no bias.\n2|A mild sharpening for detailed live action.\n5|Strong detail retention, at a real bitrate cost.\n7|The maximum."
   ],
   [
     "static-thresh",
     "",
     "0 or higher (default 0 off) - Codes low-motion blocks as skip below this distortion; speeds up real-time",
-    "Tuning & Quality"
+    "Tuning & Quality",
+    "Sets a distortion threshold below which a block is simply coded as skipped rather than searched and coded properly. Anything changing less than the threshold between frames is treated as not changing at all.\n\nThe point is speed, and the setting is aimed at real-time encoding of largely static content such as screen sharing, where most of the frame genuinely is identical.\n\nAbove 0 it will discard real low-amplitude change, including film grain and subtle gradients in motion, so it is a poor fit for offline quality encoding.",
+    "0|The default; off, and the right setting for quality encoding.\n100|Light skipping for real-time screen content.\n1000|Aggressive skipping; visible on anything but static material."
   ],
   [
     "frame-boost",
     "",
     "0-1 (default 0) - Allows periodic frame-level Q boosts, spending bits where they help most on calm content",
-    "Tuning & Quality"
+    "Tuning & Quality",
+    "Allows the rate controller to periodically raise the quality of individual frames, spending extra bits where doing so improves the frames that predict from them.\n\nThe gain comes from better references rather than from the boosted frames themselves, so it shows up most on calm content with long stretches of similar material.\n\nIt is off by default and interacts with the rate control mode in use.",
+    "0|The default; off.\n1|Enables periodic frame boosts, useful on calm content."
   ],
   [
     "auto-alt-ref",
     "",
     "0-6 (default 1) - Alt reference frames; 2 and above enables multi-layer ARF, usually a quality gain",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "Alternate reference frames are synthetic frames the encoder builds by filtering several source frames together. They are never displayed; other frames predict from them, and because they are denoised they predict very well, which is one of VP9's larger compression wins.\n\nValues above 1 enable multi-layer alt-refs, letting the encoder maintain several at different temporal distances so both slow and fast motion have a good reference available.\n\nMore layers need lag-in-frames to hold enough frames to build them, so raising this without lookahead achieves nothing.",
+    "1|The default; a single alt-ref layer.\n6|The maximum; multi-layer, the usual choice for offline quality.\n4|Multi-layer with less encoding cost than the maximum.\n0|Disabled; a clear compression loss."
   ],
   [
     "lag-in-frames",
     "",
     "0-25 (default 25) - Lookahead depth; more improves alt-ref placement, 0 gives low delay at a quality cost",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "How many frames the encoder buffers before committing decisions, which sets how far ahead it can see. Lookahead is what makes alt-ref frames possible - the encoder needs the frames in hand to filter them together - and it also drives frame type and bit allocation choices.\n\nLowering it costs compression directly, and dropping it far enough disables alt-refs, taking one of VP9's main advantages with them.\n\nSet it to 0 only for genuinely low-delay use; the cost is memory and latency, not encoding speed.",
+    "25|The default and the maximum; the right setting for offline encoding.\n16|Reduced buffering where memory is constrained.\n0|Low delay, giving up alt-ref frames and a lot of efficiency."
   ],
   [
     "arnr-maxframes",
     "",
     "0-15 (default 7) - Frames blended by the alt-ref temporal filter; lower keeps grain, higher denoises more",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "How many neighbouring frames the alt-ref filter blends together when constructing an alternate reference. The blending is what removes noise and makes the alt-ref such a good prediction source.\n\nMore frames give a cleaner reference and better compression, and average away more grain and fine motion detail in the process. Fewer keep the noise but predict less well.\n\nGrain-preserving setups lower this; noisy sources benefit from raising it.",
+    "7|The default.\n3|Keeps more grain and fine motion detail.\n0|Disables the filtering entirely.\n15|The maximum; cleanest references, softest detail."
   ],
   [
     "arnr-strength",
     "",
     "0-6 (default 5) - Alt-ref filter strength; drop to 1-2 to preserve film grain, raise for noisy sources",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "How aggressively the alt-ref filter blends the frames it has gathered. Where arnr-maxframes sets how many frames take part, this sets how much of each survives the blend.\n\nDropping it to 1 or 2 is the usual move on grainy film, keeping noise that would otherwise be averaged out of the reference and therefore out of everything predicting from it. Raising it suits genuinely noisy footage, where the noise is not worth preserving and removing it saves bits.",
+    "5|The default.\n2|Grainy film, preserving noise and texture.\n0|No filtering; maximum grain retention.\n6|The maximum, for noisy low-light footage."
   ],
   [
     "alt-ref-aq",
     "",
     "0-1 (default 0) - Extra adaptive quantisation on alt-ref frames; skipped at low bitrates where it costs more",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "Applies additional adaptive quantisation specifically to alternate reference frames, spending extra bits on the parts of an alt-ref that other frames will lean on most.\n\nBecause everything predicting from an alt-ref inherits its quality, improving one frame can improve many. The catch is that alt-refs are already given a quality boost, and at low bitrates the extra spending comes straight out of the displayed frames.\n\nWorth trying at higher bitrates; likely a loss at low ones.",
+    "0|The default; off.\n1|Extra AQ on alt-ref frames, best at generous bitrates."
   ],
   [
     "frame-parallel",
     "",
     "0-1 (default 1) - Frame parallel decodability; 0 allows backward probability updates and compresses better",
-    "Alt-Ref & Frames"
+    "Alt-Ref & Frames",
+    "Controls whether the stream is coded so a decoder can work on several frames at once. Frame-parallel mode requires disabling backward probability updates, where the encoder refines its entropy model using statistics gathered from the frame it just coded.\n\nThose backward updates are worth a small but real amount of compression, so turning frame-parallel decoding off makes the file smaller at the same quality.\n\nLeave it on only if the target decoder needs the parallelism; for file encoding, 0 is the better setting.",
+    "1|The default; parallel-decodable, slightly larger files.\n0|Allows backward probability updates; better compression."
   ],
   [
     "aq-mode",
     "",
     "0-4 (default 0 off) - Adaptive quantisation: 1 variance, 2 complexity, 3 cyclic refresh, 4 equator360",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "Adaptive quantisation redistributes bits within a frame. Mode 1 distributes by variance, moving bits from busy areas where error is masked to flat ones where banding shows. Mode 2 works from complexity. Mode 3 is cyclic refresh, which refreshes part of each frame in turn and targets low-bitrate streaming. Mode 4 is tuned for equirectangular 360 video, where the poles are massively oversampled and do not deserve equal bits.\n\nIt is off by default. Mode 1 is the one to try on sources that band; the others are situational.",
+    "0|The default; off.\n1|Variance-based, the usual choice if flat areas band.\n2|Complexity-based distribution.\n3|Cyclic refresh, for low-bitrate streaming.\n4|Equirectangular 360 video."
   ],
   [
     "min-q",
     "",
     "0-63 (default 0) - Best quantiser allowed; raise it to stop easy scenes from soaking up bitrate",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "The best quantiser the rate controller may choose, which is a floor on how many bits it will spend on any one frame. A lower number means higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes soaking up bitrate they do not need - a static shot encoded at a very low quantiser can consume a surprising share of a target - which leaves more for the difficult material in a rate-targeted encode.\n\nIn constant-quality encoding it does nothing unless the target sits below it.",
+    "0|The default; no floor.\n15|Stops easy scenes from spending more than they need.\n20|A tighter floor for bitrate-constrained delivery."
   ],
   [
     "max-q",
     "",
     "0-63 (default 63) - Worst quantiser allowed; lower it to keep hard scenes from collapsing in VBR encodes",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "The worst quantiser the rate controller may choose, bounding how far quality may fall on difficult material. A higher number is lower quality.\n\nLowering it stops hard scenes collapsing into blocking when the rate controller runs short of bits. The consequence is that the encoder can no longer meet its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nSet it when a minimum acceptable quality matters more than hitting the target exactly.",
+    "63|The default; no ceiling on quantiser.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
   ],
   [
     "enable-tpl",
     "",
     "0-1 (default 1) - Temporal dependency model; improves bit allocation between frames, disable only to save time",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "The temporal dependency model looks ahead to work out which blocks later frames will predict from, then spends bits on those blocks in proportion to how much depends on them. A block that fifty later frames refer to is worth more than one that is never referenced again.\n\nThis is one of the larger quality-per-bit wins available in VP9 and it is on by default. Disabling it only makes sense to save encoding time.\n\nIt needs lookahead to work, so lowering lag-in-frames weakens it.",
+    "1|The default; leave it on.\n0|Disables the model to save encoding time, at a real quality cost."
   ],
   [
     "corpus-complexity",
     "",
     "0-10000 (default 0 off) - Corpus VBR complexity midpoint; holds quality steady across a library of clips",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "Sets a fixed complexity midpoint for corpus VBR, a rate control mode intended for encoding a whole library of clips to a consistent quality rather than each clip to its own target.\n\nNormally the encoder judges difficulty relative to the clip in front of it, so an easy clip and a hard one both end up looking average. Giving a shared midpoint across the library means an easy clip is allowed to come out small and good, and a hard one to spend more.\n\nOnly meaningful when the same value is used across a set; 0 disables it.",
+    "0|The default; ordinary per-clip rate control.\n1000|A shared midpoint across a library of mostly easy content.\n3000|A higher midpoint for a more demanding corpus."
   ],
   [
     "undershoot-pct",
     "",
     "0-100 (default 25) - How far under target rate a section may run; higher lets easy scenes save more bits",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "How far below the target rate the encoder is allowed to run over a section, as a percentage. It gives the rate controller permission to spend less than the target where the content does not need it.\n\nRaising it lets easy passages come in well under target and bank the difference, which suits a varied source where some scenes genuinely need very little.\n\nLowering it forces the encoder to keep pace with the target even when there is nothing to spend bits on, which mostly wastes them.",
+    "25|The default.\n50|Lets easy scenes save considerably more.\n100|Maximum freedom to undershoot.\n0|Holds the rate at target regardless of content."
   ],
   [
     "overshoot-pct",
     "",
     "0-100 (default 25) - How far over target rate a section may run; higher lets hard scenes spend more bits",
-    "Quantization & Rate Control"
+    "Quantization & Rate Control",
+    "How far above the target rate the encoder is allowed to run over a section, as a percentage. It is the permission a difficult scene needs to spend beyond its share rather than degrade.\n\nRaising it protects hard scenes at the cost of a less predictable size and a higher peak rate, which matters if the result has to fit a buffer or a delivery constraint.\n\nLowering it holds the rate down and lets quality drop on the material that most needs bits.",
+    "25|The default.\n50|Gives difficult scenes more room to spend.\n0|Holds hard to the target, at a visible cost on hard scenes.\n100|Maximum freedom to overshoot."
   ]
 ]

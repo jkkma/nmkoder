@@ -2,67 +2,89 @@
   [
     "tune-content",
     "",
-    "default, screen, film (default default) - screen enables palette and intra block copy; film has the decoder synthesise grain",
-    "Tuning & Quantization"
+    "default, screen, film (default default) - screen enables palette and block copy; film synthesises grain at playback",
+    "Tuning & Quantization",
+    "Tells the encoder what kind of material it is looking at so it can enable tools suited to it. screen turns on palette mode and intra block copy, which code large flat colour areas and repeated UI elements far more cheaply than ordinary prediction - the difference on a desktop capture or a slide deck is dramatic.\n\nfilm is not a grain-preservation setting. It switches on AV1's film grain synthesis: the encoder denoises the picture, measures the grain it removed, and writes a parameter set so the decoder regenerates it at playback. That saves a great deal of bitrate, at the cost of grain that is statistically similar rather than identical.\n\ndefault suits ordinary camera footage.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy film, with the grain synthesised at playback rather than coded."
   ],
   [
     "aq-mode",
     "",
-    "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh; 1 favours flat areas like skies",
-    "Tuning & Quantization"
+    "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh; 1 favours flat skies",
+    "Tuning & Quantization",
+    "Adaptive quantisation moves bits between blocks within a frame. Mode 1 distributes by variance, taking bits from busy areas where error is masked and giving them to flat ones where banding shows. Mode 2 works from a complexity estimate instead. Mode 3 is cyclic refresh, which refreshes part of each frame in turn and is aimed at low-bitrate streaming rather than file encoding.\n\nlibaom leaves this off by default because its other tools already handle much of the same problem, and the modes can hurt as often as they help on ordinary content.\n\nWorth trying on sources that band, and worth measuring rather than assuming.",
+    "0|The default; off.\n1|Variance-based, the usual choice if flat areas band.\n2|Complexity-based distribution.\n3|Cyclic refresh, for low-bitrate streaming."
   ],
   [
     "enable-qm",
     "",
     "0-1 (default 0) - Quantisation matrices; often improves detail retention at low bitrates, tuned via qm-min and qm-max",
-    "Tuning & Quantization"
+    "Tuning & Quantization",
+    "Quantisation matrices weight quantisation by frequency rather than applying one step size across the whole transform block, so high-frequency coefficients - fine texture and grain - can be kept or discarded independently of the low-frequency structure.\n\nTurning them on generally helps retain texture at a given bitrate and is a common recommendation for grainy or detailed sources. It pairs with the qm-min and qm-max range settings that control how aggressive the shaping is.\n\nIt is off by default and costs essentially nothing to try.",
+    "0|The default; uniform quantisation.\n1|Enables the matrices; commonly a gain on detailed or grainy sources."
   ],
   [
     "quant-b-adapt",
     "",
     "0-1 (default 0) - Adaptive use of the quantize_b path; small efficiency gain for a little extra encode time",
-    "Tuning & Quantization"
+    "Tuning & Quantization",
+    "Selects adaptively between the two entropy coding paths AV1 provides for transform coefficients, choosing per situation rather than using one throughout. The gain is small and comes entirely from more accurate coefficient coding, not from any change in what is encoded.\n\nIt costs a little encoding time and is off by default. On slow, quality-focused encodes it is a cheap fraction of a percent.",
+    "0|The default; off.\n1|Adaptive selection, a small gain on slow encodes."
   ],
   [
     "enable-cdef",
     "",
     "0-3 (default 1) - CDEF deringing filter: 0 off, 1 on, 2 skip non-ref frames, 3 by qindex; off preserves fine grain",
-    "Filtering"
+    "Filtering",
+    "The constrained directional enhancement filter is an in-loop deblocking and deringing stage that follows edge directions, so it cleans up ringing around edges without smearing the edge itself.\n\nIt is on by default and generally worth leaving on: without it, ringing artefacts around high-contrast edges persist into the reference frames and propagate.\n\nGrain-preservation setups sometimes disable it because it removes fine noise along with the ringing, but that only makes sense at bitrates high enough that there is no ringing to remove.",
+    "1|The default; leave it on for normal encoding.\n0|Grain preservation at high bitrates, accepting some ringing."
   ],
   [
     "arnr-maxframes",
     "",
     "0-15 (default 7) - Frames the alt-ref temporal filter may use; fewer suits high motion, more smooths noisy sources",
-    "Filtering"
+    "Filtering",
+    "How many neighbouring frames the alternate-reference filter may blend together when it builds an alt-ref frame. The alt-ref is a synthetic, denoised frame that other frames predict from, and averaging several frames is what removes the noise.\n\nMore frames means a cleaner alt-ref and better prediction for the frames referring to it, which saves bits - but also means grain and fine motion detail are averaged away more thoroughly.\n\nGrain-preserving setups lower this, sometimes to 0, accepting the bitrate cost to keep noise intact.",
+    "7|The default.\n3|Reduced blending, keeping more grain and fine motion.\n0|Disables the temporal filter entirely, for maximum grain retention.\n15|The maximum; cleanest alt-ref, at the cost of fine detail."
   ],
   [
     "arnr-strength",
     "",
     "0-6 (default 5) - Strength of the alt-ref temporal filter; lower preserves grain, higher cleans up noisy sources",
-    "Filtering"
+    "Filtering",
+    "How aggressively the alternate-reference filter blends the frames it has gathered. Where arnr-maxframes decides how many frames are involved, this decides how much of each survives.\n\nHigher values give a smoother, cleaner reference that predicts well and saves bitrate, at the cost of grain and fine detail being averaged out of the reference and therefore out of everything predicting from it.\n\nLowering it to 1 or 2 is the usual move on grainy film; raising it helps genuinely noisy sources such as low-light video, where the noise is not something anyone wants to preserve.",
+    "5|The default.\n2|Grainy film, keeping noise and texture.\n0|No filtering; maximum grain retention.\n6|Noisy low-light footage where the noise is unwanted."
   ],
   [
     "enable-keyframe-filtering",
     "",
     "0-2 (default 1) - Temporal filtering on keyframes; 2 adds an overlay frame but can break seeking in some players",
-    "Filtering"
+    "Filtering",
+    "Applies the same temporal filtering used for alt-ref frames to keyframes as well, so a keyframe is built from several source frames rather than from one. A cleaner keyframe predicts better for everything that follows it.\n\nMode 2 additionally codes an overlay frame to correct the difference between the filtered keyframe and the actual source frame, which fixes the mismatch the filtering introduces.\n\nMode 2 is not compatible with all downstream pipelines and is best avoided unless you have reason to want it; grain-preserving encodes often set 0 for the same reasons they lower arnr strength.",
+    "1|The default; filtered keyframes.\n0|Unfiltered keyframes, for grain retention.\n2|Filtering with a correcting overlay frame."
   ],
   [
     "lag-in-frames",
     "",
     "0-48 (default 35) - Lookahead for alt-ref placement and bitrate allocation; lower cuts memory use and latency",
-    "Frames & Motion"
+    "Frames & Motion",
+    "How many frames the encoder buffers before making decisions, which sets how far ahead it can see. Lookahead drives alt-ref placement, frame type decisions and bit allocation across a scene.\n\nAlt-ref frames in particular depend on it: the encoder needs frames in hand to build one and to decide where it belongs. Lowering this below about 20 measurably costs compression, and 0 disables lookahead entirely for low-delay use.\n\nThe cost is memory and latency, not encoding speed.",
+    "19|The default.\n35|The maximum; the most lookahead for offline encoding.\n25|A common setting balancing memory against compression.\n0|Low delay, at a substantial compression cost."
   ],
   [
     "mv-cost-upd-freq",
     "",
     "0-3 (default 0) - Motion vector cost updates: 0 per superblock, 1 per SB row, 2 per tile, 3 off; higher is faster",
-    "Frames & Motion"
+    "Frames & Motion",
+    "How often the encoder recalculates the cost tables it uses to price motion vectors during the search. Recomputing them often keeps the prices accurate as the statistics change through a frame; recomputing them rarely saves time.\n\nHigher values update less often and encode faster, at a small cost in decision quality because the search is choosing vectors against slightly stale prices.\n\nIt is purely a speed dial and does not change what the format can express.",
+    "0|Most frequent updates; the most accurate decisions.\n1|Update per SB row, a reasonable compromise.\n2|Less frequent updates, noticeably faster.\n3|Least frequent; fastest, with the roughest cost estimates."
   ],
   [
     "enable-fwd-kf",
     "",
     "0-1 (default 0) - Forward reference keyframes, letting a keyframe also serve as a forward reference to save bits",
-    "Frames & Motion"
+    "Frames & Motion",
+    "Allows forward keyframes, which are keyframes that can still be predicted from across, letting the encoder place a keyframe without fully resetting prediction at that point. Ordinary keyframes break the prediction chain entirely, which costs bits every time one appears.\n\nEnabling this lets the encoder insert them more freely where a scene change makes one useful, without paying the full cost.\n\nIt changes the stream's random-access structure, so it is not appropriate where every keyframe must be a clean seek point.",
+    "0|The default; conventional keyframes only.\n1|Allows forward keyframes, cheaper at scene changes."
   ]
 ]

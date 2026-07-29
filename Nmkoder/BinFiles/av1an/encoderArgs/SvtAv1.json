@@ -2,7 +2,7 @@
   [
     "tune",
     "",
-    "0-5 (default 1) - What the encoder optimises for; 0 visual quality, 1 PSNR, 2 SSIM, 3 image quality, 4 MS-SSIM, 5 film grain",
+    "0-5 (default 1) - What it optimises for; 0 visual quality, 1 PSNR, 2 SSIM, 3 image quality, 4 MS-SSIM, 5 film grain",
     "Psychovisual & Sharpness",
     "Tune picks the quality model the encoder optimises its internal decisions against, which changes rate-distortion choices, filtering and where bits land rather than just which score gets reported. 0 is visual quality, 1 PSNR, 2 SSIM, 3 still-image quality, 4 MS-SSIM, and 5 is a film grain bundle that internally runs tune 0 with temporal filtering, restoration and CDEF off, --tx-bias 1 and --ac-bias 4.00.\n\nTune 1 is the metric-safe default. Tune 0 gives a sharper, more detailed picture for lower scores and more artefacts. Tune 5 holds onto grain aggressively and costs bitrate and encoding time; it is aimed at CRF 20 to 40 on a slow preset.\n\nTunes 2, 3 and 4 run only under CRF rate control, and tunes 0 and 5 fall back to 1 in low-delay. Tune 3 is not recommended outside all-intra encoding.",
     "1|The default, optimising for PSNR and the safe choice for general video.\n0|Live action or animation where visible detail matters more than metric scores.\n5|Heavily grained film scans, at CRF 20 to 40 and a slow preset.\n3|Still images and all-intra encodes, paired with --avif 1.\n2|SSIM-driven decisions, and the only tune --alt-ssim-tuning works with."
@@ -26,7 +26,7 @@
   [
     "sharpness",
     "",
-    "-7 to 7 (default 1) - Deblocking sharpness bias, also affecting rate distortion; raise to keep fine detail, lower to smooth",
+    "-7 to 7 (default 1) - Deblocking sharpness bias, also affecting rate distortion; raise to keep fine detail",
     "Psychovisual & Sharpness",
     "Sharpness does two things at once. It sets the deblocking loop filter's sharpness level, so the filter smooths less across block edges, and it feeds the coefficient optimisation stage, where a higher value shrinks the rate term and leaves the encoder less willing to zero out small transform coefficients purely to save bits.\n\nHigher values keep fine detail and grain that would otherwise be filtered or quantised away, in exchange for bits and for more visible blocking and ringing where the deblocker no longer cleans up after the quantiser. Lower values give a cleaner, softer picture. Raise it for detailed live action and stills, lower it for animation, flat gradients or low bitrates.",
     "1|The default in this build, a mild bias towards sharpness.\n0|Mainline's neutral behaviour, for animation or low-bitrate encodes that need the deblocker.\n3|Detailed live action where deblocking is visibly softening texture.\n7|Maximum detail retention, mostly worthwhile on stills and very high fidelity encodes."
@@ -58,7 +58,7 @@
   [
     "variance-boost-strength",
     "",
-    "1-4 (default 2) - How hard low-contrast superblocks are boosted; 1 for smooth animation, 3 for mixed high and low contrast",
+    "1-4 (default 2) - How hard low-contrast superblocks are boosted; 1 for smooth animation, 3 for mixed contrast",
     "Quantization & Bit Allocation",
     "Variance boost lowers the quantiser on 64x64 superblocks that measure low variance, so flat and delicately textured regions such as skin, cloud, fog and night interiors receive bits a fixed quantiser would have spent on high-contrast edges. This value selects how large that boost grows as measured variance falls.\n\nStronger curves buy visible detail in those regions but inflate bitrate and can make film grain retention uneven across a shot. Strength 1 suits flat animation, 2 handles most live action, 3 helps sources that swing between very bright and very dark, and 4 is worth it only when low-contrast detail outranks file size.\n\nIt does nothing unless variance boost itself is enabled, and it augments adaptive quantisation modes 0 and 2.",
     "1|Flat cel animation or screen capture with little texture.\n2|The default; live action and animation with detailed texture.\n3|Horror and thriller material mixing very dark and very bright scenes.\n4|Archival work where low-contrast detail outranks file size."
@@ -123,79 +123,105 @@
     "enable-dlf",
     "",
     "0-2 (default 1) - Deblocking loop filter; 2 is a slower, more accurate variant, 0 leaves block edges in place",
-    "Filtering"
+    "Filtering",
+    "The deblocking loop filter smooths the edges between coded blocks before a frame is stored as a reference, so block boundaries do not persist and propagate into everything predicting from it. Mode 2 is a slower, more accurate variant of the same filter.\n\nLeaving it on is right for almost all encoding. The artefact it removes is the most recognisable failure mode of a block-based codec, and because the filtered frame is what later frames predict from, the benefit compounds.\n\nGrain-preservation setups occasionally turn it off at very high bitrates, where there is little blocking to remove and the filter costs fine detail.",
+    "1|The default; the standard filter.\n2|The slower, more accurate variant for quality-focused encodes.\n0|Off; only sensible at very high bitrates, for grain retention."
   ],
   [
     "enable-tf",
     "",
     "0-2 (default 1) - Temporal filtering of alt-ref frames; 2 varies it adaptively, 0 keeps grain and motion detail",
-    "Filtering"
+    "Filtering",
+    "Temporal filtering builds alternate reference frames by blending several source frames together. The blend cancels noise, producing a clean frame that predicts unusually well, which is a substantial part of where AV1's efficiency comes from.\n\nThe cost is that grain and fine motion detail are averaged away in the reference, and everything predicting from it inherits the smoothing. Mode 2 varies the filtering adaptively rather than applying it uniformly.\n\nTurning it off is a common move in grain-preserving setups, particularly alongside a raised ac-bias, and it costs bitrate.",
+    "1|The default; standard temporal filtering.\n2|Adaptive filtering, varying by content.\n0|Off, for maximum grain and motion detail retention."
   ],
   [
     "tf-strength",
     "",
     "0-4 (default 1) - Temporal filtering strength; lower keeps grain and fine motion, higher denoises and saves bits",
-    "Filtering"
+    "Filtering",
+    "How hard the temporal filter blends when it constructs an alternate reference. Where enable-tf decides whether filtering happens at all, this decides how much of each contributing frame survives.\n\nLower values keep grain and fine motion detail in the reference, at the cost of a noisier reference that predicts less efficiently. Higher values denoise more thoroughly and save bits, flattening texture as they go.\n\nIt is the finer control of the two, and worth reaching for before disabling temporal filtering outright.",
+    "1|The default in this build.\n0|The weakest setting, keeping the most grain.\n2|A middle ground between grain retention and efficiency.\n4|The strongest denoising, for genuinely noisy sources."
   ],
   [
     "kf-tf-strength",
     "",
     "0-4 (default 1, 4x weaker than mainline) - Temporal filtering on keyframes only; lower keeps keyframe grain",
-    "Filtering"
+    "Filtering",
+    "The same temporal filtering strength control as tf-strength, applied only to keyframes. Keyframes are filtered separately because they anchor everything until the next one, so a clean keyframe pays off across the whole interval.\n\nBecause a keyframe is displayed as well as referenced, filtering it too hard is visible directly: the picture softens at the cut and then sharpens as later frames add detail back, which reads as a pulse at every keyframe.\n\nThis build already applies markedly weaker keyframe filtering than mainline, so the default is a conservative setting rather than a neutral one.",
+    "1|The default in this build, already gentler than mainline.\n0|No keyframe filtering, for maximum grain retention at cuts.\n2|Cleaner keyframes, at the cost of a visible softening at each one.\n4|The strongest; only for noisy sources."
   ],
   [
     "noise-adaptive-filtering",
     "",
     "0-4 (default 2) - Backs CDEF and restoration off where the source is noisy; 3 CDEF only, 4 restoration only",
-    "Filtering"
+    "Filtering",
+    "Measures how noisy the source is and backs off the in-loop filters where it finds grain, on the basis that CDEF and loop restoration cannot tell fine noise from the ringing they exist to remove.\n\nWithout it, a grainy source has its grain steadily filtered out of the reference frames, and the encode ends up smoother than intended no matter what the psychovisual settings ask for. Modes 3 and 4 apply the backing-off to CDEF or to restoration alone, rather than both.\n\nIt is enabled by default in this build and is one of the settings that makes grain retention practical without disabling the filters entirely.",
+    "2|The default in this build.\n0|Off; the filters run at full strength regardless of noise.\n3|Applies only to CDEF, leaving restoration alone.\n4|Applies only to loop restoration."
   ],
   [
     "cdef-scaling",
     "",
     "1-30 (default 15, meaning 1x) - Scales CDEF strength; lower sharpens and keeps grain, higher smooths ringing",
-    "Filtering"
+    "Filtering",
+    "Scales the strength CDEF applies. CDEF is the directional filter that removes ringing along edges by filtering along the edge direction rather than across it; the scale here multiplies how hard it works, with 15 meaning normal strength.\n\nLower values filter less, keeping grain and fine texture that CDEF would otherwise take with the ringing, and leaving more ringing behind. Higher values smooth harder, which helps at low bitrates where ringing is the dominant artefact.\n\nDropping it is a gentler alternative to turning CDEF off outright.",
+    "15|The default, meaning normal CDEF strength.\n8|Roughly half strength, keeping more grain and texture.\n1|The minimum; almost no CDEF, for high-bitrate grain retention.\n30|Double strength, for low bitrates where ringing dominates."
   ],
   [
     "noise",
     "",
     "0-200 (default 0) - Synthesises grain at this strength, 50 is about film-grain 50; masks banding on flat gradients",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "Synthesises film grain rather than coding it. Real grain is close to random, so it compresses appallingly badly - a grainy source can spend most of its bitrate reproducing noise. Instead the encoder writes a parameter set and the decoder generates matching grain at playback, for almost no bits at all.\n\nThe trade is that the grain is statistically similar rather than identical, and it is applied after decoding, so it is not part of the picture anything else can act on.\n\nIt is also a practical fix for banding: grain on a flat gradient dithers the steps and hides them.",
+    "0|The default; no synthesis.\n50|Moderate grain, comparable to a film-grain 50 setting.\n25|A light texture, useful mainly to break up banding.\n100|Heavy grain, for matching a visibly grainy film scan."
   ],
   [
     "noise-chroma",
     "",
     "-1 to 200 (default -1) - Chroma grain strength; -1 tracks about 60% of --noise, set it directly for film scans",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "The strength of synthesised grain in the colour planes, separate from the luma strength set by noise. Left at -1 it follows the luma setting at roughly sixty percent, which suits most material.\n\nReal film grain is not evenly distributed between luma and chroma: colour negative stocks carry visible chroma grain, while digital noise is often mostly luma. Setting this directly is how you match a particular look rather than accepting the ratio.\n\nSetting it to 0 gives grain in luma only, which reads as clean and slightly digital.",
+    "-1|The default; tracks about 60% of the luma strength.\n0|Luma grain only, for a cleaner digital look.\n30|Explicit chroma grain, for matching a colour film scan.\n50|Strong chroma grain, matching heavily grained stock."
   ],
   [
     "noise-chroma-from-luma",
     "",
     "0-1 (default 0) - Derives chroma grain from the luma plane, which also puts colour grain on greyscale shots",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "Derives the chroma grain pattern from the luma plane rather than generating it independently, so the colour grain follows the same structure as the brightness grain.\n\nThat correlation is closer to how some film stocks behave and can look more natural on colour material.\n\nIt has one consequence worth knowing: because the chroma grain is derived from luma rather than from the chroma content, greyscale and desaturated shots get colour grain applied to them, which appears as faint coloured speckle in a picture that should have none.",
+    "0|The default; chroma grain generated independently.\n1|Chroma derived from luma; more natural on colour, speckles greyscale shots."
   ],
   [
     "noise-size",
     "",
     "-1 to 13 (default -1) - Grain particle size; -1 picks one from the resolution, higher looks coarser and softer",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "The size of the synthesised grain particles. Grain size is a property of the film stock and the format it was shot on: 16mm grain is large and obvious, 35mm finer, and a digital sensor's noise finer still.\n\nLeft at -1 the encoder picks a size from the resolution, which is a reasonable guess and gets the scale roughly right for most material.\n\nLarger values produce coarser, more visible grain that also reads as slightly softer, because bigger particles obscure more of the detail underneath. Setting it explicitly is how you match a specific source rather than accept the guess.",
+    "-1|The default; size chosen from the resolution.\n8|Fine grain, suiting 35mm and high resolution digital.\n11|Coarser grain, closer to 16mm.\n13|The maximum; large, very visible particles."
   ],
   [
     "noise-norm-strength",
     "",
     "0-4 (default 1) - Lifts AC coefficients in finely textured areas; raise to hold onto grain and fine detail",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "Lifts the AC transform coefficients in finely textured areas, countering the tendency of quantisation to round small coefficients to zero and flatten texture into patches.\n\nWhere grain synthesis replaces noise wholesale, this preserves the real texture that is already there, so the two solve related problems by opposite means and can be used together.\n\nRaising it holds onto grain and fine detail at some bitrate cost. It is one of this build's own additions and has no mainline equivalent.",
+    "1|The default in this build.\n0|Off; standard coefficient handling.\n2|Stronger texture retention on detailed sources.\n4|The maximum, for heavily grained film at a real bitrate cost."
   ],
   [
     "adaptive-film-grain",
     "",
     "0-1 (default 1) - Scales the grain synthesis block size with resolution; 0 pins it to 32x32 at every size",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "Scales the block size that grain synthesis is applied over with the resolution of the video, so grain on a 4K encode is generated over larger blocks than on a 720p one and ends up looking like the same grain viewed at the same physical size.\n\nPinned off, synthesis always uses 32x32 blocks regardless of resolution, which makes the grain look progressively finer as resolution rises - the same pattern spread over more pixels.\n\nIt is on by default and is generally what you want unless you are matching a reference that was made without it.",
+    "1|The default; block size scales with resolution.\n0|Fixed 32x32 blocks at every resolution."
   ],
   [
     "fgs-table",
     "",
     "Path to a pre-generated film grain table applied instead of analysing the source for grain",
-    "Film Grain & Noise"
+    "Film Grain & Noise",
+    "Applies a pre-generated film grain table instead of having the encoder analyse the source and derive grain parameters itself. The file describes the grain to synthesise, and can vary it over the course of the video rather than applying one description throughout.\n\nTables are produced by tools such as grav1synth, which analyses a source and writes out what it measured. That is the way to match the grain of a specific scan precisely, and to keep it consistent across an encode split into several parts.\n\nThe table replaces the noise settings rather than adding to them.",
+    "/path/to/grain.tbl|A table generated from the source by grav1synth.\nC:\\\\encodes\\\\film_grain.tbl|A Windows path; quote it if it contains spaces.\n/mnt/media/scan_grain.tbl|A table shared across parts of a split encode, for consistent grain."
   ],
   [
     "dolby-vision-rpu",
