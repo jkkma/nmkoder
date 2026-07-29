@@ -33,7 +33,8 @@ namespace Nmkoder.UI.Tasks
             // Load quality modes
             Form.Av1anQualModeBox.SetItems(Enum.GetValues<Av1an.QualityMode>()
                 .Select(qm => (object)qm.ToString().Replace("Crf", "CRF").Replace("TargetVmaf", "Target VMAF")
-                    .Replace("TargetSsimu2", "Target SSIMULACRA2").Replace("TargetButteraugli", "Target Butteraugli")), 0);
+                    .Replace("TargetSsimu2", "Target SSIMULACRA2").Replace("TargetButteraugli", "Target Butteraugli")
+                    .Replace("TargetXpsnr", "Target XPSNR")), 0);
 
             Form.Av1anOptsSplitModeBox.SelectedIndex = 1;
 
@@ -384,7 +385,8 @@ namespace Nmkoder.UI.Tasks
         private static readonly Av1an.ChunkMethod[] VapourSynthChunkMethods =
             { Av1an.ChunkMethod.BestSource, Av1an.ChunkMethod.LSMASH, Av1an.ChunkMethod.FFMS2 };
 
-        /// <summary> Whether a chunk method decodes through VapourSynth - which SSIMULACRA2 probing requires. </summary>
+        /// <summary> Whether a chunk method decodes through VapourSynth - which SSIMULACRA2 and
+        /// Butteraugli probing require. XPSNR does not: ffmpeg scores it, with any chunk method. </summary>
         public static bool IsVapourSynthChunkMethod(Av1an.ChunkMethod method)
         {
             return VapourSynthChunkMethods.Contains(method);

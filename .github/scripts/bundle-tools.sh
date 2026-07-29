@@ -586,12 +586,13 @@ VSZIP_TAG="${VSZIP_TAG:-R13}"
 # names is upstream's own, so the match keys on the win64 suffix instead.
 VSJULEK_TAG="${VSJULEK_TAG:-r3}"
 
-# These score the AV1AN tab's metric-targeted quality modes. av1an reaches the metrics
-# through VapourSynth, not through ffmpeg, so without the plugin a mode fails at probe
-# time: vszip (com.julek.vszip) scores SSIMULACRA2, julek scores butteraugli. Vship, the
-# GPU-accelerated alternative av1an accepts for both, is deliberately not bundled: it is
-# hardware-specific (AMD HIP / CUDA), and av1an prefers it on its own when a user drops
-# it into vs-plugins themselves.
+# These score the AV1AN tab's VapourSynth-scored quality modes. av1an reaches these
+# metrics through VapourSynth, not through ffmpeg, so without the plugin a mode fails at
+# probe time: vszip (com.julek.vszip) scores SSIMULACRA2, julek scores butteraugli.
+# Target XPSNR needs neither - av1an scores it with the bundled ffmpeg's xpsnr filter.
+# Vship, the GPU-accelerated alternative av1an accepts for both plugin-scored metrics,
+# is deliberately not bundled: it is hardware-specific (AMD HIP / CUDA), and av1an
+# prefers it on its own when a user drops it into vs-plugins themselves.
 bundle_vs_metric_plugins() {
   VS_PLUGIN_DLL='vszip.dll'
   ASSET_RELEASE_TAG="$VSZIP_TAG"
