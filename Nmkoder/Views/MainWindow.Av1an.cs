@@ -63,14 +63,15 @@ namespace Nmkoder.Views
             else if (mode == Av1an.QualityMode.TargetButteraugli)
             {
                 // Butteraugli runs the scale the other way: it measures distortion, so 0 is
-                // identical and higher is worse, with ~1 the classic just-noticeable
-                // distance. The useful targets sit between whole numbers, hence the tenths.
-                // 2.0 is the counterpart of the defaults above - high quality without
-                // paying for transparency.
+                // identical and higher is worse, and the useful targets sit between whole
+                // numbers, hence the tenths. av1an scores it at 203 nits rather than the 80
+                // the classic "under 1 is fine" lore was calibrated on, so scores read
+                // higher here - av1an's own docs target 5.4 - and 4 sits between that and
+                // the stricter targets seen in the wild.
                 Av1anQualityUpDown.Increment = 0.1m;
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(0.5m, 10);
-                Av1anQualityUpDown.Value = 2.0m;
+                Av1anQualityUpDown.Value = 4.0m;
             }
             else
             {
