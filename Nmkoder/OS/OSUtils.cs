@@ -326,17 +326,77 @@ namespace Nmkoder.OS
             proc.Start();
         }
 
-        public static void ShowNotification(string title, string text)
+        /// <summary>
+        /// OS-level attention ping for when the in-window toast cannot be seen. Linux and macOS
+        /// have one-shot desktop notification commands; Windows has no equivalent for unpackaged
+        /// apps (toasts want an AppUserModelID and a Start Menu shortcut), so the taskbar button
+        /// is flashed instead, which is just as visible and needs nothing installed.
+        /// </summary>
+        public static void ShowSystemNotification(string title, string text)
         {
-            UI.Notifications.Show(title, text);
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                    FlashTaskbarIcon();
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    StartDetached("osascript", "-e", $"display notification \"{EscapeAppleScript(text)}\" with title \"{EscapeAppleScript(title)}\"");
+                else
+                    StartDetached("notify-send", "-a", "Nmkoder", title, text);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"System notification failed: {e.Message}", true); // e.g. no notify-send installed - the in-window toast still showed
+            }
         }
 
-        public static void ShowNotificationIfInBackground(string title, string text)
+        /// <summary> AppleScript string literals know exactly two escapes: backslash and quote. </summary>
+        private static string EscapeAppleScript(string str)
         {
-            if (Program.MainWin != null && Program.MainWin.IsInFocus())
+            return str.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        /// <summary>
+        /// Runs a small helper detached, deliberately NOT through NewProcess: registered processes
+        /// belong to tasks, and pausing or stopping a task must never hit a notification helper.
+        /// </summary>
+        private static void StartDetached(string fileName, params string[] args)
+        {
+            Process proc = new Process();
+            proc.StartInfo = new ProcessStartInfo(fileName) { UseShellExecute = false, CreateNoWindow = true };
+
+            foreach (string arg in args)
+                proc.StartInfo.ArgumentList.Add(arg);
+
+            proc.Start();
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FLASHWINFO { public uint cbSize; public IntPtr hwnd; public uint dwFlags; public uint uCount; public uint dwTimeout; }
+
+        [DllImport("user32.dll")]
+        private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+        private const uint FLASHW_ALL = 3;        // Flash the caption and the taskbar button
+        private const uint FLASHW_TIMERNOFG = 12; // Keep flashing until the window comes to the foreground
+
+        [SupportedOSPlatform("windows")]
+        private static void FlashTaskbarIcon()
+        {
+            IntPtr hwnd = Program.MainWin?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+
+            if (hwnd == IntPtr.Zero)
                 return;
 
-            ShowNotification(title, text);
+            FLASHWINFO info = new FLASHWINFO
+            {
+                cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+                hwnd = hwnd,
+                dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG,
+                uCount = 0,
+                dwTimeout = 0,
+            };
+
+            FlashWindowEx(ref info);
         }
 
         public static string GetPathVar(string additionalPath = null)

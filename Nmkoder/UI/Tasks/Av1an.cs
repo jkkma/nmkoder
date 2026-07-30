@@ -53,12 +53,14 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static async Task RunResume(string overrideTempDir, string overrideArgs)
         {
-            RunTask.canceled = RunTask.canceledManually = false;
+            RunTask.canceled = RunTask.canceledManually = RunTask.failed = false;
             Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
+            NmkdStopwatch sw = new NmkdStopwatch();
 
             try
             {
                 await Run(true, overrideTempDir, overrideArgs);
+                RunTask.NotifyTaskEnd(RunTask.TaskType.Av1an, sw);
             }
             finally
             {
@@ -366,6 +368,7 @@ namespace Nmkoder.UI.Tasks
                 if (outPath == inPath)
                 {
                     Logger.Log($"Output path can't be the same as the input path!");
+                    RunTask.failed = true;
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -373,6 +376,7 @@ namespace Nmkoder.UI.Tasks
                 if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
                     Logger.Log($"Output path must have a valid file extension!");
+                    RunTask.failed = true;
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -387,6 +391,7 @@ namespace Nmkoder.UI.Tasks
             catch (Exception e)
             {
                 Logger.Log($"Error creating av1an command: {e.Message}\n{e.StackTrace}");
+                RunTask.failed = true;
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -417,6 +422,7 @@ namespace Nmkoder.UI.Tasks
             catch (Exception e)
             {
                 Logger.Log($"Failed to create output folder: {e.Message}");
+                RunTask.failed = true;
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -440,7 +446,10 @@ namespace Nmkoder.UI.Tasks
             bool succeeded = exitCode == 0 && !RunTask.canceled && IoUtils.GetFilesize(outPath) > 0;
 
             if (!succeeded && !RunTask.canceled)
+            {
+                RunTask.failed = true;
                 Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+            }
 
             await HandleTempFolder(tempDir, succeeded, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one

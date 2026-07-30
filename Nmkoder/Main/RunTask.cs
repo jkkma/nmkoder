@@ -1,5 +1,6 @@
 using Nmkoder.Data;
 using Nmkoder.Data.Ui;
+using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Media;
 using Nmkoder.OS;
@@ -23,6 +24,9 @@ namespace Nmkoder.Main
         public static bool canceled = false;
         /// <summary> Set when the user pressed Stop, as against a task stopping itself over a bad setting or an error. </summary>
         public static bool canceledManually = false;
+        /// <summary> Set when a task ran but did not produce its output, as against being canceled - av1an
+        /// exiting nonzero sets nothing else, and used to be indistinguishable from success. </summary>
+        public static bool failed = false;
 
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
@@ -35,6 +39,10 @@ namespace Nmkoder.Main
 
             Program.MainWin.SetWorking(false);
             Logger.LogIfLastLineDoesNotContainMsg("Canceled.");
+
+            // A task stopping itself is news; the user pressing Stop is not.
+            if (!canceledManually)
+                Notifications.ShowIfInBackground($"{GetTaskName(Program.MainWin.RunningTask)} canceled", reason.IsEmpty() ? "The log has the details." : reason.Trunc(200));
 
             if (!string.IsNullOrWhiteSpace(reason) && !noMsgBox)
                 UiUtils.ShowMessageBoxAsync($"Canceled:\n\n{reason}", UiUtils.MessageType.Error);
@@ -79,7 +87,7 @@ namespace Nmkoder.Main
                 return;
             }
 
-            canceled = canceledManually = false;
+            canceled = canceledManually = failed = false;
             FfmpegOutputHandler.overrideTargetDurationMs = -1;
             NmkdStopwatch sw = new NmkdStopwatch();
 
@@ -97,6 +105,42 @@ namespace Nmkoder.Main
             Logger.Log($"Done - Finished task in {sw}.");
             Program.MainWin.SetProgress(0);
             Program.MainWin.SetWorking(false);
+
+            if (!runningBatch)
+                NotifyTaskEnd(task, sw);
+        }
+
+        /// <summary>
+        /// Completion toast for a task that ran to its end. A long encode is usually left running
+        /// in the background, where the "Done" log line reaches nobody. Cancellations notify from
+        /// Cancel() instead, where the reason is at hand.
+        /// </summary>
+        internal static void NotifyTaskEnd(TaskType task, NmkdStopwatch sw)
+        {
+            if (canceled)
+                return;
+
+            if (failed)
+                Notifications.ShowIfInBackground($"{GetTaskName(task)} failed", "The task did not finish. The log has the details.");
+            else
+                Notifications.ShowIfInBackground($"{GetTaskName(task)} finished", $"Completed after {sw}.");
+        }
+
+        /// <summary> How a task announces itself in a notification title. </summary>
+        private static string GetTaskName(TaskType task)
+        {
+            switch (task)
+            {
+                case TaskType.Convert: return "Encode";
+                case TaskType.Av1an: return "AV1AN encode";
+                case TaskType.UtilReadBitrates: return "Bitrate reading";
+                case TaskType.UtilGetMetrics: return "Metrics calculation";
+                case TaskType.UtilOcr: return "Subtitle OCR";
+                case TaskType.UtilColorData: return "Color data transfer";
+                case TaskType.UtilConcat: return "Concatenation";
+                case TaskType.PlotBitrate: return "Bitrate chart";
+                default: return "Task";
+            }
         }
 
         public static async Task StartBatch()
@@ -130,7 +174,9 @@ namespace Nmkoder.Main
                 await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true); // Load tracks into list (readonly for user)
                 await Start(batchTask); // Run task
 
-                if (!canceled)
+                // A run that failed on its own (av1an exiting nonzero, a bad output path) does not
+                // set canceled, and used to be counted as finished here.
+                if (!canceled && !failed)
                     finishedTasks++;
             }
 
@@ -138,6 +184,10 @@ namespace Nmkoder.Main
             runningBatch = false;
 
             Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}");
+
+            // A canceled batch already notified from Cancel(), naming the reason.
+            if (!canceled)
+                Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.");
         }
     }
 }
