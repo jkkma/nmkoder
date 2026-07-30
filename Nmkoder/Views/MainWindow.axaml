@@ -15,599 +15,603 @@
 
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
-      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
+                 Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-        <Button Content="Discord" Click="Discord_Click" />
-        <Button Content="Patreon" Click="Patreon_Click" />
-        <Button Content="PayPal" Click="PayPal_Click" />
+        <Button Classes="subtle" Content="Discord" Click="Discord_Click" />
+        <Button Classes="subtle" Content="Patreon" Click="Patreon_Click" />
+        <Button Classes="subtle" Content="PayPal" Click="PayPal_Click" />
       </StackPanel>
     </Grid>
 
     <!-- ══════════════ Main area ══════════════ -->
-    <TabControl Grid.Row="1" x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
+    <!-- The tabs and their content share one rounded panel, raised off the window background. -->
+    <Border Grid.Row="1" Classes="panel">
+      <TabControl x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
 
-      <!-- ─────────── File List ─────────── -->
-      <TabItem Header="File List">
-        <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="8">
-          <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
-            <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
-              <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
-              <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
-            </ComboBox>
-          </StackPanel>
-
-          <Grid Grid.Row="1" Grid.Column="0">
-            <ListBox x:Name="FileListBox" SelectionMode="Multiple"
-                     SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
-              <ListBox.ItemTemplate>
-                <DataTemplate>
-                  <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                  </Border>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-
-            <!-- Shown while the list is empty, so the drop target says what it is. Not hit-testable:
-                 the list underneath still has to take the drop and the clicks. -->
-            <StackPanel x:Name="FileListEmptyHint" IsHitTestVisible="False" Spacing="18"
-                        HorizontalAlignment="Center" VerticalAlignment="Center">
-              <!-- An open crate with an arrow dropping into it, drawn rather than bitmapped so it
-                   stays sharp at whatever size the panel gives it. -->
-              <Viewbox Width="150" Height="150" HorizontalAlignment="Center">
-                <Canvas Width="64" Height="64">
-                  <Path Stroke="#8A8A8A" StrokeThickness="2.6" StrokeLineCap="Round" StrokeJoin="Round"
-                        Data="M 10,34 L 32,26 L 54,34 L 32,42 Z
-                              M 10,34 L 10,50 L 32,58 L 54,50 L 54,34
-                              M 32,42 L 32,58
-                              M 10,34 L 3,27 L 25,19 L 32,26
-                              M 32,26 L 39,19 L 61,27 L 54,34
-                              M 10,34 L 4,40 L 26,48 L 32,42
-                              M 32,42 L 38,48 L 60,40 L 54,34
-                              M 32,2 L 32,17
-                              M 26,11 L 32,17 L 38,11" />
-                </Canvas>
-              </Viewbox>
-              <TextBlock Text="Drag &amp; drop media files anywhere in this window to load them."
-                         HorizontalAlignment="Center" FontSize="14" Foreground="#8A8A8A" />
+        <!-- ─────────── File List ─────────── -->
+        <TabItem Header="File List">
+          <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="8">
+            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+              <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
+              <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
+                <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
+                <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
+              </ComboBox>
             </StackPanel>
-          </Grid>
 
-          <!-- Preview, fixed 16:9 so it keeps the shape of the footage it is showing. The
-               whole panel cycles thumbnails, not just the pixels the image happens to cover.
-               The Track List tab has the same panel; SetThumbnail() feeds both. -->
-          <StackPanel Grid.Row="1" Grid.Column="1" Width="384" Margin="10,0,0,0" VerticalAlignment="Top">
-            <Border Classes="card" Padding="0" Height="216" ClipToBounds="True" PointerPressed="Thumbnail_Click">
-              <Image x:Name="ThumbnailBox" Stretch="Uniform" />
-            </Border>
-            <TextBlock x:Name="ThumbLabel" Classes="dim" Margin="2,6,2,0" />
-          </StackPanel>
-
-          <Grid Grid.Row="2" Grid.Column="0" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" x:Name="FileCountLabel" Classes="dim" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-              <Button x:Name="AddFilesBtn" Content="Add Files…" Click="AddFiles_Click" />
-              <Button x:Name="AddFolderBtn" Content="Add Folder…" Click="AddFolder_Click" />
-              <Button x:Name="FileListRecentBtn" Content="Recent…" Click="FileListRecent_Click" />
-              <Button x:Name="AddTracksFromFileBtn" Content="Load Tracks" Click="AddTracksFromFile_Click" />
-              <Button x:Name="FileListSortBtn" Content="Sort…" Click="FileListSort_Click" />
-              <Button x:Name="FileListMoveUpBtn" Content="▲" Classes="icon" Click="FileListMoveUp_Click" />
-              <Button x:Name="FileListMoveDownBtn" Content="▼" Classes="icon" Click="FileListMoveDown_Click" />
-              <Button x:Name="FileListRemoveBtn" Content="Remove" Click="FileListRemove_Click" />
-            </StackPanel>
-          </Grid>
-        </Grid>
-      </TabItem>
-
-      <!-- ─────────── Track List ─────────── -->
-      <TabItem Header="Track List">
-        <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" ColumnDefinitions="*,Auto" Margin="8">
-          <TextBlock Grid.Row="0" Grid.ColumnSpan="2" x:Name="FormatInfoLabel" Classes="dim" Margin="0,0,0,6" />
-
-          <Border Grid.Row="1" Grid.Column="0">
-            <Grid>
-              <ListBox x:Name="StreamListBox" SelectionChanged="StreamList_SelectionChanged">
+            <Grid Grid.Row="1" Grid.Column="0">
+              <ListBox x:Name="FileListBox" SelectionMode="Multiple"
+                       SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                      <!-- The name is deliberately not the CheckBox's content: clicking a track's
-                           text selects it, and only the box itself ticks it. -->
-                      <StackPanel Orientation="Horizontal" Spacing="8">
-                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" MinWidth="0" Padding="0" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                      </StackPanel>
+                      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
 
-              <!-- Covers the list in Batch Processing Mode, where track selection isn't available -->
-              <Border x:Name="StreamListBlockPanel" IsVisible="False" Background="#CC1B1B1B">
-                <TextBlock Text="Track selection is not available while a batch is running."
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <!-- Shown while the list is empty, so the drop target says what it is. Not hit-testable:
+                   the list underneath still has to take the drop and the clicks. -->
+              <StackPanel x:Name="FileListEmptyHint" IsHitTestVisible="False" Spacing="18"
+                          HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- An open crate with an arrow dropping into it, drawn rather than bitmapped so it
+                     stays sharp at whatever size the panel gives it. -->
+                <Viewbox Width="150" Height="150" HorizontalAlignment="Center">
+                  <Canvas Width="64" Height="64">
+                    <Path Stroke="{DynamicResource NmkoderMutedText}" StrokeThickness="2.6" StrokeLineCap="Round" StrokeJoin="Round"
+                          Data="M 10,34 L 32,26 L 54,34 L 32,42 Z
+                                M 10,34 L 10,50 L 32,58 L 54,50 L 54,34
+                                M 32,42 L 32,58
+                                M 10,34 L 3,27 L 25,19 L 32,26
+                                M 32,26 L 39,19 L 61,27 L 54,34
+                                M 10,34 L 4,40 L 26,48 L 32,42
+                                M 32,42 L 38,48 L 60,40 L 54,34
+                                M 32,2 L 32,17
+                                M 26,11 L 32,17 L 38,11" />
+                  </Canvas>
+                </Viewbox>
+                <TextBlock Text="Drag &amp; drop media files anywhere in this window to load them."
+                           HorizontalAlignment="Center" FontSize="14" Foreground="{DynamicResource NmkoderMutedText}" />
+              </StackPanel>
+            </Grid>
+
+            <!-- Preview, fixed 16:9 so it keeps the shape of the footage it is showing. The
+                 whole panel cycles thumbnails, not just the pixels the image happens to cover.
+                 The Track List tab has the same panel; SetThumbnail() feeds both. -->
+            <StackPanel Grid.Row="1" Grid.Column="1" Width="384" Margin="10,0,0,0" VerticalAlignment="Top">
+              <Border Classes="card" Padding="0" Height="216" ClipToBounds="True" PointerPressed="Thumbnail_Click">
+                <Image x:Name="ThumbnailBox" Stretch="Uniform" />
               </Border>
+              <TextBlock x:Name="ThumbLabel" Classes="dim" Margin="2,6,2,0" />
+            </StackPanel>
+
+            <Grid Grid.Row="2" Grid.Column="0" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+              <TextBlock Grid.Column="0" x:Name="FileCountLabel" Classes="dim" VerticalAlignment="Center" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                <Button x:Name="AddFilesBtn" Content="Add Files…" Click="AddFiles_Click" />
+                <Button x:Name="AddFolderBtn" Content="Add Folder…" Click="AddFolder_Click" />
+                <Button x:Name="FileListRecentBtn" Content="Recent…" Click="FileListRecent_Click" />
+                <Button x:Name="AddTracksFromFileBtn" Content="Load Tracks" Click="AddTracksFromFile_Click" />
+                <Button x:Name="FileListSortBtn" Content="Sort…" Click="FileListSort_Click" />
+                <Button x:Name="FileListMoveUpBtn" Content="▲" Classes="icon" Click="FileListMoveUp_Click" />
+                <Button x:Name="FileListMoveDownBtn" Content="▼" Classes="icon" Click="FileListMoveDown_Click" />
+                <Button x:Name="FileListRemoveBtn" Content="Remove" Click="FileListRemove_Click" />
+              </StackPanel>
             </Grid>
-          </Border>
+          </Grid>
+        </TabItem>
 
-          <!-- Same preview as the File List tab, kept in step by SetThumbnail() -->
-          <StackPanel Grid.Row="1" Grid.Column="1" Width="384" Margin="10,0,0,0" VerticalAlignment="Top">
-            <Border Classes="card" Padding="0" Height="216" ClipToBounds="True" PointerPressed="Thumbnail_Click">
-              <Image x:Name="TrackThumbnailBox" Stretch="Uniform" />
+        <!-- ─────────── Track List ─────────── -->
+        <TabItem Header="Track List">
+          <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" ColumnDefinitions="*,Auto" Margin="8">
+            <TextBlock Grid.Row="0" Grid.ColumnSpan="2" x:Name="FormatInfoLabel" Classes="dim" Margin="0,0,0,6" />
+
+            <Border Grid.Row="1" Grid.Column="0">
+              <Grid>
+                <ListBox x:Name="StreamListBox" SelectionChanged="StreamList_SelectionChanged">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
+                        <!-- The name is deliberately not the CheckBox's content: clicking a track's
+                             text selects it, and only the box itself ticks it. -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" MinWidth="0" Padding="0" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Covers the list in Batch Processing Mode, where track selection isn't available -->
+                <Border x:Name="StreamListBlockPanel" IsVisible="False" Background="{DynamicResource NmkoderScrim}" CornerRadius="6">
+                  <TextBlock Text="Track selection is not available while a batch is running."
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+              </Grid>
             </Border>
-            <TextBlock x:Name="TrackThumbLabel" Classes="dim" Margin="2,6,2,0" />
-          </StackPanel>
 
-          <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button x:Name="TrackListCheckTracksBtn" Content="Select…" Click="TrackListCheckTracks_Click" />
-            <Button x:Name="TrackListSortTracksBtn" Content="Sort…" Click="TrackListSortTracks_Click" />
-            <Button x:Name="TrackListExtractTracksBtn" Content="Extract" IsVisible="False" Click="TrackListExtract_Click" />
-            <Button x:Name="TrackListMoveUpBtn" Content="▲" Classes="icon" IsVisible="False" Click="TrackListMoveUp_Click" />
-            <Button x:Name="TrackListMoveDownBtn" Content="▼" Classes="icon" IsVisible="False" Click="TrackListMoveDown_Click" />
-          </StackPanel>
+            <!-- Same preview as the File List tab, kept in step by SetThumbnail() -->
+            <StackPanel Grid.Row="1" Grid.Column="1" Width="384" Margin="10,0,0,0" VerticalAlignment="Top">
+              <Border Classes="card" Padding="0" Height="216" ClipToBounds="True" PointerPressed="Thumbnail_Click">
+                <Image x:Name="TrackThumbnailBox" Stretch="Uniform" />
+              </Border>
+              <TextBlock x:Name="TrackThumbLabel" Classes="dim" Margin="2,6,2,0" />
+            </StackPanel>
 
-          <!-- Collapsed until a track is selected; see SetStreamDetails() -->
-          <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsVisible="False"
-                   IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
-                   ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                   Height="110" Margin="0,8,0,0" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
+            <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,8,0,0">
+              <Button x:Name="TrackListCheckTracksBtn" Content="Select…" Click="TrackListCheckTracks_Click" />
+              <Button x:Name="TrackListSortTracksBtn" Content="Sort…" Click="TrackListSortTracks_Click" />
+              <Button x:Name="TrackListExtractTracksBtn" Content="Extract" IsVisible="False" Click="TrackListExtract_Click" />
+              <Button x:Name="TrackListMoveUpBtn" Content="▲" Classes="icon" IsVisible="False" Click="TrackListMoveUp_Click" />
+              <Button x:Name="TrackListMoveDownBtn" Content="▼" Classes="icon" IsVisible="False" Click="TrackListMoveDown_Click" />
+            </StackPanel>
 
-          <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
-            <TextBlock Classes="field" Text="Default Audio" />
-            <ComboBox x:Name="TrackListDefaultAudioBox" Width="260" Margin="0,0,32,0" />
-            <TextBlock Classes="field" Text="Default Subtitles" />
-            <ComboBox x:Name="TrackListDefaultSubsBox" Width="260" />
-          </StackPanel>
-        </Grid>
-      </TabItem>
+            <!-- Collapsed until a track is selected; see SetStreamDetails() -->
+            <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsVisible="False"
+                     IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     Height="110" Margin="0,8,0,0" Classes="mono" />
 
-      <!-- ─────────── AV1AN ─────────── -->
-      <TabItem Header="AV1AN">
-        <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="Av1anTabs">
-
-            <TabItem Header="Video">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anContainerBox" SelectionChanged="Av1anContainer_SelectionChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anQualModeBox" SelectionChanged="Av1anQualityMode_SelectionChanged" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
-                  <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="Av1anQualityUpDown" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="30" />
-
-                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
-                  <ComboBox Grid.Row="4" Grid.Column="1" x:Name="Av1anPresetBox" Classes="short" />
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
-                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="Av1anColorSpaceBox" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Grain Synthesis" />
-                  <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Horizontal" Spacing="10">
-                    <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0" />
-                    <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
-                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                    <TextBlock Text="x" VerticalAlignment="Center" />
-                    <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />
-                  <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <ComboBox x:Name="Av1anCropBox" Width="260" SelectionChanged="Av1anCrop_SelectionChanged">
-                      <ComboBoxItem Content="Disabled" />
-                      <ComboBoxItem Content="Automatic (detect black bars)" />
-                      <ComboBoxItem Content="Manual" />
-                    </ComboBox>
-                    <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
-                  </StackPanel>
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Audio &amp; Tracks">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anAudCodecBox" SelectionChanged="Av1anAudCodec_SelectionChanged" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
-                <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="Av1anAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
-
-                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Channels" />
-                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anAudChannelsBox" Width="230" HorizontalAlignment="Left">
-                  <ComboBoxItem Content="0 (Keep original)" />
-                  <ComboBoxItem Content="2 (Stereo)" />
-                  <ComboBoxItem Content="6 (5.1 Surround)" />
-                  <ComboBoxItem Content="8 (7.1 Surround)" />
-                </ComboBox>
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Also Copy" />
-                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                  <CheckBox x:Name="CheckAv1anCopySubs" Content="Subtitles" IsChecked="True" />
-                  <CheckBox x:Name="CheckAv1anCopyData" Content="Data Tracks" />
-                  <CheckBox x:Name="CheckAv1anCopyAttachs" Content="Attachments" IsChecked="True" />
-                </StackPanel>
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Av1an Options">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="None" />
-                    <ComboBoxItem Content="Scene Change Detection" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Chunk Method" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anOptsChunkModeBox" SelectionChanged="Av1anOption_SelectionChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Concat Method" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anOptsConcatModeBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="MKVMerge" />
-                    <ComboBoxItem Content="FFmpeg" />
-                    <ComboBoxItem Content="IVF" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
-                  <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Av1anOptsChunkOrderBox" SelectionChanged="Av1anOption_SelectionChanged">
-                    <ComboBoxItem Content="Long-to-Short (Best CPU utilization)" />
-                    <ComboBoxItem Content="Short-to-Long (Not very useful)" />
-                    <ComboBoxItem Content="Sequential (Same order as input video)" />
-                    <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
-                  </ComboBox>
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Workers" />
-                  <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anOption_ValueChanged" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
-                  <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Custom av1an Args" />
-                  <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anCustomArgsBox" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Custom Encoder Args" />
-                  <TextBox Grid.Row="3" Grid.Column="4" x:Name="Av1anCustomEncArgsBox" />
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Advanced">
-              <!-- The argument list is the long one, so it takes every row the tab can spare and
-                   the filters below size to their own content. -->
-              <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="4">
-                <!-- The right-click window is the only place the long explanations live, and nothing
-                     else on screen would say so, so the heading carries the hint. -->
-                <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Encoder Arguments" VerticalAlignment="Center" Margin="0" />
-                  <TextBlock Grid.Column="1" Classes="hint" Margin="12,0,0,0"
-                             Text="Right-click an argument for a full explanation and example values." />
-                </Grid>
-                <!-- The preset buttons are built in code (LoadAv1anArgPresets), one per preset defined
-                     for the selected encoder, so the whole row is hidden for encoders that have none. -->
-                <StackPanel Grid.Row="1" x:Name="Av1anArgPresetPanel" Orientation="Horizontal" Spacing="6"
-                            Margin="0,0,0,6" IsVisible="False">
-                  <TextBlock Classes="field" Text="Presets" VerticalAlignment="Center" />
-                </StackPanel>
-                <!-- One tab per argument category. The tabs and their grids are built in code
-                     (LoadAv1anArgCategoryTabs) because every encoder has its own categories. -->
-                <TabControl Grid.Row="2" x:Name="Av1anArgCategoryTabs" />
-
-                <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
-                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="Av1anFilterAdd_Click" />
-                  <Button Grid.Column="2" Content="Remove" Click="Av1anFilterRemove_Click" />
-                </Grid>
-
-                <dg:DataGrid Grid.Row="4" x:Name="Av1anAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             MaxHeight="180" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
-
-          </TabControl>
-
-          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
-            <TextBox Grid.Column="1" x:Name="Av1anOutputPathBox" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="6,0,0,0">
-              <Button Content="…" Classes="icon" Click="BrowseAv1anOutput_Click" />
-              <Button x:Name="Av1anResumeBtn" Content="Resume…" Click="Av1anResume_Click" />
-              <Button x:Name="Av1anClearTempBtn" Content="Clear Temp…" Click="Av1anClearTemp_Click"
-                      ToolTip.Tip="Delete the temporary files of every unfinished encode. They cannot be resumed afterwards." />
+            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
+              <TextBlock Classes="field" Text="Default Audio" />
+              <ComboBox x:Name="TrackListDefaultAudioBox" Width="260" Margin="0,0,32,0" />
+              <TextBlock Classes="field" Text="Default Subtitles" />
+              <ComboBox x:Name="TrackListDefaultSubsBox" Width="260" />
             </StackPanel>
           </Grid>
-        </Grid>
-      </TabItem>
+        </TabItem>
 
-      <!-- ─────────── Quick Convert ─────────── -->
-      <TabItem Header="Quick Convert">
-        <Grid RowDefinitions="*,Auto" Margin="8">
-          <TabControl Grid.Row="0" x:Name="QuickEncTabs">
+        <!-- ─────────── AV1AN ─────────── -->
+        <TabItem Header="AV1AN">
+          <Grid RowDefinitions="*,Auto" Margin="8">
+            <TabControl Grid.Row="0" x:Name="Av1anTabs">
 
-            <TabItem Header="Video">
-              <ScrollViewer>
-                <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+              <TabItem Header="Video">
+                <ScrollViewer>
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anContainerBox" SelectionChanged="Av1anContainer_SelectionChanged" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
+                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anQualModeBox" SelectionChanged="Av1anQualityMode_SelectionChanged" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="Av1anQualityUpDown" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="30" />
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
+                    <ComboBox Grid.Row="4" Grid.Column="1" x:Name="Av1anPresetBox" Classes="short" />
+
+                    <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
+                    <ComboBox Grid.Row="0" Grid.Column="4" x:Name="Av1anColorSpaceBox" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Grain Synthesis" />
+                    <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Horizontal" Spacing="10">
+                      <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0" />
+                      <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
+                    <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
+                    <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                      <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
+                      <TextBlock Text="x" VerticalAlignment="Center" />
+                      <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />
+                    <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                      <ComboBox x:Name="Av1anCropBox" Width="260" SelectionChanged="Av1anCrop_SelectionChanged">
+                        <ComboBoxItem Content="Disabled" />
+                        <ComboBoxItem Content="Automatic (detect black bars)" />
+                        <ComboBoxItem Content="Manual" />
+                      </ComboBox>
+                      <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
+                    </StackPanel>
+                  </Grid>
+                </ScrollViewer>
+              </TabItem>
+
+              <TabItem Header="Audio &amp; Tracks">
+                <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anAudCodecBox" SelectionChanged="Av1anAudCodec_SelectionChanged" />
 
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
-                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FfmpegContainerBox" SelectionChanged="Container_SelectionChanged" />
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
+                  <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="Av1anAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
 
-                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
-                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EncQualModeBox" SelectionChanged="EncQualityMode_SelectionChanged" />
-
-                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
-                  <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <NumericUpDown x:Name="EncVidQualityBox" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="20" />
-                    <TextBlock x:Name="QInfoLabel" Classes="hint" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
-                  <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <ComboBox x:Name="EncVidPresetBox" Classes="short" />
-                    <TextBlock x:Name="PresetInfoLabel" Classes="hint" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
-                  <ComboBox Grid.Row="0" Grid.Column="4" x:Name="EncVidColorsBox" />
-
-                  <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Frame Rate" />
-                  <TextBox Grid.Row="1" Grid.Column="4" x:Name="EncVidFpsBox" Classes="num" PlaceholderText="Keep original" />
-
-                  <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                  <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                    <TextBlock Text="x" VerticalAlignment="Center" />
-                    <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Crop" />
-                  <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                    <ComboBox x:Name="EncCropModeBox" Width="260" SelectionChanged="EncCropMode_SelectionChanged">
-                      <ComboBoxItem Content="Disabled" />
-                      <ComboBoxItem Content="Automatic (detect black bars)" />
-                      <ComboBoxItem Content="Manual" />
-                    </ComboBox>
-                    <Button x:Name="EncCropConfBtn" Content="Configure…" IsVisible="False" Click="EncCropConf_Click" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
-                  <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
-                </Grid>
-              </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Audio">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncAudCodecBox" SelectionChanged="EncAudCodec_SelectionChanged" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Configuration" />
-                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <ComboBox x:Name="EncAudConfModeBox" Width="270" SelectionChanged="EncAudConfMode_SelectionChanged">
-                    <ComboBoxItem Content="Same settings for all tracks" />
-                    <ComboBoxItem Content="Configure each track separately" />
+                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Channels" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anAudChannelsBox" Width="230" HorizontalAlignment="Left">
+                    <ComboBoxItem Content="0 (Keep original)" />
+                    <ComboBoxItem Content="2 (Stereo)" />
+                    <ComboBoxItem Content="6 (5.1 Surround)" />
+                    <ComboBoxItem Content="8 (7.1 Surround)" />
                   </ComboBox>
-                  <Button x:Name="EncAudConfigureBtn" Content="Configure…" IsVisible="False" Click="EncAudConfigure_Click" />
-                </StackPanel>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
-                <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="EncAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Channels" />
-                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="EncAudChannelsBox" Width="230" HorizontalAlignment="Left">
-                  <ComboBoxItem Content="0 (Keep original)" />
-                  <ComboBoxItem Content="1 (Mono)" />
-                  <ComboBoxItem Content="2 (Stereo)" />
-                  <ComboBoxItem Content="6 (5.1 Surround)" />
-                  <ComboBoxItem Content="8 (7.1 Surround)" />
-                </ComboBox>
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Subtitles">
-              <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
-                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncSubCodecBox" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Burn In" />
-                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="EncSubBurnBox" />
-              </Grid>
-            </TabItem>
-
-            <TabItem Header="Metadata">
-              <Grid RowDefinitions="Auto,Auto,*" Margin="4">
-                <Grid Classes="form" Grid.Row="0" ColumnDefinitions="150,320,40,150,320,*">
-                  <TextBlock Grid.Column="0" Classes="field" Text="Copy Metadata From" />
-                  <ComboBox Grid.Column="1" x:Name="EncMetaCopySource" />
-                  <TextBlock Grid.Column="3" Classes="field" Text="Copy Chapters From" />
-                  <ComboBox Grid.Column="4" x:Name="EncMetaChapterSource" />
+                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Also Copy" />
+                  <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <CheckBox x:Name="CheckAv1anCopySubs" Content="Subtitles" IsChecked="True" />
+                    <CheckBox x:Name="CheckAv1anCopyData" Content="Data Tracks" />
+                    <CheckBox x:Name="CheckAv1anCopyAttachs" Content="Attachments" IsChecked="True" />
+                  </StackPanel>
                 </Grid>
+              </TabItem>
 
-                <CheckBox Grid.Row="1" x:Name="EncMetaApplyGrid" Content="Apply the titles and languages below" IsChecked="True" Margin="0,8,0,6" />
+              <TabItem Header="Av1an Options">
+                <ScrollViewer>
+                  <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
+                      <ComboBoxItem Content="None" />
+                      <ComboBoxItem Content="Scene Change Detection" />
+                    </ComboBox>
 
-                <dg:DataGrid Grid.Row="2" x:Name="EncMetadataGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Track" Binding="{Binding Field}" IsReadOnly="True" Width="2*" />
-                    <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="5*" />
-                    <dg:DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="Auto" MinWidth="80" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Chunk Method" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="Av1anOptsChunkModeBox" SelectionChanged="Av1anOption_SelectionChanged" />
 
-            <TabItem Header="Advanced">
-              <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Classes="h" Text="Custom Arguments" Margin="0,0,0,4" />
-                <Grid Classes="form" Grid.Row="1" ColumnDefinitions="130,640,*" RowDefinitions="Auto,Auto">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Input Args" />
-                  <TextBox Grid.Row="0" Grid.Column="1" x:Name="EncCustomArgsIn" />
-                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Output Args" />
-                  <TextBox Grid.Row="1" Grid.Column="1" x:Name="EncCustomArgsOut" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Concat Method" />
+                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anOptsConcatModeBox" SelectionChanged="Av1anOption_SelectionChanged">
+                      <ComboBoxItem Content="MKVMerge" />
+                      <ComboBoxItem Content="FFmpeg" />
+                      <ComboBoxItem Content="IVF" />
+                    </ComboBox>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
+                    <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Av1anOptsChunkOrderBox" SelectionChanged="Av1anOption_SelectionChanged">
+                      <ComboBoxItem Content="Long-to-Short (Best CPU utilization)" />
+                      <ComboBoxItem Content="Short-to-Long (Not very useful)" />
+                      <ComboBoxItem Content="Sequential (Same order as input video)" />
+                      <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
+                    </ComboBox>
+
+                    <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Workers" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anOption_ValueChanged" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Custom av1an Args" />
+                    <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anCustomArgsBox" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Custom Encoder Args" />
+                    <TextBox Grid.Row="3" Grid.Column="4" x:Name="Av1anCustomEncArgsBox" />
+                  </Grid>
+                </ScrollViewer>
+              </TabItem>
+
+              <TabItem Header="Advanced">
+                <!-- The argument list is the long one, so it takes every row the tab can spare and
+                     the filters below size to their own content. -->
+                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="4">
+                  <!-- The right-click window is the only place the long explanations live, and nothing
+                       else on screen would say so, so the heading carries the hint. -->
+                  <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Classes="h" Text="ENCODER ARGUMENTS" VerticalAlignment="Center" Margin="0" />
+                    <TextBlock Grid.Column="1" Classes="hint" Margin="12,0,0,0"
+                               Text="Right-click an argument for a full explanation and example values." />
+                  </Grid>
+                  <!-- The preset buttons are built in code (LoadAv1anArgPresets), one per preset defined
+                       for the selected encoder, so the whole row is hidden for encoders that have none. -->
+                  <StackPanel Grid.Row="1" x:Name="Av1anArgPresetPanel" Orientation="Horizontal" Spacing="6"
+                              Margin="0,0,0,6" IsVisible="False">
+                    <TextBlock Classes="field" Text="Presets" VerticalAlignment="Center" />
+                  </StackPanel>
+                  <!-- One tab per argument category. The tabs and their grids are built in code
+                       (LoadAv1anArgCategoryTabs) because every encoder has its own categories. -->
+                  <TabControl Grid.Row="2" x:Name="Av1anArgCategoryTabs" />
+
+                  <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
+                    <TextBlock Grid.Column="0" Classes="h" Text="CUSTOM VIDEO FILTERS" VerticalAlignment="Center" Margin="0" />
+                    <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="Av1anFilterAdd_Click" />
+                    <Button Grid.Column="2" Content="Remove" Click="Av1anFilterRemove_Click" />
+                  </Grid>
+
+                  <dg:DataGrid Grid.Row="4" x:Name="Av1anAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                               MaxHeight="180" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                    <dg:DataGrid.Columns>
+                      <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
+                    </dg:DataGrid.Columns>
+                  </dg:DataGrid>
                 </Grid>
+              </TabItem>
 
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
-                  <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="EncFilterAdd_Click" />
-                  <Button Grid.Column="2" Content="Remove" Click="EncFilterRemove_Click" />
-                </Grid>
+            </TabControl>
 
-                <dg:DataGrid Grid.Row="3" x:Name="EncAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                  <dg:DataGrid.Columns>
-                    <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
-                  </dg:DataGrid.Columns>
-                </dg:DataGrid>
-              </Grid>
-            </TabItem>
-
-          </TabControl>
-
-          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-            <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
-            <TextBox Grid.Column="1" x:Name="OutputPathBox" />
-            <Button Grid.Column="2" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseFfmpegOutput_Click" />
-          </Grid>
-        </Grid>
-      </TabItem>
-
-      <!-- ─────────── Utilities ─────────── -->
-      <TabItem Header="Utilities">
-        <ScrollViewer>
-          <StackPanel Margin="8" Spacing="8" Width="760" HorizontalAlignment="Left">
-            <TextBlock Classes="dim" Text="Pick a utility, then press Run. Utilities are shortcuts for actions that normally need long CLI commands." />
-
-            <Border x:Name="UtilsBitratesPanel" Classes="card" Tapped="SelectReadBitrates">
-              <StackPanel>
-                <TextBlock Text="Read Bitrates" FontWeight="SemiBold" />
-                <TextBlock Classes="dim" Text="Calculates stream size and average bitrate for each selected track." />
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+              <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
+              <TextBox Grid.Column="1" x:Name="Av1anOutputPathBox" />
+              <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="6,0,0,0">
+                <Button Content="…" Classes="icon" Click="BrowseAv1anOutput_Click" />
+                <Button x:Name="Av1anResumeBtn" Content="Resume…" Click="Av1anResume_Click" />
+                <Button x:Name="Av1anClearTempBtn" Content="Clear Temp…" Click="Av1anClearTemp_Click"
+                        ToolTip.Tip="Delete the temporary files of every unfinished encode. They cannot be resumed afterwards." />
               </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsMetricsPanel" Classes="card" Tapped="SelectGetMetrics">
-              <StackPanel>
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" />
-                  <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
-                </Grid>
-                <TextBlock Classes="dim" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsColorDataPanel" Classes="card" Tapped="SelectColorData">
-              <StackPanel>
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" />
-                  <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
-                </Grid>
-                <TextBlock Classes="dim" Text="Copy color properties and HDR metadata from one file to another." />
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
-              <StackPanel>
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" />
-                  <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
-                </Grid>
-                <TextBlock Classes="dim" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsConcatPanel" Classes="card" Tapped="SelectConcat">
-              <StackPanel>
-                <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" />
-                <TextBlock Classes="dim" Text="Merge all loaded files into a single MKV without re-encoding." />
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsBitratePlotPanel" Classes="card" Tapped="SelectBitratePlot">
-              <StackPanel>
-                <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" />
-                <TextBlock Classes="dim" Text="Samples the bitrate across the whole video and plots it." />
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="UtilsOcrPanel" Classes="card" Tapped="SelectOcr">
-              <StackPanel>
-                <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" />
-                <TextBlock Classes="dim" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-
-      <!-- ─────────── Settings ─────────── -->
-      <TabItem Header="Settings">
-        <ScrollViewer>
-          <StackPanel Margin="8" Spacing="6" MaxWidth="800" HorizontalAlignment="Left">
-            <TextBlock Classes="h" Text="General" Margin="0,0,0,2" />
-
-            <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto">
-              <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Console window" />
-              <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
-                <ComboBoxItem Content="Hidden (Default)" />
-                <ComboBoxItem Content="Visible" />
-                <ComboBoxItem Content="Visible, stays open after finishing" />
-              </ComboBox>
-
-              <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
-              <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
-
-              <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
-              <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
-
-              <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Save encodes to" />
-              <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
-                <TextBox Grid.Column="0" x:Name="DefaultOutDirBox" Width="430" LostFocus="DefaultOutDir_Changed"
-                         PlaceholderText="Leave empty to save next to the source file" />
-                <Button Grid.Column="1" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseDefaultOutDir_Click" />
-                <Button Grid.Column="2" Content="Clear" Margin="6,0,0,0" Click="ClearDefaultOutDir_Click" />
-              </Grid>
             </Grid>
+          </Grid>
+        </TabItem>
 
-            <CheckBox x:Name="UseZeroIndexedStreamsBox" Content="Show stream numbers zero-indexed (like ffmpeg does)" IsCheckedChanged="GeneralSetting_Changed" />
-            <CheckBox x:Name="Mp4FaststartBox" Content="Web-optimize MP4 output (+faststart)" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
-            <CheckBox x:Name="Av1anCmdVisibleBox" Content="Show the av1an console window" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
+        <!-- ─────────── Quick Convert ─────────── -->
+        <TabItem Header="Quick Convert">
+          <Grid RowDefinitions="*,Auto" Margin="8">
+            <TabControl Grid.Row="0" x:Name="QuickEncTabs">
 
-            <TextBlock Classes="h" Text="Reset On New File" />
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <TextBlock Classes="field" Text="Settings to reset" Width="200" />
-              <TextBlock x:Name="SettingsToResetLabel" VerticalAlignment="Center" Text="None" MinWidth="200" />
-              <Button Content="Configure…" Click="ResetSettingsConf_Click" />
-              <Button Content="Reset Now" Click="ResetSettingsResetAll_Click" />
+              <TabItem Header="Video">
+                <ScrollViewer>
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Container" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FfmpegContainerBox" SelectionChanged="Container_SelectionChanged" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Quality Mode" />
+                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EncQualModeBox" SelectionChanged="EncQualityMode_SelectionChanged" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Quality" />
+                    <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                      <NumericUpDown x:Name="EncVidQualityBox" Classes="num" Minimum="0" Maximum="100" Increment="1" Value="20" />
+                      <TextBlock x:Name="QInfoLabel" Classes="hint" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Preset / Effort" />
+                    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                      <ComboBox x:Name="EncVidPresetBox" Classes="short" />
+                      <TextBlock x:Name="PresetInfoLabel" Classes="hint" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Color Format" />
+                    <ComboBox Grid.Row="0" Grid.Column="4" x:Name="EncVidColorsBox" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Frame Rate" />
+                    <TextBox Grid.Row="1" Grid.Column="4" x:Name="EncVidFpsBox" Classes="num" PlaceholderText="Keep original" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
+                    <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                      <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" />
+                      <TextBlock Text="x" VerticalAlignment="Center" />
+                      <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Crop" />
+                    <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                      <ComboBox x:Name="EncCropModeBox" Width="260" SelectionChanged="EncCropMode_SelectionChanged">
+                        <ComboBoxItem Content="Disabled" />
+                        <ComboBoxItem Content="Automatic (detect black bars)" />
+                        <ComboBoxItem Content="Manual" />
+                      </ComboBox>
+                      <Button x:Name="EncCropConfBtn" Content="Configure…" IsVisible="False" Click="EncCropConf_Click" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
+                    <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
+                  </Grid>
+                </ScrollViewer>
+              </TabItem>
+
+              <TabItem Header="Audio">
+                <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncAudCodecBox" SelectionChanged="EncAudCodec_SelectionChanged" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Configuration" />
+                  <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <ComboBox x:Name="EncAudConfModeBox" Width="270" SelectionChanged="EncAudConfMode_SelectionChanged">
+                      <ComboBoxItem Content="Same settings for all tracks" />
+                      <ComboBoxItem Content="Configure each track separately" />
+                    </ComboBox>
+                    <Button x:Name="EncAudConfigureBtn" Content="Configure…" IsVisible="False" Click="EncAudConfigure_Click" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Bitrate (Kbps)" />
+                  <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="EncAudQualUpDown" Classes="num" Minimum="0" Maximum="8192" Increment="8" Value="128" />
+
+                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Channels" />
+                  <ComboBox Grid.Row="3" Grid.Column="1" x:Name="EncAudChannelsBox" Width="230" HorizontalAlignment="Left">
+                    <ComboBoxItem Content="0 (Keep original)" />
+                    <ComboBoxItem Content="1 (Mono)" />
+                    <ComboBoxItem Content="2 (Stereo)" />
+                    <ComboBoxItem Content="6 (5.1 Surround)" />
+                    <ComboBoxItem Content="8 (7.1 Surround)" />
+                  </ComboBox>
+                </Grid>
+              </TabItem>
+
+              <TabItem Header="Subtitles">
+                <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,*" Margin="4">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncSubCodecBox" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Burn In" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" x:Name="EncSubBurnBox" />
+                </Grid>
+              </TabItem>
+
+              <TabItem Header="Metadata">
+                <Grid RowDefinitions="Auto,Auto,*" Margin="4">
+                  <Grid Classes="form" Grid.Row="0" ColumnDefinitions="150,320,40,150,320,*">
+                    <TextBlock Grid.Column="0" Classes="field" Text="Copy Metadata From" />
+                    <ComboBox Grid.Column="1" x:Name="EncMetaCopySource" />
+                    <TextBlock Grid.Column="3" Classes="field" Text="Copy Chapters From" />
+                    <ComboBox Grid.Column="4" x:Name="EncMetaChapterSource" />
+                  </Grid>
+
+                  <CheckBox Grid.Row="1" x:Name="EncMetaApplyGrid" Content="Apply the titles and languages below" IsChecked="True" Margin="0,8,0,6" />
+
+                  <dg:DataGrid Grid.Row="2" x:Name="EncMetadataGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                               GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                    <dg:DataGrid.Columns>
+                      <dg:DataGridTextColumn Header="Track" Binding="{Binding Field}" IsReadOnly="True" Width="2*" />
+                      <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="5*" />
+                      <dg:DataGridTextColumn Header="Lang" Binding="{Binding Language}" Width="Auto" MinWidth="80" />
+                    </dg:DataGrid.Columns>
+                  </dg:DataGrid>
+                </Grid>
+              </TabItem>
+
+              <TabItem Header="Advanced">
+                <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
+                  <TextBlock Grid.Row="0" Classes="h" Text="CUSTOM ARGUMENTS" Margin="0,0,0,4" />
+                  <Grid Classes="form" Grid.Row="1" ColumnDefinitions="130,640,*" RowDefinitions="Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Input Args" />
+                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="EncCustomArgsIn" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Output Args" />
+                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="EncCustomArgsOut" />
+                  </Grid>
+
+                  <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
+                    <TextBlock Grid.Column="0" Classes="h" Text="CUSTOM VIDEO FILTERS" VerticalAlignment="Center" Margin="0" />
+                    <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="EncFilterAdd_Click" />
+                    <Button Grid.Column="2" Content="Remove" Click="EncFilterRemove_Click" />
+                  </Grid>
+
+                  <dg:DataGrid Grid.Row="3" x:Name="EncAdvancedFiltersGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                               GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                    <dg:DataGrid.Columns>
+                      <dg:DataGridTextColumn Header="Filter" Binding="{Binding Filter}" Width="*" />
+                    </dg:DataGrid.Columns>
+                  </dg:DataGrid>
+                </Grid>
+              </TabItem>
+
+            </TabControl>
+
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+              <TextBlock Grid.Column="0" Classes="field" Text="Output Path" />
+              <TextBox Grid.Column="1" x:Name="OutputPathBox" />
+              <Button Grid.Column="2" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseFfmpegOutput_Click" />
+            </Grid>
+          </Grid>
+        </TabItem>
+
+        <!-- ─────────── Utilities ─────────── -->
+        <TabItem Header="Utilities">
+          <ScrollViewer>
+            <StackPanel Margin="8" Spacing="8" Width="760" HorizontalAlignment="Left">
+              <TextBlock Classes="dim" Text="Pick a utility, then press Run. Utilities are shortcuts for actions that normally need long CLI commands." />
+
+              <Border x:Name="UtilsBitratesPanel" Classes="card" Tapped="SelectReadBitrates">
+                <StackPanel>
+                  <TextBlock Text="Read Bitrates" FontWeight="SemiBold" />
+                  <TextBlock Classes="dim" Text="Calculates stream size and average bitrate for each selected track." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsMetricsPanel" Classes="card" Tapped="SelectGetMetrics">
+                <StackPanel>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" />
+                    <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
+                  </Grid>
+                  <TextBlock Classes="dim" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsColorDataPanel" Classes="card" Tapped="SelectColorData">
+                <StackPanel>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" />
+                    <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
+                  </Grid>
+                  <TextBlock Classes="dim" Text="Copy color properties and HDR metadata from one file to another." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
+                <StackPanel>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" />
+                    <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
+                  </Grid>
+                  <TextBlock Classes="dim" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsConcatPanel" Classes="card" Tapped="SelectConcat">
+                <StackPanel>
+                  <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" />
+                  <TextBlock Classes="dim" Text="Merge all loaded files into a single MKV without re-encoding." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsBitratePlotPanel" Classes="card" Tapped="SelectBitratePlot">
+                <StackPanel>
+                  <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" />
+                  <TextBlock Classes="dim" Text="Samples the bitrate across the whole video and plots it." />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="UtilsOcrPanel" Classes="card" Tapped="SelectOcr">
+                <StackPanel>
+                  <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" />
+                  <TextBlock Classes="dim" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
+                </StackPanel>
+              </Border>
             </StackPanel>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
+          </ScrollViewer>
+        </TabItem>
 
-    </TabControl>
+        <!-- ─────────── Settings ─────────── -->
+        <TabItem Header="Settings">
+          <ScrollViewer>
+            <StackPanel Margin="8" Spacing="6" MaxWidth="800" HorizontalAlignment="Left">
+              <TextBlock Classes="h" Text="GENERAL" Margin="0,0,0,2" />
+
+              <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Console window" />
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CmdDebugModeBox" SelectionChanged="CmdDebugMode_SelectionChanged">
+                  <ComboBoxItem Content="Hidden (Default)" />
+                  <ComboBoxItem Content="Visible" />
+                  <ComboBoxItem Content="Visible, stays open after finishing" />
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Auto-crop samples" />
+                <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="AutoCropSamplesUpDown" Classes="num" Minimum="1" Maximum="100" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Keyframe interval (s)" />
+                <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="KeyIntSecsUpDown" Classes="num" Minimum="1" Maximum="120" Increment="1" Value="10" ValueChanged="GeneralSetting_ValueChanged" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Save encodes to" />
+                <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,Auto" HorizontalAlignment="Left">
+                  <TextBox Grid.Column="0" x:Name="DefaultOutDirBox" Width="430" LostFocus="DefaultOutDir_Changed"
+                           PlaceholderText="Leave empty to save next to the source file" />
+                  <Button Grid.Column="1" Content="…" Classes="icon" Margin="6,0,0,0" Click="BrowseDefaultOutDir_Click" />
+                  <Button Grid.Column="2" Content="Clear" Margin="6,0,0,0" Click="ClearDefaultOutDir_Click" />
+                </Grid>
+              </Grid>
+
+              <CheckBox x:Name="UseZeroIndexedStreamsBox" Content="Show stream numbers zero-indexed (like ffmpeg does)" IsCheckedChanged="GeneralSetting_Changed" />
+              <CheckBox x:Name="Mp4FaststartBox" Content="Web-optimize MP4 output (+faststart)" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
+              <CheckBox x:Name="Av1anCmdVisibleBox" Content="Show the av1an console window" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
+
+              <TextBlock Classes="h" Text="RESET ON NEW FILE" />
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Classes="field" Text="Settings to reset" Width="200" />
+                <TextBlock x:Name="SettingsToResetLabel" VerticalAlignment="Center" Text="None" MinWidth="200" />
+                <Button Content="Configure…" Click="ResetSettingsConf_Click" />
+                <Button Content="Reset Now" Click="ResetSettingsResetAll_Click" />
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+      </TabControl>
+    </Border>
 
     <!-- ══════════════ Log divider ══════════════ -->
     <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" ResizeDirection="Rows"
-                  Background="#2B2B2B" ToolTip.Tip="Drag to resize the log" />
+                  ToolTip.Tip="Drag to resize the log" />
 
     <!-- ══════════════ Log ══════════════ -->
     <Grid Grid.Row="3" x:Name="LogPanel" RowDefinitions="Auto,*">
-      <TextBlock Grid.Row="0" Classes="h" Text="Log" Margin="0,0,0,2" />
-      <TextBox Grid.Row="1" x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+      <TextBlock Grid.Row="0" Classes="h" Text="LOG" Margin="0,0,0,2" />
+      <TextBox Grid.Row="1" x:Name="LogBox" Classes="log" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
                FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" FontSize="11" />
     </Grid>
@@ -623,8 +627,8 @@
         <CheckBox x:Name="ShutdownWhenDoneBox" Content="Shutdown when done" IsCheckedChanged="ShutdownWhenDone_Changed"
                   ToolTip.Tip="Shut the computer down 60 seconds after the running task or batch finishes, with the countdown shown here - untick to abort it. A canceled task does not shut down. Armed for this session only, never saved." />
         <Button x:Name="PauseBtn" Content="Pause" IsVisible="False" Click="Pause_Click" />
-        <Button x:Name="StopBtn" Content="Stop" IsVisible="False" Click="Stop_Click" />
-        <Button x:Name="RunBtn" Content="Run" MinWidth="120" FontWeight="SemiBold" Click="Run_Click" />
+        <Button x:Name="StopBtn" Classes="danger" Content="Stop" IsVisible="False" Click="Stop_Click" />
+        <Button x:Name="RunBtn" Classes="accent" Content="Run" MinWidth="120" FontWeight="SemiBold" Click="Run_Click" />
       </StackPanel>
     </Grid>
 

@@ -13,7 +13,7 @@
                  Text="No video track is loaded, so the resulting crop area can't be previewed. The values below are still applied." />
     </Border>
 
-    <TextBlock Classes="h" Text="Pixels to crop off each side" />
+    <TextBlock Classes="h" Text="PIXELS TO CROP OFF EACH SIDE" />
 
     <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto" >
       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Left" />
@@ -27,12 +27,12 @@
       <NumericUpDown Grid.Row="1" Grid.Column="3" x:Name="CropBot" Minimum="0" Increment="2" Value="0" ValueChanged="CropTopBotChanged" />
     </Grid>
 
-    <TextBlock Classes="h" Text="Resulting crop area" />
+    <TextBlock Classes="h" Text="RESULTING CROP AREA" />
     <TextBlock x:Name="ResultLabel" Classes="dim" Text="-" />
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
       <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
-      <Button Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
     </StackPanel>
 
   </StackPanel>

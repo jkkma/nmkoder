@@ -25,8 +25,44 @@ objects in `Nmkoder/Data/Ui`, and `AvaloniaUseCompiledBindingsByDefault` is
 `false` in the csproj - which is what lets those templates, and element
 references like `{Binding #SomeControl.Value}`, work with no `x:DataType`
 anywhere. Shared styles are inline `Style Selector` rules in `App.axaml` keyed
-off style classes (`field`, `dim`, `hint`, `h`, `card`, `num`); a control type
-used in more than one window gets a base rule there so its metrics line up.
+off style classes (`field`, `dim`, `hint`, `h`, `card`, `panel`, `num`, `icon`,
+`accent`, `danger`, `subtle`, `log`, `mono`); a control type used in more than
+one window gets a base rule there so its metrics line up.
+
+## The palette
+
+`App.axaml` carries a Discord-style dark palette, and it is the only place
+colors belong - a view that needs one references a `Nmkoder*` brush rather than
+writing a hex literal. The surfaces are `NmkoderSunken` (#1E1F22, inputs and
+lists), `NmkoderBackground` (#2B2D31, the window), `NmkoderPanel` (#313338, the
+tab panel) and `NmkoderHover`; text is `NmkoderText` (#DBDEE1, never white),
+`NmkoderHeaderText` and `NmkoderMutedText`; the one accent is `NmkoderAccent`
+(#79D1C6, a muted aquamarine). The accent is lighter than the text on it would be, so an
+accent fill carries `NmkoderOnAccent` (#102726) rather than white - a selected
+row, a checked box, the Run button. Nothing in the UI is pure white on pure black except the log box,
+which is a terminal and keeps that contrast on purpose - that is what
+`Classes="log"` marks.
+
+It reaches Fluent's own controls two ways. `FluentTheme.Palettes` holds a
+`ColorPaletteResources` for the `Dark` variant, which repaints the theme's
+derived brushes - scrollbars, spinners, disabled states, focus rings - so
+nothing falls back to Fluent's black-and-white base. The leaf keys the control
+templates bind to directly (`ButtonBackground`, `TextControlBackground`,
+`TabItemHeaderForegroundSelected` and the rest) are overridden in
+`Application.Resources`, which wins over the theme for every `DynamicResource`
+lookup. A key that exists in neither place is one Fluent 12.1 does not define;
+the names it does define can be read out of the theme assembly with
+`strings -el ~/.nuget/packages/avalonia.themes.fluent/<version>/lib/net10.0/Avalonia.Themes.Fluent.dll`.
+
+There is no display in a web session, but the UI can still be seen: a throwaway
+console project referencing `Nmkoder.csproj` plus `Avalonia.Headless` and
+`Avalonia.Skia` can `AppBuilder.Configure<Nmkoder.App>().UseSkia().UseHeadless(new
+AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).SetupWithoutStarting()`,
+construct `MainWindow` directly (the lifetime is null, so `App` does not open one
+itself), `Show()` it, pump `Dispatcher.UIThread.RunJobs()` for a second or two
+while its async startup settles, and save `CaptureRenderedFrame()` to a PNG.
+Switching `MainTabs.SelectedIndex` between shots covers every tab. The dialogs
+all have parameterless constructors and shoot the same way.
 
 None of that is accidental, and the `avalonia_docs` MCP server will tell you
 otherwise: `get_avalonia_expert_rules` prescribes MVVM, compiled bindings with
