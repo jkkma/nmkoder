@@ -22,11 +22,11 @@ namespace Nmkoder.Controls
         private double? _dragCurrentX;
 
         // Same palette as the rest of the UI: accent line, muted axis, text that stops short of white
-        private static readonly IBrush LineBrush = new SolidColorBrush(Color.FromRgb(0x9F, 0xDB, 0xC7));
-        private static readonly IBrush FillBrush = new SolidColorBrush(Color.FromArgb(60, 0x9F, 0xDB, 0xC7));
+        private static readonly IBrush LineBrush = new SolidColorBrush(Color.FromRgb(0x9D, 0xE3, 0xDA));
+        private static readonly IBrush FillBrush = new SolidColorBrush(Color.FromArgb(60, 0x9D, 0xE3, 0xDA));
         private static readonly IBrush AxisBrush = new SolidColorBrush(Color.FromRgb(0x4E, 0x50, 0x58));
         private static readonly IBrush TextBrush = new SolidColorBrush(Color.FromRgb(0x94, 0x9B, 0xA4));
-        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(56, 0x9F, 0xDB, 0xC7));
+        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(56, 0x9D, 0xE3, 0xDA));
 
         private const double MarginLeft = 64;
         private const double MarginBottom = 28;
