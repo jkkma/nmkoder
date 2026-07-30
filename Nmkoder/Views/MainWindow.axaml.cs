@@ -400,6 +400,17 @@ namespace Nmkoder.Views
             Task.Run(SuspendResume.TogglePause);
         }
 
+        /// <summary> Mirrored into RunTask because IsChecked can only be read on the UI thread.
+        /// Deliberately not persisted - see RunTask.shutdownWhenDone. </summary>
+        private void ShutdownWhenDone_Changed(object sender, RoutedEventArgs e)
+        {
+            bool armed = ShutdownWhenDoneBox.IsChecked == true;
+            RunTask.shutdownWhenDone = armed;
+
+            if (armed)
+                Logger.Log(Program.busy ? "Shutting down once the current task finishes." : "Shutting down once the next task finishes.");
+        }
+
         private void Thumbnail_Click(object sender, PointerPressedEventArgs e)
         {
             ThumbnailView.ThumbnailClick();

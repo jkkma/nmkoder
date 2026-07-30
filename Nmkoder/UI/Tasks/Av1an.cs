@@ -69,6 +69,9 @@ namespace Nmkoder.UI.Tasks
                 Program.MainWin.SetProgress(0);
                 Program.MainWin.SetWorking(false);
             }
+
+            // After the finally: the countdown aborts itself while the app still counts as busy
+            _ = RunTask.ShutdownWhenDoneCountdown();
         }
 
         public static async Task Run(bool resume = false, string overrideTempDir = "", string overrideArgs = "")

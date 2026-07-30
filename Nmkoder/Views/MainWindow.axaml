@@ -600,6 +600,8 @@
       </StackPanel>
 
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
+        <CheckBox x:Name="ShutdownWhenDoneBox" Content="Shutdown when done" IsCheckedChanged="ShutdownWhenDone_Changed"
+                  ToolTip.Tip="Shut the computer down 60 seconds after the running task or batch finishes, with the countdown shown here - untick to abort it. A canceled task does not shut down. Armed for this session only, never saved." />
         <Button x:Name="PauseBtn" Content="Pause" IsVisible="False" Click="Pause_Click" />
         <Button x:Name="StopBtn" Content="Stop" IsVisible="False" Click="Stop_Click" />
         <Button x:Name="RunBtn" Content="Run" MinWidth="120" FontWeight="SemiBold" Click="Run_Click" />

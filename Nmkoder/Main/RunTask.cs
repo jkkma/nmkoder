@@ -96,6 +96,41 @@ namespace Nmkoder.Main
             Program.MainWin?.SetStatus($"{batchProgressPrefix}{text}", silent: true);
         }
 
+        /// <summary> Mirrors the footer's "Shutdown when done" checkbox as a plain bool, so it can be
+        /// read from any thread. Deliberately never persisted: an armed shutdown must not outlive the
+        /// session that armed it. </summary>
+        public static bool shutdownWhenDone;
+
+        /// <summary>
+        /// Shuts the machine down 60 seconds after a run ended, if the checkbox is armed. Counts down
+        /// in the status label; unticking the box aborts, as does starting another task. Canceled runs
+        /// never shut down - a cancellation either has the user at the machine (Stop) or raises a
+        /// modal error box that would sit unread on a dead screen (and block the abort checkbox).
+        /// </summary>
+        internal static async Task ShutdownWhenDoneCountdown()
+        {
+            if (!shutdownWhenDone || canceled)
+                return;
+
+            Logger.Log("Shutting down in 60 seconds - untick 'Shutdown when done' to abort.");
+
+            for (int secondsLeft = 60; secondsLeft > 0; secondsLeft--)
+            {
+                if (!shutdownWhenDone || Program.busy) // Unticked, or another task was started
+                {
+                    Logger.Log("Shutdown aborted.");
+                    Program.MainWin?.SetStatus("Shutdown aborted.", silent: true);
+                    return;
+                }
+
+                Program.MainWin?.SetStatus($"Shutting down in {secondsLeft}s - untick 'Shutdown when done' to abort.", silent: true);
+                await Task.Delay(1000);
+            }
+
+            Logger.Log("Shutting down now.");
+            OsUtils.Shutdown();
+        }
+
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
             canceled = true;
@@ -176,7 +211,10 @@ namespace Nmkoder.Main
             Program.MainWin.SetWorking(false);
 
             if (!runningBatch)
+            {
                 NotifyTaskEnd(task, sw);
+                _ = ShutdownWhenDoneCountdown();
+            }
         }
 
         /// <summary>
@@ -266,6 +304,7 @@ namespace Nmkoder.Main
             {
                 Program.MainWin?.SetStatus($"Batch done - completed {finishedTasks}/{taskFileListItems.Count} tasks in {sw}.{totalSizes}", silent: true);
                 Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.{totalSizes}");
+                _ = ShutdownWhenDoneCountdown();
             }
         }
     }
