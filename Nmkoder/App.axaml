@@ -3,9 +3,9 @@
              x:Class="Nmkoder.App"
              RequestedThemeVariant="Dark">
 
-  <!-- The palette is Discord's: layered greys instead of black, text that stops short of white,
-       one blurple accent. Nothing in the app is #000 on #FFF except the log, which is meant to
-       read like a terminal. -->
+  <!-- The palette is Discord's greys with an aquamarine accent: layers instead of black, text
+       that stops short of white, one highlight color. Nothing in the app is #000 on #FFF except
+       the log, which is meant to read like a terminal. -->
   <Application.Resources>
 
     <!-- ══════════════ Palette ══════════════ -->
@@ -25,9 +25,11 @@
     <Color x:Key="NmkoderMutedTextColor">#949BA4</Color>
     <Color x:Key="NmkoderInteractiveColor">#B5BAC1</Color>
 
-    <Color x:Key="NmkoderAccentColor">#5865F2</Color>
-    <Color x:Key="NmkoderAccentHoverColor">#4752C4</Color>
-    <Color x:Key="NmkoderAccentPressedColor">#3C45A5</Color>
+    <Color x:Key="NmkoderAccentColor">#9FDBC7</Color>
+    <Color x:Key="NmkoderAccentHoverColor">#B4E6D6</Color>
+    <Color x:Key="NmkoderAccentPressedColor">#83C7B2</Color>
+    <!-- What goes on top of an accent fill. Nothing light is legible on aquamarine. -->
+    <Color x:Key="NmkoderOnAccentColor">#10251F</Color>
     <Color x:Key="NmkoderNeutralButtonColor">#4E5058</Color>
     <Color x:Key="NmkoderNeutralButtonHoverColor">#6D6F78</Color>
     <Color x:Key="NmkoderDangerColor">#DA373C</Color>
@@ -45,7 +47,8 @@
     <SolidColorBrush x:Key="NmkoderAccent" Color="{StaticResource NmkoderAccentColor}" />
     <SolidColorBrush x:Key="NmkoderAccentHover" Color="{StaticResource NmkoderAccentHoverColor}" />
     <SolidColorBrush x:Key="NmkoderAccentPressed" Color="{StaticResource NmkoderAccentPressedColor}" />
-    <SolidColorBrush x:Key="NmkoderAccentSoft" Color="#335865F2" />
+    <SolidColorBrush x:Key="NmkoderAccentSoft" Color="#339FDBC7" />
+    <SolidColorBrush x:Key="NmkoderOnAccent" Color="{StaticResource NmkoderOnAccentColor}" />
     <SolidColorBrush x:Key="NmkoderNeutralButton" Color="{StaticResource NmkoderNeutralButtonColor}" />
     <SolidColorBrush x:Key="NmkoderNeutralButtonHover" Color="{StaticResource NmkoderNeutralButtonHoverColor}" />
     <SolidColorBrush x:Key="NmkoderDanger" Color="{StaticResource NmkoderDangerColor}" />
@@ -98,7 +101,7 @@
     <SolidColorBrush x:Key="TextControlButtonForeground" Color="{StaticResource NmkoderMutedTextColor}" />
     <SolidColorBrush x:Key="TextControlButtonForegroundPointerOver" Color="{StaticResource NmkoderTextColor}" />
     <SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="{StaticResource NmkoderHoverColor}" />
-    <Color x:Key="TextControlSelectionHighlightColor">#5865F2</Color>
+    <Color x:Key="TextControlSelectionHighlightColor">#9FDBC7</Color>
 
     <!-- Dropdowns: closed they read as inputs, open they float above everything -->
     <SolidColorBrush x:Key="ComboBoxBackground" Color="{StaticResource NmkoderSunkenColor}" />
@@ -129,9 +132,9 @@
     <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="{StaticResource NmkoderAccentPressedColor}" />
     <SolidColorBrush x:Key="ComboBoxItemForeground" Color="{StaticResource NmkoderTextColor}" />
     <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="{StaticResource NmkoderHeaderTextColor}" />
-    <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="{StaticResource NmkoderOnAccentColor}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="{StaticResource NmkoderOnAccentColor}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="{StaticResource NmkoderOnAccentColor}" />
 
     <!-- Tabs: no filled pill, just the accent pipe under the selected one -->
     <SolidColorBrush x:Key="TabItemHeaderBackgroundSelected" Color="Transparent" />
@@ -161,9 +164,9 @@
     <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPressed" Color="{StaticResource NmkoderInteractiveColor}" />
     <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" Color="{StaticResource NmkoderAccentHoverColor}" />
     <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" Color="{StaticResource NmkoderAccentPressedColor}" />
-    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="{StaticResource NmkoderOnAccentColor}" />
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="{StaticResource NmkoderOnAccentColor}" />
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" Color="{StaticResource NmkoderOnAccentColor}" />
     <SolidColorBrush x:Key="CheckBoxForegroundUnchecked" Color="{StaticResource NmkoderTextColor}" />
     <SolidColorBrush x:Key="CheckBoxForegroundChecked" Color="{StaticResource NmkoderTextColor}" />
     <SolidColorBrush x:Key="CheckBoxForegroundUncheckedPointerOver" Color="{StaticResource NmkoderHeaderTextColor}" />
@@ -189,8 +192,8 @@
     <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="{StaticResource NmkoderAccentColor}" />
     <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="{StaticResource NmkoderAccentPressedColor}" />
     <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="{StaticResource NmkoderTextColor}" />
-    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="{StaticResource NmkoderOnAccentColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="{StaticResource NmkoderOnAccentColor}" />
     <SolidColorBrush x:Key="FlyoutBackground" Color="{StaticResource NmkoderBaseColor}" />
     <SolidColorBrush x:Key="FlyoutBorderThemeBrush" Color="{StaticResource NmkoderBorderSubtleColor}" />
 
@@ -218,10 +221,10 @@
     <SolidColorBrush x:Key="DataGridGridLinesBrush" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridFillerColumnGridLinesBrush" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridRowBackgroundBrush" Color="Transparent" />
-    <SolidColorBrush x:Key="DataGridRowSelectedBackgroundBrush" Color="{StaticResource NmkoderAccentColor}" />
-    <SolidColorBrush x:Key="DataGridRowSelectedHoveredBackgroundBrush" Color="{StaticResource NmkoderAccentHoverColor}" />
-    <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="{StaticResource NmkoderAccentColor}" />
-    <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="{StaticResource NmkoderAccentHoverColor}" />
+    <SolidColorBrush x:Key="DataGridRowSelectedBackgroundBrush" Color="#599FDBC7" />
+    <SolidColorBrush x:Key="DataGridRowSelectedHoveredBackgroundBrush" Color="#739FDBC7" />
+    <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="#599FDBC7" />
+    <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="#739FDBC7" />
     <SolidColorBrush x:Key="DataGridBorder" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridCellBackgroundBrush" Color="Transparent" />
     <SolidColorBrush x:Key="DataGridDetailsPresenterBackgroundBrush" Color="Transparent" />
@@ -235,7 +238,7 @@
     <FluentTheme>
       <FluentTheme.Palettes>
         <ColorPaletteResources x:Key="Dark"
-                               Accent="#5865F2"
+                               Accent="#9FDBC7"
                                RegionColor="#2B2D31"
                                AltHigh="#1E1F22"
                                AltLow="#331E1F22"
@@ -309,6 +312,7 @@
     <Style Selector="TextBox">
       <Setter Property="MinHeight" Value="30" />
       <Setter Property="Padding" Value="8,3" />
+      <Setter Property="SelectionForegroundBrush" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
     <Style Selector="NumericUpDown">
@@ -351,23 +355,23 @@
     </Style>
 
     <!-- The one button per screen that starts the work -->
-    <Style Selector="Button.accent">
+    <Style Selector="Button.accent /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource NmkoderAccent}" />
-      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
     <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource NmkoderAccentHover}" />
-      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
     <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource NmkoderAccentPressed}" />
-      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
     <!-- Stopping is the destructive one, so it says so -->
-    <Style Selector="Button.danger">
+    <Style Selector="Button.danger /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource NmkoderDanger}" />
       <Setter Property="Foreground" Value="#FFFFFF" />
     </Style>
@@ -378,7 +382,7 @@
     </Style>
 
     <!-- Header links and other buttons that should not compete with the real controls -->
-    <Style Selector="Button.subtle">
+    <Style Selector="Button.subtle /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="{DynamicResource NmkoderMutedText}" />
     </Style>
@@ -405,6 +409,18 @@
     <Style Selector="ListBoxItem">
       <Setter Property="CornerRadius" Value="4" />
       <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
     <Style Selector="DataGrid">

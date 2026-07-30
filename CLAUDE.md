@@ -37,7 +37,9 @@ writing a hex literal. The surfaces are `NmkoderSunken` (#1E1F22, inputs and
 lists), `NmkoderBackground` (#2B2D31, the window), `NmkoderPanel` (#313338, the
 tab panel) and `NmkoderHover`; text is `NmkoderText` (#DBDEE1, never white),
 `NmkoderHeaderText` and `NmkoderMutedText`; the one accent is `NmkoderAccent`
-(#5865F2). Nothing in the UI is pure white on pure black except the log box,
+(#9FDBC7, a pastel aquamarine). The accent is lighter than the text on it would be, so an
+accent fill carries `NmkoderOnAccent` (#10251F) rather than white - a selected
+row, a checked box, the Run button. Nothing in the UI is pure white on pure black except the log box,
 which is a terminal and keeps that contrast on purpose - that is what
 `Classes="log"` marks.
 
