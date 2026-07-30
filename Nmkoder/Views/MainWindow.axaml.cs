@@ -114,9 +114,12 @@ namespace Nmkoder.Views
 
         private void OnClosing(object sender, WindowClosingEventArgs e)
         {
-            SaveUiConfig();
-            SaveConfigAv1an();
-            SaveAv1anAdvancedArgs();
+            using (Config.Batch())
+            {
+                SaveUiConfig();
+                SaveConfigAv1an();
+                SaveAv1anAdvancedArgs();
+            }
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
@@ -129,17 +132,22 @@ namespace Nmkoder.Views
 
         void LoadUiConfig()
         {
-            ConfigParser.LoadComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.LoadGuiElement(FfmpegContainerBox);
-            ConfigParser.LoadComboxIndex(EncVidCodecsBox);
-            ConfigParser.LoadComboxIndex(EncAudCodecBox);
-            ConfigParser.LoadComboxIndex(EncSubCodecBox);
-            ConfigParser.LoadComboxIndex(EncMetaCopySource);
+            // Batched because reading a key that is not in the file yet writes its default back, so on a
+            // first run this whole method is a long series of writes rather than a series of reads.
+            using (Config.Batch())
+            {
+                ConfigParser.LoadComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.LoadGuiElement(FfmpegContainerBox);
+                ConfigParser.LoadComboxIndex(EncVidCodecsBox);
+                ConfigParser.LoadComboxIndex(EncAudCodecBox);
+                ConfigParser.LoadComboxIndex(EncSubCodecBox);
+                ConfigParser.LoadComboxIndex(EncMetaCopySource);
 
-            LoadConfigAv1an();
-            LoadGeneralSettings();
-            ResetSettingsOnNewFile.Load();
+                LoadConfigAv1an();
+                LoadGeneralSettings();
+                ResetSettingsOnNewFile.Load();
+            }
         }
 
         public void SaveUiConfig()
@@ -147,13 +155,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ConfigParser.SaveComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.SaveGuiElement(FfmpegContainerBox);
-            ConfigParser.SaveComboxIndex(EncVidCodecsBox);
-            ConfigParser.SaveComboxIndex(EncAudCodecBox);
-            ConfigParser.SaveComboxIndex(EncSubCodecBox);
-            ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.SaveGuiElement(FfmpegContainerBox);
+                ConfigParser.SaveComboxIndex(EncVidCodecsBox);
+                ConfigParser.SaveComboxIndex(EncAudCodecBox);
+                ConfigParser.SaveComboxIndex(EncSubCodecBox);
+                ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            }
         }
 
         #endregion

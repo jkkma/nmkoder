@@ -27,13 +27,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            Config.Set(Config.Key.CmdDebugMode, CmdDebugModeBox.SelectedIndex.Clamp(0, 2).ToString());
-            Config.Set(Config.Key.AutoCropSamples, AutoCropSamplesUpDown.Value.AsInt().ToString());
-            Config.Set(Config.Key.DefaultKeyIntSecs, KeyIntSecsUpDown.Value.AsInt().ToString());
-            Config.Set(Config.Key.UseZeroIndexedStreams, (UseZeroIndexedStreamsBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.mp4Faststart, (Mp4FaststartBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.Av1anCmdVisible, (Av1anCmdVisibleBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.DefaultOutputDir, (DefaultOutDirBox.Text ?? "").Trim().Trim('"'));
+            using (Config.Batch())
+            {
+                Config.Set(Config.Key.CmdDebugMode, CmdDebugModeBox.SelectedIndex.Clamp(0, 2).ToString());
+                Config.Set(Config.Key.AutoCropSamples, AutoCropSamplesUpDown.Value.AsInt().ToString());
+                Config.Set(Config.Key.DefaultKeyIntSecs, KeyIntSecsUpDown.Value.AsInt().ToString());
+                Config.Set(Config.Key.UseZeroIndexedStreams, (UseZeroIndexedStreamsBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.mp4Faststart, (Mp4FaststartBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.Av1anCmdVisible, (Av1anCmdVisibleBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.DefaultOutputDir, (DefaultOutDirBox.Text ?? "").Trim().Trim('"'));
+            }
         }
 
         /// <summary>

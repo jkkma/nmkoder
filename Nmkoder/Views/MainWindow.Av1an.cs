@@ -152,15 +152,18 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ConfigParser.SaveComboxIndex(Av1anContainerBox);
-            ConfigParser.SaveComboxIndex(Av1anCodecBox);
-            ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
-            ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
-            ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(Av1anContainerBox);
+                ConfigParser.SaveComboxIndex(Av1anCodecBox);
+                ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
+                ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+            }
         }
 
         /// <summary> The category tabs' grids, kept for committing pending edits on save. </summary>

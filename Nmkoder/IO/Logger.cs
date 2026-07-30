@@ -134,12 +134,14 @@ namespace Nmkoder.IO
             if (Path.GetExtension(filename) != ".txt")
                 filename = Path.ChangeExtension(filename, "txt");
 
-            file = Path.Combine(Paths.GetLogPath(), filename);
             logStr = logStr.Replace(Environment.NewLine, " <br> ").TrimWhitespaces();
             string time = DateTime.Now.ToString("MM-dd-yyyy HH:mm:ss");
 
             try
             {
+                // Inside the try: resolving the log path creates directories, and a location that
+                // refuses them must not take down whatever was only trying to write a log line.
+                file = Path.Combine(Paths.GetLogPath(), filename);
                 string appendStr = noLineBreak ? $" {logStr}" : $"{Environment.NewLine}[{id.ToString().PadLeft(8, '0')}] [{time}]: {logStr}";
 
                 lock (sessionLogs)
