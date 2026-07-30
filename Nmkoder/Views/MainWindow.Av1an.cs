@@ -7,6 +7,7 @@ using Nmkoder.Data.Codecs;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Data.Ui;
+using Nmkoder.Media;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
@@ -14,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Nmkoder.Views
 {
@@ -192,6 +194,157 @@ namespace Nmkoder.Views
             Av1anArgCategoryTabs.ItemsSource = tabs;
             int index = tabs.FindIndex(t => t.Header?.ToString() == selected);
             Av1anArgCategoryTabs.SelectedIndex = index >= 0 ? index : 0;
+        }
+
+        /// <summary>
+        /// Builds the preset row from whatever presets the selected encoder has. Encoders with none get
+        /// no row at all rather than an empty one, so the tab looks exactly as it did before for them.
+        /// </summary>
+        public void LoadAv1anArgPresets(string encoderName)
+        {
+            IReadOnlyList<EncoderArgPreset> presets = EncoderArgPresets.For(encoderName);
+
+            // The label is the panel's one fixed child; everything after it belongs to the last encoder
+            while (Av1anArgPresetPanel.Children.Count > 1)
+                Av1anArgPresetPanel.Children.RemoveAt(Av1anArgPresetPanel.Children.Count - 1);
+
+            Av1anArgPresetPanel.IsVisible = presets.Count > 0;
+
+            if (presets.Count < 1)
+                return;
+
+            foreach (EncoderArgPreset preset in presets)
+            {
+                Button button = new Button { Content = preset.Name };
+                ToolTip.SetTip(button, $"{preset.Description}\n\nSets {preset.Values.Count} arguments and empties " +
+                    $"the rest, so what the encoder gets is the preset and nothing else. Every value stays editable.");
+                button.Click += async (s, e) => await ApplyAv1anArgPreset(preset);
+                Av1anArgPresetPanel.Children.Add(button);
+            }
+
+            Button clear = new Button { Content = "Clear" };
+            ToolTip.SetTip(clear, "Empties every argument, leaving the encoder on its own defaults.");
+            clear.Click += async (s, e) => await ApplyAv1anArgPreset(null);
+            Av1anArgPresetPanel.Children.Add(clear);
+        }
+
+        /// <summary>
+        /// Writes a preset into the argument grid, or empties the grid when given null.
+        /// <para/>
+        /// Every row the preset does not name is cleared. A preset that only added to whatever was
+        /// already there would encode differently depending on what had been typed before it, and there
+        /// would be no way to get back to the preset as published - which is the whole point of one.
+        /// <para/>
+        /// That makes it destructive, so values it would overwrite are confirmed first - but only where
+        /// they were typed by hand. Arriving from another preset, or from this same one, is a state the
+        /// user got to by pressing one of these buttons, and re-confirming it every time would be noise.
+        /// </summary>
+        private async Task ApplyAv1anArgPreset(EncoderArgPreset preset)
+        {
+            // A cell still being edited has not written back to its row, so without this the value read
+            // below would be the one from before the edit - and the edit would then survive the preset.
+            foreach (DataGrid grid in _av1anArgGrids)
+                grid.CommitEdit();
+
+            Dictionary<string, string> filled = Av1anArgRows
+                .Where(r => r.Argument.IsNotEmpty() && r.Value.IsNotEmpty())
+                .GroupBy(r => r.Argument.Trim())
+                .ToDictionary(g => g.Key, g => g.Last().Value.Trim());
+
+            // Already exactly what was asked for - an empty grid to clear, or this very preset
+            if (preset == null ? filled.Count < 1 : preset.Matches(filled))
+                return;
+
+            string encoderName = CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()).Name;
+            bool handEdited = filled.Count > 0 && !EncoderArgPresets.For(encoderName).Any(p => p.Covers(filled));
+
+            if (handEdited)
+            {
+                // Deliberately not "typed by hand": what is here may be mostly a preset with one value
+                // changed, and counting all of it as hand-typed would overstate what is being lost.
+                // What matters is only that it is not any preset, so none of it can be got back.
+                bool one = filled.Count == 1;
+                string msg = $"{filled.Count} argument{(one ? " is" : "s are")} set, and {(one ? "it does" : "they do")} not match a preset:\n\n" +
+                    $"{string.Join(", ", filled.Select(f => $"{f.Key} {f.Value}"))}\n\n" +
+                    (preset == null
+                        ? $"Clearing empties {(one ? "it" : "them all")}. Continue?"
+                        : $"Applying '{preset.Name}' replaces {(one ? "it" : "them all")}. Continue?");
+
+                if (await UiUtils.ShowMessageBox(msg, "Replace the arguments already set?", UiUtils.MessageButtons.YesNo) != UiUtils.DialogResult.Yes)
+                    return;
+            }
+
+            Dictionary<string, string> applicable = preset == null
+                ? new Dictionary<string, string>()
+                : await GetApplicablePresetValues(preset, encoderName);
+
+            foreach (EncoderArgRow row in Av1anArgRows)
+                row.Value = applicable.TryGetValue(row.Argument.Trim(), out string value) ? value : "";
+
+            SaveAv1anAdvancedArgs();
+
+            if (preset == null)
+            {
+                Logger.Log("Cleared the encoder arguments.");
+                return;
+            }
+
+            // A preset naming an argument this encoder has no row for would go unset and unmentioned.
+            // It should not happen - the presets are written against the same JSON the grid is built
+            // from - but a setting missing from the encode is worth more than a quiet developer error.
+            var missing = applicable.Keys.Where(k => !Av1anArgRows.Any(r => r.Argument.Trim() == k)).ToList();
+
+            if (missing.Count > 0)
+                Logger.Log($"The '{preset.Name}' preset could not set {string.Join(", ", missing)} - this encoder has no such argument.");
+
+            Logger.Log($"Applied the '{preset.Name}' argument preset: {Av1anUi.BuildAdvancedArgs(Av1anArgRows)}");
+        }
+
+        /// <summary>
+        /// A preset's values, less any the encoder that would run does not have a parameter for.
+        /// <para/>
+        /// Which binary that is comes down to how the release was built. The bundle prefers svt-av1-hdr,
+        /// which continues the PSY line, but falls back to mainline SVT-AV1 where no prebuilt exists,
+        /// and on macOS it bundles no encoder at all - leaving whatever Homebrew installed, which is
+        /// mainline. Handing a PSY-line parameter to a mainline binary does not degrade into it being
+        /// ignored: the encoder refuses the whole command, and every chunk fails.
+        /// <para/>
+        /// So the encoder is asked. A parameter it does not list is dropped, and said out loud, since
+        /// dropping it means the preset is not doing all it says. An encoder that cannot be found or
+        /// run answers nothing, and nothing is dropped on the strength of a failed lookup.
+        /// </summary>
+        private static async Task<Dictionary<string, string>> GetApplicablePresetValues(EncoderArgPreset preset, string encoderName)
+        {
+            string av1anEncoder = EncoderArgPresets.Av1anEncoderName(encoderName);
+
+            if (av1anEncoder.IsEmpty())
+                return new Dictionary<string, string>(preset.Values);
+
+            var applicable = new Dictionary<string, string>();
+            var unsupported = new List<string>();
+
+            foreach (var value in preset.Values)
+            {
+                // Matched with the dashes on, so a parameter is not found inside a longer one's name
+                if (await AvProcess.EncoderKnowsFlagOrIsUnknown(av1anEncoder, $"--{value.Key}"))
+                    applicable[value.Key] = value.Value;
+                else
+                    unsupported.Add(value.Key);
+            }
+
+            // Worth naming the cause rather than the symptom. These presets are written for the PSY
+            // line, and an encoder missing parameters from it is almost always mainline SVT-AV1 -
+            // which is a thing to go and fix, not a build to quietly encode a lesser preset on.
+            if (unsupported.Count > 0)
+            {
+                Logger.Log($"Left {string.Join(", ", unsupported)} out of the '{preset.Name}' preset - the encoder " +
+                    $"being used does not have {(unsupported.Count == 1 ? "that parameter" : "those parameters")}, " +
+                    $"and would refuse the whole command over {(unsupported.Count == 1 ? "it" : "them")}. That means " +
+                    $"it is mainline SVT-AV1 rather than the PSY-line build (svt-av1-hdr) these presets " +
+                    $"are written for, so the rest of the preset is doing less than it says.");
+            }
+
+            return applicable;
         }
 
         /// <summary> One category's grid, with the same columns the single flat grid used to have. </summary>

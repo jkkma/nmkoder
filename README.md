@@ -74,7 +74,14 @@ stages the external tools into `bin/`:
 |---|---|---|---|---|---|---|---|
 | win-x64 | bundled | bundled | bundled | bundled | bundled | see below | bundled |
 | linux-x64 | bundled | use package manager | use package manager | use package manager | use package manager | use package manager | bundled |
-| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an` | `brew install vapoursynth` | `brew install svt-av1 aom x265` | `brew install libvpx` | bundled |
+| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `brew install av1an` | `brew install vapoursynth` | `brew install aom x265`, SVT-AV1 see below | `brew install libvpx` | bundled |
+
+SVT-AV1 is the exception to "whatever your package manager has". Nmkoder bundles the
+[svt-av1-hdr](https://github.com/juliobbv-p/svt-av1-hdr) build, which continues the SVT-AV1-PSY
+line, and the AV1AN tab's content presets are written for the parameters only that line has.
+Homebrew's `svt-av1` is mainline: it rejects those parameters outright rather than ignoring
+them, so Nmkoder drops them and says so. On macOS, build svt-av1-hdr from source and put
+`SvtAv1EncApp` on your `PATH` to get the presets as intended.
 
 Only Windows gets the av1an toolchain. av1an publishes prebuilt binaries for Windows only,
 VapourSynth's portable build is Windows-only, and the encoders come from MSYS2's mingw64

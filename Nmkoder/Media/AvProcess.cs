@@ -269,8 +269,8 @@ namespace Nmkoder.Media
             }
         }
 
-        /// <summary> av1an's own --help, read once per session. "" if it could not be read at all. </summary>
-        private static string av1anHelpText = null;
+        /// <summary> Each tool's own --help, read once per session. "" if it could not be read at all. </summary>
+        private static readonly Dictionary<string, string> helpTexts = new Dictionary<string, string>();
 
         /// <summary>
         /// Whether the av1an that would actually run understands a given flag.
@@ -283,7 +283,7 @@ namespace Nmkoder.Media
         /// </summary>
         public static async Task<bool> Av1anSupportsFlag(string flag)
         {
-            return (await GetAv1anHelp()).Contains(flag);
+            return (await GetToolHelp("av1an")).Contains(flag);
         }
 
         /// <summary>
@@ -293,58 +293,81 @@ namespace Nmkoder.Media
         /// </summary>
         public static async Task<bool> Av1anHelpKnown()
         {
-            return (await GetAv1anHelp()).IsNotEmpty();
+            return (await GetToolHelp("av1an")).IsNotEmpty();
         }
 
-        private static async Task<string> GetAv1anHelp()
+        /// <summary>
+        /// Whether the encoder av1an would invoke for a codec understands a given flag - the same
+        /// question Av1anSupportsFlag asks of av1an, asked of the encoder behind it.
+        /// <para/>
+        /// It has to be asked separately because which binary answers is a build-time accident. The
+        /// bundle prefers svt-av1-hdr, which continues the PSY line, but falls back to mainline
+        /// SVT-AV1 where no prebuilt exists - and on macOS it bundles nothing at all, leaving whatever
+        /// Homebrew installed, which is mainline. A PSY-line parameter set against a mainline binary
+        /// is not ignored: the encoder rejects the command and the encode never starts.
+        /// <para/>
+        /// Returns false only when a help text was actually read and the flag was not in it. An
+        /// encoder that could not be found or run says nothing about what it supports, so it is given
+        /// the benefit of the doubt rather than having its arguments stripped on a failed lookup.
+        /// </summary>
+        public static async Task<bool> EncoderKnowsFlagOrIsUnknown(string av1anEncoderName, string flag)
         {
-            if (av1anHelpText != null)
-                return av1anHelpText;
+            if (!av1anEncoderBinaries.TryGetValue(av1anEncoderName, out string binary))
+                return true;
 
-            // Set before the work, not after: an av1an that cannot be found or cannot be run will not
+            string help = await GetToolHelp(binary);
+            return help.IsEmpty() || help.Contains(flag);
+        }
+
+        private static async Task<string> GetToolHelp(string tool)
+        {
+            if (helpTexts.TryGetValue(tool, out string cached))
+                return cached;
+
+            // Set before the work, not after: a tool that cannot be found or cannot be run will not
             // start answering later, and retrying it before every encode only delays each one. The
-            // timeout below is the one exception, undone where it happens: that av1an may merely
+            // timeout below is the one exception, undone where it happens: that tool may merely
             // still be being virus-scanned or paged in, and answers fine on the next attempt.
-            av1anHelpText = "";
+            helpTexts[tool] = "";
 
             try
             {
                 string dir = Path.Combine(Paths.GetBinPath(), "av1an");
                 string[] toolDirs = new[] { dir, Path.Combine(dir, "enc"), Path.Combine(dir, "vsynth"), Paths.GetBinPath() };
-                string path = GetToolPath("av1an", toolDirs);
+                string path = GetToolPath(tool, toolDirs);
 
                 if (path.IsEmpty())
-                    return av1anHelpText;
+                    return helpTexts[tool];
 
-                Process av1an = OsUtils.NewProcess(true, NmkoderProcess.ProcessType.Background, path);
-                OsUtils.SetPathVar(av1an, toolDirs);
-                av1an.StartInfo.Arguments = "--help";
-                av1an.Start();
+                Process proc = OsUtils.NewProcess(true, NmkoderProcess.ProcessType.Background, path);
+                OsUtils.SetPathVar(proc, toolDirs);
+                proc.StartInfo.Arguments = "--help";
+                proc.Start();
 
                 // Both pipes are drained at once. Reading one to the end first deadlocks as soon as the
                 // other fills its buffer, and av1an's help is long enough to do exactly that.
-                Task<string> stdout = av1an.StandardOutput.ReadToEndAsync();
-                Task<string> stderr = av1an.StandardError.ReadToEndAsync();
+                Task<string> stdout = proc.StandardOutput.ReadToEndAsync();
+                Task<string> stderr = proc.StandardError.ReadToEndAsync();
                 Task both = Task.WhenAll(stdout, stderr);
 
                 // Generous because the first launch of a freshly unpacked av1an.exe sits behind a
                 // virus scan that alone can take longer than the help call itself.
                 if (await Task.WhenAny(both, Task.Delay(15000)) != both)
                 {
-                    Logger.Log("av1an did not answer --help in time - trying again on the next encode.", true);
-                    OsUtils.KillProcessTree(av1an.Id);
-                    av1anHelpText = null;
+                    Logger.Log($"{tool} did not answer --help in time - trying again later.", true);
+                    OsUtils.KillProcessTree(proc.Id);
+                    helpTexts.Remove(tool);
                     return "";
                 }
 
-                av1anHelpText = $"{stdout.Result}\n{stderr.Result}";
+                helpTexts[tool] = $"{stdout.Result}\n{stderr.Result}";
             }
             catch (Exception e)
             {
-                Logger.Log($"Could not read av1an's --help: {e.Message}", true);
+                Logger.Log($"Could not read {tool}'s --help: {e.Message}", true);
             }
 
-            return av1anHelpText;
+            return helpTexts[tool];
         }
 
         /// <summary> av1an's -e values mapped to the executable it expects to find on PATH. </summary>

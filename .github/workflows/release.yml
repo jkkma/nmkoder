@@ -160,7 +160,14 @@ jobs:
             - Linux includes ffmpeg/ffprobe; install VapourSynth and the encoders from
               your package manager.
             - macOS ships none of them; install with
-              `brew install ffmpeg mkvtoolnix av1an svt-av1 aom libvpx x265`.
+              `brew install ffmpeg mkvtoolnix av1an aom libvpx x265`.
+
+            **SVT-AV1 is deliberately not in that brew line.** Nmkoder bundles the
+            [svt-av1-hdr](https://github.com/juliobbv-p/svt-av1-hdr) build, which continues
+            the SVT-AV1-PSY line, and the AV1AN tab's content presets are made of parameters
+            only that line has. Homebrew's `svt-av1` is mainline and rejects them outright,
+            so Nmkoder drops them and says so in the log. Build svt-av1-hdr and put
+            `SvtAv1EncApp` on your `PATH` to get those presets as intended.
 
             Anything missing can be dropped into `bin/` yourself - av1an goes in
             `bin/av1an/`, encoders in `bin/av1an/enc/`, VapourSynth plugins in
