@@ -1,12 +1,14 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Data.Ui;
+using Nmkoder.Extensions;
+using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -73,13 +75,7 @@ namespace Nmkoder.Views
 
         private async void AddFiles_Click(object sender, RoutedEventArgs e)
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Add media files",
-                AllowMultiple = true
-            });
-
-            string[] paths = files.Select(x => x.TryGetLocalPath()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            string[] paths = await Pickers.PickFiles(this, "Add media files", allowMultiple: true);
 
             if (paths.Length > 0)
                 await ImportFiles(paths);
@@ -87,16 +83,77 @@ namespace Nmkoder.Views
 
         private async void AddFolder_Click(object sender, RoutedEventArgs e)
         {
-            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = "Add an image sequence folder",
-                AllowMultiple = true
-            });
-
-            string[] paths = folders.Select(x => x.TryGetLocalPath()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            string[] paths = await Pickers.PickFolders(this, "Add an image sequence folder", allowMultiple: true);
 
             if (paths.Length > 0)
                 await ImportFiles(paths);
+        }
+
+        /// <summary>
+        /// The recently loaded files, as a dropdown off the button rather than a list somewhere on
+        /// the tab: it is a shortcut for getting back to a file, not something to look at.
+        /// </summary>
+        private void FileListRecent_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new ContextMenu();
+
+            foreach (string path in RecentFiles.Get())
+            {
+                var item = new MenuItem { Header = RecentMenuHeader(path) };
+                item.Click += async (s, args) => await OpenRecent(path);
+                menu.Items.Add(item);
+            }
+
+            if (menu.Items.Count > 0)
+                menu.Items.Add(new Separator());
+
+            var clear = new MenuItem { Header = "Clear List", IsEnabled = menu.Items.Count > 0 };
+            clear.Click += (s, args) => { RecentFiles.Clear(); RefreshRecentFilesButton(); };
+            menu.Items.Add(clear);
+
+            menu.Open(FileListRecentBtn);
+        }
+
+        /// <summary>
+        /// Whether an entry is still there is only ever asked here, off the UI thread, and only
+        /// about the one entry that was clicked - a file on an unplugged drive is worth keeping in
+        /// the list, and asking about all of them up front is what makes the menu hang.
+        /// </summary>
+        private async Task OpenRecent(string path)
+        {
+            if (!await Task.Run(() => RecentFiles.Exists(path)))
+            {
+                Logger.Log($"'{Path.GetFileName(path)}' is no longer where it was, so it has been dropped from the recent files.");
+                RecentFiles.Remove(path);
+                RefreshRecentFilesButton();
+                return;
+            }
+
+            await ImportFiles(new[] { path });
+        }
+
+        /// <summary> Nothing to drop down to is worth saying before the click rather than after. </summary>
+        public void RefreshRecentFilesButton()
+        {
+            FileListRecentBtn.IsEnabled = RecentFiles.Get().Count > 0;
+        }
+
+        /// <summary>
+        /// File name first, since that is what is being looked for, with the folder after it
+        /// because two files being told apart by their folder is the whole reason to show one.
+        /// </summary>
+        private static string RecentMenuHeader(string path)
+        {
+            string dir = Path.GetDirectoryName(path) ?? "";
+
+            if (dir.Length > 64) // A menu as wide as the deepest path in it is unreadable
+                dir = "…" + dir.Substring(dir.Length - 63);
+
+            string header = dir.IsEmpty() ? path : $"{Path.GetFileName(path)}   ({dir})";
+
+            // Avalonia reads an underscore in a menu header as an access key marker and swallows
+            // it, and file names are full of them.
+            return header.Replace("_", "__");
         }
 
         private async void AddTracksFromFile_Click(object sender, RoutedEventArgs e)

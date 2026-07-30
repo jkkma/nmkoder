@@ -433,11 +433,6 @@ namespace Nmkoder.UI.Tasks
 
         #endregion
 
-        public static void InitAdvFilterGrid()
-        {
-            Form.EncFilterRows.Clear();
-        }
-
         #region Get Args
 
         public static string GetMuxingArgs()

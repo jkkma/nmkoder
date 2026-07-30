@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Data;
 using Nmkoder.Data.Codecs;
 using Nmkoder.Extensions;
@@ -43,6 +42,17 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            ApplyAv1anQualityMode(useModeDefault: true);
+        }
+
+        /// <summary>
+        /// The range, step size and formatting the quality spinner takes from the selected mode.
+        /// The mode's own default value comes with them when the user picks a mode, but not when a
+        /// saved mode is being restored at startup: there the saved value follows immediately
+        /// behind, and would only be overwritten on its way in.
+        /// </summary>
+        private void ApplyAv1anQualityMode(bool useModeDefault)
+        {
             Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
 
             // Whole numbers unless the metric needs finer steps - butteraugli and XPSNR override below.
@@ -52,7 +62,9 @@ namespace Nmkoder.Views
             if (mode == Av1an.QualityMode.TargetVmaf)
             {
                 Av1anQualityUpDown.SetRange(10, 99);
-                Av1anQualityUpDown.Value = 95;
+
+                if (useModeDefault)
+                    Av1anQualityUpDown.Value = 95;
             }
             else if (mode == Av1an.QualityMode.TargetSsimu2)
             {
@@ -60,7 +72,9 @@ namespace Nmkoder.Views
                 // imperceptible side-by-side, 90 visually lossless - so 80 is the
                 // counterpart of the VMAF default of 95 above.
                 Av1anQualityUpDown.SetRange(30, 99);
-                Av1anQualityUpDown.Value = 80;
+
+                if (useModeDefault)
+                    Av1anQualityUpDown.Value = 80;
             }
             else if (mode == Av1an.QualityMode.TargetButteraugli)
             {
@@ -73,7 +87,9 @@ namespace Nmkoder.Views
                 Av1anQualityUpDown.Increment = 0.1m;
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(0.5m, 10);
-                Av1anQualityUpDown.Value = 4.0m;
+
+                if (useModeDefault)
+                    Av1anQualityUpDown.Value = 4.0m;
             }
             else if (mode == Av1an.QualityMode.TargetXpsnr)
             {
@@ -85,13 +101,17 @@ namespace Nmkoder.Views
                 Av1anQualityUpDown.Increment = 0.5m;
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(20, 60);
-                Av1anQualityUpDown.Value = 40m;
+
+                if (useModeDefault)
+                    Av1anQualityUpDown.Value = 40m;
             }
             else
             {
                 IEncoder enc = CodecUtils.GetCodec((CodecUtils.Av1anCodec)Math.Max(0, Av1anCodecBox.SelectedIndex));
                 Av1anQualityUpDown.SetRange(enc.QMin, enc.QMax);
-                Av1anQualityUpDown.SetValueClamped(enc.QDefault);
+
+                if (useModeDefault)
+                    Av1anQualityUpDown.SetValueClamped(enc.QDefault);
             }
         }
 
@@ -163,6 +183,67 @@ namespace Nmkoder.Views
                 ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
                 ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+            }
+        }
+
+        /// <summary>
+        /// The AV1AN encode settings, restored on top of the defaults the selected encoder has just
+        /// written into these controls - which is why this cannot run any earlier than it does.
+        /// Crop is left out on purpose: it is per-file by design, being one of the settings Reset
+        /// On New File clears, and its rectangle is not saved either, so a restored "Manual" would
+        /// be a mode with nothing behind it.
+        /// </summary>
+        public void LoadAv1anEncodeSettings()
+        {
+            ConfigParser.RestoreIndexIfSaved(Av1anQualModeBox);
+            ApplyAv1anQualityMode(useModeDefault: false); // The restored mode decides the range the value below is clamped into
+            ConfigParser.RestoreIfSaved(Av1anQualityUpDown);
+            ConfigParser.RestoreIfSaved(Av1anPresetBox);
+            ConfigParser.RestoreIfSaved(Av1anColorSpaceBox);
+            ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
+            ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
+            ConfigParser.RestoreIfSaved(Av1anFpsBox);
+            ConfigParser.RestoreIfSaved(Av1anScaleBoxW);
+            ConfigParser.RestoreIfSaved(Av1anScaleBoxH);
+            ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
+            ConfigParser.RestoreIndexIfSaved(Av1anAudChannelsBox);
+            ConfigParser.RestoreIfSaved(CheckAv1anCopySubs);
+            ConfigParser.RestoreIfSaved(CheckAv1anCopyData);
+            ConfigParser.RestoreIfSaved(CheckAv1anCopyAttachs);
+            ConfigParser.RestoreIfSaved(Av1anCustomArgsBox);
+            ConfigParser.RestoreIfSaved(Av1anCustomEncArgsBox);
+            ConfigParser.LoadFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
+        }
+
+        public void SaveAv1anEncodeSettings()
+        {
+            if (!_initialized)
+                return;
+
+            // A filter typed into the grid and left without pressing Enter is still sitting in the
+            // cell editor rather than in the row behind it, and closing the window is exactly when
+            // that happens - the same reason SaveAv1anAdvancedArgs commits its own grids first.
+            Av1anAdvancedFiltersGrid.CommitEdit();
+
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(Av1anQualModeBox);
+                ConfigParser.SaveGuiElement(Av1anQualityUpDown);
+                ConfigParser.SaveGuiElement(Av1anPresetBox);
+                ConfigParser.SaveGuiElement(Av1anColorSpaceBox);
+                ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
+                ConfigParser.SaveGuiElement(Av1anFpsBox);
+                ConfigParser.SaveGuiElement(Av1anScaleBoxW);
+                ConfigParser.SaveGuiElement(Av1anScaleBoxH);
+                ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
+                ConfigParser.SaveGuiElement(CheckAv1anCopySubs);
+                ConfigParser.SaveGuiElement(CheckAv1anCopyData);
+                ConfigParser.SaveGuiElement(CheckAv1anCopyAttachs);
+                ConfigParser.SaveGuiElement(Av1anCustomArgsBox);
+                ConfigParser.SaveGuiElement(Av1anCustomEncArgsBox);
+                ConfigParser.SaveFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
             }
         }
 
@@ -432,13 +513,7 @@ namespace Nmkoder.Views
 
         private async void BrowseAv1anOutput_Click(object sender, RoutedEventArgs e)
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Choose output path",
-                SuggestedFileName = Path.GetFileName(Av1anOutputPathBox.Text ?? "")
-            });
-
-            string path = file?.TryGetLocalPath();
+            string path = await Pickers.PickSavePath(this, "Choose output path", Av1anOutputPathBox.Text);
 
             if (!string.IsNullOrWhiteSpace(path))
                 Av1anOutputPathBox.Text = Path.ChangeExtension(path, null);

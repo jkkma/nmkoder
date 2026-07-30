@@ -7,8 +7,11 @@
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource NmkoderBackground}">
 
-  <!-- Work area on top, the log along the bottom, run controls in the footer -->
-  <Grid RowDefinitions="Auto,*,Auto,220,Auto" Margin="10">
+  <!-- Work area on top, the log along the bottom, run controls in the footer. The log's row is
+       the one the splitter drags and the one whose height is saved between sessions, and it is
+       found through LogPanel's Grid.Row rather than by index, so inserting a row above it cannot
+       quietly start resizing something else. -->
+  <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto,220,Auto" Margin="10">
 
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
@@ -86,6 +89,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
               <Button x:Name="AddFilesBtn" Content="Add Files…" Click="AddFiles_Click" />
               <Button x:Name="AddFolderBtn" Content="Add Folder…" Click="AddFolder_Click" />
+              <Button x:Name="FileListRecentBtn" Content="Recent…" Click="FileListRecent_Click" />
               <Button x:Name="AddTracksFromFileBtn" Content="Load Tracks" Click="AddTracksFromFile_Click" />
               <Button x:Name="FileListSortBtn" Content="Sort…" Click="FileListSort_Click" />
               <Button x:Name="FileListMoveUpBtn" Content="▲" Classes="icon" Click="FileListMoveUp_Click" />
@@ -591,7 +595,7 @@
                   Background="#2B2B2B" ToolTip.Tip="Drag to resize the log" />
 
     <!-- ══════════════ Log ══════════════ -->
-    <Grid Grid.Row="3" RowDefinitions="Auto,*">
+    <Grid Grid.Row="3" x:Name="LogPanel" RowDefinitions="Auto,*">
       <TextBlock Grid.Row="0" Classes="h" Text="Log" Margin="0,0,0,2" />
       <TextBox Grid.Row="1" x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"

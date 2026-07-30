@@ -394,6 +394,7 @@ namespace Nmkoder.IO
             Av1anCmdVisible,
             Av1anAudCodecBox,
             Av1anCodecBox,
+            Av1anCustomFilters,
             Av1anEncoderArgs,
             Av1anThreadsUpDown,
             Av1anOptsChunkModeBox,
@@ -402,10 +403,17 @@ namespace Nmkoder.IO
             CmdDebugMode,
             DefaultKeyIntSecs,
             DefaultOutputDir,
+            EncCustomFilters,
+            LastInputDir,
+            LastOutputDir,
+            LogHeight,
+            MainTab,
             metaMode,
             mp4Faststart,
+            RecentFiles,
             ResetSettingsList,
-            UseZeroIndexedStreams
+            UseZeroIndexedStreams,
+            WindowGeometry
         }
     }
 }

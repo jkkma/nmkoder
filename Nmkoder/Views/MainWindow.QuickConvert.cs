@@ -1,11 +1,11 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Data;
 using Nmkoder.Data.Codecs;
 using Nmkoder.Data.Streams;
 using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
+using Nmkoder.IO;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using System;
@@ -55,26 +55,96 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            ApplyEncQualityMode(useModeDefault: true);
+        }
+
+        /// <summary>
+        /// The range, step size and formatting the quality spinner takes from the selected mode.
+        /// The mode's own default value comes with them when the user picks a mode, but not when a
+        /// saved mode is being restored at startup: there the saved value follows immediately
+        /// behind, and would only be overwritten on its way in.
+        /// </summary>
+        private void ApplyEncQualityMode(bool useModeDefault)
+        {
             var mode = (QuickConvert.QualityMode)Math.Max(0, EncQualModeBox.SelectedIndex);
 
             if (mode == QuickConvert.QualityMode.TargetKbps)
             {
                 EncVidQualityBox.FormatString = "0";
                 EncVidQualityBox.SetRange(10, 100000);
-                EncVidQualityBox.Value = 1500;
+
+                if (useModeDefault)
+                    EncVidQualityBox.Value = 1500;
             }
             else if (mode == QuickConvert.QualityMode.TargetMbytes)
             {
                 EncVidQualityBox.FormatString = "0.0";
                 EncVidQualityBox.SetRange(0, 8192);
-                EncVidQualityBox.Value = 50;
+
+                if (useModeDefault)
+                    EncVidQualityBox.Value = 50;
             }
             else
             {
                 IEncoder enc = CodecUtils.GetCodec((CodecUtils.VideoCodec)Math.Max(0, EncVidCodecsBox.SelectedIndex));
                 EncVidQualityBox.FormatString = "0";
                 EncVidQualityBox.SetRange(enc.QMin.Clamp(0, int.MaxValue), enc.QMax.Clamp(0, int.MaxValue));
-                EncVidQualityBox.SetValueClamped(enc.QDefault.Clamp(0, int.MaxValue));
+
+                if (useModeDefault)
+                    EncVidQualityBox.SetValueClamped(enc.QDefault.Clamp(0, int.MaxValue));
+            }
+        }
+
+        /// <summary>
+        /// The Quick Convert encode settings, restored on top of the defaults the selected encoder
+        /// has just written into these controls - which is why this cannot run any earlier than it
+        /// does. Everything the loaded file decides is left out: subtitle burn-in and the metadata
+        /// sources list that file's own tracks, and crop is per-file by design, being one of the
+        /// settings Reset On New File clears and having a rectangle that is not saved either.
+        /// </summary>
+        public void LoadQuickConvertSettings()
+        {
+            ConfigParser.RestoreIndexIfSaved(EncQualModeBox);
+            ApplyEncQualityMode(useModeDefault: false); // The restored mode decides the range the value below is clamped into
+            ConfigParser.RestoreIfSaved(EncVidQualityBox);
+            ConfigParser.RestoreIfSaved(EncVidPresetBox);
+            ConfigParser.RestoreIfSaved(EncVidColorsBox);
+            ConfigParser.RestoreIfSaved(EncVidFpsBox);
+            ConfigParser.RestoreIfSaved(EncScaleBoxW);
+            ConfigParser.RestoreIfSaved(EncScaleBoxH);
+            ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
+            ConfigParser.RestoreIndexIfSaved(EncAudChannelsBox);
+            ConfigParser.RestoreIfSaved(EncCustomArgsIn);
+            ConfigParser.RestoreIfSaved(EncCustomArgsOut);
+            ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
+            ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
+        }
+
+        public void SaveQuickConvertSettings()
+        {
+            if (!_initialized)
+                return;
+
+            // A filter typed into the grid and left without pressing Enter is still sitting in the
+            // cell editor rather than in the row behind it, and closing the window is exactly when
+            // that happens.
+            EncAdvancedFiltersGrid.CommitEdit();
+
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(EncQualModeBox);
+                ConfigParser.SaveGuiElement(EncVidQualityBox);
+                ConfigParser.SaveGuiElement(EncVidPresetBox);
+                ConfigParser.SaveGuiElement(EncVidColorsBox);
+                ConfigParser.SaveGuiElement(EncVidFpsBox);
+                ConfigParser.SaveGuiElement(EncScaleBoxW);
+                ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveComboxIndex(EncAudChannelsBox);
+                ConfigParser.SaveGuiElement(EncCustomArgsIn);
+                ConfigParser.SaveGuiElement(EncCustomArgsOut);
+                ConfigParser.SaveGuiElement(EncMetaApplyGrid);
+                ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
             }
         }
 
@@ -166,13 +236,7 @@ namespace Nmkoder.Views
 
         private async void BrowseFfmpegOutput_Click(object sender, RoutedEventArgs e)
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Choose output path",
-                SuggestedFileName = Path.GetFileName(OutputPathBox.Text ?? "")
-            });
-
-            string path = file?.TryGetLocalPath();
+            string path = await Pickers.PickSavePath(this, "Choose output path", OutputPathBox.Text);
 
             if (!string.IsNullOrWhiteSpace(path))
                 OutputPathBox.Text = Path.ChangeExtension(path, null);

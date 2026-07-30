@@ -63,6 +63,7 @@ namespace Nmkoder.Views
 
             SetUpDragDrop();
             SetUpModifierTracking();
+            RestoreLayout();
 
             Opened += OnOpened;
             Closing += OnClosing;
@@ -86,6 +87,12 @@ namespace Nmkoder.Views
             Av1anUi.VidEncoderSelected(Av1anCodecBox.SelectedIndex);
             Av1anUi.AudEncoderSelected(Av1anAudCodecBox.SelectedIndex);
 
+            // ...and the saved encode settings over the top of it. Selecting an encoder fills the
+            // quality, preset and colour boxes with that encoder's own defaults, so this is the
+            // earliest point at which restoring them is not immediately undone.
+            LoadQuickConvertSettings();
+            LoadAv1anEncodeSettings();
+
             await RefreshFileListUi();
 
             var packageArg = Program.args.FirstOrDefault(x => x.StartsWith("package="));
@@ -96,17 +103,18 @@ namespace Nmkoder.Views
             if (Nmkoder.Data.Paths.GetExe().Length > 150)
                 Logger.Log($"Warning: Nmkoder's installation path is very long ({Nmkoder.Data.Paths.GetExe().Length} characters) - This can lead to problems. It is recommended to move it to a higher directory to reduce the path length.");
 
-            QuickConvertUi.InitAdvFilterGrid();
-            Av1anUi.InitAdvFilterGrid();
             UpdateResetSettingsText();
             QuickConvertUi.InitFile();
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
+            RefreshRecentFilesButton();
+
             _initialized = true;
 
-            // The window opens on the File List tab, so MainTabs_SelectionChanged never fires for it
-            // and the Run button would keep the enabled state it has in XAML.
-            UpdateRunButtonState();
+            // Whichever tab the last session was left on was selected before _initialized was set,
+            // so its SelectionChanged did nothing - and the File List tab, which the XAML selects,
+            // never raises one at all.
+            await ApplySelectedTab();
 
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
@@ -116,8 +124,15 @@ namespace Nmkoder.Views
         {
             using (Config.Batch())
             {
+                // First, and before anything that reads the task UI: where the window was is the one
+                // thing here that is true even if startup never got far enough to fill that UI in,
+                // and the batch still flushes it when a save further down this list throws.
+                SaveLayout();
+
                 SaveUiConfig();
+                SaveQuickConvertSettings();
                 SaveConfigAv1an();
+                SaveAv1anEncodeSettings();
                 SaveAv1anAdvancedArgs();
             }
 
@@ -443,6 +458,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            await ApplySelectedTab();
+        }
+
+        /// <summary>
+        /// Brings the selected tab's own state up to date. Separate from the handler because the
+        /// tab restored from the last session is selected during startup, before the handler is
+        /// allowed to do anything, so its setup has to be applied once startup is over.
+        /// </summary>
+        private async Task ApplySelectedTab()
+        {
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
             UpdateRunButtonState();
 
