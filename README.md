@@ -45,7 +45,7 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Same audio and video options as FFmpeg encoding
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
-- Encodes can be stopped and resumed at any time
+- Encodes can be paused and resumed live, or stopped entirely and picked up again later from the finished chunks
 
 #### Utilities
 

@@ -163,77 +163,133 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
-        /// Enumerates direct children of a process. Windows exposes this via WMI, Linux via
-        /// /proc/[pid]/task/*/children; other platforms get an empty list and the caller degrades
-        /// gracefully (only used for pausing subprocesses).
+        /// Returns the given processes together with every descendant they have spawned, parents
+        /// before their children, resolved from one snapshot of the system process table. The tasks
+        /// run through a shell interpreter, so the interesting processes are grandchildren and deeper
+        /// (av1an's worker pipelines). Platforms without a snapshot implementation get just the roots
+        /// back and the caller degrades gracefully (only used for pausing subprocesses).
         /// </summary>
-        public static IEnumerable<Process> GetChildProcesses(Process process)
+        public static List<Process> GetProcessTree(IEnumerable<Process> roots)
         {
-            List<Process> children = new List<Process>();
+            List<Process> tree = roots.Where(x => x != null).ToList();
 
             try
             {
-                foreach (int pid in GetChildProcessIds(process.Id))
+                Dictionary<int, List<int>> childPids = GetProcessSnapshot();
+                HashSet<int> seen = new HashSet<int>(tree.Select(x => x.Id));
+                Queue<int> queue = new Queue<int>(seen);
+
+                while (queue.Count > 0)
                 {
-                    try { children.Add(Process.GetProcessById(pid)); }
-                    catch { }
+                    if (!childPids.TryGetValue(queue.Dequeue(), out List<int> children))
+                        continue;
+
+                    foreach (int pid in children)
+                    {
+                        if (!seen.Add(pid))
+                            continue;
+
+                        queue.Enqueue(pid); // A process that exited since the snapshot can still have live children listed under it
+
+                        try { tree.Add(Process.GetProcessById(pid)); }
+                        catch { } // Exited between the snapshot and now
+                    }
                 }
             }
             catch (Exception e)
             {
-                Logger.Log($"GetChildProcesses Error: {e.Message}", true);
+                Logger.Log($"GetProcessTree Error: {e.Message}", true);
             }
 
-            return children;
+            return tree;
         }
 
-        private static IEnumerable<int> GetChildProcessIds(int parentPid)
+        /// <summary> Maps each parent PID to the PIDs of its direct children, from one snapshot. </summary>
+        private static Dictionary<int, List<int>> GetProcessSnapshot()
         {
             if (OperatingSystem.IsWindows())
-                return GetChildProcessIdsWindows(parentPid);
+                return GetProcessSnapshotWindows();
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                return GetChildProcessIdsLinux(parentPid);
+                return GetProcessSnapshotLinux();
 
-            return Enumerable.Empty<int>();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                return GetProcessSnapshotMacos();
+
+            return new Dictionary<int, List<int>>();
         }
 
         [SupportedOSPlatform("windows")]
-        private static List<int> GetChildProcessIdsWindows(int parentPid)
+        private static Dictionary<int, List<int>> GetProcessSnapshotWindows()
         {
-            List<int> pids = new List<int>();
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
 
-            using var searcher = new System.Management.ManagementObjectSearcher($"Select ProcessID From Win32_Process Where ParentProcessID={parentPid}");
+            using var searcher = new System.Management.ManagementObjectSearcher("Select ProcessID, ParentProcessID From Win32_Process");
 
             foreach (System.Management.ManagementObject mo in searcher.Get())
-                pids.Add(Convert.ToInt32(mo["ProcessID"]));
+                AddToSnapshot(map, Convert.ToInt32(mo["ParentProcessID"]), Convert.ToInt32(mo["ProcessID"]));
 
-            return pids;
+            return map;
         }
 
-        private static List<int> GetChildProcessIdsLinux(int parentPid)
+        private static Dictionary<int, List<int>> GetProcessSnapshotLinux()
         {
-            List<int> pids = new List<int>();
-            string taskDir = $"/proc/{parentPid}/task";
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
 
-            if (!Directory.Exists(taskDir))
-                return pids;
-
-            foreach (string dir in Directory.GetDirectories(taskDir))
+            foreach (string dir in Directory.GetDirectories("/proc"))
             {
-                string childrenFile = Path.Combine(dir, "children");
-
-                if (!File.Exists(childrenFile))
+                if (!int.TryParse(Path.GetFileName(dir), out int pid))
                     continue;
 
-                foreach (string entry in File.ReadAllText(childrenFile).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    if (int.TryParse(entry, out int pid))
-                        pids.Add(pid);
-                }
+                string stat;
+
+                try { stat = File.ReadAllText(Path.Combine(dir, "stat")); }
+                catch { continue; } // Exited mid-scan
+
+                // The fields come after the parenthesized command name, which can itself contain parentheses
+                int nameEnd = stat.LastIndexOf(')');
+
+                if (nameEnd < 0)
+                    continue;
+
+                string[] fields = stat.Substring(nameEnd + 1).Trim().Split(' '); // [0] = state, [1] = ppid
+
+                if (fields.Length >= 2 && int.TryParse(fields[1], out int ppid))
+                    AddToSnapshot(map, ppid, pid);
             }
 
-            return pids;
+            return map;
+        }
+
+        private static Dictionary<int, List<int>> GetProcessSnapshotMacos()
+        {
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
+
+            // No /proc on macOS, so ask ps. Deliberately a bare Process rather than NewProcess:
+            // this must not be registered as a subprocess, or pausing would try to pause it.
+            using Process ps = new Process();
+            ps.StartInfo = new ProcessStartInfo("ps", "-axo pid=,ppid=") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            ps.Start();
+            string output = ps.StandardOutput.ReadToEnd();
+            ps.WaitForExit(3000);
+
+            foreach (string line in output.SplitIntoLines())
+            {
+                string[] fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                if (fields.Length >= 2 && int.TryParse(fields[0], out int pid) && int.TryParse(fields[1], out int ppid))
+                    AddToSnapshot(map, ppid, pid);
+            }
+
+            return map;
+        }
+
+        private static void AddToSnapshot(Dictionary<int, List<int>> map, int parentPid, int childPid)
+        {
+            if (!map.TryGetValue(parentPid, out List<int> children))
+                map[parentPid] = children = new List<int>();
+
+            children.Add(childPid);
         }
 
         public static async Task<string> GetOutputAsync(Process process, bool onlyLastLine = false)

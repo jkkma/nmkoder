@@ -121,6 +121,8 @@ namespace Nmkoder.Views
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
                 ProcessManager.KillAll();
+            else
+                SuspendResume.ResumeIfPaused(); // "Left running" must not mean "left frozen forever"
 
             Program.Cleanup();
         }
@@ -237,6 +239,13 @@ namespace Nmkoder.Views
         {
             Logger.Log($"SetWorking({state})", true);
             SetProgress(0, false);
+
+            // Pause is offered exactly while Stop is, and a task that ended in any way - finished,
+            // failed or canceled - must leave nothing frozen behind.
+            if (state)
+                SuspendResume.SetRunning(allowCancel);
+            else
+                SuspendResume.Reset();
 
             RunOnUi(() =>
             {
@@ -384,7 +393,7 @@ namespace Nmkoder.Views
 
         private void Pause_Click(object sender, RoutedEventArgs e)
         {
-            SuspendResume.SuspendProcs(!SuspendResume.frozen);
+            Task.Run(SuspendResume.TogglePause);
         }
 
         private void Thumbnail_Click(object sender, PointerPressedEventArgs e)
