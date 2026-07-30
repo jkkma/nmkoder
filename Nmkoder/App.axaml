@@ -25,9 +25,9 @@
     <Color x:Key="NmkoderMutedTextColor">#949BA4</Color>
     <Color x:Key="NmkoderInteractiveColor">#B5BAC1</Color>
 
-    <Color x:Key="NmkoderAccentColor">#9DE3DA</Color>
-    <Color x:Key="NmkoderAccentHoverColor">#B6ECE5</Color>
-    <Color x:Key="NmkoderAccentPressedColor">#81CFC5</Color>
+    <Color x:Key="NmkoderAccentColor">#79D1C6</Color>
+    <Color x:Key="NmkoderAccentHoverColor">#9BDDD5</Color>
+    <Color x:Key="NmkoderAccentPressedColor">#57C5B7</Color>
     <!-- What goes on top of an accent fill. Nothing light is legible on aquamarine. -->
     <Color x:Key="NmkoderOnAccentColor">#102726</Color>
     <Color x:Key="NmkoderNeutralButtonColor">#4E5058</Color>
@@ -47,7 +47,7 @@
     <SolidColorBrush x:Key="NmkoderAccent" Color="{StaticResource NmkoderAccentColor}" />
     <SolidColorBrush x:Key="NmkoderAccentHover" Color="{StaticResource NmkoderAccentHoverColor}" />
     <SolidColorBrush x:Key="NmkoderAccentPressed" Color="{StaticResource NmkoderAccentPressedColor}" />
-    <SolidColorBrush x:Key="NmkoderAccentSoft" Color="#339DE3DA" />
+    <SolidColorBrush x:Key="NmkoderAccentSoft" Color="#3379D1C6" />
     <SolidColorBrush x:Key="NmkoderOnAccent" Color="{StaticResource NmkoderOnAccentColor}" />
     <SolidColorBrush x:Key="NmkoderNeutralButton" Color="{StaticResource NmkoderNeutralButtonColor}" />
     <SolidColorBrush x:Key="NmkoderNeutralButtonHover" Color="{StaticResource NmkoderNeutralButtonHoverColor}" />
@@ -101,7 +101,7 @@
     <SolidColorBrush x:Key="TextControlButtonForeground" Color="{StaticResource NmkoderMutedTextColor}" />
     <SolidColorBrush x:Key="TextControlButtonForegroundPointerOver" Color="{StaticResource NmkoderTextColor}" />
     <SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="{StaticResource NmkoderHoverColor}" />
-    <Color x:Key="TextControlSelectionHighlightColor">#9DE3DA</Color>
+    <Color x:Key="TextControlSelectionHighlightColor">#79D1C6</Color>
 
     <!-- Dropdowns: closed they read as inputs, open they float above everything -->
     <SolidColorBrush x:Key="ComboBoxBackground" Color="{StaticResource NmkoderSunkenColor}" />
@@ -221,10 +221,10 @@
     <SolidColorBrush x:Key="DataGridGridLinesBrush" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridFillerColumnGridLinesBrush" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridRowBackgroundBrush" Color="Transparent" />
-    <SolidColorBrush x:Key="DataGridRowSelectedBackgroundBrush" Color="#599DE3DA" />
-    <SolidColorBrush x:Key="DataGridRowSelectedHoveredBackgroundBrush" Color="#739DE3DA" />
-    <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="#599DE3DA" />
-    <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="#739DE3DA" />
+    <SolidColorBrush x:Key="DataGridRowSelectedBackgroundBrush" Color="#5979D1C6" />
+    <SolidColorBrush x:Key="DataGridRowSelectedHoveredBackgroundBrush" Color="#7379D1C6" />
+    <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="#5979D1C6" />
+    <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="#7379D1C6" />
     <SolidColorBrush x:Key="DataGridBorder" Color="{StaticResource NmkoderBorderSubtleColor}" />
     <SolidColorBrush x:Key="DataGridCellBackgroundBrush" Color="Transparent" />
     <SolidColorBrush x:Key="DataGridDetailsPresenterBackgroundBrush" Color="Transparent" />
@@ -238,7 +238,7 @@
     <FluentTheme>
       <FluentTheme.Palettes>
         <ColorPaletteResources x:Key="Dark"
-                               Accent="#9DE3DA"
+                               Accent="#79D1C6"
                                RegionColor="#2B2D31"
                                AltHigh="#1E1F22"
                                AltLow="#331E1F22"

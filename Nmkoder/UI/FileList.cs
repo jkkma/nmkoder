@@ -37,7 +37,7 @@ namespace Nmkoder.UI
                 return FirstRowBrush; // The first file is the muxing target, so it stays neutral
 
             double hue = (150.0 + index * 137.508) % 360.0;
-            return new SolidColorBrush(new HslColor(1.0, hue, 0.55, 0.75).ToRgb());
+            return new SolidColorBrush(new HslColor(1.0, hue, 0.49, 0.65).ToRgb());
         }
 
         public static async Task LoadFiles(string[] paths, bool clearExisting)
