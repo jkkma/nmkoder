@@ -6,6 +6,41 @@ Build with `dotnet build Nmkoder/Nmkoder.csproj`. The SessionStart hook in
 `.claude/hooks/` installs the SDK and restores packages, so this works from the
 first prompt of a web session.
 
+## UI conventions
+
+The UI is code-behind, not MVVM. A window is an `.axaml` in `Nmkoder/Views` plus
+a partial class holding the logic directly: controls carry `x:Name`, the XAML
+wires handlers by name (`Click`, `ValueChanged`, `SelectionChanged`), and the
+handler reads and writes those controls. `CropWindow` is the reference shape.
+
+Change handlers are guarded by a load flag - `_ready` in the dialogs,
+`_initialized` across the `MainWindow` partials - set false while controls are
+populated and true afterwards, because assigning a value (or a range, which
+coerces the value) fires the same handlers that would otherwise run against
+half-loaded state. Every handler that touches shared state bails out on it.
+
+There is no view model layer, no `CommunityToolkit.Mvvm`, no ReactiveUI.
+`{Binding}` appears only inside `DataTemplate`s, resolving against the list item
+objects in `Nmkoder/Data/Ui`, and `AvaloniaUseCompiledBindingsByDefault` is
+`false` in the csproj - which is what lets those templates, and element
+references like `{Binding #SomeControl.Value}`, work with no `x:DataType`
+anywhere. Shared styles are inline `Style Selector` rules in `App.axaml` keyed
+off style classes (`field`, `dim`, `hint`, `h`, `card`, `num`); a control type
+used in more than one window gets a base rule there so its metrics line up.
+
+None of that is accidental, and the `avalonia_docs` MCP server will tell you
+otherwise: `get_avalonia_expert_rules` prescribes MVVM, compiled bindings with
+`x:DataType`, `CommunityToolkit.Mvvm`, and styles split into merged
+`ResourceDictionary` files. Those are defensible defaults for a greenfield app
+and all four are wrong here. Match the surrounding code.
+
+The same server's `search_avalonia_docs` is worth using, but it returns whole
+pages - keep `max_results` at 1-2 or the reply overflows. `lookup_avalonia_api`
+returns nothing for every type tried, including its own examples. For
+per-member API facts prefer the XML docs shipped in the package
+(`~/.nuget/packages/avalonia/<version>/ref/net10.0/*.xml`), which match the
+pinned Avalonia version exactly rather than whatever the docs site publishes.
+
 ## Cutting a release
 
 `.github/workflows/release.yml` builds and publishes. It runs on either a `v*`
