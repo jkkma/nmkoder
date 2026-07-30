@@ -758,10 +758,14 @@ install_svtav1() {
   chmod +x "$ENC_DIR/SvtAv1EncApp$EXE" 2>/dev/null || true
 }
 
-# svt-av1-hdr continues the PSY line, which psy-ex/svt-av1-psy no longer develops, and is
-# tried before upstream so its builds are what ships rather than a plain upstream binary
-# that happens to be published. Override with SVTAV1_REPOS to use something else.
-SVTAV1_REPOS="${SVTAV1_REPOS:-juliobbv-p/svt-av1-hdr AOMediaCodec/SVT-AV1}"
+# svt-av1-hdr continues the PSY line, which psy-ex/svt-av1-psy no longer develops, and is the
+# only source tried. Mainline AOMediaCodec/SVT-AV1 used to sit behind it as a fallback, which
+# meant a release where svt-av1-hdr had not published an asset yet shipped a mainline binary
+# under the same filename, with nothing saying so. That is not a lesser build of the same
+# thing: the PSY-only parameters the AV1AN tab's content presets are built from are absent
+# there, and several of the ones mainline does accept it defaults off. A release with no PSY
+# build is now a visible skip instead. Override with SVTAV1_REPOS to use something else.
+SVTAV1_REPOS="${SVTAV1_REPOS:-juliobbv-p/svt-av1-hdr}"
 
 bundle_svtav1() {
   local primary fallback repo
@@ -773,7 +777,9 @@ bundle_svtav1() {
                ASSET_EXCLUDE='(arm64|aarch64)'; ASSET_PREFER='x86[-_]64-v3' ;;
     linux-x64) primary='(linux|musl|gnu)';             fallback='(\.tar\.(gz|xz)|\.zip)$'
                ASSET_EXCLUDE='(arm64|aarch64)'; ASSET_PREFER='x86[-_]64-v3' ;;
-    *)         note_skip "svt-av1" "no prebuilt binary for $RID - install via 'brew install svt-av1'"; return ;;
+    # No PSY-line build is published for macOS. Homebrew's svt-av1 is mainline, so it is
+    # deliberately not suggested here any more - see the SVTAV1_REPOS note above.
+    *)         note_skip "svt-av1" "no svt-av1-hdr build for $RID - build it from https://github.com/juliobbv-p/svt-av1-hdr (Homebrew's svt-av1 is mainline, which the AV1AN presets are not written for)"; return ;;
   esac
 
   for repo in $SVTAV1_REPOS; do
@@ -796,12 +802,15 @@ bundle_svtav1() {
 # and .X265). None of the three ship Windows binaries of their own, so they come from
 # MSYS2's mingw64 packages - the Windows runner image already carries pacman.
 
-# <binary>:<package> pairs. The binary name is the one av1an looks for on PATH. SvtAv1EncApp
-# is here as well as in bundle_svtav1: upstream does not reliably publish a Windows binary,
-# and MSYS2 packages one. Whichever runs first wins; the second sees it already staged.
-# vpxenc is deliberately absent: MSYS2's libvpx package ships the library without the CLI,
+# <binary>:<package> pairs. The binary name is the one av1an looks for on PATH.
+# SvtAv1EncApp is deliberately absent, though MSYS2 does package one: that package is mainline
+# SVT-AV1, and it used to fill in here whenever bundle_svtav1 came up empty on Windows - the
+# same silent substitution the SVTAV1_REPOS note above describes. svt-av1 now comes from
+# bundle_svtav1's PSY-line build or not at all. encoder_licence still carries its entry, for
+# anyone who overrides this list and takes the mainline binary on purpose.
+# vpxenc is deliberately absent too: MSYS2's libvpx package ships the library without the CLI,
 # which a build confirmed. See bundle_vpxenc.
-MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom x265:mingw-w64-x86_64-x265 x264:mingw-w64-x86_64-x264 SvtAv1EncApp:mingw-w64-x86_64-svt-av1}"
+MSYS2_ENCODERS="${MSYS2_ENCODERS:-aomenc:mingw-w64-x86_64-aom x265:mingw-w64-x86_64-x265 x264:mingw-w64-x86_64-x264}"
 
 # List the DLLs an mingw64 executable pulls in from its own prefix. Falls back to the
 # handful of runtime libraries those encoders are known to link when ldd is unavailable.
@@ -839,7 +848,14 @@ encoder_licence() {
 }
 
 bundle_msys2_encoders() {
-  local names="aomenc + x265 + x264 + SvtAv1EncApp"
+  # Derived rather than written out, so the skip messages cannot end up naming an encoder this
+  # list no longer installs - which is exactly what they did while SvtAv1EncApp was in it.
+  local entry names=""
+  for entry in $MSYS2_ENCODERS; do names="${names:+$names + }${entry%%:*}"; done
+
+  # Emptied on purpose by whoever overrode the list. Nothing to install, and nothing to name
+  # in a skip message - which is what an empty list would otherwise produce.
+  [ -z "$names" ] && return
 
   if [ "$RID" != "win-x64" ]; then
     note_skip "$names" "no portable build for $RID - install the aom, vpx, x264 and x265 tools from your package manager"
@@ -854,7 +870,7 @@ bundle_msys2_encoders() {
     return
   fi
 
-  local entry packages=()
+  local packages=()
   for entry in $MSYS2_ENCODERS; do packages+=("${entry#*:}"); done
 
   # -Sy refreshes the image's package database, which is usually months stale.

@@ -53,18 +53,24 @@ assume it - av1an rejects an entire command over one unrecognised flag instead o
 ignoring it, so an unguarded new flag breaks every encode.
 `AvProcess.Av1anSupportsFlag` reads the binary's own `--help` for this.
 
-The same trap applies one level down, to the encoders av1an drives. `bundle-tools.sh`
-prefers `juliobbv-p/svt-av1-hdr` - the PSY line - but falls back to mainline
-`AOMediaCodec/SVT-AV1`, and for macOS it bundles no encoder at all, leaving whatever
-`brew install svt-av1` put there, which is mainline. So PSY-only parameters
-(`noise-adaptive-filtering`, `kf-tf-strength`, `tx-bias`, `noise*`, `cdef-scaling`…)
-cannot be assumed present, and SVT rejects the whole command over one it does not know.
-`AvProcess.EncoderKnowsFlagOrIsUnknown` asks the encoder binary, and the Advanced tab's
-content presets drop what it does not have. Worth knowing too: mainline defaults
-`--enable-qm` and variance boost *off* where the PSY line has them on, so some parameters
-are accepted there and then silently do nothing.
+The same trap applies one level down, to the encoders av1an drives - and for SVT-AV1 the
+answer is a policy, not just a guard: **this project ships the PSY line or nothing.**
+`bundle-tools.sh` takes `SvtAv1EncApp` only from `juliobbv-p/svt-av1-hdr`. Mainline
+`AOMediaCodec/SVT-AV1` used to sit behind it in `SVTAV1_REPOS`, and MSYS2's mainline package
+used to fill in on Windows; both are gone, because both substituted a mainline binary under
+the same filename with nothing saying so. A release with no PSY build is now a visible skip.
+Do not restore either fallback. macOS bundles no encoder and no longer suggests Homebrew's
+`svt-av1`, which is mainline.
 
-The content presets are written for the PSY line and deliberately do not compensate for
-mainline - a value carried only to make them half-work there is a no-op on every build
-they are actually for. Do not add one back. Dropping unsupported parameters keeps the
-encode alive; the log says which, and says that it means the binary is mainline.
+It still has to be checked at runtime, because a user's own `PATH` is not something the
+bundler controls. PSY-only parameters (`noise-adaptive-filtering`, `kf-tf-strength`,
+`tx-bias`, `noise*`, `cdef-scaling`…) cannot be assumed present, and SVT rejects the whole
+command over one it does not know. `AvProcess.EncoderKnowsFlagOrIsUnknown` asks the encoder
+binary, and the Advanced tab's content presets drop what it does not have - which keeps the
+encode alive, and the log says which parameters went and that it means the binary is mainline.
+
+Those presets are written for the PSY line and deliberately do not compensate for mainline:
+a value carried only to make them half-work there is a no-op on every build they are actually
+for. `enable-qm` was one and has been removed. Do not add one back. (Mainline defaults
+`--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
+parameters are accepted and then quietly do nothing. That is not a thing to work around.)
