@@ -28,6 +28,17 @@ namespace Nmkoder.Main
         /// exiting nonzero sets nothing else, and used to be indistinguishable from success. </summary>
         public static bool failed = false;
 
+        /// <summary> "File 3/12 (name.mkv) - " while a batch runs, so every progress line says where
+        /// the queue stands; empty otherwise. </summary>
+        static string batchProgressPrefix = "";
+
+        /// <summary> Live progress line for the footer status label, from whichever parser has the
+        /// numbers (ffmpeg stats, av1an's chunk log). Prefixed with the batch position when one runs. </summary>
+        public static void ReportProgress(string text)
+        {
+            Program.MainWin?.SetStatus($"{batchProgressPrefix}{text}", silent: true);
+        }
+
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
             canceled = true;
@@ -92,6 +103,7 @@ namespace Nmkoder.Main
             NmkdStopwatch sw = new NmkdStopwatch();
 
             Program.MainWin.RunningTask = task;
+            ReportProgress($"Running: {GetTaskName(task)}..."); // Overwritten as soon as a parser has real numbers
             if (task == TaskType.Convert) await QuickConvert.Run();
             else if (task == TaskType.Av1an) await Av1an.Run();
             else if (task == TaskType.UtilReadBitrates) await UtilReadBitrates.Run();
@@ -111,14 +123,16 @@ namespace Nmkoder.Main
         }
 
         /// <summary>
-        /// Completion toast for a task that ran to its end. A long encode is usually left running
-        /// in the background, where the "Done" log line reaches nobody. Cancellations notify from
-        /// Cancel() instead, where the reason is at hand.
+        /// Final status line and completion toast for a task that ran to its end. A long encode is
+        /// usually left running in the background, where the "Done" log line reaches nobody.
+        /// Cancellations set their status and notify from Cancel() instead, where the reason is at hand.
         /// </summary>
         internal static void NotifyTaskEnd(TaskType task, NmkdStopwatch sw)
         {
             if (canceled)
                 return;
+
+            Program.MainWin?.SetStatus(failed ? "Did not finish - the log has the details." : $"Done - finished in {sw}.", silent: true);
 
             if (failed)
                 Notifications.ShowIfInBackground($"{GetTaskName(task)} failed", "The task did not finish. The log has the details.");
@@ -169,6 +183,7 @@ namespace Nmkoder.Main
 
                 FileListEntry entry = taskFileListItems[i];
                 Logger.Log($"Queue: Starting task {i + 1}/{taskFileListItems.Count} for {entry.File.Name}.");
+                batchProgressPrefix = $"File {i + 1}/{taskFileListItems.Count} ({entry.File.Name}) - ";
                 TrackList.ClearCurrentFile();
                 await TrackList.SetAsMainFile(entry, false, false); // Load file info
                 await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true); // Load tracks into list (readonly for user)
@@ -182,12 +197,16 @@ namespace Nmkoder.Main
 
             TrackList.ClearCurrentFile(true);
             runningBatch = false;
+            batchProgressPrefix = "";
 
             Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}");
 
             // A canceled batch already notified from Cancel(), naming the reason.
             if (!canceled)
+            {
+                Program.MainWin?.SetStatus($"Batch done - completed {finishedTasks}/{taskFileListItems.Count} tasks in {sw}.", silent: true);
                 Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.");
+            }
         }
     }
 }

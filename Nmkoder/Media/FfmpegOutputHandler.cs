@@ -17,6 +17,18 @@ namespace Nmkoder.Media
         public static readonly string prefix = "[ffmpeg]";
         public static long overrideTargetDurationMs = -1;
 
+        /// <summary> Wall time of the encode being tracked, for the ETA. </summary>
+        static NmkdStopwatch encodeSw = new NmkdStopwatch();
+        static int lastProgressPercent = -1;
+
+        /// <summary> Called before each progress-tracked ffmpeg run, so the ETA never extrapolates
+        /// from a previous run's elapsed time. </summary>
+        public static void ResetProgressTracking()
+        {
+            encodeSw.sw.Restart();
+            lastProgressPercent = -1;
+        }
+
         public static void LogOutput(string line, string[] ignoreStrings, ref string appendStr, string logFilename, LogMode logMode, bool showProgressBar)
         {
             if (RunTask.canceled || string.IsNullOrWhiteSpace(line) || line.Trim().Length < 1)
@@ -38,7 +50,7 @@ namespace Nmkoder.Media
             if (!hidden && showProgressBar && line.Contains("Time:"))
             {
                 Regex timeRegex = new Regex("(?<=Time:).*(?= )");
-                UpdateFfmpegProgress(timeRegex.Match(line).Value);
+                UpdateFfmpegProgress(timeRegex.Match(line).Value, line);
             }
 
             string lineWithoutPath = RemoveStringsFromLine(line, ignoreStrings);
@@ -115,7 +127,7 @@ namespace Nmkoder.Media
             return s;
         }
 
-        static void UpdateFfmpegProgress(string ffmpegTime)
+        static void UpdateFfmpegProgress(string ffmpegTime, string statsLine)
         {
             try
             {
@@ -155,11 +167,44 @@ namespace Nmkoder.Media
                 long currentMs = FormatUtils.TimestampToMs(ffmpegTime);
                 int progress = (((double)currentMs / (double)durationMs) * (double)100).RoundToInt();
                 Program.MainWin?.SetProgress(progress);
+                RunTask.ReportProgress(BuildProgressLine(progress, statsLine));
             }
             catch (Exception e)
             {
                 Logger.Log($"Failed to get ffmpeg progress: {e.Message}", true);
             }
+        }
+
+        /// <summary> Footer status line: percentage and ETA, plus the speed figures ffmpeg reported.
+        /// The same numbers already scroll by in the log; this keeps the current ones in one place. </summary>
+        static string BuildProgressLine(int progress, string statsLine)
+        {
+            // The second pass of a two-pass encode restarts at zero within the same run - the only
+            // thing that distinguishes it from a progress update is the direction.
+            if (progress < lastProgressPercent - 10)
+                encodeSw.sw.Restart();
+
+            lastProgressPercent = progress;
+
+            // Progress-tracked ffmpeg runs are not all encodes - Get Metrics scores files this way too.
+            RunTask.TaskType task = Program.MainWin != null ? Program.MainWin.RunningTask : RunTask.TaskType.None;
+            string action = task == RunTask.TaskType.Convert || task == RunTask.TaskType.Av1an ? "Encoding" : "Processing";
+
+            List<string> parts = new List<string> { $"{action} - {progress.Clamp(0, 100)}%" };
+
+            string fps = Regex.Match(statsLine, @"(?<=FPS: )[\d\.]+").Value;
+            string speed = Regex.Match(statsLine, @"(?<=Relative Speed: )[\d\.]+x").Value;
+
+            if (fps.IsNotEmpty() && fps.GetFloat() > 0)
+                parts.Add($"FPS: {fps}");
+
+            if (speed.IsNotEmpty())
+                parts.Add($"Speed: {speed}");
+
+            if (progress >= 1 && progress < 100)
+                parts.Add($"ETA: {FormatUtils.Time(TimeSpan.FromMilliseconds(encodeSw.ElapsedMs * (100 - progress) / progress), false)}");
+
+            return string.Join(" - ", parts);
         }
 
         static bool HideMessage(string msg)

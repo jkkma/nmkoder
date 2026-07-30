@@ -55,6 +55,7 @@ namespace Nmkoder.UI.Tasks
         {
             RunTask.canceled = RunTask.canceledManually = RunTask.failed = false;
             Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
+            RunTask.ReportProgress("Running: AV1AN encode...");
             NmkdStopwatch sw = new NmkdStopwatch();
 
             try

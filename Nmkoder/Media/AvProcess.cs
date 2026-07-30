@@ -57,6 +57,7 @@ namespace Nmkoder.Media
             }
 
             if (settings.SetBusy) Program.MainWin?.SetWorking(true);
+            if (settings.ProgressBar) FfmpegOutputHandler.ResetProgressTracking();
             ffmpeg.Start();
             ffmpeg.PriorityClass = ProcessPriorityClass.BelowNormal;
 

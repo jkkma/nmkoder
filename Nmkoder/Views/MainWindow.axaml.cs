@@ -229,9 +229,13 @@ namespace Nmkoder.Views
             RunOnUi(() => ProgBar.Value = percent.Clamp(0, 100));
         }
 
-        public void SetStatus(string str)
+        /// <summary> silent skips the log: live progress lines arrive several times a second and
+        /// their content is already being logged by whoever parsed it. </summary>
+        public void SetStatus(string str, bool silent = false)
         {
-            Logger.Log(str, true);
+            if (!silent)
+                Logger.Log(str, true);
+
             RunOnUi(() => CurrentActionLabel.Text = str);
         }
 
