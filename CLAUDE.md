@@ -52,3 +52,14 @@ av1an feature newer than that release has to check for it at runtime rather than
 assume it - av1an rejects an entire command over one unrecognised flag instead of
 ignoring it, so an unguarded new flag breaks every encode.
 `AvProcess.Av1anSupportsFlag` reads the binary's own `--help` for this.
+
+The same trap applies one level down, to the encoders av1an drives. `bundle-tools.sh`
+prefers `juliobbv-p/svt-av1-hdr` - the PSY line - but falls back to mainline
+`AOMediaCodec/SVT-AV1`, and for macOS it bundles no encoder at all, leaving whatever
+`brew install svt-av1` put there, which is mainline. So PSY-only parameters
+(`noise-adaptive-filtering`, `kf-tf-strength`, `tx-bias`, `noise*`, `cdef-scaling`…)
+cannot be assumed present, and SVT rejects the whole command over one it does not know.
+`AvProcess.EncoderKnowsFlagOrIsUnknown` asks the encoder binary, and the Advanced tab's
+content presets drop what it does not have. Worth knowing too: mainline defaults
+`--enable-qm` and variance boost *off* where the PSY line has them on, so some parameters
+are accepted there and then silently do nothing.

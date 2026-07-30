@@ -36,5 +36,16 @@ namespace Nmkoder.Data.Codecs
             return filled.Count == Values.Count &&
                 Values.All(v => filled.TryGetValue(v.Key, out string value) && value == v.Value);
         }
+
+        /// <summary>
+        /// Whether everything filled in came from this preset, allowing for some of it to be absent.
+        /// A preset drops any argument the encoder in use does not have, so what lands in the grid is
+        /// not always the whole of it - and what landed is still nobody's hand-typed work to protect.
+        /// </summary>
+        public bool Covers(IReadOnlyDictionary<string, string> filled)
+        {
+            return filled.Count > 0 &&
+                filled.All(f => Values.TryGetValue(f.Key, out string value) && value == f.Value);
+        }
     }
 }
