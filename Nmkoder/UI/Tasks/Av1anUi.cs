@@ -218,6 +218,7 @@ namespace Nmkoder.UI.Tasks
             }
 
             Form.LoadAv1anArgCategoryTabs();
+            Form.LoadAv1anArgPresets(enc.Name);
         }
 
         /// <summary>
