@@ -141,6 +141,11 @@ namespace Nmkoder.Media
                         }
 
                         Logger.Log($"AV1AN is running - Encoded {encodedChunks}/{currentQueueSize} chunks ({ratio}%).{etaStr}", false, Logger.LastUiLine.Contains("Encoded"));
+                        RunTask.ReportProgress($"Encoding - {encodedChunks}/{currentQueueSize} chunks ({ratio}%){(etaStr.IsEmpty() ? "" : $" -{etaStr}")}");
+                    }
+                    else
+                    {
+                        RunTask.ReportProgress("Scene detection..."); // The chunk queue only exists once av1an is done splitting
                     }
                 }
                 catch (Exception e)

@@ -163,77 +163,133 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
-        /// Enumerates direct children of a process. Windows exposes this via WMI, Linux via
-        /// /proc/[pid]/task/*/children; other platforms get an empty list and the caller degrades
-        /// gracefully (only used for pausing subprocesses).
+        /// Returns the given processes together with every descendant they have spawned, parents
+        /// before their children, resolved from one snapshot of the system process table. The tasks
+        /// run through a shell interpreter, so the interesting processes are grandchildren and deeper
+        /// (av1an's worker pipelines). Platforms without a snapshot implementation get just the roots
+        /// back and the caller degrades gracefully (only used for pausing subprocesses).
         /// </summary>
-        public static IEnumerable<Process> GetChildProcesses(Process process)
+        public static List<Process> GetProcessTree(IEnumerable<Process> roots)
         {
-            List<Process> children = new List<Process>();
+            List<Process> tree = roots.Where(x => x != null).ToList();
 
             try
             {
-                foreach (int pid in GetChildProcessIds(process.Id))
+                Dictionary<int, List<int>> childPids = GetProcessSnapshot();
+                HashSet<int> seen = new HashSet<int>(tree.Select(x => x.Id));
+                Queue<int> queue = new Queue<int>(seen);
+
+                while (queue.Count > 0)
                 {
-                    try { children.Add(Process.GetProcessById(pid)); }
-                    catch { }
+                    if (!childPids.TryGetValue(queue.Dequeue(), out List<int> children))
+                        continue;
+
+                    foreach (int pid in children)
+                    {
+                        if (!seen.Add(pid))
+                            continue;
+
+                        queue.Enqueue(pid); // A process that exited since the snapshot can still have live children listed under it
+
+                        try { tree.Add(Process.GetProcessById(pid)); }
+                        catch { } // Exited between the snapshot and now
+                    }
                 }
             }
             catch (Exception e)
             {
-                Logger.Log($"GetChildProcesses Error: {e.Message}", true);
+                Logger.Log($"GetProcessTree Error: {e.Message}", true);
             }
 
-            return children;
+            return tree;
         }
 
-        private static IEnumerable<int> GetChildProcessIds(int parentPid)
+        /// <summary> Maps each parent PID to the PIDs of its direct children, from one snapshot. </summary>
+        private static Dictionary<int, List<int>> GetProcessSnapshot()
         {
             if (OperatingSystem.IsWindows())
-                return GetChildProcessIdsWindows(parentPid);
+                return GetProcessSnapshotWindows();
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                return GetChildProcessIdsLinux(parentPid);
+                return GetProcessSnapshotLinux();
 
-            return Enumerable.Empty<int>();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                return GetProcessSnapshotMacos();
+
+            return new Dictionary<int, List<int>>();
         }
 
         [SupportedOSPlatform("windows")]
-        private static List<int> GetChildProcessIdsWindows(int parentPid)
+        private static Dictionary<int, List<int>> GetProcessSnapshotWindows()
         {
-            List<int> pids = new List<int>();
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
 
-            using var searcher = new System.Management.ManagementObjectSearcher($"Select ProcessID From Win32_Process Where ParentProcessID={parentPid}");
+            using var searcher = new System.Management.ManagementObjectSearcher("Select ProcessID, ParentProcessID From Win32_Process");
 
             foreach (System.Management.ManagementObject mo in searcher.Get())
-                pids.Add(Convert.ToInt32(mo["ProcessID"]));
+                AddToSnapshot(map, Convert.ToInt32(mo["ParentProcessID"]), Convert.ToInt32(mo["ProcessID"]));
 
-            return pids;
+            return map;
         }
 
-        private static List<int> GetChildProcessIdsLinux(int parentPid)
+        private static Dictionary<int, List<int>> GetProcessSnapshotLinux()
         {
-            List<int> pids = new List<int>();
-            string taskDir = $"/proc/{parentPid}/task";
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
 
-            if (!Directory.Exists(taskDir))
-                return pids;
-
-            foreach (string dir in Directory.GetDirectories(taskDir))
+            foreach (string dir in Directory.GetDirectories("/proc"))
             {
-                string childrenFile = Path.Combine(dir, "children");
-
-                if (!File.Exists(childrenFile))
+                if (!int.TryParse(Path.GetFileName(dir), out int pid))
                     continue;
 
-                foreach (string entry in File.ReadAllText(childrenFile).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    if (int.TryParse(entry, out int pid))
-                        pids.Add(pid);
-                }
+                string stat;
+
+                try { stat = File.ReadAllText(Path.Combine(dir, "stat")); }
+                catch { continue; } // Exited mid-scan
+
+                // The fields come after the parenthesized command name, which can itself contain parentheses
+                int nameEnd = stat.LastIndexOf(')');
+
+                if (nameEnd < 0)
+                    continue;
+
+                string[] fields = stat.Substring(nameEnd + 1).Trim().Split(' '); // [0] = state, [1] = ppid
+
+                if (fields.Length >= 2 && int.TryParse(fields[1], out int ppid))
+                    AddToSnapshot(map, ppid, pid);
             }
 
-            return pids;
+            return map;
+        }
+
+        private static Dictionary<int, List<int>> GetProcessSnapshotMacos()
+        {
+            Dictionary<int, List<int>> map = new Dictionary<int, List<int>>();
+
+            // No /proc on macOS, so ask ps. Deliberately a bare Process rather than NewProcess:
+            // this must not be registered as a subprocess, or pausing would try to pause it.
+            using Process ps = new Process();
+            ps.StartInfo = new ProcessStartInfo("ps", "-axo pid=,ppid=") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            ps.Start();
+            string output = ps.StandardOutput.ReadToEnd();
+            ps.WaitForExit(3000);
+
+            foreach (string line in output.SplitIntoLines())
+            {
+                string[] fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                if (fields.Length >= 2 && int.TryParse(fields[0], out int pid) && int.TryParse(fields[1], out int ppid))
+                    AddToSnapshot(map, ppid, pid);
+            }
+
+            return map;
+        }
+
+        private static void AddToSnapshot(Dictionary<int, List<int>> map, int parentPid, int childPid)
+        {
+            if (!map.TryGetValue(parentPid, out List<int> children))
+                map[parentPid] = children = new List<int>();
+
+            children.Add(childPid);
         }
 
         public static async Task<string> GetOutputAsync(Process process, bool onlyLastLine = false)
@@ -270,17 +326,77 @@ namespace Nmkoder.OS
             proc.Start();
         }
 
-        public static void ShowNotification(string title, string text)
+        /// <summary>
+        /// OS-level attention ping for when the in-window toast cannot be seen. Linux and macOS
+        /// have one-shot desktop notification commands; Windows has no equivalent for unpackaged
+        /// apps (toasts want an AppUserModelID and a Start Menu shortcut), so the taskbar button
+        /// is flashed instead, which is just as visible and needs nothing installed.
+        /// </summary>
+        public static void ShowSystemNotification(string title, string text)
         {
-            UI.Notifications.Show(title, text);
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                    FlashTaskbarIcon();
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    StartDetached("osascript", "-e", $"display notification \"{EscapeAppleScript(text)}\" with title \"{EscapeAppleScript(title)}\"");
+                else
+                    StartDetached("notify-send", "-a", "Nmkoder", title, text);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"System notification failed: {e.Message}", true); // e.g. no notify-send installed - the in-window toast still showed
+            }
         }
 
-        public static void ShowNotificationIfInBackground(string title, string text)
+        /// <summary> AppleScript string literals know exactly two escapes: backslash and quote. </summary>
+        private static string EscapeAppleScript(string str)
         {
-            if (Program.MainWin != null && Program.MainWin.IsInFocus())
+            return str.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        /// <summary>
+        /// Runs a small helper detached, deliberately NOT through NewProcess: registered processes
+        /// belong to tasks, and pausing or stopping a task must never hit a notification helper.
+        /// </summary>
+        private static void StartDetached(string fileName, params string[] args)
+        {
+            Process proc = new Process();
+            proc.StartInfo = new ProcessStartInfo(fileName) { UseShellExecute = false, CreateNoWindow = true };
+
+            foreach (string arg in args)
+                proc.StartInfo.ArgumentList.Add(arg);
+
+            proc.Start();
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FLASHWINFO { public uint cbSize; public IntPtr hwnd; public uint dwFlags; public uint uCount; public uint dwTimeout; }
+
+        [DllImport("user32.dll")]
+        private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+        private const uint FLASHW_ALL = 3;        // Flash the caption and the taskbar button
+        private const uint FLASHW_TIMERNOFG = 12; // Keep flashing until the window comes to the foreground
+
+        [SupportedOSPlatform("windows")]
+        private static void FlashTaskbarIcon()
+        {
+            IntPtr hwnd = Program.MainWin?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+
+            if (hwnd == IntPtr.Zero)
                 return;
 
-            ShowNotification(title, text);
+            FLASHWINFO info = new FLASHWINFO
+            {
+                cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+                hwnd = hwnd,
+                dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG,
+                uCount = 0,
+                dwTimeout = 0,
+            };
+
+            FlashWindowEx(ref info);
         }
 
         public static string GetPathVar(string additionalPath = null)

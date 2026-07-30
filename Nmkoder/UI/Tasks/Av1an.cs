@@ -53,12 +53,15 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static async Task RunResume(string overrideTempDir, string overrideArgs)
         {
-            RunTask.canceled = RunTask.canceledManually = false;
+            RunTask.ResetOutcome();
             Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
+            RunTask.ReportProgress("Running: AV1AN encode...");
+            NmkdStopwatch sw = new NmkdStopwatch();
 
             try
             {
                 await Run(true, overrideTempDir, overrideArgs);
+                RunTask.NotifyTaskEnd(RunTask.TaskType.Av1an, sw);
             }
             finally
             {
@@ -66,6 +69,9 @@ namespace Nmkoder.UI.Tasks
                 Program.MainWin.SetProgress(0);
                 Program.MainWin.SetWorking(false);
             }
+
+            // After the finally: the countdown aborts itself while the app still counts as busy
+            _ = RunTask.ShutdownWhenDoneCountdown();
         }
 
         public static async Task Run(bool resume = false, string overrideTempDir = "", string overrideArgs = "")
@@ -343,6 +349,7 @@ namespace Nmkoder.UI.Tasks
                     if (inPath.IsEmpty() || outPath.IsEmpty())
                     {
                         Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
+                        RunTask.failed = true;
                         Program.MainWin.SetWorking(false);
                         return;
                     }
@@ -366,6 +373,7 @@ namespace Nmkoder.UI.Tasks
                 if (outPath == inPath)
                 {
                     Logger.Log($"Output path can't be the same as the input path!");
+                    RunTask.failed = true;
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -373,6 +381,7 @@ namespace Nmkoder.UI.Tasks
                 if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
                     Logger.Log($"Output path must have a valid file extension!");
+                    RunTask.failed = true;
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -387,6 +396,7 @@ namespace Nmkoder.UI.Tasks
             catch (Exception e)
             {
                 Logger.Log($"Error creating av1an command: {e.Message}\n{e.StackTrace}");
+                RunTask.failed = true;
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -417,6 +427,7 @@ namespace Nmkoder.UI.Tasks
             catch (Exception e)
             {
                 Logger.Log($"Failed to create output folder: {e.Message}");
+                RunTask.failed = true;
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -440,7 +451,13 @@ namespace Nmkoder.UI.Tasks
             bool succeeded = exitCode == 0 && !RunTask.canceled && IoUtils.GetFilesize(outPath) > 0;
 
             if (!succeeded && !RunTask.canceled)
+            {
+                RunTask.failed = true;
                 Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+            }
+
+            if (succeeded)
+                RunTask.ReportOutput(new[] { inPath }, outPath);
 
             await HandleTempFolder(tempDir, succeeded, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one

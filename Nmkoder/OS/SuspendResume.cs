@@ -13,10 +13,21 @@ namespace Nmkoder.OS
         static List<Process> suspendedProcesses = new List<Process>();
         public static bool isRunning;
 
+        /// <summary> A Pause press runs on a worker thread while a task can end - and Reset - from an
+        /// output reader thread, so every state transition goes through this lock. </summary>
+        static readonly object stateLock = new object();
+
+        /// <summary> Called whenever a task ends, however it ends - finished, failed or canceled.
+        /// Nothing may stay frozen once the task it belongs to is gone. </summary>
         public static void Reset()
         {
+            lock (stateLock)
+            {
+                if (frozen)
+                    Resume();
+            }
+
             SetRunning(false);
-            SetPauseButtonStyle(false);
         }
 
         public static void SetRunning(bool running)
@@ -27,66 +38,111 @@ namespace Nmkoder.OS
 
         public static void SuspendIfRunning()
         {
-            if (!frozen)
-                SuspendProcs(true);
+            lock (stateLock)
+            {
+                if (!frozen)
+                    Suspend();
+            }
         }
 
         public static void ResumeIfPaused()
         {
-            if (frozen)
-                SuspendProcs(false);
+            lock (stateLock)
+            {
+                if (frozen)
+                    Resume();
+            }
         }
 
-        public static void SuspendProcs(bool freeze, bool excludeCmd = false)
+        /// <summary> One press of the Pause button. Runs off the UI thread (the Windows process
+        /// snapshot is a WMI query), and the lock keeps rapid presses in click order. </summary>
+        public static void TogglePause()
         {
-            if (ProcessManager.RunningSubProcesses.Count < 1)
+            lock (stateLock)
+            {
+                if (frozen)
+                    Resume();
+                else
+                    Suspend();
+            }
+        }
+
+        static void Suspend()
+        {
+            List<Process> roots = ProcessManager.RunningSubProcesses.Select(x => x.Process).ToList();
+
+            if (roots.Count < 1)
                 return;
 
-            Logger.Log($"{(freeze ? "Suspending" : "Resuming")} processes!", true);
+            frozen = true;
+            SetPauseButtonStyle(true);
 
-            if (freeze)
+            // A parent that is not yet suspended can spawn a child between the snapshot and its own
+            // suspension - av1an starts a new worker pipeline whenever a chunk finishes - so sweep
+            // again until a pass finds nothing new. Once every spawner is frozen, nothing appears.
+            for (int pass = 0; pass < 3; pass++)
             {
-                List<Process> procs = new List<Process>();
+                int suspended = 0;
 
-                foreach (Process parent in new List<Process>(ProcessManager.RunningSubProcesses.Select(x => x.Process))) // We MUST clone the list here since it might get modifed!
-                    procs.AddRange(OsUtils.GetChildProcesses(parent));
-
-                frozen = true;
-                SetPauseButtonStyle(true);
-
-                foreach (Process process in procs)
+                foreach (Process process in OsUtils.GetProcessTree(roots))
                 {
-                    if (process == null || process.HasExited)
-                        continue;
+                    try
+                    {
+                        if (process.HasExited || suspendedProcesses.Any(x => x.Id == process.Id))
+                            continue;
 
-                    if (excludeCmd && (process.ProcessName == "conhost" || process.ProcessName == "cmd" || process.ProcessName == "sh"))
-                        continue;
+                        // conhost only renders the console window and spawns nothing; freezing it
+                        // would hang the window the user is watching in console debug mode.
+                        if (process.ProcessName == "conhost")
+                            continue;
 
-                    if (process.ProcessName == "av1an")
-                        Logger.Log($"Warning: Pausing {process.ProcessName} might not work correctly. Use at your own risk.");
-
-                    Logger.Log($"Suspending {process.ProcessName}", true);
-
-                    process.Suspend();
-                    suspendedProcesses.Add(process);
+                        Logger.Log($"Suspending {process.ProcessName}", true);
+                        process.Suspend();
+                        suspendedProcesses.Add(process);
+                        suspended++;
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Log($"Failed to suspend a process: {e.Message}", true);
+                    }
                 }
-            }
-            else
-            {
-                frozen = false;
-                SetPauseButtonStyle(false);
 
-                foreach (Process process in new List<Process>(suspendedProcesses))   // We MUST clone the list here since we modify it in the loop!
+                if (suspended < 1)
+                    break;
+            }
+
+            Logger.Log($"Paused - froze {suspendedProcesses.Count} processes. Speed and ETA readings will be off after resuming, since paused time still counts as elapsed.");
+        }
+
+        static void Resume()
+        {
+            frozen = false;
+            SetPauseButtonStyle(false);
+            int resumed = 0;
+
+            foreach (Process process in suspendedProcesses)
+            {
+                try
                 {
                     if (process == null || process.HasExited)
                         continue;
 
                     Logger.Log($"Resuming {process.ProcessName}", true);
-
                     process.Resume();
-                    suspendedProcesses.Remove(process);
+                    resumed++;
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Failed to resume a process: {e.Message}", true);
                 }
             }
+
+            suspendedProcesses.Clear();
+
+            // Reset() also lands here to clear the state after the processes were killed; only an
+            // actual thaw is worth a line in the log.
+            if (resumed > 0)
+                Logger.Log("Resumed.");
         }
 
         public static void SetPauseButtonStyle(bool paused)

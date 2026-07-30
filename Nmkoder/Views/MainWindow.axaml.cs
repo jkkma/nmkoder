@@ -121,6 +121,8 @@ namespace Nmkoder.Views
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
                 ProcessManager.KillAll();
+            else
+                SuspendResume.ResumeIfPaused(); // "Left running" must not mean "left frozen forever"
 
             Program.Cleanup();
         }
@@ -227,9 +229,13 @@ namespace Nmkoder.Views
             RunOnUi(() => ProgBar.Value = percent.Clamp(0, 100));
         }
 
-        public void SetStatus(string str)
+        /// <summary> silent skips the log: live progress lines arrive several times a second and
+        /// their content is already being logged by whoever parsed it. </summary>
+        public void SetStatus(string str, bool silent = false)
         {
-            Logger.Log(str, true);
+            if (!silent)
+                Logger.Log(str, true);
+
             RunOnUi(() => CurrentActionLabel.Text = str);
         }
 
@@ -237,6 +243,13 @@ namespace Nmkoder.Views
         {
             Logger.Log($"SetWorking({state})", true);
             SetProgress(0, false);
+
+            // Pause is offered exactly while Stop is, and a task that ended in any way - finished,
+            // failed or canceled - must leave nothing frozen behind.
+            if (state)
+                SuspendResume.SetRunning(allowCancel);
+            else
+                SuspendResume.Reset();
 
             RunOnUi(() =>
             {
@@ -384,7 +397,18 @@ namespace Nmkoder.Views
 
         private void Pause_Click(object sender, RoutedEventArgs e)
         {
-            SuspendResume.SuspendProcs(!SuspendResume.frozen);
+            Task.Run(SuspendResume.TogglePause);
+        }
+
+        /// <summary> Mirrored into RunTask because IsChecked can only be read on the UI thread.
+        /// Deliberately not persisted - see RunTask.shutdownWhenDone. </summary>
+        private void ShutdownWhenDone_Changed(object sender, RoutedEventArgs e)
+        {
+            bool armed = ShutdownWhenDoneBox.IsChecked == true;
+            RunTask.shutdownWhenDone = armed;
+
+            if (armed)
+                Logger.Log(Program.busy ? "Shutting down once the current task finishes." : "Shutting down once the next task finishes.");
         }
 
         private void Thumbnail_Click(object sender, PointerPressedEventArgs e)
