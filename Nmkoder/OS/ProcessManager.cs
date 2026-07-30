@@ -81,23 +81,44 @@ namespace Nmkoder.OS
             if (list.Count < 1)
                 return;
 
-            Logger.Log($"ProcMan: Killing {list.Count} subprocesses ({string.Join(", ", list.Select(x => x.Process.StartInfo.FileName))})", true);
+            Logger.Log($"ProcMan: Killing {list.Count} subprocesses ({string.Join(", ", list.Select(x => Describe(x)))})", true);
 
             foreach(NmkoderProcess np in list)
             {
-                Process p = np.Process;
-
-                Logger.Log($"ProcMan: Killing {p.StartInfo.FileName} ({np.Type})...", true);
+                Logger.Log($"ProcMan: Killing {Describe(np)} ({np.Type})...", true);
 
                 try
                 {
-                    OsUtils.KillProcessTree(p.Id);
-                    Logger.Log($"ProcMan: Killed process tree for {p.StartInfo.FileName} {p.StartInfo.Arguments.Trunc(150)}", true);
+                    OsUtils.KillProcessTree(np.Process.Id);
+                    Logger.Log($"ProcMan: Killed process tree for {Describe(np, withArgs: true)}", true);
                 }
                 catch(Exception e)
                 {
-                    Logger.Log($"ProcMan: Failed to kill process tree for {p.StartInfo.FileName} {p.StartInfo.Arguments.Trunc(150)}: {e.Message}", true);
+                    Logger.Log($"ProcMan: Failed to kill process tree for {Describe(np, withArgs: true)}: {e.Message}", true);
                 }
+            }
+        }
+
+        /// <summary>
+        /// What a process is, for the log. Reading StartInfo throws once the process object has
+        /// been disposed, and every one of these reads used to sit outside the try below - so one
+        /// finished subprocess in the list could throw on its way into a log line and leave every
+        /// other process in it running, which is the whole of what this class exists to prevent.
+        /// </summary>
+        private static string Describe(NmkoderProcess np, bool withArgs = false)
+        {
+            try
+            {
+                ProcessStartInfo info = np?.Process?.StartInfo;
+
+                if (info == null)
+                    return "unknown process";
+
+                return withArgs ? $"{info.FileName} {info.Arguments.Trunc(150)}" : info.FileName;
+            }
+            catch
+            {
+                return "unknown process";
             }
         }
 

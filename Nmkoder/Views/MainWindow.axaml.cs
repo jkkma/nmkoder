@@ -122,19 +122,7 @@ namespace Nmkoder.Views
 
         private void OnClosing(object sender, WindowClosingEventArgs e)
         {
-            using (Config.Batch())
-            {
-                // First, and before anything that reads the task UI: where the window was is the one
-                // thing here that is true even if startup never got far enough to fill that UI in,
-                // and the batch still flushes it when a save further down this list throws.
-                SaveLayout();
-
-                SaveUiConfig();
-                SaveQuickConvertSettings();
-                SaveConfigAv1an();
-                SaveAv1anEncodeSettings();
-                SaveAv1anAdvancedArgs();
-            }
+            SaveOnClose();
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
@@ -143,6 +131,50 @@ namespace Nmkoder.Views
                 SuspendResume.ResumeIfPaused(); // "Left running" must not mean "left frozen forever"
 
             Program.Cleanup();
+        }
+
+        /// <summary>
+        /// Saves what the session changed, and never throws doing it. Every group in here reads the
+        /// task UI, which a startup that went wrong can leave half-built, while what runs after it
+        /// stops the encodes this process started - so an exception getting out would close the
+        /// window, end the process, and leave an av1an running with nothing left able to stop it.
+        /// Settings are worth saving; they are not worth that.
+        ///
+        /// Guarded a group at a time as well, so one of them failing does not cost the rest theirs,
+        /// and all of it shares a batch so it is still a single write.
+        /// </summary>
+        private void SaveOnClose()
+        {
+            try
+            {
+                using (Config.Batch())
+                {
+                    // Layout first: it is the one thing here that is true even when startup never
+                    // got far enough to fill the task UI in.
+                    TrySave(SaveLayout, "window layout");
+                    TrySave(SaveUiConfig, "selected codecs");
+                    TrySave(SaveQuickConvertSettings, "Quick Convert settings");
+                    TrySave(SaveConfigAv1an, "AV1AN options");
+                    TrySave(SaveAv1anEncodeSettings, "AV1AN encode settings");
+                    TrySave(SaveAv1anAdvancedArgs, "AV1AN encoder arguments");
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to save settings while closing: {e.Message}", true);
+            }
+        }
+
+        private static void TrySave(Action save, string what)
+        {
+            try
+            {
+                save();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to save the {what}: {e.Message}", true);
+            }
         }
 
         void LoadUiConfig()

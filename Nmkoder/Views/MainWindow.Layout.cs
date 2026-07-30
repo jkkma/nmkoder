@@ -221,51 +221,42 @@ namespace Nmkoder.Views
         }
 
         /// <summary>
-        /// Written in one go: Config.Set rewrites the whole file per call, and this runs while the
-        /// window is closing, where three extra writes are three chances to be cut short.
-        /// Deliberately not guarded on _initialized the way the settings saves are - all of this
-        /// comes from the window itself rather than from controls that startup has to populate, so
-        /// it is still true, and still worth keeping, after a startup that went wrong. It swallows
-        /// its own errors for the same reason it goes first: the rest of OnClosing has processes to
-        /// shut down, and none of that may be skipped over where the window happened to be.
+        /// Written in one go rather than a key at a time, so it is a single entry in the batch that
+        /// SaveOnClose wraps around it. Deliberately not guarded on _initialized the way the
+        /// settings saves are: all of this comes from the window itself rather than from controls
+        /// that startup has to populate, so it is still true, and still worth keeping, after a
+        /// startup that went wrong.
         /// </summary>
         public void SaveLayout()
         {
-            try
+            var values = new Dictionary<string, string>();
+
+            // Closing is late enough that every state notification has landed, so a window
+            // being closed in its normal state can simply be measured. The snapshot kept by
+            // TrackNormalBounds only has to cover closing while maximized or minimized.
+            if (WindowState == WindowState.Normal)
             {
-                var values = new Dictionary<string, string>();
-
-                // Closing is late enough that every state notification has landed, so a window
-                // being closed in its normal state can simply be measured. The snapshot kept by
-                // TrackNormalBounds only has to cover closing while maximized or minimized.
-                if (WindowState == WindowState.Normal)
-                {
-                    _normalPos = Position;
-                    _normalSize = new Size(Width, Height);
-                    _normalKnown = true;
-                }
-
-                if (_normalKnown)
-                {
-                    // FullScreen counts as maximized: there is no separate state to restore it to,
-                    // and reopening full-screen is closer to what was left behind than windowed.
-                    bool maximized = WindowState is WindowState.Maximized or WindowState.FullScreen;
-                    values[Config.Key.WindowGeometry.ToString()] =
-                        $"{_normalPos.X},{_normalPos.Y},{(int)Math.Round(_normalSize.Width)},{(int)Math.Round(_normalSize.Height)},{maximized}";
-                }
-
-                // A minimized window lays out to nothing, and saving that would reopen with no log.
-                if (LogRow.ActualHeight >= minLogHeight)
-                    values[Config.Key.LogHeight.ToString()] = ((int)Math.Round(LogRow.ActualHeight)).ToString();
-
-                values[Config.Key.MainTab.ToString()] = ((MainTab)MainTabs.SelectedIndex).ToString();
-
-                Config.Set(values);
+                _normalPos = Position;
+                _normalSize = new Size(Width, Height);
+                _normalKnown = true;
             }
-            catch (Exception e)
+
+            if (_normalKnown)
             {
-                Logger.Log($"Failed to save the window layout: {e.Message}", true);
+                // FullScreen counts as maximized: there is no separate state to restore it to,
+                // and reopening full-screen is closer to what was left behind than windowed.
+                bool maximized = WindowState is WindowState.Maximized or WindowState.FullScreen;
+                values[Config.Key.WindowGeometry.ToString()] =
+                    $"{_normalPos.X},{_normalPos.Y},{(int)Math.Round(_normalSize.Width)},{(int)Math.Round(_normalSize.Height)},{maximized}";
             }
+
+            // A minimized window lays out to nothing, and saving that would reopen with no log.
+            if (LogRow.ActualHeight >= minLogHeight)
+                values[Config.Key.LogHeight.ToString()] = ((int)Math.Round(LogRow.ActualHeight)).ToString();
+
+            values[Config.Key.MainTab.ToString()] = ((MainTab)MainTabs.SelectedIndex).ToString();
+
+            Config.Set(values);
         }
     }
 }
