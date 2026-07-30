@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Nmkoder.Extensions;
 using System;
@@ -91,5 +92,61 @@ namespace Nmkoder.IO
             else
                 Logger.Log($"LoadComboxIndex: [{comboBox.Name}] Index of {i} was loaded but there are only {count} items!", true);
         }
+
+        #region Restore
+
+        /// <summary>
+        /// Restoring differs from loading in what it does when there is nothing to restore: it
+        /// leaves the control exactly as it is, where the Load helpers above read a key that is not
+        /// there as zero, empty or False and write that into the control. Whatever the control is
+        /// already holding is the better answer - for the encode settings that is the default the
+        /// selected encoder has just put there, and for a checkbox it is the state the XAML gives
+        /// it, neither of which may be quietly turned into a nought by a config that predates the
+        /// setting.
+        /// </summary>
+        public static void RestoreIfSaved(TextBox textbox)
+        {
+            if (HasSavedValue(textbox))
+                LoadGuiElement(textbox);
+        }
+
+        public static void RestoreIfSaved(CheckBox checkbox)
+        {
+            if (HasSavedValue(checkbox))
+                LoadGuiElement(checkbox);
+        }
+
+        public static void RestoreIfSaved(NumericUpDown upDown, bool allowFloat = true)
+        {
+            if (HasSavedValue(upDown))
+                LoadGuiElement(upDown, allowFloat);
+        }
+
+        /// <summary>
+        /// By text, which is what dropdowns filled from the selected encoder need: the same index
+        /// is a different preset from one encoder to the next, and a saved entry the current
+        /// encoder does not have simply is not found, leaving that encoder's own default selected.
+        /// </summary>
+        public static void RestoreIfSaved(ComboBox comboBox)
+        {
+            if (HasSavedValue(comboBox))
+                LoadGuiElement(comboBox);
+        }
+
+        /// <summary> By index, for the dropdowns filled from a fixed list. </summary>
+        public static void RestoreIndexIfSaved(ComboBox comboBox)
+        {
+            if (HasSavedValue(comboBox))
+                LoadComboxIndex(comboBox);
+        }
+
+        /// <summary> Asked before reading rather than after: the Get helpers write a default for
+        /// any key that is missing, so once one has answered the key exists either way. </summary>
+        private static bool HasSavedValue(StyledElement control)
+        {
+            return Config.cachedValues.ContainsKey(control.Name ?? "");
+        }
+
+        #endregion
     }
 }

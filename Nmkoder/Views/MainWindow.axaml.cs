@@ -87,6 +87,12 @@ namespace Nmkoder.Views
             Av1anUi.VidEncoderSelected(Av1anCodecBox.SelectedIndex);
             Av1anUi.AudEncoderSelected(Av1anAudCodecBox.SelectedIndex);
 
+            // ...and the saved encode settings over the top of it. Selecting an encoder fills the
+            // quality, preset and colour boxes with that encoder's own defaults, so this is the
+            // earliest point at which restoring them is not immediately undone.
+            LoadQuickConvertSettings();
+            LoadAv1anEncodeSettings();
+
             await RefreshFileListUi();
 
             var packageArg = Program.args.FirstOrDefault(x => x.StartsWith("package="));
@@ -124,7 +130,9 @@ namespace Nmkoder.Views
             SaveLayout();
 
             SaveUiConfig();
+            SaveQuickConvertSettings();
             SaveConfigAv1an();
+            SaveAv1anEncodeSettings();
             SaveAv1anAdvancedArgs();
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
