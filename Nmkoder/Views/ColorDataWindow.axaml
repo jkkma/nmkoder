@@ -15,14 +15,14 @@
       <ComboBox Grid.Row="1" Grid.Column="1" x:Name="TargetVideo" />
     </Grid>
 
-    <TextBlock Classes="h" Text="Data to transfer" />
+    <TextBlock Classes="h" Text="DATA TO TRANSFER" />
     <CheckBox x:Name="CopyColorSpace" Content="Color space (transfer, primaries, matrix, range)" />
     <CheckBox x:Name="CopyHdrData" Content="HDR metadata (mastering display, MaxCLL/MaxFALL)" />
 
     <TextBlock x:Name="BatchNote" Classes="dim" IsVisible="False"
                Text="In Batch Processing Mode this utility can only read metadata. Switch to Muxing Mode to transfer it." />
 
-    <Button Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,8,0,0"
+    <Button Classes="accent" Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,8,0,0"
             IsDefault="True" Click="Confirm_Click" />
 
   </StackPanel>

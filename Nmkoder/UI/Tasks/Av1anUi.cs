@@ -665,11 +665,6 @@ namespace Nmkoder.UI.Tasks
             ValidatePath();
         }
 
-        public static void InitAdvFilterGrid()
-        {
-            Form.Av1anFilterRows.Clear();
-        }
-
         public static void ValidatePath()
         {
             if (TrackList.current == null)

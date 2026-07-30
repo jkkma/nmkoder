@@ -7,7 +7,11 @@
         WindowStartupLocation="CenterOwner">
 
   <Grid RowDefinitions="*,Auto" Margin="12">
-    <ctrl:BitrateChart Grid.Row="0" x:Name="Chart" />
+    <!-- The plot sits on the sunken surface so its gridlines read against something -->
+    <Border Grid.Row="0" Background="{DynamicResource NmkoderSunken}"
+            BorderBrush="{DynamicResource NmkoderBorderSubtle}" BorderThickness="1" CornerRadius="6" Padding="4">
+      <ctrl:BitrateChart x:Name="Chart" />
+    </Border>
     <TextBlock Grid.Row="1" x:Name="InfoLabel" Classes="dim" Margin="0,8,0,0"
                Text="Drag to select a range. Double click to reset." />
   </Grid>

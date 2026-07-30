@@ -18,7 +18,7 @@ namespace Nmkoder.UI.Tasks
         {
             if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
             {
-                Logger.Log($"Color Data Utility: Didn't run because this util only works in Muxing Mode!");
+                Logger.Log($"Concat Utility: Didn't run because this util only works in Muxing Mode!");
                 return;
             }
 

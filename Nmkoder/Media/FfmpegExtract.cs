@@ -40,6 +40,21 @@ namespace Nmkoder.Media
             await RunFfmpeg(settings);
         }
 
+        /// <summary>
+        /// One frame at an exact position, for scrubbing a preview. Seeking before -i is accurate in
+        /// current ffmpeg - it lands on the preceding keyframe and decodes forward to the wanted
+        /// timestamp - and it is fast enough to drag a slider with, which output seeking is not.
+        /// </summary>
+        public static async Task ExtractSingleFrameAtMs(string inputFile, string outputPath, long ms, int maxH = 2160)
+        {
+            Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
+            string vf = res.Height > maxH ? $"-vf scale=-2:{maxH.RoundMod(2)}" : "";
+            string time = (Math.Max(0, ms) / 1000d).ToString("0.###", CultureInfo.InvariantCulture);
+            string args = $"-ss {time} -i {inputFile.Wrap()} -map 0:v:0 -frames:v 1 -update 1 -pix_fmt yuvj420p -q:v 2 {vf} {outputPath.Wrap()}";
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, ProcessType = OS.NmkoderProcess.ProcessType.Background };
+            await RunFfmpeg(settings);
+        }
+
         public static async Task ExtractThumbs(string inputFile, string outputDir, int amount, int maxH = 360, string format = "jpg")
         {
             long duration = (int)Math.Floor((float)(await GetDurationMs(inputFile)) / 1000);

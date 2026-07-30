@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.CutWindow"
+        Title="Cut Video"
+        Width="720" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="8">
+
+    <Border Classes="card" Padding="0" ClipToBounds="True">
+      <Panel Background="{DynamicResource NmkoderVideoBackdrop}" Height="300">
+        <Image x:Name="PreviewImage" Stretch="Uniform" />
+        <TextBlock x:Name="PreviewLabel" Classes="dim" MaxWidth="400" TextAlignment="Center"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Panel>
+    </Border>
+
+    <Slider x:Name="PositionSlider" Minimum="0" Maximum="1000" Value="0" ValueChanged="Position_ValueChanged" />
+
+    <!-- The section that is kept, drawn under the scrubber. Column widths are set from code as
+         proportions of the duration, which keeps the bar free of any pixel arithmetic. -->
+    <Panel Margin="0,-8,0,0">
+      <Grid x:Name="RangeBar" Height="8" ColumnDefinitions="*,*,*" VerticalAlignment="Center">
+        <Border Grid.Column="0" Background="{DynamicResource NmkoderSunken}" CornerRadius="4,0,0,4" />
+        <Border Grid.Column="1" Background="{DynamicResource NmkoderAccent}" />
+        <Border Grid.Column="2" Background="{DynamicResource NmkoderSunken}" CornerRadius="0,4,4,0" />
+      </Grid>
+      <Grid x:Name="PlayheadBar" Height="14" ColumnDefinitions="*,Auto,*" VerticalAlignment="Center">
+        <Border Grid.Column="1" Width="2" Background="{DynamicResource NmkoderHeaderText}" />
+      </Grid>
+    </Panel>
+
+    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+      <TextBlock Grid.Column="0" x:Name="PositionLabel" Classes="field" Text="00:00:00" />
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+        <Button Content="⏮" Click="JumpToStart_Click" ToolTip.Tip="Jump to the start point" />
+        <Button Content="-10s" Tag="-10000" Click="NudgeMs_Click" />
+        <Button Content="-1s" Tag="-1000" Click="NudgeMs_Click" />
+        <Button Content="-1f" Tag="-1" Click="NudgeFrames_Click" />
+        <Button Content="+1f" Tag="1" Click="NudgeFrames_Click" />
+        <Button Content="+1s" Tag="1000" Click="NudgeMs_Click" />
+        <Button Content="+10s" Tag="10000" Click="NudgeMs_Click" />
+        <Button Content="⏭" Click="JumpToEnd_Click" ToolTip.Tip="Jump to the end point" />
+      </StackPanel>
+    </Grid>
+
+    <Grid ColumnDefinitions="110,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" x:Name="ModeLabel" Classes="field" Text="Mode" />
+      <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ModeBox" SelectionChanged="Mode_SelectionChanged" Margin="0,0,0,6">
+        <ComboBoxItem Content="Time (snap to keyframe - fast, no re-encode needed)" />
+        <ComboBoxItem Content="Time (exact - slower, requires re-encoding)" />
+        <ComboBoxItem Content="Frame Numbers" />
+      </ComboBox>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Start" />
+      <TextBox Grid.Row="1" Grid.Column="1" x:Name="StartBox" TextChanged="Range_TextChanged" Margin="0,0,6,6" />
+      <Button Grid.Row="1" Grid.Column="2" Content="Set to playhead" Click="SetStart_Click" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="End" />
+      <TextBox Grid.Row="2" Grid.Column="1" x:Name="EndBox" TextChanged="Range_TextChanged" Margin="0,0,6,6" />
+      <Button Grid.Row="2" Grid.Column="2" Content="Set to playhead" Click="SetEnd_Click" Margin="0,0,0,6" />
+
+      <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Duration" />
+      <TextBox Grid.Row="3" Grid.Column="1" x:Name="DurationBox" IsReadOnly="True" Margin="0,0,6,0" />
+      <Button Grid.Row="3" Grid.Column="2" x:Name="SnapBtn" Content="Snap start to keyframe" Click="SnapToKeyframe_Click" IsEnabled="False" />
+    </Grid>
+
+    <TextBlock x:Name="KeyframeNote" Classes="hint" TextWrapping="Wrap" IsVisible="False" />
+    <TextBlock x:Name="HintLabel" Classes="dim" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

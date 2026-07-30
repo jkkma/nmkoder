@@ -63,6 +63,7 @@ namespace Nmkoder.Views
 
             SetUpDragDrop();
             SetUpModifierTracking();
+            RestoreLayout();
 
             Opened += OnOpened;
             Closing += OnClosing;
@@ -86,6 +87,12 @@ namespace Nmkoder.Views
             Av1anUi.VidEncoderSelected(Av1anCodecBox.SelectedIndex);
             Av1anUi.AudEncoderSelected(Av1anAudCodecBox.SelectedIndex);
 
+            // ...and the saved encode settings over the top of it. Selecting an encoder fills the
+            // quality, preset and colour boxes with that encoder's own defaults, so this is the
+            // earliest point at which restoring them is not immediately undone.
+            LoadQuickConvertSettings();
+            LoadAv1anEncodeSettings();
+
             await RefreshFileListUi();
 
             var packageArg = Program.args.FirstOrDefault(x => x.StartsWith("package="));
@@ -96,17 +103,19 @@ namespace Nmkoder.Views
             if (Nmkoder.Data.Paths.GetExe().Length > 150)
                 Logger.Log($"Warning: Nmkoder's installation path is very long ({Nmkoder.Data.Paths.GetExe().Length} characters) - This can lead to problems. It is recommended to move it to a higher directory to reduce the path length.");
 
-            QuickConvertUi.InitAdvFilterGrid();
-            Av1anUi.InitAdvFilterGrid();
             UpdateResetSettingsText();
             QuickConvertUi.InitFile();
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
+            RefreshRecentFilesButton();
+
             _initialized = true;
 
-            // The window opens on the File List tab, so MainTabs_SelectionChanged never fires for it
-            // and the Run button would keep the enabled state it has in XAML.
-            UpdateRunButtonState();
+            // Whichever tab the last session was left on was selected before _initialized was set,
+            // so its SelectionChanged did nothing - and the File List tab, which the XAML selects,
+            // never raises one at all. The same goes for the restored file list mode.
+            await ApplyFileListMode();
+            await ApplySelectedTab();
 
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
@@ -114,9 +123,7 @@ namespace Nmkoder.Views
 
         private void OnClosing(object sender, WindowClosingEventArgs e)
         {
-            SaveUiConfig();
-            SaveConfigAv1an();
-            SaveAv1anAdvancedArgs();
+            SaveOnClose();
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
@@ -127,19 +134,68 @@ namespace Nmkoder.Views
             Program.Cleanup();
         }
 
+        /// <summary>
+        /// Saves what the session changed, and never throws doing it. Every group in here reads the
+        /// task UI, which a startup that went wrong can leave half-built, while what runs after it
+        /// stops the encodes this process started - so an exception getting out would close the
+        /// window, end the process, and leave an av1an running with nothing left able to stop it.
+        /// Settings are worth saving; they are not worth that.
+        ///
+        /// Guarded a group at a time as well, so one of them failing does not cost the rest theirs,
+        /// and all of it shares a batch so it is still a single write.
+        /// </summary>
+        private void SaveOnClose()
+        {
+            try
+            {
+                using (Config.Batch())
+                {
+                    // Layout first: it is the one thing here that is true even when startup never
+                    // got far enough to fill the task UI in.
+                    TrySave(SaveLayout, "window layout");
+                    TrySave(SaveUiConfig, "selected codecs");
+                    TrySave(SaveQuickConvertSettings, "Quick Convert settings");
+                    TrySave(SaveConfigAv1an, "AV1AN options");
+                    TrySave(SaveAv1anEncodeSettings, "AV1AN encode settings");
+                    TrySave(SaveAv1anAdvancedArgs, "AV1AN encoder arguments");
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to save settings while closing: {e.Message}", true);
+            }
+        }
+
+        private static void TrySave(Action save, string what)
+        {
+            try
+            {
+                save();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to save the {what}: {e.Message}", true);
+            }
+        }
+
         void LoadUiConfig()
         {
-            ConfigParser.LoadComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.LoadGuiElement(FfmpegContainerBox);
-            ConfigParser.LoadComboxIndex(EncVidCodecsBox);
-            ConfigParser.LoadComboxIndex(EncAudCodecBox);
-            ConfigParser.LoadComboxIndex(EncSubCodecBox);
-            ConfigParser.LoadComboxIndex(EncMetaCopySource);
+            // Batched because reading a key that is not in the file yet writes its default back, so on a
+            // first run this whole method is a long series of writes rather than a series of reads.
+            using (Config.Batch())
+            {
+                ConfigParser.LoadComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.LoadGuiElement(FfmpegContainerBox);
+                ConfigParser.LoadComboxIndex(EncVidCodecsBox);
+                ConfigParser.LoadComboxIndex(EncAudCodecBox);
+                ConfigParser.LoadComboxIndex(EncSubCodecBox);
+                ConfigParser.LoadComboxIndex(EncMetaCopySource);
 
-            LoadConfigAv1an();
-            LoadGeneralSettings();
-            ResetSettingsOnNewFile.Load();
+                LoadConfigAv1an();
+                LoadGeneralSettings();
+                ResetSettingsOnNewFile.Load();
+            }
         }
 
         public void SaveUiConfig()
@@ -147,13 +203,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ConfigParser.SaveComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.SaveGuiElement(FfmpegContainerBox);
-            ConfigParser.SaveComboxIndex(EncVidCodecsBox);
-            ConfigParser.SaveComboxIndex(EncAudCodecBox);
-            ConfigParser.SaveComboxIndex(EncSubCodecBox);
-            ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.SaveGuiElement(FfmpegContainerBox);
+                ConfigParser.SaveComboxIndex(EncVidCodecsBox);
+                ConfigParser.SaveComboxIndex(EncAudCodecBox);
+                ConfigParser.SaveComboxIndex(EncSubCodecBox);
+                ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            }
         }
 
         #endregion
@@ -241,6 +300,13 @@ namespace Nmkoder.Views
 
         public void SetWorking(bool state, bool allowCancel = true)
         {
+            // A batch owns the working state for the length of the queue. Every task it runs clears
+            // the state as it ends, so honouring that between two files flickered Run back in, hid
+            // Stop, and unblocked the track list mid-run. RunTask.StartBatch clears runningBatch
+            // before its own final call, which is the one that lands.
+            if (!state && RunTask.runningBatch)
+                return;
+
             Logger.Log($"SetWorking({state})", true);
             SetProgress(0, false);
 
@@ -432,6 +498,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            await ApplySelectedTab();
+        }
+
+        /// <summary>
+        /// Brings the selected tab's own state up to date. Separate from the handler because the
+        /// tab restored from the last session is selected during startup, before the handler is
+        /// allowed to do anything, so its setup has to be applied once startup is over.
+        /// </summary>
+        private async Task ApplySelectedTab()
+        {
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
             UpdateRunButtonState();
 

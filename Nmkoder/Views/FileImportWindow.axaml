@@ -18,7 +18,7 @@
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
       <Button x:Name="ImportClearBtn" Content="Replace file list" MinWidth="130" Click="ImportClear_Click" />
-      <Button x:Name="ImportAppendBtn" Content="Add to file list" MinWidth="130" IsDefault="True" Click="ImportAppend_Click" />
+      <Button x:Name="ImportAppendBtn" Classes="accent" Content="Add to file list" MinWidth="130" IsDefault="True" Click="ImportAppend_Click" />
     </StackPanel>
   </Grid>
 

@@ -17,7 +17,7 @@ namespace Nmkoder.Main
 {
     public class RunTask
     {
-        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, PlotBitrate };
+        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate };
 
         public enum FileListMode { Mux, Batch };
         public static FileListMode currentFileListMode;
@@ -176,7 +176,7 @@ namespace Nmkoder.Main
                 }
             }
 
-            bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates || task == TaskType.UtilOcr;
+            bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates || task == TaskType.UtilOcr || task == TaskType.UtilCut;
 
             if (loadedFileRequired && (currentFileListMode == FileListMode.Mux && TrackList.current == null))
             {
@@ -203,6 +203,7 @@ namespace Nmkoder.Main
             else if (task == TaskType.UtilOcr) await UtilOcr.Run();
             else if (task == TaskType.UtilColorData) await UtilColorData.Run();
             else if (task == TaskType.UtilConcat) await UtilConcat.Run();
+            else if (task == TaskType.UtilCut) await UtilCut.Run();
             else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
             Program.MainWin.RunningTask = TaskType.None;
 
@@ -248,6 +249,7 @@ namespace Nmkoder.Main
                 case TaskType.UtilOcr: return "Subtitle OCR";
                 case TaskType.UtilColorData: return "Color data transfer";
                 case TaskType.UtilConcat: return "Concatenation";
+                case TaskType.UtilCut: return "Lossless cut";
                 case TaskType.PlotBitrate: return "Bitrate chart";
                 default: return "Task";
             }
@@ -264,7 +266,14 @@ namespace Nmkoder.Main
                 return;
             }
 
-            TrackList.ClearCurrentFile();
+            if (FileList.Items.Count < 1)
+            {
+                await UiUtils.ShowMessageBox("No input files in file list! Please add one or more files first.");
+                Program.MainWin.SelectedMainTab = 0;
+                return;
+            }
+
+            TrackList.ClearCurrentFile(resetSettings: false);
 
             List<FileListEntry> taskFileListItems = FileList.Items.ToList();
 
@@ -273,28 +282,48 @@ namespace Nmkoder.Main
             int finishedTasks = 0;
             NmkdStopwatch sw = new NmkdStopwatch();
 
-            for (int i = 0; i < taskFileListItems.Count; i++)
+            // Held for the whole queue rather than per file: every task clears the working state on
+            // its way out, and between two files that put the Run button back, took Stop away, and
+            // left a second batch one click from starting. SetWorking ignores the clears while
+            // runningBatch is set, so this is the one that has to be undone below.
+            Program.MainWin.SetWorking(true);
+
+            try
             {
-                if (canceled)
-                    break;
+                for (int i = 0; i < taskFileListItems.Count; i++)
+                {
+                    if (canceled)
+                        break;
 
-                FileListEntry entry = taskFileListItems[i];
-                Logger.Log($"Queue: Starting task {i + 1}/{taskFileListItems.Count} for {entry.File.Name}.");
-                batchProgressPrefix = $"File {i + 1}/{taskFileListItems.Count} ({entry.File.Name}) - ";
-                TrackList.ClearCurrentFile();
-                await TrackList.SetAsMainFile(entry, false, false); // Load file info
-                await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true); // Load tracks into list (readonly for user)
-                await Start(batchTask); // Run task
+                    FileListEntry entry = taskFileListItems[i];
+                    Logger.Log($"Queue: Starting task {i + 1}/{taskFileListItems.Count} for {entry.File.Name}.");
+                    batchProgressPrefix = $"File {i + 1}/{taskFileListItems.Count} ({entry.File.Name}) - ";
+                    TrackList.ClearCurrentFile(resetSettings: false);
+                    // Neither of these switches to the Track List tab: the queue is watched from
+                    // whichever tab the user left it on, and the list is read-only here anyway.
+                    await TrackList.SetAsMainFile(entry, false, false); // Load file info
+                    await TrackList.AddStreamsToList(entry.File, entry.RowBrush, false); // Load tracks into list (readonly for user)
 
-                // A run that failed on its own (av1an exiting nonzero, a bad output path) does not
-                // set canceled, and used to be counted as finished here.
-                if (!canceled && !failed)
-                    finishedTasks++;
+                    // Stop pressed while the file was being scanned would otherwise be undone by the
+                    // ResetOutcome at the top of Start, and the file encoded anyway.
+                    if (canceled)
+                        break;
+
+                    await Start(batchTask); // Run task
+
+                    // A run that failed on its own (av1an exiting nonzero, a bad output path) does not
+                    // set canceled, and used to be counted as finished here.
+                    if (!canceled && !failed)
+                        finishedTasks++;
+                }
             }
-
-            TrackList.ClearCurrentFile(true);
-            runningBatch = false;
-            batchProgressPrefix = "";
+            finally
+            {
+                TrackList.ClearCurrentFile(true, resetSettings: false);
+                runningBatch = false;
+                batchProgressPrefix = "";
+                Program.MainWin.SetWorking(false);
+            }
 
             string totalSizes = batchBytesIn > 0 && batchBytesOut > 0 ? $" Total size: {SizeDelta(batchBytesIn, batchBytesOut)}." : "";
             Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}.{totalSizes}");

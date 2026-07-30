@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.UI;
+using Nmkoder.UI.Tasks;
 using System.Collections.Generic;
 
 namespace Nmkoder.Views
@@ -53,6 +54,38 @@ namespace Nmkoder.Views
             await MetricsWindow.ShowAsync();
         }
 
+        private async void SelectCut(object sender, TappedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilCut);
+
+            if (UtilCut.Cut == null) // Nothing to run yet, so go straight to picking the section
+                await ShowCutConfig();
+        }
+
+        private async void UtilsCutConf_Click(object sender, RoutedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilCut);
+            await ShowCutConfig();
+        }
+
+        private async System.Threading.Tasks.Task ShowCutConfig()
+        {
+            if (TrackList.current == null)
+            {
+                Logger.Log($"You need to load a file into the file list to use this utility!");
+                return;
+            }
+
+            UtilCut.Cut = await CutWindow.ShowForCut(TrackList.current.File, UtilCut.Cut);
+            UpdateCutBtnText();
+        }
+
+        /// <summary> The Cut utility's button doubles as the readout of what is configured. </summary>
+        public void UpdateCutBtnText()
+        {
+            UtilsCutConfBtn.Content = UtilCut.Cut == null ? "Configure…" : UtilCut.Cut.ToString();
+        }
+
         private async void UtilsColorDataConf_Click(object sender, RoutedEventArgs e)
         {
             SelectUtil(RunTask.TaskType.UtilColorData);
@@ -74,6 +107,7 @@ namespace Nmkoder.Views
                 { UtilsBitratesPanel, RunTask.TaskType.UtilReadBitrates },
                 { UtilsMetricsPanel, RunTask.TaskType.UtilGetMetrics },
                 { UtilsColorDataPanel, RunTask.TaskType.UtilColorData },
+                { UtilsCutPanel, RunTask.TaskType.UtilCut },
                 { UtilsConcatPanel, RunTask.TaskType.UtilConcat },
                 { UtilsBitratePlotPanel, RunTask.TaskType.PlotBitrate },
                 { UtilsOcrPanel, RunTask.TaskType.UtilOcr },

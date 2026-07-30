@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.UI;
@@ -27,13 +26,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            Config.Set(Config.Key.CmdDebugMode, CmdDebugModeBox.SelectedIndex.Clamp(0, 2).ToString());
-            Config.Set(Config.Key.AutoCropSamples, AutoCropSamplesUpDown.Value.AsInt().ToString());
-            Config.Set(Config.Key.DefaultKeyIntSecs, KeyIntSecsUpDown.Value.AsInt().ToString());
-            Config.Set(Config.Key.UseZeroIndexedStreams, (UseZeroIndexedStreamsBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.mp4Faststart, (Mp4FaststartBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.Av1anCmdVisible, (Av1anCmdVisibleBox.IsChecked == true).ToString());
-            Config.Set(Config.Key.DefaultOutputDir, (DefaultOutDirBox.Text ?? "").Trim().Trim('"'));
+            using (Config.Batch())
+            {
+                Config.Set(Config.Key.CmdDebugMode, CmdDebugModeBox.SelectedIndex.Clamp(0, 2).ToString());
+                Config.Set(Config.Key.AutoCropSamples, AutoCropSamplesUpDown.Value.AsInt().ToString());
+                Config.Set(Config.Key.DefaultKeyIntSecs, KeyIntSecsUpDown.Value.AsInt().ToString());
+                Config.Set(Config.Key.UseZeroIndexedStreams, (UseZeroIndexedStreamsBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.mp4Faststart, (Mp4FaststartBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.Av1anCmdVisible, (Av1anCmdVisibleBox.IsChecked == true).ToString());
+                Config.Set(Config.Key.DefaultOutputDir, (DefaultOutDirBox.Text ?? "").Trim().Trim('"'));
+            }
         }
 
         /// <summary>
@@ -52,8 +54,8 @@ namespace Nmkoder.Views
 
         private async void BrowseDefaultOutDir_Click(object sender, RoutedEventArgs e)
         {
-            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save encodes", AllowMultiple = false });
-            string path = folders.FirstOrDefault()?.TryGetLocalPath();
+            string[] folders = await Pickers.PickFolders(this, "Choose where to save encodes", allowMultiple: false, Pickers.Dir.Output, DefaultOutDirBox.Text);
+            string path = folders.FirstOrDefault();
 
             if (path.IsEmpty())
                 return;
