@@ -12,10 +12,10 @@
     <ListBox Grid.Row="1" x:Name="FolderList" />
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
-      <Button Content="Delete Encode" MinWidth="120" Click="DeleteFull_Click" />
-      <Button Content="Delete Chunks" MinWidth="120" Click="DeleteChunks_Click" />
+      <Button Classes="danger" Content="Delete Encode" MinWidth="120" Click="DeleteFull_Click" />
+      <Button Classes="danger" Content="Delete Chunks" MinWidth="120" Click="DeleteChunks_Click" />
       <Button Content="Resume (New Settings)" MinWidth="170" Click="ResumeNew_Click" />
-      <Button Content="Resume (Saved Settings)" MinWidth="180" IsDefault="True" Click="ResumeSaved_Click" />
+      <Button Classes="accent" Content="Resume (Saved Settings)" MinWidth="180" IsDefault="True" Click="ResumeSaved_Click" />
     </StackPanel>
   </Grid>
 

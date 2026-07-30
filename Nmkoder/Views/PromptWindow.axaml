@@ -9,7 +9,7 @@
   <StackPanel Margin="16" Spacing="12">
     <TextBlock x:Name="MsgLabel" TextWrapping="Wrap" />
     <TextBox x:Name="InputBox" />
-    <Button Content="OK" HorizontalAlignment="Right" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    <Button Classes="accent" Content="OK" HorizontalAlignment="Right" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
   </StackPanel>
 
 </Window>

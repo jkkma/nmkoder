@@ -21,11 +21,12 @@ namespace Nmkoder.Controls
         private double? _dragStartX;
         private double? _dragCurrentX;
 
-        private static readonly IBrush LineBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x9E, 0xFF));
-        private static readonly IBrush FillBrush = new SolidColorBrush(Color.FromArgb(60, 0x4A, 0x9E, 0xFF));
-        private static readonly IBrush AxisBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-        private static readonly IBrush TextBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
-        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(48, 0xFF, 0xFF, 0xFF));
+        // Same palette as the rest of the UI: accent line, muted axis, text that stops short of white
+        private static readonly IBrush LineBrush = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
+        private static readonly IBrush FillBrush = new SolidColorBrush(Color.FromArgb(70, 0x58, 0x65, 0xF2));
+        private static readonly IBrush AxisBrush = new SolidColorBrush(Color.FromRgb(0x4E, 0x50, 0x58));
+        private static readonly IBrush TextBrush = new SolidColorBrush(Color.FromRgb(0x94, 0x9B, 0xA4));
+        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(56, 0x58, 0x65, 0xF2));
 
         private const double MarginLeft = 64;
         private const double MarginBottom = 28;
@@ -175,7 +176,7 @@ namespace Nmkoder.Controls
             int maxKbps = Math.Max(1, _points.Max(p => p.Kbps));
 
             // Gridlines + Y labels
-            var gridPen = new Pen(new SolidColorBrush(Color.FromArgb(40, 0xFF, 0xFF, 0xFF)), 1);
+            var gridPen = new Pen(new SolidColorBrush(Color.FromArgb(40, 0x94, 0x9B, 0xA4)), 1);
 
             for (int i = 0; i <= 4; i++)
             {

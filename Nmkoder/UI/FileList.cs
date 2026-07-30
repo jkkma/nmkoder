@@ -33,9 +33,11 @@ namespace Nmkoder.UI
             {
                 MediaFile mediaFile = await MediaFile.CreateAsync(file); // Create MediaFile without initializing
                 FileListEntry entry = new FileListEntry(mediaFile);
+                // The first file's stripe is neutral; the rest get a random one bright enough to
+                // tell apart against the list's dark surface.
                 entry.RowBrush = Items.Count == 0
-                    ? new SolidColorBrush(Color.FromRgb(64, 64, 64))
-                    : new SolidColorBrush(Color.FromRgb((byte)r.Next(16, 128), (byte)r.Next(16, 128), (byte)r.Next(16, 128)));
+                    ? new SolidColorBrush(Color.FromRgb(0x6D, 0x6F, 0x78))
+                    : new SolidColorBrush(Color.FromRgb((byte)r.Next(80, 220), (byte)r.Next(80, 220), (byte)r.Next(80, 220)));
                 Items.Add(entry);
             }
 

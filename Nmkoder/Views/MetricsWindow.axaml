@@ -8,21 +8,21 @@
 
   <StackPanel Margin="16" Spacing="10">
 
-    <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto">
+    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto">
       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoded (Low Quality)" />
       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncodedVideo" Margin="0,0,0,6" />
       <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Reference (Source)" />
       <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ReferenceVideo" />
     </Grid>
 
-    <TextBlock Classes="h" Text="Metrics" />
+    <TextBlock Classes="h" Text="METRICS" />
     <StackPanel Orientation="Horizontal" Spacing="16">
       <CheckBox x:Name="Vmaf" Content="VMAF" />
       <CheckBox x:Name="Ssim" Content="SSIM" />
       <CheckBox x:Name="Psnr" Content="PSNR" />
     </StackPanel>
 
-    <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto">
       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Alignment" />
       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Align" Margin="0,0,0,6">
         <ComboBoxItem Content="None" />
@@ -42,7 +42,7 @@
       </ComboBox>
     </Grid>
 
-    <Button Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,8,0,0"
+    <Button Classes="accent" Content="OK" HorizontalAlignment="Right" MinWidth="100" Margin="0,8,0,0"
             IsDefault="True" Click="Confirm_Click" />
 
   </StackPanel>

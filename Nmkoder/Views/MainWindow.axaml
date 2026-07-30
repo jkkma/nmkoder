@@ -15,16 +15,19 @@
 
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
-      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
+                 Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-        <Button Content="Discord" Click="Discord_Click" />
-        <Button Content="Patreon" Click="Patreon_Click" />
-        <Button Content="PayPal" Click="PayPal_Click" />
+        <Button Classes="subtle" Content="Discord" Click="Discord_Click" />
+        <Button Classes="subtle" Content="Patreon" Click="Patreon_Click" />
+        <Button Classes="subtle" Content="PayPal" Click="PayPal_Click" />
       </StackPanel>
     </Grid>
 
     <!-- ══════════════ Main area ══════════════ -->
-    <TabControl Grid.Row="1" x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
+    <!-- The tabs and their content share one rounded panel, raised off the window background. -->
+    <Border Grid.Row="1" Classes="panel">
+    <TabControl x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
 
       <!-- ─────────── File List ─────────── -->
       <TabItem Header="File List">
@@ -57,7 +60,7 @@
                    stays sharp at whatever size the panel gives it. -->
               <Viewbox Width="150" Height="150" HorizontalAlignment="Center">
                 <Canvas Width="64" Height="64">
-                  <Path Stroke="#8A8A8A" StrokeThickness="2.6" StrokeLineCap="Round" StrokeJoin="Round"
+                  <Path Stroke="{DynamicResource NmkoderMutedText}" StrokeThickness="2.6" StrokeLineCap="Round" StrokeJoin="Round"
                         Data="M 10,34 L 32,26 L 54,34 L 32,42 Z
                               M 10,34 L 10,50 L 32,58 L 54,50 L 54,34
                               M 32,42 L 32,58
@@ -70,7 +73,7 @@
                 </Canvas>
               </Viewbox>
               <TextBlock Text="Drag &amp; drop media files anywhere in this window to load them."
-                         HorizontalAlignment="Center" FontSize="14" Foreground="#8A8A8A" />
+                         HorizontalAlignment="Center" FontSize="14" Foreground="{DynamicResource NmkoderMutedText}" />
             </StackPanel>
           </Grid>
 
@@ -123,7 +126,7 @@
               </ListBox>
 
               <!-- Covers the list in Batch Processing Mode, where track selection isn't available -->
-              <Border x:Name="StreamListBlockPanel" IsVisible="False" Background="#CC1B1B1B">
+              <Border x:Name="StreamListBlockPanel" IsVisible="False" Background="{DynamicResource NmkoderScrim}" CornerRadius="6">
                 <TextBlock Text="Track selection is not available while a batch is running."
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
@@ -150,7 +153,7 @@
           <TextBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="StreamDetailsBox" IsVisible="False"
                    IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                    ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                   Height="110" Margin="0,8,0,0" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
+                   Height="110" Margin="0,8,0,0" Classes="mono" />
 
           <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Classes="field" Text="Default Audio" />
@@ -290,7 +293,7 @@
                 <!-- The right-click window is the only place the long explanations live, and nothing
                      else on screen would say so, so the heading carries the hint. -->
                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Encoder Arguments" VerticalAlignment="Center" Margin="0" />
+                  <TextBlock Grid.Column="0" Classes="h" Text="ENCODER ARGUMENTS" VerticalAlignment="Center" Margin="0" />
                   <TextBlock Grid.Column="1" Classes="hint" Margin="12,0,0,0"
                              Text="Right-click an argument for a full explanation and example values." />
                 </Grid>
@@ -305,7 +308,7 @@
                 <TabControl Grid.Row="2" x:Name="Av1anArgCategoryTabs" />
 
                 <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
+                  <TextBlock Grid.Column="0" Classes="h" Text="CUSTOM VIDEO FILTERS" VerticalAlignment="Center" Margin="0" />
                   <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="Av1anFilterAdd_Click" />
                   <Button Grid.Column="2" Content="Remove" Click="Av1anFilterRemove_Click" />
                 </Grid>
@@ -454,7 +457,7 @@
 
             <TabItem Header="Advanced">
               <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="4">
-                <TextBlock Grid.Row="0" Classes="h" Text="Custom Arguments" Margin="0,0,0,4" />
+                <TextBlock Grid.Row="0" Classes="h" Text="CUSTOM ARGUMENTS" Margin="0,0,0,4" />
                 <Grid Classes="form" Grid.Row="1" ColumnDefinitions="130,640,*" RowDefinitions="Auto,Auto">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Input Args" />
                   <TextBox Grid.Row="0" Grid.Column="1" x:Name="EncCustomArgsIn" />
@@ -463,7 +466,7 @@
                 </Grid>
 
                 <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,4">
-                  <TextBlock Grid.Column="0" Classes="h" Text="Custom Video Filters" VerticalAlignment="Center" Margin="0" />
+                  <TextBlock Grid.Column="0" Classes="h" Text="CUSTOM VIDEO FILTERS" VerticalAlignment="Center" Margin="0" />
                   <Button Grid.Column="1" Content="Add" Margin="0,0,6,0" Click="EncFilterAdd_Click" />
                   <Button Grid.Column="2" Content="Remove" Click="EncFilterRemove_Click" />
                 </Grid>
@@ -558,7 +561,7 @@
       <TabItem Header="Settings">
         <ScrollViewer>
           <StackPanel Margin="8" Spacing="6" MaxWidth="800" HorizontalAlignment="Left">
-            <TextBlock Classes="h" Text="General" Margin="0,0,0,2" />
+            <TextBlock Classes="h" Text="GENERAL" Margin="0,0,0,2" />
 
             <Grid Classes="form" ColumnDefinitions="200,320,*" RowDefinitions="Auto,Auto,Auto,Auto">
               <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Console window" />
@@ -587,7 +590,7 @@
             <CheckBox x:Name="Mp4FaststartBox" Content="Web-optimize MP4 output (+faststart)" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
             <CheckBox x:Name="Av1anCmdVisibleBox" Content="Show the av1an console window" IsChecked="True" IsCheckedChanged="GeneralSetting_Changed" />
 
-            <TextBlock Classes="h" Text="Reset On New File" />
+            <TextBlock Classes="h" Text="RESET ON NEW FILE" />
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Classes="field" Text="Settings to reset" Width="200" />
               <TextBlock x:Name="SettingsToResetLabel" VerticalAlignment="Center" Text="None" MinWidth="200" />
@@ -599,15 +602,16 @@
       </TabItem>
 
     </TabControl>
+    </Border>
 
     <!-- ══════════════ Log divider ══════════════ -->
     <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" ResizeDirection="Rows"
-                  Background="#2B2B2B" ToolTip.Tip="Drag to resize the log" />
+                  ToolTip.Tip="Drag to resize the log" />
 
     <!-- ══════════════ Log ══════════════ -->
     <Grid Grid.Row="3" x:Name="LogPanel" RowDefinitions="Auto,*">
-      <TextBlock Grid.Row="0" Classes="h" Text="Log" Margin="0,0,0,2" />
-      <TextBox Grid.Row="1" x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+      <TextBlock Grid.Row="0" Classes="h" Text="LOG" Margin="0,0,0,2" />
+      <TextBox Grid.Row="1" x:Name="LogBox" Classes="log" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
                FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" FontSize="11" />
     </Grid>
@@ -623,8 +627,8 @@
         <CheckBox x:Name="ShutdownWhenDoneBox" Content="Shutdown when done" IsCheckedChanged="ShutdownWhenDone_Changed"
                   ToolTip.Tip="Shut the computer down 60 seconds after the running task or batch finishes, with the countdown shown here - untick to abort it. A canceled task does not shut down. Armed for this session only, never saved." />
         <Button x:Name="PauseBtn" Content="Pause" IsVisible="False" Click="Pause_Click" />
-        <Button x:Name="StopBtn" Content="Stop" IsVisible="False" Click="Stop_Click" />
-        <Button x:Name="RunBtn" Content="Run" MinWidth="120" FontWeight="SemiBold" Click="Run_Click" />
+        <Button x:Name="StopBtn" Classes="danger" Content="Stop" IsVisible="False" Click="Stop_Click" />
+        <Button x:Name="RunBtn" Classes="accent" Content="Run" MinWidth="120" FontWeight="SemiBold" Click="Run_Click" />
       </StackPanel>
     </Grid>
 
