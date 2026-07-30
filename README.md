@@ -40,7 +40,8 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Video Formats: **H265 (x265), VP9 (VPX), AV1 (AOM or SVT-AV1)**
 - Quality Modes: Either use a **constant quality** or target a **VMAF**, **SSIMULACRA2**, **Butteraugli**
   or **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
-  XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship - see below)
+  XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
+  bundle ships and enables per machine - see below)
 - Same audio and video options as FFmpeg encoding
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
@@ -90,8 +91,16 @@ The caveat on Butteraugli: every av1an release to date calls the CPU scoring plu
 ([julek](https://github.com/dnjulek/vapoursynth-julek-plugin)) by the wrong function name
 (`butteraugli` where the plugin registers `Butteraugli`), so that path fails at probe time no
 matter what is installed. Until av1an fixes the invoke, Target Butteraugli works only through
-[vship](https://github.com/Line-fr/Vship); the app stops the encode up front when the bundled
-plugin folder holds no Vship, and warns where there is no such folder to check.
+[vship](https://github.com/Line-fr/Vship). The Windows bundle therefore ships both Vship builds
+parked in `vsynth/vship`, outside the autoload folder, and before a metric-targeted encode the
+app runs Vship's own GPU check and stages the build this machine passes into `vs-plugins` - so
+Butteraugli works out of the box on a capable NVIDIA or AMD GPU, and SSIMULACRA2 moves to GPU
+scoring on those same machines, since av1an prefers Vship wherever it sees it. A machine no
+build passes on is stopped up front with the working alternatives named. The staged copy
+carries nmkoder's own file name (`nmkoder-vship_*.dll`), so a Vship you install into
+`vs-plugins` yourself - under upstream's names or any other - is recognised as yours: the app
+withdraws its own copy and never touches your file. Where there is no bundled plugin folder to
+manage (Linux/macOS), the app only warns.
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
@@ -101,6 +110,8 @@ bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
                              vszip, which scores Target SSIMULACRA2 probes, and julek, staged
                              for Butteraugli until av1an can call it (see the caveat above)
+bin/av1an/vsynth/vship/      Vship's NVIDIA + AMD builds, parked; the app stages the one this
+                             machine's GPU passes into vs-plugins, and unstages both when none does
 bin/av1an/enc/               SvtAv1EncApp, aomenc and x265
 ```
 
@@ -112,8 +123,8 @@ Binaries are resolved from each project's releases at build time, except SvtAv1E
 aomenc and x265, which upstream does not publish for Windows and so come from MSYS2's
 mingw64 packages. Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`,
 `VAPOURSYNTH_REPO`, `LSMASH_REPO`, `FFMS2_REPO`, `BESTSOURCE_REPO`, `VSZIP_REPO`,
-`VSZIP_TAG`, `VSJULEK_REPO`, `VSJULEK_TAG`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`,
-`MSYS2_ROOT`, `GH_RELEASE_SCAN` and `MKVTOOLNIX_VERSION` environment variables.
+`VSZIP_TAG`, `VSJULEK_REPO`, `VSJULEK_TAG`, `VSHIP_REPO`, `VSHIP_TAG`, `PYTHON_EMBED_VERSIONS`,
+`MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN` and `MKVTOOLNIX_VERSION` environment variables.
 
 **vpxenc comes from a third-party build.** No project publishes a prebuilt Windows
 vpxenc: the WebM project ships source only, ShiftMediaProject builds the library rather

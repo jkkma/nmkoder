@@ -159,30 +159,35 @@ namespace Nmkoder.UI.Tasks
                     {
                         string metric = GetTargetMetricName(qualMode);
 
+                        // The bundle parks Vship outside the autoload folder, and what belongs in it
+                        // on this machine is decided here, right before av1an looks: av1an snapshots
+                        // its plugin list once at startup, and both these modes change scoring
+                        // backend when Vship is present. XPSNR is left out - ffmpeg scores it, so
+                        // there is no reason to pay a GPU probe for it.
+                        if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli)
+                            await VshipStager.Reconcile();
+
                         // av1an's releases to date (through 0.5.2, and unfixed upstream as of July
                         // 2026) invoke the julek plugin's scoring function as "butteraugli", but the
                         // plugin registers it as "Butteraugli", and VapourSynth's lookup is case-
                         // sensitive - so on the bundled CPU path every probe fails, minutes in, after
                         // scene detection and the first chunks have already encoded. Vship registers
-                        // the exact name av1an calls, so it works; its absence is only worth stopping
-                        // on where the portable plugin folder exists to be inspected - a system
-                        // VapourSynth keeps its plugins wherever it likes, so there nothing is known
-                        // and the run proceeds on a warning instead. Checked ahead of the chunk
-                        // method: this verdict is terminal for the mode, so it should not come out
-                        // only after a chunk method was dutifully corrected for it. Remove this guard
-                        // when an av1an release fixes the invoke (compare_butteraugli in vapoursynth.rs).
+                        // the exact name av1an calls, so it works, and the reconcile above has just
+                        // staged it wherever this machine's GPU passes its check - so its absence
+                        // here means the machine cannot run it. Only worth stopping on where the
+                        // portable plugin folder exists to be inspected: a system VapourSynth keeps
+                        // its plugins wherever it likes, so there nothing is known and the run
+                        // proceeds on a warning instead. Checked ahead of the chunk method - this
+                        // verdict is terminal for the mode, so it should not come out only after a
+                        // chunk method was dutifully corrected for it. Remove this guard when an
+                        // av1an release fixes the invoke (compare_butteraugli in vapoursynth.rs).
                         if (qualMode == QualityMode.TargetButteraugli)
                         {
                             bool? vship = HasVshipInPortablePlugins();
 
                             if (vship == false)
                             {
-                                RunTask.Cancel("Target Butteraugli cannot work with this av1an: it calls the " +
-                                    "bundled CPU scoring plugin (julek) by the wrong function name, so every " +
-                                    "probe fails once encoding starts.\n\n" +
-                                    "Pick Target SSIMULACRA2 or Target XPSNR instead, or install the GPU " +
-                                    "plugin Vship (AMD/NVIDIA) into bin/av1an/vsynth/vs-plugins, which " +
-                                    "av1an calls correctly.");
+                                RunTask.Cancel(GetButteraugliBlockedMessage());
                                 return;
                             }
 
@@ -341,6 +346,21 @@ namespace Nmkoder.UI.Tasks
                         Program.MainWin.SetWorking(false);
                         return;
                     }
+
+                    // A replayed command picks its scoring backend the same way a fresh one does -
+                    // at av1an startup, from whatever sits in vs-plugins - so the folder has to be
+                    // reconciled for it too, and a Butteraugli resume that would only rediscover
+                    // av1an's julek name mismatch minutes in is stopped up front like a fresh run.
+                    if (args.Contains("--target-metric ssimulacra2") || args.Contains("--target-metric butteraugli"))
+                    {
+                        await VshipStager.Reconcile();
+
+                        if (args.Contains("--target-metric butteraugli") && HasVshipInPortablePlugins() == false)
+                        {
+                            RunTask.Cancel(GetButteraugliBlockedMessage());
+                            return;
+                        }
+                    }
                 }
 
                 if (outPath == inPath)
@@ -430,6 +450,8 @@ namespace Nmkoder.UI.Tasks
         /// Whether Vship sits in the portable VapourSynth plugin folder, or null when there is no
         /// such folder to look in - a system VapourSynth (Linux, macOS, or a custom install) loads
         /// plugins from wherever it likes, and their presence cannot be cheaply known from here.
+        /// Only ".dll" files count, because only those autoload: a probe's parked ".bak" carries
+        /// the same name and would otherwise vouch for a plugin VapourSynth will not be loading.
         /// </summary>
         private static bool? HasVshipInPortablePlugins()
         {
@@ -440,13 +462,39 @@ namespace Nmkoder.UI.Tasks
                 if (!Directory.Exists(dir))
                     return null;
 
-                return Directory.EnumerateFiles(dir).Any(f => Path.GetFileName(f).ToLower().Contains("vship"));
+                return Directory.EnumerateFiles(dir)
+                    .Select(f => Path.GetFileName(f).ToLower())
+                    .Any(f => f.EndsWith(".dll") && f.Contains("vship"));
             }
             catch (Exception e)
             {
                 Logger.Log($"Could not inspect the VapourSynth plugin folder: {e.Message}", true);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Why a Butteraugli run without Vship is being stopped, with the part that varies said
+        /// precisely: no Vship installed at all, this machine failing the bundled build's GPU
+        /// check, or the check going unanswered - blaming the GPU in all three alike would tell
+        /// a user with a capable card that their hardware flunked a check that never ran.
+        /// </summary>
+        private static string GetButteraugliBlockedMessage()
+        {
+            string intro = "Target Butteraugli cannot work like this: av1an calls the CPU scoring plugin " +
+                "(julek) by the wrong function name in every release to date, ";
+
+            if (!VshipStager.HasParkedBuilds())
+                return intro + "and no Vship plugin is installed.\n\nPick Target SSIMULACRA2 or Target " +
+                    "XPSNR instead, or install the GPU plugin Vship (NVIDIA/AMD) into bin/av1an/vsynth/vs-plugins.";
+
+            if (VshipStager.SessionVerdict == false)
+                return intro + "and no GPU in this machine passes the bundled Vship plugin's check - it " +
+                    "needs a supported NVIDIA or AMD GPU with current drivers.\n\n" +
+                    "Pick Target SSIMULACRA2 or Target XPSNR instead.";
+
+            return intro + "and the bundled Vship plugin's GPU check could not get an answer just now.\n\n" +
+                "Pick Target SSIMULACRA2 or Target XPSNR instead, or try again in a moment.";
         }
 
         /// <summary> The metric a target quality mode steers by, as it is named in messages. </summary>

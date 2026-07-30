@@ -594,9 +594,8 @@ VSJULEK_TAG="${VSJULEK_TAG:-r3}"
 # invokes it as "butteraugli" where the plugin registers "Butteraugli", a case mismatch
 # VapourSynth does not forgive, so the app stops Target Butteraugli when it can see that
 # Vship is absent, and warns where it cannot look (see the guard in Av1an.Run).
-# Vship, the GPU-accelerated alternative av1an accepts for both plugin-scored metrics,
-# is deliberately not bundled: it is hardware-specific (AMD HIP / CUDA), and av1an
-# prefers it on its own when a user drops it into vs-plugins themselves.
+# Vship, the GPU plugin av1an accepts for both plugin-scored metrics (and the only thing
+# its butteraugli path calls correctly), ships parked - see bundle_vs_vship below.
 bundle_vs_metric_plugins() {
   VS_PLUGIN_DLL='vszip.dll'
   ASSET_RELEASE_TAG="$VSZIP_TAG"
@@ -622,6 +621,119 @@ bundle_vs_metric_plugins() {
   else
     ASSET_RELEASE_TAG=""
     note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - staged for when av1an can call it"
+  fi
+
+  bundle_vs_vship
+}
+
+# Vship supplies the GPU scoring behind Target Butteraugli - the only backend av1an's
+# butteraugli path calls by its right name - and av1an prefers it for SSIMULACRA2 too
+# whenever it is present. Upstream archived its GitHub repository in February 2026 with
+# binaries frozen at v4.0.2 ("files will remain there for a little more time") and moved
+# to Codeberg, which refuses automated downloads - so this pin must never chase "latest",
+# and the DLLs are looked for on this repository's own releases first, where they can be
+# mirrored (MIT allows it) before upstream's copies disappear.
+VSHIP_TAG="${VSHIP_TAG:-v4.0.2}"
+VSHIP_REPO="${VSHIP_REPO:-Line-fr/Vship}"
+
+# Unsigned binaries with no provenance, pinned to the builds that were actually inspected
+# (like vpxenc): PE imports checked - the NVIDIA build takes only KERNEL32, the AMD build
+# KERNEL32 plus the driver's amdhip64_6.dll. Replacing the DLLs means updating these.
+VSHIP_NVIDIA_SHA1="${VSHIP_NVIDIA_SHA1-9285f8601e188e111d97c3b8bfef9d3ba9bb28f1}"
+VSHIP_AMD_SHA1="${VSHIP_AMD_SHA1-c1a18dff560a62cd10d80c0afb6ee47114a40127}"
+
+# The release of this repository the mirrored DLLs are attached to, once someone attaches
+# them. Named outright for the same reason vpxenc's tag is: an asset attached to one
+# release slides out of the recent-release scan as newer releases accumulate. Empty scans
+# the recent releases.
+VSHIP_ASSET_TAG="${VSHIP_ASSET_TAG-}"
+
+# Set per call by bundle_vs_vship for the handler below.
+VSHIP_TARGET_NAME=""
+VSHIP_EXPECTED_SHA1=""
+
+# try_assets handler: Vship publishes bare DLLs, not archives, so only the no-archive
+# path is accepted, and nothing is staged that is not byte-for-byte the pinned build.
+install_vship_dll() {
+  local file="$1" dir="$2"
+  [ -z "$dir" ] || return 1
+  is_windows_exe "$file" || return 1 # DLLs carry the same MZ magic
+
+  if [ -n "$VSHIP_EXPECTED_SHA1" ]; then
+    local got want
+    got="$(sha1sum "$file" | cut -d' ' -f1 | tr 'A-F' 'a-f')"
+    want="$(printf '%s' "$VSHIP_EXPECTED_SHA1" | tr 'A-F' 'a-f')"
+
+    if [ "$got" != "$want" ]; then
+      echo "  [warn] vship: $VSHIP_TARGET_NAME SHA1 $got does not match the pinned $want"
+      return 1
+    fi
+  fi
+
+  mkdir -p "$VSYNTH_DIR/vship"
+  cp "$file" "$VSYNTH_DIR/vship/$VSHIP_TARGET_NAME"
+}
+
+# Parked in vsynth/vship, deliberately OUTSIDE the autoloaded vs-plugins folder: presence
+# is all av1an checks, and the NVIDIA build loads on machines with no NVIDIA GPU at all
+# (its import table holds nothing beyond KERNEL32), so autoloading it blindly would hand
+# scoring to a plugin that then fails every probe. The app stages the right build into
+# vs-plugins at runtime, after Vship's own GpuInfo kernel check has passed on the machine
+# (VshipStager.Reconcile), and removes it again when the machine stops passing.
+bundle_vs_vship() {
+  local vendor sha got=0
+  for vendor in NVIDIA AMD; do
+    VSHIP_TARGET_NAME="libvship_${vendor}.dll"
+    sha="$VSHIP_AMD_SHA1"
+    [ "$vendor" = "NVIDIA" ] && sha="$VSHIP_NVIDIA_SHA1"
+    VSHIP_EXPECTED_SHA1="$sha"
+
+    # This repository's releases first (the durable mirror), then the archived upstream.
+    if { [ -n "${GITHUB_REPOSITORY:-}" ] && try_assets "$GITHUB_REPOSITORY" "libvship_${vendor}\.dll$" '' install_vship_dll "$VSHIP_ASSET_TAG"; }; then
+      note_ok "vapoursynth plugin: vship $vendor ($LAST_ASSET from $GITHUB_REPOSITORY, parked)"
+      got=$((got + 1))
+    elif ASSET_RELEASE_TAG="$VSHIP_TAG" && try_assets "$VSHIP_REPO" "libvship_${vendor}\.dll$" '' install_vship_dll; then
+      ASSET_RELEASE_TAG=""
+      note_ok "vapoursynth plugin: vship $vendor ($LAST_ASSET, parked)"
+      got=$((got + 1))
+    else
+      ASSET_RELEASE_TAG=""
+      note_skip "vapoursynth plugin: vship $vendor" "no pinned libvship_${vendor}.dll in ${GITHUB_REPOSITORY:-<unset>} or $VSHIP_REPO $VSHIP_TAG"
+    fi
+  done
+
+  VSHIP_TARGET_NAME=""
+  VSHIP_EXPECTED_SHA1=""
+
+  if [ "$got" -gt 0 ]; then
+    # Shipping this text is MIT's one distribution requirement, so it is embedded rather
+    # than fetched - the upstream repository is archived and will not serve it forever.
+    cat > "$VSYNTH_DIR/vship/Vship-LICENSE.txt" <<'EOF'
+MIT License
+
+Copyright (c) 2024 Line
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+EOF
+    note_licence "  Vship              MIT (GPU VapourSynth metric plugin; parked in vsynth/vship,
+                     staged into vs-plugins per machine once its GPU check passes)
+                     Source: https://github.com/Line-fr/Vship"
   fi
 }
 
