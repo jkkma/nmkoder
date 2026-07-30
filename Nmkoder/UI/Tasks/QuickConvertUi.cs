@@ -405,7 +405,11 @@ namespace Nmkoder.UI.Tasks
 
             string argsMetaGrid = "";
 
-            if (Form.EncMetaApplyGrid.IsChecked == true)
+            // The grid describes one loaded file's tracks, and a batch deliberately never fills it -
+            // LoadMetadataGrid bails out for the same reason the track list is read-only there.
+            // Applying it anyway meant every output in the queue was written with an empty title and
+            // language on the file and on every track it carried.
+            if (Form.EncMetaApplyGrid.IsChecked == true && !RunTask.runningBatch)
             {
                 List<string> argListMetaGrid = new List<string>();
 

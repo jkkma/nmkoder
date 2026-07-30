@@ -113,7 +113,8 @@ namespace Nmkoder.Views
 
             // Whichever tab the last session was left on was selected before _initialized was set,
             // so its SelectionChanged did nothing - and the File List tab, which the XAML selects,
-            // never raises one at all.
+            // never raises one at all. The same goes for the restored file list mode.
+            await ApplyFileListMode();
             await ApplySelectedTab();
 
             if (Program.fileArgs.Length > 0)
@@ -299,6 +300,13 @@ namespace Nmkoder.Views
 
         public void SetWorking(bool state, bool allowCancel = true)
         {
+            // A batch owns the working state for the length of the queue. Every task it runs clears
+            // the state as it ends, so honouring that between two files flickered Run back in, hid
+            // Stop, and unblocked the track list mid-run. RunTask.StartBatch clears runningBatch
+            // before its own final call, which is the one that lands.
+            if (!state && RunTask.runningBatch)
+                return;
+
             Logger.Log($"SetWorking({state})", true);
             SetProgress(0, false);
 

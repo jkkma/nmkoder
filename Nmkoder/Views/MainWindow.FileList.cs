@@ -51,10 +51,24 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            await ApplyFileListMode();
+        }
+
+        /// <summary>
+        /// Brings the rest of the app in line with the mode dropdown. Separate from the handler
+        /// because the saved mode is restored into the box during startup, before the handler is
+        /// allowed to do anything - which left the box reading "Batch Processing Mode" while
+        /// everything that asks <see cref="RunTask.currentFileListMode"/> was still told Mux, so a
+        /// restored batch session muxed its whole file list into one output instead.
+        /// </summary>
+        public async Task ApplyFileListMode()
+        {
             RunTask.FileListMode oldMode = RunTask.currentFileListMode;
             RunTask.FileListMode newMode = (RunTask.FileListMode)Math.Max(0, FileListModeBox.SelectedIndex);
 
-            if (oldMode == RunTask.FileListMode.Mux && newMode == RunTask.FileListMode.Batch)
+            // Only when there is something loaded to unload: at startup this would otherwise reset
+            // the encode settings that were just restored, over a file that was never opened.
+            if (oldMode == RunTask.FileListMode.Mux && newMode == RunTask.FileListMode.Batch && (TrackList.current != null || TrackList.Items.Count > 0))
                 TrackList.ClearCurrentFile(true);
 
             RunTask.currentFileListMode = newMode;

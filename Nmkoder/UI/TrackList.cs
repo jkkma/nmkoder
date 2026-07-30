@@ -31,7 +31,13 @@ namespace Nmkoder.UI
         public static FileListEntry current;
         public static AudioConfiguration currentAudioConfig = null;
 
-        public static void ClearCurrentFile(bool clearStreamList = false)
+        /// <summary>
+        /// Unloads the current file. <paramref name="resetSettings"/> is what "Reset on new file"
+        /// hangs off, so a batch passes false: stepping to the next file in a queue is not the user
+        /// loading one, and applying it there threw away the very settings the queue was configured
+        /// with - the cut section among them, which left the Cut utility with nothing to cut.
+        /// </summary>
+        public static void ClearCurrentFile(bool clearStreamList = false, bool resetSettings = true)
         {
             MainWindow f = Program.MainWin;
 
@@ -46,7 +52,8 @@ namespace Nmkoder.UI
             f.MetadataRows.Clear();
             ThumbnailView.ClearUi();
 
-            ResetSettings();
+            if (resetSettings)
+                ResetSettings();
         }
 
         public static void ResetSettings(bool resetAll = false, bool showMsgBox = false)
