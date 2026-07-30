@@ -209,12 +209,18 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(CheckAv1anCopyAttachs);
             ConfigParser.RestoreIfSaved(Av1anCustomArgsBox);
             ConfigParser.RestoreIfSaved(Av1anCustomEncArgsBox);
+            ConfigParser.LoadFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
         }
 
         public void SaveAv1anEncodeSettings()
         {
             if (!_initialized)
                 return;
+
+            // A filter typed into the grid and left without pressing Enter is still sitting in the
+            // cell editor rather than in the row behind it, and closing the window is exactly when
+            // that happens - the same reason SaveAv1anAdvancedArgs commits its own grids first.
+            Av1anAdvancedFiltersGrid.CommitEdit();
 
             ConfigParser.SaveComboxIndex(Av1anQualModeBox);
             ConfigParser.SaveGuiElement(Av1anQualityUpDown);
@@ -232,6 +238,7 @@ namespace Nmkoder.Views
             ConfigParser.SaveGuiElement(CheckAv1anCopyAttachs);
             ConfigParser.SaveGuiElement(Av1anCustomArgsBox);
             ConfigParser.SaveGuiElement(Av1anCustomEncArgsBox);
+            ConfigParser.SaveFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
         }
 
         /// <summary> The category tabs' grids, kept for committing pending edits on save. </summary>

@@ -1,7 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
+using Newtonsoft.Json;
+using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace Nmkoder.IO
 {
@@ -92,6 +97,46 @@ namespace Nmkoder.IO
             else
                 Logger.Log($"LoadComboxIndex: [{comboBox.Name}] Index of {i} was loaded but there are only {count} items!", true);
         }
+
+        #region Filter Grids
+
+        /// <summary>
+        /// The custom filter grids, whose rows are not controls and so have no name to be keyed by.
+        /// Stored as a JSON array rather than one joined string because a filter is arbitrary
+        /// ffmpeg syntax - commas, colons, quotes and equals signs are all ordinary characters
+        /// inside one - which leaves nothing to join them with.
+        /// </summary>
+        public static void SaveFilterRows(Config.Key key, IEnumerable<FilterRow> rows)
+        {
+            // Blank rows are dropped: the grids are edited by adding an empty row and typing into
+            // it, so an abandoned one is not a filter and would come back as an empty row forever.
+            List<string> filters = rows.Select(x => (x.Filter ?? "").Trim()).Where(x => x.IsNotEmpty()).ToList();
+            Config.Set(key, JsonConvert.SerializeObject(filters));
+        }
+
+        public static void LoadFilterRows(Config.Key key, ObservableCollection<FilterRow> rows)
+        {
+            rows.Clear();
+            string json = Config.Get(key);
+
+            if (json.IsEmpty())
+                return;
+
+            try
+            {
+                foreach (string filter in JsonConvert.DeserializeObject<List<string>>(json) ?? new List<string>())
+                {
+                    if (filter.IsNotEmpty())
+                        rows.Add(new FilterRow(filter));
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to read the saved custom filters: {e.Message}", true);
+            }
+        }
+
+        #endregion
 
         #region Restore
 

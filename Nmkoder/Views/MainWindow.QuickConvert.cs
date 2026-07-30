@@ -117,12 +117,18 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncCustomArgsIn);
             ConfigParser.RestoreIfSaved(EncCustomArgsOut);
             ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
+            ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
         }
 
         public void SaveQuickConvertSettings()
         {
             if (!_initialized)
                 return;
+
+            // A filter typed into the grid and left without pressing Enter is still sitting in the
+            // cell editor rather than in the row behind it, and closing the window is exactly when
+            // that happens.
+            EncAdvancedFiltersGrid.CommitEdit();
 
             ConfigParser.SaveComboxIndex(EncQualModeBox);
             ConfigParser.SaveGuiElement(EncVidQualityBox);
@@ -136,6 +142,7 @@ namespace Nmkoder.Views
             ConfigParser.SaveGuiElement(EncCustomArgsIn);
             ConfigParser.SaveGuiElement(EncCustomArgsOut);
             ConfigParser.SaveGuiElement(EncMetaApplyGrid);
+            ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
         }
 
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)

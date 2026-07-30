@@ -103,8 +103,6 @@ namespace Nmkoder.Views
             if (Nmkoder.Data.Paths.GetExe().Length > 150)
                 Logger.Log($"Warning: Nmkoder's installation path is very long ({Nmkoder.Data.Paths.GetExe().Length} characters) - This can lead to problems. It is recommended to move it to a higher directory to reduce the path length.");
 
-            QuickConvertUi.InitAdvFilterGrid();
-            Av1anUi.InitAdvFilterGrid();
             UpdateResetSettingsText();
             QuickConvertUi.InitFile();
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
