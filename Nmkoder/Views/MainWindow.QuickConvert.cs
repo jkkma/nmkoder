@@ -168,8 +168,7 @@ namespace Nmkoder.Views
 
         private async void EncTrimConf_Click(object sender, RoutedEventArgs e)
         {
-            long durationMs = TrackList.current?.File.DurationMs ?? 0;
-            QuickConvertUi.CurrentTrim = await TrimWindow.Show(durationMs, QuickConvertUi.CurrentTrim);
+            QuickConvertUi.CurrentTrim = await CutWindow.ShowForTrim(TrackList.current?.File, QuickConvertUi.CurrentTrim);
             UpdateTrimBtnText();
         }
 

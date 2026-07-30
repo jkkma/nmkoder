@@ -520,6 +520,16 @@
               </StackPanel>
             </Border>
 
+            <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
+              <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" />
+                  <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
+                </Grid>
+                <TextBlock Classes="dim" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
+              </StackPanel>
+            </Border>
+
             <Border x:Name="UtilsConcatPanel" Classes="card" Tapped="SelectConcat">
               <StackPanel>
                 <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" />

@@ -17,7 +17,7 @@ namespace Nmkoder.Main
 {
     public class RunTask
     {
-        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, PlotBitrate };
+        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate };
 
         public enum FileListMode { Mux, Batch };
         public static FileListMode currentFileListMode;
@@ -176,7 +176,7 @@ namespace Nmkoder.Main
                 }
             }
 
-            bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates || task == TaskType.UtilOcr;
+            bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates || task == TaskType.UtilOcr || task == TaskType.UtilCut;
 
             if (loadedFileRequired && (currentFileListMode == FileListMode.Mux && TrackList.current == null))
             {
@@ -203,6 +203,7 @@ namespace Nmkoder.Main
             else if (task == TaskType.UtilOcr) await UtilOcr.Run();
             else if (task == TaskType.UtilColorData) await UtilColorData.Run();
             else if (task == TaskType.UtilConcat) await UtilConcat.Run();
+            else if (task == TaskType.UtilCut) await UtilCut.Run();
             else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
             Program.MainWin.RunningTask = TaskType.None;
 
@@ -248,6 +249,7 @@ namespace Nmkoder.Main
                 case TaskType.UtilOcr: return "Subtitle OCR";
                 case TaskType.UtilColorData: return "Color data transfer";
                 case TaskType.UtilConcat: return "Concatenation";
+                case TaskType.UtilCut: return "Lossless cut";
                 case TaskType.PlotBitrate: return "Bitrate chart";
                 default: return "Task";
             }

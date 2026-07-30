@@ -7,6 +7,7 @@ using Nmkoder.UI;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -296,6 +297,53 @@ namespace Nmkoder.Media
 
             File.WriteAllText(outputPath, concatFileContent);
             return fileCount;
+        }
+
+        /// <summary>
+        /// Where a stream copy starting at <paramref name="ms"/> will actually begin: the last video
+        /// keyframe at or before that point, because a copy cannot start anywhere else. Returns -1 if
+        /// none was found, which is what a probe failure and a file whose first keyframe comes later
+        /// both look like.
+        ///
+        /// Probing walks a window that ends at the wanted position instead of the whole file - on a
+        /// feature-length video the difference is a moment against most of a minute - and widens it
+        /// only if that window held no keyframe at all.
+        /// </summary>
+        public static async Task<long> GetKeyframeMsAtOrBefore(string path, long ms)
+        {
+            double wanted = Math.Max(0, ms) / 1000d;
+
+            foreach (int windowSec in new[] { 20, 120, -1 }) // -1: give up on windowing and read from the start
+            {
+                double from = windowSec < 0 ? 0 : Math.Max(0, wanted - windowSec);
+                string interval = $"{from.ToString("0.###", CultureInfo.InvariantCulture)}%{Math.Max(wanted, from + 0.001).ToString("0.###", CultureInfo.InvariantCulture)}";
+                string args = $"-select_streams v:0 -skip_frame nokey -read_intervals {interval} -show_entries frame=pts_time -of csv=p=0 {path.Wrap()}";
+
+                try
+                {
+                    string output = await AvProcess.RunFfprobe(new AvProcess.FfprobeSettings() { Args = args });
+
+                    var times = output.SplitIntoLines()
+                        .Select(x => x.Trim().Split(',')[0])
+                        .Where(x => double.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                        .Select(x => (long)(double.Parse(x, NumberStyles.Float, CultureInfo.InvariantCulture) * 1000d))
+                        .Where(x => x <= ms)
+                        .ToList();
+
+                    if (times.Any())
+                        return times.Max();
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"GetKeyframeMsAtOrBefore failed: {e.Message}", true, false, "ffmpeg");
+                    return -1;
+                }
+
+                if (from <= 0) // The window already covered the whole file, so widening it cannot help
+                    break;
+            }
+
+            return -1;
         }
 
         public static Size SizeFromString(string str, char delimiter = ':')

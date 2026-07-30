@@ -65,7 +65,9 @@ namespace Nmkoder.UI
             if (resetAll || ResetSettingsOnNewFile.ResetTrim)
             {
                 QuickConvertUi.CurrentTrim = null;
+                UtilCut.Cut = null; // Timestamps picked against one file mean nothing against the next
                 f.UpdateTrimBtnText();
+                f.UpdateCutBtnText();
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetTrim)]);
             }
 
