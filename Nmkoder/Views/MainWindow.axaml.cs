@@ -63,6 +63,7 @@ namespace Nmkoder.Views
 
             SetUpDragDrop();
             SetUpModifierTracking();
+            RestoreLayout();
 
             Opened += OnOpened;
             Closing += OnClosing;
@@ -102,11 +103,14 @@ namespace Nmkoder.Views
             QuickConvertUi.InitFile();
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 
+            RefreshRecentFilesButton();
+
             _initialized = true;
 
-            // The window opens on the File List tab, so MainTabs_SelectionChanged never fires for it
-            // and the Run button would keep the enabled state it has in XAML.
-            UpdateRunButtonState();
+            // Whichever tab the last session was left on was selected before _initialized was set,
+            // so its SelectionChanged did nothing - and the File List tab, which the XAML selects,
+            // never raises one at all.
+            await ApplySelectedTab();
 
             if (Program.fileArgs.Length > 0)
                 await FileList.HandleFiles(Program.fileArgs, true);
@@ -114,6 +118,11 @@ namespace Nmkoder.Views
 
         private void OnClosing(object sender, WindowClosingEventArgs e)
         {
+            // First, and before anything that reads the task UI: where the window was is the one
+            // thing here that is true even if startup never got far enough to fill that UI in, and
+            // it is worth keeping when a save further down this list throws.
+            SaveLayout();
+
             SaveUiConfig();
             SaveConfigAv1an();
             SaveAv1anAdvancedArgs();
@@ -432,6 +441,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            await ApplySelectedTab();
+        }
+
+        /// <summary>
+        /// Brings the selected tab's own state up to date. Separate from the handler because the
+        /// tab restored from the last session is selected during startup, before the handler is
+        /// allowed to do anything, so its setup has to be applied once startup is over.
+        /// </summary>
+        private async Task ApplySelectedTab()
+        {
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
             UpdateRunButtonState();
 

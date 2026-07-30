@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.UI;
@@ -52,8 +51,8 @@ namespace Nmkoder.Views
 
         private async void BrowseDefaultOutDir_Click(object sender, RoutedEventArgs e)
         {
-            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where to save encodes", AllowMultiple = false });
-            string path = folders.FirstOrDefault()?.TryGetLocalPath();
+            string[] folders = await Pickers.PickFolders(this, "Choose where to save encodes", allowMultiple: false, Pickers.Dir.Output, DefaultOutDirBox.Text);
+            string path = folders.FirstOrDefault();
 
             if (path.IsEmpty())
                 return;

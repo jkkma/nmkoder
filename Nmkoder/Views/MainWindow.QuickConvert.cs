@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Data;
 using Nmkoder.Data.Codecs;
 using Nmkoder.Data.Streams;
@@ -166,13 +165,7 @@ namespace Nmkoder.Views
 
         private async void BrowseFfmpegOutput_Click(object sender, RoutedEventArgs e)
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Choose output path",
-                SuggestedFileName = Path.GetFileName(OutputPathBox.Text ?? "")
-            });
-
-            string path = file?.TryGetLocalPath();
+            string path = await Pickers.PickSavePath(this, "Choose output path", OutputPathBox.Text);
 
             if (!string.IsNullOrWhiteSpace(path))
                 OutputPathBox.Text = Path.ChangeExtension(path, null);

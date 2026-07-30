@@ -60,6 +60,11 @@ namespace Nmkoder.UI
 
             Program.MainWin.SelectedMainTab = 0;
 
+            // Every way a file gets in - the buttons, drag & drop, the command line - ends up here,
+            // so this is the one place that sees all of them and none of them twice.
+            RecentFiles.Add(paths);
+            Program.MainWin.RefreshRecentFilesButton();
+
             Logger.Log($"Added {paths.Length} file{((paths.Length == 1) ? "" : "s")} to list.");
             await LoadFiles(paths, clearExisting);
 

@@ -338,10 +338,16 @@ namespace Nmkoder.IO
             CmdDebugMode,
             DefaultKeyIntSecs,
             DefaultOutputDir,
+            LastInputDir,
+            LastOutputDir,
+            LogHeight,
+            MainTab,
             metaMode,
             mp4Faststart,
+            RecentFiles,
             ResetSettingsList,
-            UseZeroIndexedStreams
+            UseZeroIndexedStreams,
+            WindowGeometry
         }
     }
 }

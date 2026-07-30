@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Nmkoder.Data;
 using Nmkoder.Data.Codecs;
 using Nmkoder.Extensions;
@@ -429,13 +428,7 @@ namespace Nmkoder.Views
 
         private async void BrowseAv1anOutput_Click(object sender, RoutedEventArgs e)
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Choose output path",
-                SuggestedFileName = Path.GetFileName(Av1anOutputPathBox.Text ?? "")
-            });
-
-            string path = file?.TryGetLocalPath();
+            string path = await Pickers.PickSavePath(this, "Choose output path", Av1anOutputPathBox.Text);
 
             if (!string.IsNullOrWhiteSpace(path))
                 Av1anOutputPathBox.Text = Path.ChangeExtension(path, null);
