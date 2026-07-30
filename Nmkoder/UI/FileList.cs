@@ -22,22 +22,33 @@ namespace Nmkoder.UI
 
         public static List<MediaFile> currentFiles = new List<MediaFile>();
 
+        /// <summary> Neutral grey, matching the palette's disabled/chrome tone. </summary>
+        private static readonly IBrush FirstRowBrush = new SolidColorBrush(Color.FromRgb(0x6D, 0x6F, 0x78));
+
+        /// <summary>
+        /// The stripe that tags a file in the list, and its tracks in the Track List. It carries the
+        /// palette's pastel weight - the same saturation and lightness as the accent - with the hue
+        /// advanced by the golden angle per file, so any number of files stays distinguishable
+        /// without any of them landing outside the palette.
+        /// </summary>
+        private static IBrush GetRowBrush(int index)
+        {
+            if (index == 0)
+                return FirstRowBrush; // The first file is the muxing target, so it stays neutral
+
+            double hue = (150.0 + index * 137.508) % 360.0;
+            return new SolidColorBrush(new HslColor(1.0, hue, 0.55, 0.75).ToRgb());
+        }
+
         public static async Task LoadFiles(string[] paths, bool clearExisting)
         {
             if (clearExisting)
                 Items.Clear();
 
-            Random r = new Random();
-
             foreach (string file in paths)
             {
                 MediaFile mediaFile = await MediaFile.CreateAsync(file); // Create MediaFile without initializing
-                FileListEntry entry = new FileListEntry(mediaFile);
-                // The first file's stripe is neutral; the rest get a random one bright enough to
-                // tell apart against the list's dark surface.
-                entry.RowBrush = Items.Count == 0
-                    ? new SolidColorBrush(Color.FromRgb(0x6D, 0x6F, 0x78))
-                    : new SolidColorBrush(Color.FromRgb((byte)r.Next(80, 220), (byte)r.Next(80, 220), (byte)r.Next(80, 220)));
+                FileListEntry entry = new FileListEntry(mediaFile) { RowBrush = GetRowBrush(Items.Count) };
                 Items.Add(entry);
             }
 
