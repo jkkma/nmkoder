@@ -11,6 +11,13 @@ namespace Nmkoder.Data.Codecs
     /// force. The defaults these were written against are svt-av1-hdr's, read from its source rather
     /// than its documentation, since several of them differ from both mainline SVT-AV1 and from the
     /// older psy-ex fork most of the community guides were written against.
+    /// <para/>
+    /// They are written for the PSY line and nothing else. Nothing here is chosen to also work on
+    /// mainline SVT-AV1 - a value whose only purpose was to make the preset half-work there would be
+    /// a no-op on every build these are actually meant for. What mainline does with them is therefore
+    /// not a consideration: parameters it lacks are dropped before the encode, and parameters it
+    /// merely ignores (it ships quantisation matrices and variance boost off, where the PSY line has
+    /// both on) go quiet on their own.
     /// </summary>
     public static class EncoderArgPresets
     {
@@ -67,10 +74,6 @@ namespace Nmkoder.Data.Codecs
                     // Extra references for base-layer frames, which pay off unusually well where the
                     // same cel is held across several frames. From psy-ex's own anime command line.
                     { "enable-overlays", "1" },
-                    // A no-op on the bundled fork, which already has quantisation matrices on, and the
-                    // reason chroma-qm-min above does anything at all on a mainline binary, which does
-                    // not. Cheap insurance against the preset half-working on a fallback build.
-                    { "enable-qm", "1" },
                 }),
 
             new EncoderArgPreset("Game Capture / Gameplay",
@@ -100,8 +103,6 @@ namespace Nmkoder.Data.Codecs
                     { "chroma-qm-min", "10" },
                     // Puts back detail that temporal filtering takes out, which shows more at 60fps
                     { "enable-overlays", "1" },
-                    // See the anime preset: inert here, load-bearing on a mainline fallback binary
-                    { "enable-qm", "1" },
                 }),
         };
     }

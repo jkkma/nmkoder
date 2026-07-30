@@ -332,11 +332,16 @@ namespace Nmkoder.Views
                     unsupported.Add(value.Key);
             }
 
+            // Worth naming the cause rather than the symptom. These presets are written for the PSY
+            // line, and an encoder missing parameters from it is almost always mainline SVT-AV1 -
+            // which is a thing to go and fix, not a build to quietly encode a lesser preset on.
             if (unsupported.Count > 0)
             {
-                Logger.Log($"Left {string.Join(", ", unsupported)} out of the '{preset.Name}' preset - this build of " +
-                    $"the encoder does not have {(unsupported.Count == 1 ? "that parameter" : "those parameters")}, " +
-                    $"and it would refuse the whole command over {(unsupported.Count == 1 ? "it" : "them")}.");
+                Logger.Log($"Left {string.Join(", ", unsupported)} out of the '{preset.Name}' preset - the encoder " +
+                    $"being used does not have {(unsupported.Count == 1 ? "that parameter" : "those parameters")}, " +
+                    $"and would refuse the whole command over {(unsupported.Count == 1 ? "it" : "them")}. That means " +
+                    $"it is mainline SVT-AV1 rather than the PSY-line build (svt-av1-hdr) these presets " +
+                    $"are written for, so the rest of the preset is doing less than it says.");
             }
 
             return applicable;

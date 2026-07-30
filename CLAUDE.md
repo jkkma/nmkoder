@@ -63,3 +63,8 @@ cannot be assumed present, and SVT rejects the whole command over one it does no
 content presets drop what it does not have. Worth knowing too: mainline defaults
 `--enable-qm` and variance boost *off* where the PSY line has them on, so some parameters
 are accepted there and then silently do nothing.
+
+The content presets are written for the PSY line and deliberately do not compensate for
+mainline - a value carried only to make them half-work there is a no-op on every build
+they are actually for. Do not add one back. Dropping unsupported parameters keeps the
+encode alive; the log says which, and says that it means the binary is mainline.
