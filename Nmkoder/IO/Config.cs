@@ -77,17 +77,72 @@ namespace Nmkoder.IO
 
         public static void Set(string str, string value)
         {
-            Reload();
+            // Setting a key to what it already holds is the common case - the UI saves a whole group of
+            // controls whenever any one of them changes - and rewriting the file for it is pure cost.
+            if (cachedValues.TryGetValue(str, out string current) && current == value)
+                return;
+
             cachedValues[str] = value;
-            WriteConfig();
+            Save();
         }
 
         public static void Set(Dictionary<string, string> keyValuePairs)
         {
-            Reload();
+            bool changed = false;
 
-            foreach(KeyValuePair<string, string> entry in keyValuePairs)
+            foreach (KeyValuePair<string, string> entry in keyValuePairs)
+            {
+                if (cachedValues.TryGetValue(entry.Key, out string current) && current == entry.Value)
+                    continue;
+
                 cachedValues[entry.Key] = entry.Value;
+                changed = true;
+            }
+
+            if (changed)
+                Save();
+        }
+
+        private static int batchDepth;
+        private static bool batchDirty;
+
+        /// <summary>
+        /// Coalesces every write made inside it into one. The UI saves controls a group at a time, so
+        /// without this a single spinner tick rewrote the file once per control in the group.
+        /// </summary>
+        public static IDisposable Batch()
+        {
+            batchDepth++;
+            return new BatchScope();
+        }
+
+        private sealed class BatchScope : IDisposable
+        {
+            private bool disposed;
+
+            public void Dispose()
+            {
+                if (disposed)
+                    return;
+
+                disposed = true;
+                batchDepth--;
+
+                if (batchDepth > 0 || !batchDirty)
+                    return;
+
+                batchDirty = false;
+                WriteConfig();
+            }
+        }
+
+        private static void Save()
+        {
+            if (batchDepth > 0)
+            {
+                batchDirty = true;
+                return;
+            }
 
             WriteConfig();
         }
@@ -98,17 +153,26 @@ namespace Nmkoder.IO
             {
                 File.WriteAllText(configPath, JsonConvert.SerializeObject(new SortedDictionary<string, string>(cachedValues), Formatting.Indented));
             }
-            catch
+            catch (Exception e)
             {
                 if (tries > 0)
                 {
                     Logger.Log($"Failed to write config. Retrying ({tries} tries left)", true);
                     await Task.Delay(200);
                     await WriteConfig(tries - 1);
+                    return;
                 }
+
+                // Out of retries, so say so where it can be seen. Giving up quietly is how a config in a
+                // folder that denies writes looked like it was saving settings that were never kept.
+                Logger.Log($"Failed to save settings to '{configPath}': {e.Message}");
             }
         }
 
+        /// <summary>
+        /// Reads the file into <see cref="cachedValues"/>. Only done at startup - from then on the cache
+        /// is what the app reads and what gets written back, so saving a key costs no read.
+        /// </summary>
         private static void Reload()
         {
             try

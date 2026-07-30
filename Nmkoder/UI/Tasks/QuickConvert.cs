@@ -356,14 +356,16 @@ namespace Nmkoder.UI.Tasks
 
         private static string GetFfmpegOutPath(IEncoder c)
         {
-            string uiPath = UiData.GetOutPath();
-
             if (!c.IsSequence)
-                return uiPath;
+                return UiData.GetOutPath();
 
-            Directory.CreateDirectory(uiPath);
+            // A sequence goes into a folder, so it is named without the container extension. The
+            // container box is hidden for these encoders but keeps whatever was last selected, and
+            // taking the extension anyway is what produced folders literally called "clip.mkv".
+            string dir = UiData.GetOutPath(includeExtension: false);
+            Directory.CreateDirectory(dir);
             string ext = Program.MainWin.EncVidCodecsBox.GetText().Split(' ')[0].ToLower();
-            return Path.Combine(uiPath, $"%8d.{ext}");
+            return Path.Combine(dir, $"%8d.{ext}");
         }
     }
 }

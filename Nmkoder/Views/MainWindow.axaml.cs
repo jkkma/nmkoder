@@ -122,16 +122,19 @@ namespace Nmkoder.Views
 
         private void OnClosing(object sender, WindowClosingEventArgs e)
         {
-            // First, and before anything that reads the task UI: where the window was is the one
-            // thing here that is true even if startup never got far enough to fill that UI in, and
-            // it is worth keeping when a save further down this list throws.
-            SaveLayout();
+            using (Config.Batch())
+            {
+                // First, and before anything that reads the task UI: where the window was is the one
+                // thing here that is true even if startup never got far enough to fill that UI in,
+                // and the batch still flushes it when a save further down this list throws.
+                SaveLayout();
 
-            SaveUiConfig();
-            SaveQuickConvertSettings();
-            SaveConfigAv1an();
-            SaveAv1anEncodeSettings();
-            SaveAv1anAdvancedArgs();
+                SaveUiConfig();
+                SaveQuickConvertSettings();
+                SaveConfigAv1an();
+                SaveAv1anEncodeSettings();
+                SaveAv1anAdvancedArgs();
+            }
 
             // Holding Shift while closing leaves subprocesses (e.g. av1an) running.
             if (!Hotkeys.ShiftHeld)
@@ -144,17 +147,22 @@ namespace Nmkoder.Views
 
         void LoadUiConfig()
         {
-            ConfigParser.LoadComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.LoadGuiElement(FfmpegContainerBox);
-            ConfigParser.LoadComboxIndex(EncVidCodecsBox);
-            ConfigParser.LoadComboxIndex(EncAudCodecBox);
-            ConfigParser.LoadComboxIndex(EncSubCodecBox);
-            ConfigParser.LoadComboxIndex(EncMetaCopySource);
+            // Batched because reading a key that is not in the file yet writes its default back, so on a
+            // first run this whole method is a long series of writes rather than a series of reads.
+            using (Config.Batch())
+            {
+                ConfigParser.LoadComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.LoadGuiElement(FfmpegContainerBox);
+                ConfigParser.LoadComboxIndex(EncVidCodecsBox);
+                ConfigParser.LoadComboxIndex(EncAudCodecBox);
+                ConfigParser.LoadComboxIndex(EncSubCodecBox);
+                ConfigParser.LoadComboxIndex(EncMetaCopySource);
 
-            LoadConfigAv1an();
-            LoadGeneralSettings();
-            ResetSettingsOnNewFile.Load();
+                LoadConfigAv1an();
+                LoadGeneralSettings();
+                ResetSettingsOnNewFile.Load();
+            }
         }
 
         public void SaveUiConfig()
@@ -162,13 +170,16 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ConfigParser.SaveComboxIndex(FileListModeBox);
-            // Quick Convert
-            ConfigParser.SaveGuiElement(FfmpegContainerBox);
-            ConfigParser.SaveComboxIndex(EncVidCodecsBox);
-            ConfigParser.SaveComboxIndex(EncAudCodecBox);
-            ConfigParser.SaveComboxIndex(EncSubCodecBox);
-            ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(FileListModeBox);
+                // Quick Convert
+                ConfigParser.SaveGuiElement(FfmpegContainerBox);
+                ConfigParser.SaveComboxIndex(EncVidCodecsBox);
+                ConfigParser.SaveComboxIndex(EncAudCodecBox);
+                ConfigParser.SaveComboxIndex(EncSubCodecBox);
+                ConfigParser.SaveComboxIndex(EncMetaCopySource);
+            }
         }
 
         #endregion

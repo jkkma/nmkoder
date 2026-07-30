@@ -172,15 +172,18 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ConfigParser.SaveComboxIndex(Av1anContainerBox);
-            ConfigParser.SaveComboxIndex(Av1anCodecBox);
-            ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
-            ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
-            ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
-            ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(Av1anContainerBox);
+                ConfigParser.SaveComboxIndex(Av1anCodecBox);
+                ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
+                ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
+                ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+            }
         }
 
         /// <summary>
@@ -222,23 +225,26 @@ namespace Nmkoder.Views
             // that happens - the same reason SaveAv1anAdvancedArgs commits its own grids first.
             Av1anAdvancedFiltersGrid.CommitEdit();
 
-            ConfigParser.SaveComboxIndex(Av1anQualModeBox);
-            ConfigParser.SaveGuiElement(Av1anQualityUpDown);
-            ConfigParser.SaveGuiElement(Av1anPresetBox);
-            ConfigParser.SaveGuiElement(Av1anColorSpaceBox);
-            ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
-            ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
-            ConfigParser.SaveGuiElement(Av1anFpsBox);
-            ConfigParser.SaveGuiElement(Av1anScaleBoxW);
-            ConfigParser.SaveGuiElement(Av1anScaleBoxH);
-            ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
-            ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
-            ConfigParser.SaveGuiElement(CheckAv1anCopySubs);
-            ConfigParser.SaveGuiElement(CheckAv1anCopyData);
-            ConfigParser.SaveGuiElement(CheckAv1anCopyAttachs);
-            ConfigParser.SaveGuiElement(Av1anCustomArgsBox);
-            ConfigParser.SaveGuiElement(Av1anCustomEncArgsBox);
-            ConfigParser.SaveFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(Av1anQualModeBox);
+                ConfigParser.SaveGuiElement(Av1anQualityUpDown);
+                ConfigParser.SaveGuiElement(Av1anPresetBox);
+                ConfigParser.SaveGuiElement(Av1anColorSpaceBox);
+                ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
+                ConfigParser.SaveGuiElement(Av1anFpsBox);
+                ConfigParser.SaveGuiElement(Av1anScaleBoxW);
+                ConfigParser.SaveGuiElement(Av1anScaleBoxH);
+                ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
+                ConfigParser.SaveGuiElement(CheckAv1anCopySubs);
+                ConfigParser.SaveGuiElement(CheckAv1anCopyData);
+                ConfigParser.SaveGuiElement(CheckAv1anCopyAttachs);
+                ConfigParser.SaveGuiElement(Av1anCustomArgsBox);
+                ConfigParser.SaveGuiElement(Av1anCustomEncArgsBox);
+                ConfigParser.SaveFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
+            }
         }
 
         /// <summary> The category tabs' grids, kept for committing pending edits on save. </summary>

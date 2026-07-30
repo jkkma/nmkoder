@@ -130,19 +130,22 @@ namespace Nmkoder.Views
             // that happens.
             EncAdvancedFiltersGrid.CommitEdit();
 
-            ConfigParser.SaveComboxIndex(EncQualModeBox);
-            ConfigParser.SaveGuiElement(EncVidQualityBox);
-            ConfigParser.SaveGuiElement(EncVidPresetBox);
-            ConfigParser.SaveGuiElement(EncVidColorsBox);
-            ConfigParser.SaveGuiElement(EncVidFpsBox);
-            ConfigParser.SaveGuiElement(EncScaleBoxW);
-            ConfigParser.SaveGuiElement(EncScaleBoxH);
-            ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
-            ConfigParser.SaveComboxIndex(EncAudChannelsBox);
-            ConfigParser.SaveGuiElement(EncCustomArgsIn);
-            ConfigParser.SaveGuiElement(EncCustomArgsOut);
-            ConfigParser.SaveGuiElement(EncMetaApplyGrid);
-            ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
+            using (Config.Batch())
+            {
+                ConfigParser.SaveComboxIndex(EncQualModeBox);
+                ConfigParser.SaveGuiElement(EncVidQualityBox);
+                ConfigParser.SaveGuiElement(EncVidPresetBox);
+                ConfigParser.SaveGuiElement(EncVidColorsBox);
+                ConfigParser.SaveGuiElement(EncVidFpsBox);
+                ConfigParser.SaveGuiElement(EncScaleBoxW);
+                ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveComboxIndex(EncAudChannelsBox);
+                ConfigParser.SaveGuiElement(EncCustomArgsIn);
+                ConfigParser.SaveGuiElement(EncCustomArgsOut);
+                ConfigParser.SaveGuiElement(EncMetaApplyGrid);
+                ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
+            }
         }
 
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
