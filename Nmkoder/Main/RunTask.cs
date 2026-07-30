@@ -7,7 +7,9 @@ using Nmkoder.OS;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -31,6 +33,61 @@ namespace Nmkoder.Main
         /// <summary> "File 3/12 (name.mkv) - " while a batch runs, so every progress line says where
         /// the queue stands; empty otherwise. </summary>
         static string batchProgressPrefix = "";
+
+        /// <summary> Size summary of the last finished encode, e.g. "video.mkv: 2.1 GB → 780 MB (-63%)";
+        /// empty for tasks that write no output file. </summary>
+        static string lastOutputSummary = "";
+
+        /// <summary> Input/output bytes accumulated over a batch, for the end-of-batch total. </summary>
+        static long batchBytesIn, batchBytesOut;
+
+        /// <summary> Clears the per-task outcome state before a run. </summary>
+        public static void ResetOutcome()
+        {
+            canceled = canceledManually = failed = false;
+            lastOutputSummary = "";
+        }
+
+        /// <summary>
+        /// Post-encode size summary: says what was written and what that did to the size, in the log,
+        /// the end-of-task status line and the completion toast. Call once a task's output exists.
+        /// </summary>
+        public static void ReportOutput(IEnumerable<string> inPaths, string outPath)
+        {
+            try
+            {
+                if (Path.GetFileName(outPath).Contains('%')) // An ffmpeg sequence pattern - measure the folder it fills
+                    outPath = Path.GetDirectoryName(outPath);
+
+                long outBytes = Directory.Exists(outPath) ? IoUtils.GetDirSize(outPath, true) : IoUtils.GetFilesize(outPath);
+
+                if (outBytes <= 0)
+                    return; // Nothing was written - the failure paths have their own reporting
+
+                long inBytes = inPaths.Distinct().Sum(x => Directory.Exists(x) ? IoUtils.GetDirSize(x, true) : Math.Max(0, IoUtils.GetFilesize(x)));
+                string summary = inBytes > 0 ? SizeDelta(inBytes, outBytes) : FormatUtils.Bytes(outBytes);
+
+                if (inBytes > 0)
+                {
+                    batchBytesIn += inBytes;
+                    batchBytesOut += outBytes;
+                }
+
+                lastOutputSummary = $"{Path.GetFileName(outPath)}: {summary}";
+                Logger.Log($"Output: {lastOutputSummary}");
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to summarize the output size: {e.Message}", true);
+            }
+        }
+
+        /// <summary> "2.1 GB → 780 MB (-63%)" </summary>
+        static string SizeDelta(long inBytes, long outBytes)
+        {
+            int percent = (((double)(outBytes - inBytes) / inBytes) * 100).RoundToInt();
+            return $"{FormatUtils.Bytes(inBytes)} → {FormatUtils.Bytes(outBytes)} ({(percent > 0 ? "+" : "")}{percent}%)";
+        }
 
         /// <summary> Live progress line for the footer status label, from whichever parser has the
         /// numbers (ffmpeg stats, av1an's chunk log). Prefixed with the batch position when one runs. </summary>
@@ -98,7 +155,7 @@ namespace Nmkoder.Main
                 return;
             }
 
-            canceled = canceledManually = failed = false;
+            ResetOutcome();
             FfmpegOutputHandler.overrideTargetDurationMs = -1;
             NmkdStopwatch sw = new NmkdStopwatch();
 
@@ -132,12 +189,13 @@ namespace Nmkoder.Main
             if (canceled)
                 return;
 
-            Program.MainWin?.SetStatus(failed ? "Did not finish - the log has the details." : $"Done - finished in {sw}.", silent: true);
+            string outNote = lastOutputSummary.IsEmpty() ? "" : $" - {lastOutputSummary}";
+            Program.MainWin?.SetStatus(failed ? "Did not finish - the log has the details." : $"Done{outNote} - finished in {sw}.", silent: true);
 
             if (failed)
                 Notifications.ShowIfInBackground($"{GetTaskName(task)} failed", "The task did not finish. The log has the details.");
             else
-                Notifications.ShowIfInBackground($"{GetTaskName(task)} finished", $"Completed after {sw}.");
+                Notifications.ShowIfInBackground($"{GetTaskName(task)} finished", lastOutputSummary.IsEmpty() ? $"Completed after {sw}." : $"{lastOutputSummary} - completed after {sw}.");
         }
 
         /// <summary> How a task announces itself in a notification title. </summary>
@@ -173,6 +231,7 @@ namespace Nmkoder.Main
             List<FileListEntry> taskFileListItems = FileList.Items.ToList();
 
             runningBatch = true;
+            batchBytesIn = batchBytesOut = 0;
             int finishedTasks = 0;
             NmkdStopwatch sw = new NmkdStopwatch();
 
@@ -199,13 +258,14 @@ namespace Nmkoder.Main
             runningBatch = false;
             batchProgressPrefix = "";
 
-            Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}");
+            string totalSizes = batchBytesIn > 0 && batchBytesOut > 0 ? $" Total size: {SizeDelta(batchBytesIn, batchBytesOut)}." : "";
+            Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}.{totalSizes}");
 
             // A canceled batch already notified from Cancel(), naming the reason.
             if (!canceled)
             {
-                Program.MainWin?.SetStatus($"Batch done - completed {finishedTasks}/{taskFileListItems.Count} tasks in {sw}.", silent: true);
-                Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.");
+                Program.MainWin?.SetStatus($"Batch done - completed {finishedTasks}/{taskFileListItems.Count} tasks in {sw}.{totalSizes}", silent: true);
+                Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.{totalSizes}");
             }
         }
     }

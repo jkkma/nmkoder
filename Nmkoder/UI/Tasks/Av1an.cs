@@ -53,7 +53,7 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static async Task RunResume(string overrideTempDir, string overrideArgs)
         {
-            RunTask.canceled = RunTask.canceledManually = RunTask.failed = false;
+            RunTask.ResetOutcome();
             Program.MainWin.RunningTask = RunTask.TaskType.Av1an;
             RunTask.ReportProgress("Running: AV1AN encode...");
             NmkdStopwatch sw = new NmkdStopwatch();
@@ -346,6 +346,7 @@ namespace Nmkoder.UI.Tasks
                     if (inPath.IsEmpty() || outPath.IsEmpty())
                     {
                         Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
+                        RunTask.failed = true;
                         Program.MainWin.SetWorking(false);
                         return;
                     }
@@ -451,6 +452,9 @@ namespace Nmkoder.UI.Tasks
                 RunTask.failed = true;
                 Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
             }
+
+            if (succeeded)
+                RunTask.ReportOutput(new[] { inPath }, outPath);
 
             await HandleTempFolder(tempDir, succeeded, RunTask.canceledManually);
             RefreshResumeButton(); // This run either added a resumable folder or cleared one

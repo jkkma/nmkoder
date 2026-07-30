@@ -30,6 +30,7 @@ namespace Nmkoder.UI.Tasks
             Program.MainWin.SetWorking(true);
             SuspendResume.SetPauseButtonStyle(false);
             string args = "";
+            string outPath = "";
 
             try
             {
@@ -63,7 +64,7 @@ namespace Nmkoder.UI.Tasks
                 // earlier call was comparing against an empty string and finding nothing. Without it
                 // ffmpeg is handed the colliding name with -y and the existing file is overwritten.
                 ValidatePath();
-                string outPath = GetFfmpegOutPath(vCodec);
+                outPath = GetFfmpegOutPath(vCodec);
                 string map = await TrackList.GetMapArgs(vCodec, vCodec.IsFixedFormat, vCodec.DoesNotEncode);
                 string a = anyAudioStreams ? CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi(), TrackList.current.File).Arguments : "";
                 string s = CodecUtils.GetCodec(sCodec).GetArgs().Arguments;
@@ -120,6 +121,17 @@ namespace Nmkoder.UI.Tasks
 
             AvProcess.FfmpegSettings settings = new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true };
             await AvProcess.RunFfmpeg(settings);
+
+            if (!RunTask.canceled && outPath.IsNotEmpty())
+            {
+                // The same inputs GetInputFilesString hands to ffmpeg: the loaded file in batch
+                // mode, everything in the file list when muxing.
+                IEnumerable<string> inPaths = RunTask.currentFileListMode == RunTask.FileListMode.Batch
+                    ? new[] { TrackList.current.File.SourcePath }
+                    : FileList.Items.Select(x => x.File.SourcePath);
+
+                RunTask.ReportOutput(inPaths, outPath);
+            }
         }
 
         /// <summary>
