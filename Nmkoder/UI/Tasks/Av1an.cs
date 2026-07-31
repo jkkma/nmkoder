@@ -560,8 +560,8 @@ namespace Nmkoder.UI.Tasks
         /// applies them to each chunk it cuts rather than to the source once, so a '-ss' handed to it
         /// would be applied as many times as there are chunks. Encoding part of a video therefore
         /// means giving av1an a file that is only that part. The copy is a stream copy - seconds of
-        /// work and the section's own size on disk - and, being a copy, it begins at the closest
-        /// keyframe at or before the start point, which is what the cut dialog says it will do.
+        /// work and the section's own size on disk - and, being a copy, it can only begin at a
+        /// keyframe, which is why the cut dialog puts the start point on one before handing it over.
         /// </summary>
         private static async Task<string> CutTrimmedInput(string inPath, string tempDir)
         {

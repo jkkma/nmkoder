@@ -138,8 +138,12 @@ namespace Nmkoder.Views
             HintLabel.Text = purpose == Purpose.Trim
                 ? "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding."
                 : purpose == Purpose.Av1anTrim
-                ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy begins at the closest keyframe at or before the start point."
+                ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own."
                 : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. Press Run to cut.";
+
+            // Snapping the start point is the button's whole job, and where it happens on its own
+            // there is nothing left to press.
+            SnapBtn.IsVisible = !KeyframeSnapAutomatic;
 
             LoadRange(saved);
 
@@ -285,6 +289,9 @@ namespace Nmkoder.Views
 
         private async void Confirm_Click(object sender, RoutedEventArgs e)
         {
+            if (_closed)
+                return;
+
             if (!TryReadFields(out long start, out long end))
             {
                 await UiUtils.ShowMessageBox($"Invalid input.\n\n{(IsFrameMode() ? "Please enter numeric values only." : "Please use the HH:MM:SS (or HH:MM:SS.mmm) format.")}", UiUtils.MessageType.Error);
@@ -293,6 +300,12 @@ namespace Nmkoder.Views
 
             _startMs = start;
             _endMs = end;
+
+            await SnapStartBeforeClosing();
+
+            if (_closed) // Confirmed twice while the probe above ran - the first one already closed
+                return;
+
             Result = BuildResult();
             _confirmed = true;
             Close();
@@ -504,6 +517,21 @@ namespace Nmkoder.Views
             get { return _videoPath.IsNotEmpty() && (_purpose != Purpose.Trim || ModeBox.SelectedIndex == 0); }
         }
 
+        /// <summary> Whether the start point moves onto that keyframe on its own instead of the move
+        /// being offered as a button. The AV1AN tab is the case where declining it buys nothing: the
+        /// section is copied out before av1an ever sees it, so the copy begins at the keyframe whatever
+        /// this field says. Snapping does not change a frame of what comes out - it makes the range
+        /// shown here the range that is really encoded, rather than one missing the run-up in front of
+        /// it, which is also the duration the copy's own progress is measured against.
+        ///
+        /// The other two purposes keep the button. An exact trim re-encodes and begins where it was
+        /// told to, and the standalone cut produces a file the user keeps, so which frame it opens on
+        /// is theirs to decide. </summary>
+        private bool KeyframeSnapAutomatic
+        {
+            get { return _purpose == Purpose.Av1anTrim; }
+        }
+
         private void RequestKeyframeNote()
         {
             if (!KeyframeSnapRelevant || _closed)
@@ -551,7 +579,14 @@ namespace Nmkoder.Views
 
                     _kfDone = wanted;
                     _kfResultMs = keyframeMs;
-                    WriteKeyframeNote(wanted, keyframeMs);
+
+                    // A snap answers its own question - the start point now sits on that keyframe -
+                    // so the loop is told the new point is resolved rather than asking the file again
+                    // to be told what it just did.
+                    if (TryAutoSnap(keyframeMs))
+                        _kfWanted = _kfDone = _startMs;
+                    else
+                        WriteKeyframeNote(wanted, keyframeMs);
                 }
             }
             catch (Exception e)
@@ -583,9 +618,75 @@ namespace Nmkoder.Views
                 return;
             }
 
-            KeyframeNote.Text = $"The closest keyframe at or before the start point is at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))}, " +
-                $"so a copy begins {(offset / 1000d).ToString("0.##")}s earlier than the start point.";
-            SnapBtn.IsEnabled = true;
+            string keyframe = TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs));
+
+            // Automatic and still off the keyframe is the one case the snap is held back for: the
+            // start point is mid-edit, so this says what is about to happen rather than offering it.
+            KeyframeNote.Text = KeyframeSnapAutomatic
+                ? $"The closest keyframe at or before the start point is at {keyframe}, and the start point moves back to it once this field is done being edited."
+                : $"The closest keyframe at or before the start point is at {keyframe}, so a copy begins {(offset / 1000d).ToString("0.##")}s earlier than the start point.";
+
+            SnapBtn.IsEnabled = !KeyframeSnapAutomatic;
+        }
+
+        /// <summary>
+        /// Moves the start point onto <paramref name="keyframeMs"/> where the purpose snaps on its
+        /// own, and says whether it did. The end point stays where it is, so the section grows by
+        /// however far back the keyframe sits rather than sliding: the frames asked for are all still
+        /// in it, with the run-up the copy has to include in front of them.
+        /// </summary>
+        private bool TryAutoSnap(long keyframeMs)
+        {
+            if (!KeyframeSnapAutomatic || !KeyframeSnapRelevant || keyframeMs < 0 || keyframeMs >= _startMs)
+                return false;
+
+            // Rewriting the box under the caret would swallow the digits still coming, so a start
+            // point being typed is snapped when it is finished instead of between two keystrokes.
+            if (StartBox.IsFocused)
+                return false;
+
+            long offset = _startMs - keyframeMs;
+            _startMs = keyframeMs;
+            WriteFields();
+            UpdateBars();
+
+            KeyframeNote.Text = $"The start point was moved back to the keyframe at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))} " +
+                $"({(offset / 1000d).ToString("0.##")}s earlier), because the copy av1an is given can only begin at one.";
+            SnapBtn.IsEnabled = false;
+            return true;
+        }
+
+        /// <summary> Applies a snap the box's own focus held back, now that it has lost it. </summary>
+        private void StartBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (!_ready || _kfBusy) // Busy means a probe is already on its way to doing this
+                return;
+
+            if (_kfDone != _startMs) // No answer for this point yet
+                RequestKeyframeNote();
+            else if (TryAutoSnap(_kfResultMs))
+                _kfWanted = _kfDone = _startMs;
+        }
+
+        /// <summary>
+        /// Snaps a start point that never got the chance - typed into the box and confirmed before the
+        /// probe behind it had run, or while the box still held focus. The dialog closes on the range
+        /// that is really encoded whichever route the start point took to get here.
+        /// </summary>
+        private async Task SnapStartBeforeClosing()
+        {
+            if (!KeyframeSnapAutomatic || !KeyframeSnapRelevant)
+                return;
+
+            if (_kfDone != _startMs) // Never asked about this point, or asked about a different one
+            {
+                KeyframeNote.Text = "Looking for the closest keyframe…";
+                _kfResultMs = await FfmpegUtils.GetKeyframeMsAtOrBefore(_videoPath, _startMs);
+                _kfDone = _startMs;
+            }
+
+            if (_kfResultMs >= 0 && _kfResultMs < _startMs)
+                _startMs = _kfResultMs;
         }
 
         private void SnapToKeyframe_Click(object sender, RoutedEventArgs e)
