@@ -48,40 +48,20 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
-                long start = Math.Max(0, Cut.StartTime);
-                // A batch runs one configured section against every file, and a shorter one can end
-                // before the section does. Cutting what is there beats failing the whole queue.
-                long end = file.DurationMs > 0 ? Math.Min(Cut.EndTime, file.DurationMs) : Cut.EndTime;
+                string problem = ResolveSection(Cut, file, out long start, out long end);
 
-                if (end <= start)
+                if (problem.IsNotEmpty())
                 {
-                    RunTask.Cancel($"'{file.Name}' is {FormatDuration(file.DurationMs)} long, which is entirely before the configured start point ({FormatDuration(start)}).");
+                    RunTask.Cancel(problem);
                     return;
                 }
 
-                long durationMs = end - start;
                 string ext = Path.GetExtension(file.SourcePath);
                 string outPath = IoUtils.GetAvailableFilename($"{UiData.GetDefaultOutPath(file.SourcePath)}_cut{ext}");
 
-                Logger.Log($"Cutting {FormatDuration(start)} to {FormatDuration(end)} ({FormatDuration(durationMs)}) out of {file.Name} without re-encoding.");
+                Logger.Log($"Cutting {FormatDuration(start)} to {FormatDuration(end)} ({FormatDuration(end - start)}) out of {file.Name} without re-encoding.");
 
-                // Where the copy will really begin. Saying so up front is the difference between an
-                // output that looks a few seconds too long and one the user was told to expect.
-                long keyframeMs = await FfmpegUtils.GetKeyframeMsAtOrBefore(file.ImportPath, start);
-
-                if (keyframeMs >= 0 && keyframeMs < start)
-                    Logger.Log($"The closest keyframe before the start point is at {FormatDuration(keyframeMs)}, so the cut begins there - {FormatDuration(start - keyframeMs)} earlier. " +
-                        $"Snap the start point to a keyframe in the cut dialog to avoid this.");
-
-                // Seeking before -i keeps this cheap - ffmpeg jumps to the keyframe instead of reading
-                // its way there - and -map 0 carries every track over, not just the first of each kind.
-                string args = $"-ss {FormatDuration(start)} -i {file.ImportPath.Wrap()} -t {FormatDuration(durationMs)} " +
-                    $"-map 0 -c copy -avoid_negative_ts make_zero -ignore_unknown {outPath.Wrap()}";
-
-                FfmpegOutputHandler.overrideTargetDurationMs = durationMs; // Progress is against the cut, not the source
-                await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true });
-
-                if (!RunTask.canceled)
+                if (await CopySection(file.ImportPath, outPath, start, end) && !RunTask.canceled)
                     RunTask.ReportOutput(new[] { file.SourcePath }, outPath);
             }
             catch (Exception e)
@@ -92,7 +72,51 @@ namespace Nmkoder.UI.Tasks
             Program.MainWin.SetWorking(false);
         }
 
-        private static string FormatDuration(long ms)
+        /// <summary>
+        /// Narrows a configured section to what a file actually holds, and returns why there is
+        /// nothing left to cut when there is not. A batch runs one configured section against every
+        /// file, and a shorter one can end before the section does - cutting what is there beats
+        /// failing the whole queue.
+        /// </summary>
+        public static string ResolveSection(TrimSettings section, MediaFile file, out long startMs, out long endMs)
+        {
+            startMs = Math.Max(0, section.StartTime);
+            endMs = file.DurationMs > 0 ? Math.Min(section.EndTime, file.DurationMs) : section.EndTime;
+
+            return endMs > startMs ? ""
+                : $"'{file.Name}' is {FormatDuration(file.DurationMs)} long, which is entirely before the configured start point ({FormatDuration(startMs)}).";
+        }
+
+        /// <summary>
+        /// Copies the section between two points into outPath without re-encoding it, and says
+        /// whether anything came out. Shared with the AV1AN tab, whose trim works by cutting the
+        /// section out before av1an is ever started on it.
+        /// </summary>
+        public static async Task<bool> CopySection(string inPath, string outPath, long startMs, long endMs)
+        {
+            long durationMs = endMs - startMs;
+
+            // Where the copy will really begin. Saying so up front is the difference between an
+            // output that looks a few seconds too long and one the user was told to expect.
+            long keyframeMs = await FfmpegUtils.GetKeyframeMsAtOrBefore(inPath, startMs);
+
+            if (keyframeMs >= 0 && keyframeMs < startMs)
+                Logger.Log($"The closest keyframe before the start point is at {FormatDuration(keyframeMs)}, so the cut begins there - {FormatDuration(startMs - keyframeMs)} earlier. " +
+                    $"Snap the start point to a keyframe in the cut dialog to avoid this.");
+
+            // Seeking before -i keeps this cheap - ffmpeg jumps to the keyframe instead of reading
+            // its way there - and -map 0 carries every track over, not just the first of each kind.
+            string args = $"-ss {FormatDuration(startMs)} -i {inPath.Wrap()} -t {FormatDuration(durationMs)} " +
+                $"-map 0 -c copy -avoid_negative_ts make_zero -ignore_unknown {outPath.Wrap()}";
+
+            FfmpegOutputHandler.overrideTargetDurationMs = durationMs; // Progress is against the cut, not the source
+            await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true });
+            FfmpegOutputHandler.overrideTargetDurationMs = -1; // Whatever runs next is not this cut
+
+            return IoUtils.GetFilesize(outPath) > 0;
+        }
+
+        public static string FormatDuration(long ms)
         {
             return TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(Math.Max(0, ms)));
         }

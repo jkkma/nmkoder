@@ -316,7 +316,12 @@ namespace Nmkoder.Media
             foreach (int windowSec in new[] { 20, 120, -1 }) // -1: give up on windowing and read from the start
             {
                 double from = windowSec < 0 ? 0 : Math.Max(0, wanted - windowSec);
-                string interval = $"{from.ToString("0.###", CultureInfo.InvariantCulture)}%{Math.Max(wanted, from + 0.001).ToString("0.###", CultureInfo.InvariantCulture)}";
+                // Nudged past the wanted position because ffprobe stops short of the interval's end:
+                // asking for '0%4' on a file with a keyframe at exactly 4s reports the one at 2s, so a
+                // start point already sitting on a keyframe was told it would be dragged backwards, and
+                // offered a snap that moved it. The filter below still drops anything after the point.
+                double to = Math.Max(wanted, from) + 0.001;
+                string interval = $"{from.ToString("0.###", CultureInfo.InvariantCulture)}%{to.ToString("0.###", CultureInfo.InvariantCulture)}";
                 string args = $"-select_streams v:0 -skip_frame nokey -read_intervals {interval} -show_entries frame=pts_time -of csv=p=0 {path.Wrap()}";
 
                 try

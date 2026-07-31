@@ -22,12 +22,13 @@ namespace Nmkoder.Views
     /// is on screen while the section is picked, so the points are chosen by looking at the video
     /// rather than by guessing timestamps and running the encode to find out.
     ///
-    /// The same dialog configures both the trim an encode applies and the standalone lossless cut
-    /// utility - the two differ in what happens to the section afterwards, not in how it is picked.
+    /// The same dialog configures the trim an encode applies, the trim the AV1AN tab applies and
+    /// the standalone lossless cut utility - they differ in what happens to the section afterwards,
+    /// not in how it is picked.
     /// </summary>
     public partial class CutWindow : Window
     {
-        public enum Purpose { Trim, LosslessCut }
+        public enum Purpose { Trim, Av1anTrim, LosslessCut }
 
         /// <summary> The configured range. Null means "no cut". </summary>
         public TrimSettings Result { get; private set; }
@@ -54,6 +55,11 @@ namespace Nmkoder.Views
         private long _kfWanted = -1, _kfDone = long.MinValue, _kfResultMs = -1;
         private bool _kfBusy;
 
+        /// <summary> The dialog currently open, if any. Two of these at once cannot be told apart
+        /// afterwards: both write the same setting on their way out, so the one closed last wins and
+        /// a window the user never touched could overwrite the one they filled in. </summary>
+        private static CutWindow _open;
+
         public CutWindow()
         {
             InitializeComponent();
@@ -65,6 +71,12 @@ namespace Nmkoder.Views
             return await Show(Purpose.Trim, file, saved);
         }
 
+        /// <summary> Configures the section the AV1AN tab encodes. </summary>
+        public static async Task<TrimSettings> ShowForAv1anTrim(MediaFile file, TrimSettings saved)
+        {
+            return await Show(Purpose.Av1anTrim, file, saved);
+        }
+
         /// <summary> Configures the section the lossless cut utility copies out. </summary>
         public static async Task<TrimSettings> ShowForCut(MediaFile file, TrimSettings saved)
         {
@@ -73,15 +85,29 @@ namespace Nmkoder.Views
 
         private static async Task<TrimSettings> Show(Purpose purpose, MediaFile file, TrimSettings saved)
         {
+            if (_open != null) // Already picking a section - a second copy of this answers nothing
+            {
+                _open.Activate();
+                return saved;
+            }
+
             var window = new CutWindow();
             window.Load(purpose, file, saved);
+            _open = window;
 
-            Window owner = UiUtils.MainWindowHandle;
+            try
+            {
+                Window owner = UiUtils.MainWindowHandle;
 
-            if (owner != null && owner.IsVisible)
-                await window.ShowDialog(owner);
-            else
-                window.Show();
+                if (owner != null && owner.IsVisible)
+                    await window.ShowDialog(owner);
+                else
+                    window.Show();
+            }
+            finally
+            {
+                _open = null;
+            }
 
             // Dismissing without confirming keeps whatever was configured before.
             return window._confirmed ? window.Result : saved;
@@ -102,13 +128,17 @@ namespace Nmkoder.Views
             if (file != null && !file.IsDirectory)
                 _videoPath = file.ImportPath.IsNotEmpty() ? file.ImportPath : file.SourcePath;
 
+            // Only the encode trim offers the three modes: the other two end in a stream copy, which
+            // begins at a keyframe whatever it was asked for, so there is nothing to choose between.
             bool trim = purpose == Purpose.Trim;
-            Title = trim ? "Configure Trim" : "Cut Video";
+            Title = purpose == Purpose.LosslessCut ? "Cut Video" : "Configure Trim";
             ModeLabel.IsVisible = ModeBox.IsVisible = trim;
             ModeBox.SelectedIndex = trim ? (int)(saved?.TrimMode ?? TrimSettings.Mode.TimeKeyframe) : 0;
 
-            HintLabel.Text = trim
+            HintLabel.Text = purpose == Purpose.Trim
                 ? "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding."
+                : purpose == Purpose.Av1anTrim
+                ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy begins at the closest keyframe at or before the start point."
                 : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. Press Run to cut.";
 
             LoadRange(saved);
@@ -471,7 +501,7 @@ namespace Nmkoder.Views
         /// starts wherever it was told to. </summary>
         private bool KeyframeSnapRelevant
         {
-            get { return _videoPath.IsNotEmpty() && (_purpose == Purpose.LosslessCut || ModeBox.SelectedIndex == 0); }
+            get { return _videoPath.IsNotEmpty() && (_purpose != Purpose.Trim || ModeBox.SelectedIndex == 0); }
         }
 
         private void RequestKeyframeNote()

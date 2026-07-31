@@ -85,6 +85,10 @@ namespace Nmkoder.UI.Tasks
             Program.MainWin.SetWorking(true);
             string args = "";
             string inPath = "";
+            // The file the user loaded, which a trim replaces inPath with a cut copy of. Kept apart
+            // because resuming with new settings reloads whatever the saved info names, and that has
+            // to be the source: re-cutting from the source is right where re-cutting a cut is not.
+            string sourcePath = "";
             string outPath = "";
             string tempDir = "";
             string tempDirName = "";
@@ -237,7 +241,7 @@ namespace Nmkoder.UI.Tasks
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
                         Logger.Log("Note: VP9 in MP4 has to be concatenated by ffmpeg, which av1an warns can give the file a wrong frame rate. MKV avoids this.");
 
-                    inPath = TrackList.current.File.ImportPath;
+                    inPath = sourcePath = TrackList.current.File.ImportPath;
                     ValidatePath();
                     outPath = UiData.GetOutPath();
                     TrackList.current.File.ColorData = await ColorDataUtils.GetColorData(TrackList.current.File.SourcePath);
@@ -284,7 +288,10 @@ namespace Nmkoder.UI.Tasks
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
                     string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty(), chunkMethod);
 
-                    args = $"-i {inPath.Wrap()} -y --verbose --keep " +
+                    // The input is not named here. A trim has to cut its section out first, and where
+                    // that copy goes is only settled once this run's temp folder is, so the '-i' is
+                    // put in front of all of this below, after the cut has run.
+                    args = $"-y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
                         $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
@@ -346,6 +353,12 @@ namespace Nmkoder.UI.Tasks
                     outPath = ParseQuotedArg(overrideArgs, "-o");
                     args = overrideArgs;
 
+                    // The replayed command's '-i' may be a trimmed copy rather than the file the user
+                    // loaded, and the saved info already names that file - so it is read back rather
+                    // than rewritten from the command being replayed.
+                    Dictionary<string, string> savedInfo = LoadJson(overrideTempDir);
+                    sourcePath = savedInfo.ContainsKey("filePath") ? savedInfo["filePath"] : inPath;
+
                     if (inPath.IsEmpty() || outPath.IsEmpty())
                     {
                         Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
@@ -390,6 +403,23 @@ namespace Nmkoder.UI.Tasks
                 tempDir = Directory.CreateDirectory(Path.Combine(Paths.GetAv1anTempPath(), tempDirName)).FullName;
                 AvProcess.lastTempDirAv1an = tempDir;
 
+                if (overrideArgs.IsEmpty()) // A replayed command already names the input it wants
+                {
+                    string trimmed = await CutTrimmedInput(inPath, tempDir);
+
+                    if (RunTask.canceled)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (trimmed.IsNotEmpty())
+                        inPath = trimmed;
+
+                    args = $"-i {inPath.Wrap()} {args}";
+                }
+
                 args = $"{(resume ? "-r" : "")} --temp {tempDir.Wrap()} {args}";
                 creationTimestamp = (resume ? (LoadJson(overrideTempDir).ContainsKey("creationTimestamp") ? LoadJson(overrideTempDir)["creationTimestamp"] : "-1") : timestamp);
             }
@@ -418,7 +448,7 @@ namespace Nmkoder.UI.Tasks
 
             // Written only now, so that what a resume replays is the command that actually ran. Saving
             // it before the edit window meant holding Shift to fix a command left the broken one on disk.
-            SaveJson(inPath, tempDirName, args, creationTimestamp, timestamp);
+            SaveJson(sourcePath, tempDirName, args, creationTimestamp, timestamp);
 
             try
             {
@@ -520,6 +550,47 @@ namespace Nmkoder.UI.Tasks
             return mode == QualityMode.TargetSsimu2 ? "SSIMULACRA2"
                 : mode == QualityMode.TargetButteraugli ? "Butteraugli"
                 : mode == QualityMode.TargetXpsnr ? "XPSNR" : "VMAF";
+        }
+
+        /// <summary>
+        /// Cuts the configured section out of the input and returns the copy av1an should be given,
+        /// or "" when the tab has no trim configured and the whole file is to be encoded.
+        /// <para/>
+        /// av1an has no trim of its own, and the ffmpeg arguments it does take are no substitute: it
+        /// applies them to each chunk it cuts rather than to the source once, so a '-ss' handed to it
+        /// would be applied as many times as there are chunks. Encoding part of a video therefore
+        /// means giving av1an a file that is only that part. The copy is a stream copy - seconds of
+        /// work and the section's own size on disk - and, being a copy, it begins at the closest
+        /// keyframe at or before the start point, which is what the cut dialog says it will do.
+        /// </summary>
+        private static async Task<string> CutTrimmedInput(string inPath, string tempDir)
+        {
+            TrimSettings trim = Av1anUi.CurrentTrim;
+            MediaFile file = TrackList.current?.File;
+
+            if (trim == null || trim.IsUnset || file == null)
+                return "";
+
+            string problem = UtilCut.ResolveSection(trim, file, out long start, out long end);
+
+            if (problem.IsNotEmpty())
+            {
+                RunTask.Cancel(problem);
+                return "";
+            }
+
+            string outPath = Av1anUi.GetTrimmedInputPath(tempDir, Path.GetExtension(inPath));
+
+            Logger.Log($"Cutting {UtilCut.FormatDuration(start)} to {UtilCut.FormatDuration(end)} ({UtilCut.FormatDuration(end - start)}) out of " +
+                $"{file.Name} first - av1an has no trim of its own, so it is given a copy of just that section to encode.");
+
+            if (await UtilCut.CopySection(inPath, outPath, start, end))
+                return outPath;
+
+            if (!RunTask.canceled)
+                RunTask.Cancel($"Could not cut the section to encode out of '{file.Name}'. The log has the details.");
+
+            return "";
         }
 
         /// <summary>

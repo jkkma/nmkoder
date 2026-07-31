@@ -154,6 +154,18 @@ namespace Nmkoder.Views
                 Av1anUi.CurrentCrop = crop;
         }
 
+        private async void Av1anTrimConf_Click(object sender, RoutedEventArgs e)
+        {
+            Av1anUi.CurrentTrim = await CutWindow.ShowForAv1anTrim(TrackList.current?.File, Av1anUi.CurrentTrim);
+            UpdateAv1anTrimBtnText();
+        }
+
+        /// <summary> The Trim button doubles as the readout of what is configured. </summary>
+        public void UpdateAv1anTrimBtnText()
+        {
+            Av1anTrimConfBtn.Content = Av1anUi.CurrentTrim == null ? "Configure…" : Av1anUi.CurrentTrim.ToString();
+        }
+
         public void LoadConfigAv1an()
         {
             ConfigParser.LoadComboxIndex(Av1anContainerBox);
