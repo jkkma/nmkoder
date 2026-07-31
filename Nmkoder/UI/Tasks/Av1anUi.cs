@@ -24,6 +24,9 @@ namespace Nmkoder.UI.Tasks
 
         public static CropConfig CurrentCrop;
 
+        /// <summary> The section to encode, or null for the whole video. Picked in the cut dialog. </summary>
+        public static TrimSettings CurrentTrim;
+
         public static void Init()
         {
             // Load video codecs
@@ -781,15 +784,48 @@ namespace Nmkoder.UI.Tasks
             DeleteTempFolder(dir);
         }
 
-        /// <summary> Removes a temp folder along with the resume arguments saved beside it. </summary>
+        /// <summary> Removes a temp folder along with the resume arguments, and the trimmed input,
+        /// saved beside it. </summary>
         public static void DeleteTempFolder(string dir)
         {
-            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            if (string.IsNullOrWhiteSpace(dir))
                 return;
 
-            Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
-            IoUtils.TryDeleteIfExists(dir);
+            if (Directory.Exists(dir))
+            {
+                Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
+                IoUtils.TryDeleteIfExists(dir);
+            }
+
             IoUtils.DeleteIfExists(dir + ".json");
+
+            foreach (string path in GetTrimmedInputs(dir))
+                IoUtils.DeleteIfExists(path);
+        }
+
+        /// <summary>
+        /// Where a trimmed run keeps the copy of its input that av1an is actually given: beside the
+        /// temp folder, the way the resume arguments are, rather than inside it. av1an empties its
+        /// own temp folder at startup whenever it is not resuming, so the one file its command has
+        /// to be able to read is the one file that cannot live in there.
+        /// </summary>
+        public static string GetTrimmedInputPath(string tempDir, string ext)
+        {
+            return $"{tempDir}.trim{ext}";
+        }
+
+        /// <summary> Whatever GetTrimmedInputPath wrote for this temp folder, in any container. </summary>
+        private static IEnumerable<string> GetTrimmedInputs(string tempDir)
+        {
+            try
+            {
+                return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{Path.GetFileName(tempDir)}.trim.*").ToList();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not look for a trimmed input beside '{Path.GetFileName(tempDir)}': {e.Message}", true);
+                return Enumerable.Empty<string>();
+            }
         }
 
         /// <summary> The selected quality mode. The dropdown is filled from the enum, so index is value. </summary>

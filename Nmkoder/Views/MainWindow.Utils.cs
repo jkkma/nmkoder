@@ -1,6 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.UI;
@@ -18,18 +20,45 @@ namespace Nmkoder.Views
             return _currentUtilTask;
         }
 
-        private void SelectReadBitrates(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilReadBitrates);
-        private void SelectConcat(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilConcat);
-        private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.PlotBitrate);
-        private void SelectOcr(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilOcr);
+        private void SelectReadBitrates(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilReadBitrates);
+        private void SelectConcat(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilConcat);
+        private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.PlotBitrate);
+        private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
 
         private async void SelectGetMetrics(object sender, TappedEventArgs e)
         {
+            if (TapWasTheCardsButton(e))
+                return;
+
             SelectUtil(RunTask.TaskType.UtilGetMetrics);
             await ShowMetricsConfig();
         }
 
-        private void SelectColorData(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilColorData);
+        private void SelectColorData(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilColorData);
+
+        /// <summary> Selects the utility a card stands for, when the card itself was tapped. </summary>
+        private void SelectUtilCard(TappedEventArgs e, RunTask.TaskType task)
+        {
+            if (TapWasTheCardsButton(e))
+                return;
+
+            SelectUtil(task);
+        }
+
+        /// <summary>
+        /// Whether a card's Tapped came from the Configure button sitting inside it. Avalonia
+        /// recognises the tap gesture from the pointer release whether or not the button handled it,
+        /// so a click on Configure raises the button's Click and then the card's Tapped, and both
+        /// handlers used to do the same work. On the two cards whose Configure opens a dialog that
+        /// meant two dialogs on top of each other: the user filled in the one in front, dismissed
+        /// the one behind, and the dismissal - being the last to return - wrote its own untouched
+        /// value over what they had just configured. The button selects the card's utility itself,
+        /// so there is nothing here the click has not already done.
+        /// </summary>
+        private static bool TapWasTheCardsButton(TappedEventArgs e)
+        {
+            return (e.Source as Visual)?.FindAncestorOfType<Button>(includeSelf: true) != null;
+        }
 
         private void SelectUtil(RunTask.TaskType task)
         {
@@ -56,6 +85,9 @@ namespace Nmkoder.Views
 
         private async void SelectCut(object sender, TappedEventArgs e)
         {
+            if (TapWasTheCardsButton(e))
+                return;
+
             SelectUtil(RunTask.TaskType.UtilCut);
 
             if (UtilCut.Cut == null) // Nothing to run yet, so go straight to picking the section

@@ -67,7 +67,7 @@
     </Grid>
 
     <TextBlock x:Name="KeyframeNote" Classes="hint" TextWrapping="Wrap" IsVisible="False" />
-    <TextBlock x:Name="HintLabel" Classes="dim" />
+    <TextBlock x:Name="HintLabel" Classes="dim" TextWrapping="Wrap" />
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
       <Button Content="Reset" MinWidth="90" Click="Reset_Click" />

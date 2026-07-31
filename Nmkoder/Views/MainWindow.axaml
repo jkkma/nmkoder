@@ -171,7 +171,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -215,6 +215,9 @@
                       </ComboBox>
                       <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
                     </StackPanel>
+
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Trim" />
+                    <Button Grid.Row="5" Grid.Column="4" x:Name="Av1anTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="Av1anTrimConf_Click" />
                   </Grid>
                 </ScrollViewer>
               </TabItem>
