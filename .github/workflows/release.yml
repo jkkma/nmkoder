@@ -26,10 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rid: win-x64,   os: windows-latest, archive: zip }
-          - { rid: linux-x64, os: ubuntu-latest,  archive: tar }
-          - { rid: osx-x64,   os: macos-latest,   archive: tar }
-          - { rid: osx-arm64, os: macos-latest,   archive: tar }
+          # Windows builds the Windows-flavoured framework, which is the one carrying the Windows
+          # App SDK and therefore real desktop notifications. It only exists on a Windows host, so
+          # every other RID stays on plain net10.0 - see the csproj for why.
+          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0 }
+          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0 }
+          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0 }
+          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0 }
 
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +61,7 @@ jobs:
           # Trimming stays off: Avalonia resolves XAML types by reflection at runtime.
           dotnet publish Nmkoder/Nmkoder.csproj \
             -c Release \
+            -f ${{ matrix.tfm }} \
             -r ${{ matrix.rid }} \
             --self-contained \
             -p:PublishSingleFile=true \

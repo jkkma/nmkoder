@@ -2,6 +2,7 @@ using Avalonia;
 using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using Nmkoder.Views;
 using System;
 using System.IO;
@@ -32,7 +33,13 @@ namespace Nmkoder
             Logger.Log($"Files: {(fileArgs.Length > 0 ? string.Join(", ", fileArgs) : "None")}", true);
             Logger.Log($"Args: {(args.Length > 0 ? string.Join(", ", args) : "None")}", true);
 
+            // Before the UI, which is what the App SDK asks for, and paired with the Unregister
+            // below so a portable copy does not leave its COM registration behind in the registry.
+            WindowsToast.Register();
+
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(cmdArgs);
+
+            WindowsToast.Unregister();
         }
 
         // Also used by the Avalonia XAML previewer/designer.

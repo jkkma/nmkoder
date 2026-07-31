@@ -6,6 +6,23 @@ Build with `dotnet build Nmkoder/Nmkoder.csproj`. The SessionStart hook in
 `.claude/hooks/` installs the SDK and restores packages, so this works from the
 first prompt of a web session.
 
+The project multi-targets, but only on Windows: `net10.0` everywhere, plus
+`net10.0-windows10.0.19041.0` when the *host* is Windows. That second framework
+is the one carrying the Windows App SDK, and its build runs MSIX tooling
+(`MakePri.exe` and friends) - Windows binaries, so a Linux or macOS host cannot
+evaluate that TFM at all, not even far enough to compile. Hence the condition on
+`TargetFrameworks`, which keeps the command above working everywhere.
+
+The practical consequence for a web session: **nothing under `#if WINDOWS` is
+compiled here, so nothing checks it.** To compile-check that code, build a
+throwaway project that targets `net10.0-windows10.0.19041.0` with
+`EnableWindowsTargeting=true`, `<Compile Include>`s just the files in question
+alongside stubs for what they touch, and references
+`Microsoft.WindowsAppSDK` with `IncludeAssets="compile"
+ExcludeAssets="build;buildTransitive;native;runtime;analyzers"` - excluding the
+build assets is what skips the MSIX targets that cannot run. That checks the
+code; the *publish* can only be proven by the release workflow's win-x64 job.
+
 ## UI conventions
 
 The UI is code-behind, not MVVM. A window is an `.axaml` in `Nmkoder/Views` plus
@@ -115,6 +132,42 @@ sitting in the file is usually the one already released, not the next one.
 The run builds win-x64, linux-x64, osx-x64 and osx-arm64, bundles external tools
 via `.github/scripts/bundle-tools.sh`, and composes notes from
 `git log --no-merges` since the previous tag. It takes roughly six minutes.
+
+Each RID carries its target framework in the matrix, because win-x64 is the one
+built against the Windows App SDK. The win-x64 job is also the only place the
+Windows publish is ever exercised - see the build section above.
+
+## Notifications
+
+A finished or failed run notifies when the window is not in the foreground
+(`Notifications.ShowIfInBackground`). That is two separate things, and only the
+second one is visible to somebody who has alt-tabbed away: Avalonia's
+`WindowNotificationManager` toast is drawn *inside* the app's own window, so the
+OS ping in `OsUtils.ShowSystemNotification` is what actually does the job -
+`notify-send` on Linux, `osascript` on macOS, and the Windows App SDK on Windows.
+
+Windows used to get only a flashing taskbar button, on the grounds that an
+unpackaged app could not raise a notification at all. That has not been true for
+a while: `AppNotificationManager.Register()` performs its own COM registration,
+so there is no MSIX package, no AppUserModelID and no Start Menu shortcut in
+this - only the older WinRT `ToastNotificationManager` ever needed those. The
+flash is still the fallback for when the App SDK cannot come up.
+
+Self-contained is not a preference here. Framework-dependent would require every
+user to install the App SDK runtime before a notification worked, which a
+portable zip cannot ask, so the runtime ships in the build - and that is what
+`WindowsAppSDKSelfContained`, `SelfContained` and `EnableMsixTooling` in the
+csproj are for. The App SDK's single-file validation additionally *demands*
+`IncludeAllContentForSelfExtract`, which sweeps `Content` items into the exe;
+`BinFiles/**` carries `ExcludeFromSingleFile="true"` to stay out of that, because
+`Paths.GetBinPath()` resolves against the exe's own directory and `bundle-tools.sh`
+writes there too. Dropping that metadata silently empties the AV1AN tab's
+per-encoder arguments in release builds only.
+
+`WindowsToast` touches App SDK types exclusively from `NoInlining` helper
+methods. That is deliberate: the JIT resolves types when it compiles a method,
+so an inlined call would throw on a machine with a broken App SDK while
+compiling the *caller*, outside the `try` that is meant to catch it.
 
 ## The AV1AN tab
 

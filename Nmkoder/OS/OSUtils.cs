@@ -327,17 +327,24 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
-        /// OS-level attention ping for when the in-window toast cannot be seen. Linux and macOS
-        /// have one-shot desktop notification commands; Windows has no equivalent for unpackaged
-        /// apps (toasts want an AppUserModelID and a Start Menu shortcut), so the taskbar button
-        /// is flashed instead, which is just as visible and needs nothing installed.
+        /// OS-level attention ping for when the in-window toast cannot be seen - which is every time
+        /// this is called, since the toast is drawn inside a window that by then is minimized or
+        /// buried. Each platform has a one-shot desktop notification: Windows through the Windows
+        /// App SDK, macOS through osascript, everything else through notify-send.
+        ///
+        /// Windows keeps the taskbar flash as its fallback. It used to be all Windows got, on the
+        /// grounds that an unpackaged app could not raise a notification at all; that stopped being
+        /// true, but the flash is still the right answer when the App SDK cannot come up.
         /// </summary>
         public static void ShowSystemNotification(string title, string text)
         {
             try
             {
                 if (OperatingSystem.IsWindows())
-                    FlashTaskbarIcon();
+                {
+                    if (!WindowsToast.TryShow(title, text))
+                        FlashTaskbarIcon();
+                }
                 else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                     StartDetached("osascript", "-e", $"display notification \"{EscapeAppleScript(text)}\" with title \"{EscapeAppleScript(title)}\"");
                 else
