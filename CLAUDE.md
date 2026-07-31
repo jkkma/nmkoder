@@ -164,11 +164,15 @@ Windows publish is ever exercised - see the build section above.
 ## Notifications
 
 A finished or failed run notifies when the window is not in the foreground
-(`Notifications.ShowIfInBackground`). That is two separate things, and only the
-second one is visible to somebody who has alt-tabbed away: Avalonia's
-`WindowNotificationManager` toast is drawn *inside* the app's own window, so the
-OS ping in `OsUtils.ShowSystemNotification` is what actually does the job -
-`notify-send` on Linux, `osascript` on macOS, and the Windows App SDK on Windows.
+(`Notifications.ShowIfInBackground`), through the OS and nothing else:
+`OsUtils.ShowSystemNotification` uses `notify-send` on Linux, `osascript` on
+macOS, and the Windows App SDK on Windows.
+
+There was an Avalonia `WindowNotificationManager` toast beside it once, inherited
+from the WinForms build's Tulpep.NotificationWindow. It was drawn *inside* the
+app's own window, and the only moment it fired was the one where that window is
+minimized or buried, so nobody ever saw it. Do not reach for it as a fallback
+when the OS ping fails - it was never the thing doing the work.
 
 Windows used to get only a flashing taskbar button, on the grounds that an
 unpackaged app could not raise a notification at all. That has not been true for

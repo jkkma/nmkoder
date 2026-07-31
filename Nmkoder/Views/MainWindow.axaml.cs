@@ -48,7 +48,6 @@ namespace Nmkoder.Views
         {
 
             Logger.textbox = LogBox;
-            Notifications.Attach(this);
 
             FileListBox.ItemsSource = FileList.Items;
             StreamListBox.ItemsSource = TrackList.Items;
