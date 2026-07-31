@@ -217,7 +217,14 @@
                     </StackPanel>
 
                     <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Trim" />
-                    <Button Grid.Row="5" Grid.Column="4" x:Name="Av1anTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="Av1anTrimConf_Click" />
+                    <StackPanel Grid.Row="5" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                      <!-- Capped so the button beside it stays inside this 320 wide column: a horizontal
+                           StackPanel measures its children with no width limit, where the Grid cell the
+                           button used to sit in directly imposed one. 320 - the Clear button (67) - the gap (6). -->
+                      <Button x:Name="Av1anTrimConfBtn" Content="Configure…" MaxWidth="247" Click="Av1anTrimConf_Click" />
+                      <Button x:Name="Av1anTrimClearBtn" Content="Clear" IsVisible="False" Click="Av1anTrimClear_Click"
+                              ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
                   </Grid>
                 </ScrollViewer>
               </TabItem>
@@ -393,7 +400,12 @@
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
-                    <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
+                    <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                      <!-- Capped to keep the button beside it inside this 320 wide column, as on the AV1AN tab -->
+                      <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="247" Click="EncTrimConf_Click" />
+                      <Button x:Name="EncTrimClearBtn" Content="Clear" IsVisible="False" Click="EncTrimClear_Click"
+                              ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
                   </Grid>
                 </ScrollViewer>
               </TabItem>
