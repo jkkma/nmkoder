@@ -117,8 +117,10 @@ namespace Nmkoder.Views
 
         #region Handlers
 
+        private ResizeFill Fill() => (ResizeFill)FillBox.SelectedIndex.Clamp(0, 2);
+
         private void Mode_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyMode();
-        private void Fill_SelectionChanged(object sender, SelectionChangedEventArgs e) => ReadUi();
+        private void Fill_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyMode();
         private void Modulus_SelectionChanged(object sender, SelectionChangedEventArgs e) => ReadUi();
         private void Resampler_SelectionChanged(object sender, SelectionChangedEventArgs e) => ReadUi();
         private void Option_Changed(object sender, RoutedEventArgs e) => ReadUi();
@@ -140,8 +142,12 @@ namespace Nmkoder.Views
             SizeRowLabel.Text = mode == ResizeMode.Exact ? "Exact size" : "Fit inside";
             SingleRowLabel.Text = mode == ResizeMode.Width ? "Width" : "Height";
 
-            // Upscaling is what a percentage over 100 asks for outright, so the switch has no say there.
-            UpscaleBox.IsEnabled = mode != ResizeMode.Percent;
+            // Disabled where it would be a switch with nothing behind it. A percentage over 100 asks for
+            // an upscale outright; and an exact size that crops to fill, or stretches, has to reach those
+            // dimensions whatever the source is, so a small one is enlarged with or without permission.
+            // Only the letterbox fits the picture inside the frame, which is the case that can decline.
+            bool fillMustReach = mode == ResizeMode.Exact && Fill() != ResizeFill.Pad;
+            UpscaleBox.IsEnabled = mode != ResizeMode.Percent && !fillMustReach;
 
             ReadUi();
         }
@@ -153,7 +159,7 @@ namespace Nmkoder.Views
                 return;
 
             _cfg.Mode = Modes[ModeBox.SelectedIndex.Clamp(0, Modes.Length - 1)];
-            _cfg.Fill = (ResizeFill)FillBox.SelectedIndex.Clamp(0, 2);
+            _cfg.Fill = Fill();
             _cfg.Modulus = Moduli[ModulusBox.SelectedIndex.Clamp(0, Moduli.Length - 1)];
             _cfg.Resampler = Resamplers[ResamplerBox.SelectedIndex.Clamp(0, Resamplers.Count - 1)].Key;
             _cfg.AllowUpscale = UpscaleBox.IsChecked == true;

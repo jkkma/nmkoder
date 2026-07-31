@@ -77,6 +77,24 @@ namespace Nmkoder.Data
         #region Geometry
 
         /// <summary>
+        /// The alignment actually used: <see cref="Modulus"/> forced even, and at least two.
+        /// <para/>
+        /// Two is a floor rather than a default. 4:2:0 stores one chroma sample per 2x2 block of luma, so
+        /// an odd dimension has half a sample at its edge, and x264, x265 and SVT-AV1 all refuse one
+        /// outright. An odd modulus is corrected rather than merely floored because a *multiple* of an odd
+        /// number is odd half the time - a hand-written 3 in the config file would have produced 999 - and
+        /// the mod-2 padding that used to catch that is skipped whenever a resize is running.
+        /// </summary>
+        private int SafeModulus
+        {
+            get
+            {
+                int mod = Math.Max(2, Modulus);
+                return mod % 2 == 0 ? mod : mod + 1;
+            }
+        }
+
+        /// <summary>
         /// The frame the scale target is measured against: the source's *display* size, not its stored one.
         /// <para/>
         /// The two differ only for anamorphic sources - a 720x480 DVD stores 720x480 but is shown at 4:3 -
@@ -115,10 +133,7 @@ namespace Nmkoder.Data
             if (Mode == ResizeMode.Disabled || src.Width <= 0 || src.Height <= 0 || aspect <= 0d)
                 return Size.Empty;
 
-            // Two, not one: 4:2:0 stores one chroma sample per 2x2 block of luma, so an odd dimension has
-            // half a sample at the edge - x264, x265 and SVT-AV1 all refuse one outright. A hand-edited
-            // config cannot talk this below the floor.
-            int mod = Math.Max(2, Modulus);
+            int mod = SafeModulus;
 
             if (Mode == ResizeMode.Exact)
             {
@@ -332,7 +347,7 @@ namespace Nmkoder.Data
             if (Mode != ResizeMode.Exact || Fill == ResizeFill.Stretch)
                 return $"scale={outSize.Width}:{outSize.Height}{FlagsArg()},setsar=1:1";
 
-            int mod = Math.Max(2, Modulus);
+            int mod = SafeModulus;
             double aspect = GetAspect(storage, sar);
 
             if (Fill == ResizeFill.Pad)
@@ -394,7 +409,22 @@ namespace Nmkoder.Data
             if (result == storage)
                 return "already this size, so it is left alone";
 
-            if (result.Width > src.Width || result.Height > src.Height)
+            // Measured against the picture rather than the frame it sits in. A letterbox scales a 640x480
+            // source down to fit inside 1920x1080 and fills the rest with black; the frame is bigger than
+            // the source and the picture is not, and calling that an upscale would be wrong every time.
+            Size picture = Mode == ResizeMode.Exact && Fill == ResizeFill.Pad
+                ? FitInside(src, GetAspect(storage, sar), result, SafeModulus, AllowUpscale)
+                : result;
+
+            // The slack is the alignment, not a fudge: a source that is not already a multiple of the
+            // modulus cannot stay its own size, because there is no such size an encoder will take. 405
+            // has to become 404 or 406, and calling one pixel of that an upscale would put the warning on
+            // every such file. It is a proportion rather than a pixel count because the rounding lands on
+            // one side and the other side is then derived from it, which multiplies it by the ratio.
+            double slack = 1d + (double)SafeModulus / Math.Min(src.Width, src.Height);
+            double growth = Math.Max((double)picture.Width / src.Width, (double)picture.Height / src.Height);
+
+            if (growth > slack)
                 return "larger than the source - upscaling invents no detail and costs bitrate";
 
             if (!AllowUpscale && WasClampedByUpscaleGuard(src))

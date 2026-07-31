@@ -64,6 +64,21 @@ namespace Nmkoder.Data
             return i < 0 ? 0 : i;
         }
 
+        /// <summary>
+        /// The entry to select for a configuration. A resize with no preset behind it - one migrated from
+        /// the old scale boxes, or written by a build whose preset list has since changed - is a custom
+        /// one rather than none at all: falling back to "No resizing" would show a resize being off while
+        /// it was on, which is the one thing the readout must never say.
+        /// </summary>
+        public static int IndexFor(ResizeConfig cfg)
+        {
+            if (cfg == null || cfg.Mode == ResizeMode.Disabled)
+                return IndexOf(NoneKey);
+
+            int i = All.FindIndex(p => p.Key == (cfg.PresetKey ?? ""));
+            return i < 0 ? IndexOf(CustomKey) : i;
+        }
+
         public static ResizePreset Get(int index)
         {
             return index >= 0 && index < All.Count ? All[index] : All.First();

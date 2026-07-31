@@ -61,11 +61,13 @@ namespace Nmkoder.UI.Tasks
                     Form.Av1anOutputPathBox.Text = UiData.GetDefaultOutPath(path);
 
                 if (!RunTask.runningBatch) // Don't load new values into UI in batch mode since we apply the same for all files
+                {
                     InitAudioChannels(TrackList.current?.File.AudioStreams.FirstOrDefault()?.Channels);
-
-                // The resize targets are named for what they produce for *this* file, so the list is
-                // rewritten whenever the file behind it changes.
-                RefreshResizeBox();
+                    // The resize targets are named for what they produce for *this* file, so the list is
+                    // rewritten whenever the file behind it changes - but not while a batch is stepping
+                    // through files of its own accord, which is not the user loading one.
+                    RefreshResizeBox();
+                }
 
                 ValidateContainer();
             }
@@ -468,28 +470,38 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static void RefreshResizeBox()
         {
-            if (RunTask.runningBatch) // A batch must not write to the UI; the filters are recomputed per file anyway
-                return;
-
             Size storage = GetResizeSourceSize();
             Size sar = GetResizeSar();
-            int index = ResizePresets.IndexOf(CurrentResize?.PresetKey);
 
-            _loadingResizeBox = true;
-            Form.Av1anResizeBox.SetItems(ResizePresets.All.Select(p => (object)ResizePresets.GetLabel(p, storage, sar)), index);
-            _loadingResizeBox = false;
+            try
+            {
+                _loadingResizeBox = true;
+                Form.Av1anResizeBox.SetItems(ResizePresets.All.Select(p => (object)ResizePresets.GetLabel(p, storage, sar)),
+                    ResizePresets.IndexFor(CurrentResize));
+            }
+            finally
+            {
+                // In a finally because this is the guard that keeps a refill from being read back as a
+                // choice - left stuck on, every subsequent pick would be ignored and the dropdown dead.
+                _loadingResizeBox = false;
+            }
 
             UpdateResizeReadout();
         }
 
-        /// <summary> The parts that change when the selection does: the button beside the box, and the line
-        /// under it. Touches no collection, so it is safe to call from a SelectionChanged. </summary>
+        /// <summary>
+        /// The parts that change when the selection does: the button beside the box, and the line under
+        /// it. Touches no collection, so it is safe to call from a SelectionChanged.
+        /// <para/>
+        /// Deliberately not skipped during a batch, and neither is <see cref="RefreshResizeBox"/>: the
+        /// caller that has to stand back for one is the per-file loop, and that is where the check lives.
+        /// Anything that moves <see cref="CurrentResize"/> - Reset On New File among them, which the
+        /// Settings tab can fire mid-batch - has to move the control with it, or the tab is left naming a
+        /// resize that is no longer set and the next queue runs unresized underneath it.
+        /// </summary>
         public static void UpdateResizeReadout()
         {
-            if (RunTask.runningBatch)
-                return;
-
-            Form.Av1anResizeConfBtn.IsVisible = (CurrentResize?.PresetKey ?? "") == ResizePresets.CustomKey;
+            Form.Av1anResizeConfBtn.IsVisible = ResizePresets.Get(ResizePresets.IndexFor(CurrentResize)).Key == ResizePresets.CustomKey;
             Form.Av1anResizeInfoLabel.Text = GetResizeInfoText(GetResizeSourceSize(), GetResizeSar());
         }
 
@@ -505,10 +517,23 @@ namespace Nmkoder.UI.Tasks
 
             ResizePreset preset = ResizePresets.Get(index);
 
-            // Switching *to* Custom leaves the existing configuration alone - it is the button beside it
-            // that changes anything - so a resize set up by hand survives a trip through the dropdown.
-            if (preset.Key != ResizePresets.CustomKey || CurrentResize.PresetKey != ResizePresets.CustomKey)
+            if (preset.Key == ResizePresets.CustomKey)
+            {
+                // Custom names no target of its own, so picking it changes nothing but where the settings
+                // are edited: whatever was selected stays in force and becomes the dialog's starting
+                // point. Building a target here instead would silently apply a 1920x1080 nobody asked
+                // for, and would throw away a resize configured by hand on a trip through the dropdown.
+                CurrentResize = CurrentResize?.Clone() ?? new ResizeConfig();
+
+                if (CurrentResize.Mode == ResizeMode.Disabled)
+                    CurrentResize = preset.Build();
+
+                CurrentResize.PresetKey = ResizePresets.CustomKey;
+            }
+            else
+            {
                 CurrentResize = preset.Build();
+            }
 
             UpdateResizeReadout();
             Form.SaveAv1anEncodeSettings();
@@ -563,6 +588,9 @@ namespace Nmkoder.UI.Tasks
             if (json.IsEmpty())
             {
                 CurrentResize = MigrateOldScaleBoxes();
+                // Written back straight away rather than left to the next save, so the translation - and
+                // the log line that goes with the cases it cannot translate - happens exactly once.
+                SaveResizeConfig();
                 return;
             }
 
@@ -585,40 +613,67 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static ResizeConfig MigrateOldScaleBoxes()
         {
-            string w = Config.Get("Av1anScaleBoxW").Trim().ToLower();
-            string h = Config.Get("Av1anScaleBoxH").Trim().ToLower();
+            // Asked of the cache rather than of Config.Get, which writes a default for any key it does not
+            // find - so a fresh install would be given two dead scale entries by the act of looking.
+            string w = ReadOldScaleBox("Av1anScaleBoxW");
+            string h = ReadOldScaleBox("Av1anScaleBoxH");
 
             if (w.IsEmpty() && h.IsEmpty())
                 return new ResizeConfig();
 
+            ResizeConfig migrated = TranslateOldScaleBoxes(w, h);
+
+            if (migrated == null)
+            {
+                Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
+                    $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
+                return new ResizeConfig();
+            }
+
+            // Custom rather than a preset: the old boxes held a size, and no size is one of the targets in
+            // the list. Left keyless it would select "No resizing" while a resize was in force.
+            migrated.PresetKey = ResizePresets.CustomKey;
+            return migrated;
+        }
+
+        /// <summary> The pair of old values as a resize, or null where there is no equivalent. </summary>
+        private static ResizeConfig TranslateOldScaleBoxes(string w, string h)
+        {
             if (w.EndsWith("%") || h.EndsWith("%"))
             {
-                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetInt();
-
-                if (percent > 0)
-                    return new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent };
+                // Read as a float and rounded: GetInt strips the dot rather than the fraction, so "12.5%"
+                // came out as 125% - an upscale, off a value that asked to shrink the picture eightfold.
+                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetFloat().RoundToInt();
+                return percent > 0 ? new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent } : null;
             }
-            else if (IsPlainNumber(w) && IsPlainNumber(h))
-            {
+
+            if (IsPlainNumber(w) && IsPlainNumber(h))
                 return new ResizeConfig { Mode = ResizeMode.Exact, Fill = ResizeFill.Stretch, TargetWidth = w.GetInt(), TargetHeight = h.GetInt() };
-            }
-            else if (IsPlainNumber(h) && w.IsEmpty())
-            {
-                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
-            }
-            else if (IsPlainNumber(w) && h.IsEmpty())
-            {
-                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
-            }
 
-            Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
-                $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
-            return new ResizeConfig();
+            if (IsPlainNumber(h) && IsAutoOrEmpty(w))
+                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
+
+            if (IsPlainNumber(w) && IsAutoOrEmpty(h))
+                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
+
+            return null;
+        }
+
+        private static string ReadOldScaleBox(string key)
+        {
+            return Config.cachedValues.TryGetValue(key, out string value) ? (value ?? "").Trim().ToLower() : "";
         }
 
         private static bool IsPlainNumber(string s)
         {
             return s.Length > 0 && s.All(char.IsDigit) && s.GetInt() > 0;
+        }
+
+        /// <summary> Blank, or one of the negative values ffmpeg reads as "work this one out from the other" -
+        /// which is exactly what the Width and Height modes do. </summary>
+        private static bool IsAutoOrEmpty(string s)
+        {
+            return s.IsEmpty() || s == "-1" || s == "-2";
         }
 
         #endregion
