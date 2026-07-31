@@ -177,24 +177,41 @@ csproj are for. The App SDK's single-file validation additionally *demands*
 which bite:
 
 1. It sweeps `Content` items into the exe. `BinFiles/**` carries
-   `ExcludeFromSingleFile="true"` to stay out of that, because
+   `ExcludeFromSingleFile="true"` to opt back out, because
    `Paths.GetBinPath()` resolves against the exe's own directory and
-   `bundle-tools.sh` writes there too. Dropping that metadata silently empties
-   the AV1AN tab's per-encoder arguments.
+   `bundle-tools.sh` writes there too. That metadata is necessary and **not
+   sufficient**, which this file used to claim it was: on the Windows build the
+   items reach neither the bundle nor the output directory and simply vanish.
+   That is how 2.7.2, 2.7.3 and 2.7.4 each shipped a win-x64 zip carrying no
+   `bin/iso639.csv` and no `bin/av1an/encoderArgs`, the only symptom being an
+   empty argument grid on the AV1AN tab. The `CopyBinFilesToPublishDir` target
+   copies them in again after publish, past whatever the single-file and MSIX
+   machinery decided. Do not delete it on the grounds that the `Content` item
+   above already covers this - it does not, on the one platform that matters.
 2. It repoints **`AppContext.BaseDirectory` at the bundle's extraction folder
-   under temp**, not at the exe. This is the one that actually shipped broken,
-   in 2.7.2: `Paths.GetExeDir()` was built on `BaseDirectory`, so `bin/` resolved
+   under temp**, not at the exe. This one shipped broken in
+   2.7.2: `Paths.GetExeDir()` was built on `BaseDirectory`, so `bin/` resolved
    into temp, the bundled ffmpeg and ffprobe were not there, and every file
    loaded scanned as having no media streams - with settings and logs going to
    the same temp folder. `GetExeDir()` now derives from `Environment.ProcessPath`,
    which is the exe under every bundling mode. Never reintroduce
    `AppContext.BaseDirectory` for anything that has to sit beside the exe.
 
-Both are invisible on Linux and macOS, which do not set the flag, and invisible
-in a normal `dotnet build` - only a single-file *publish* shows them. Checking
-one means publishing with `-p:IncludeAllContentForSelfExtract=true` and running
-the result; that reproduces on linux-x64 just as well, since the flag's effect
-on `BaseDirectory` is not platform-specific.
+Neither is visible in a normal `dotnet build`, and neither happens on Linux or
+macOS, which do not set the flag - but they are not checked the same way, and
+assuming they were is what kept the first one shipping.
+
+The `BaseDirectory` one reproduces on linux-x64: publish with
+`-p:IncludeAllContentForSelfExtract=true` and run the result, since that effect
+is not platform-specific. The vanishing `Content` is **Windows-only and does not
+reproduce there** - a linux-x64 publish with the same flag lays the files out
+correctly, so a green local check means nothing. Only the release workflow's
+win-x64 job can prove that one, which is why it now verifies the six files are
+in the publish output and fails the build when they are not.
+
+Inspecting a published archive settles it without downloading one: a zip's
+central directory is at its end, so a range request for the last few KB, parsed
+for the entry names, lists everything the asset contains.
 
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,
