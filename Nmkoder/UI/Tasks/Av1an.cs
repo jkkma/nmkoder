@@ -71,7 +71,7 @@ namespace Nmkoder.UI.Tasks
             }
 
             // After the finally: the countdown aborts itself while the app still counts as busy
-            _ = RunTask.ShutdownWhenDoneCountdown();
+            _ = RunTask.ShutdownWhenDoneCountdown(RunTask.canceled);
         }
 
         public static async Task Run(bool resume = false, string overrideTempDir = "", string overrideArgs = "")
@@ -361,8 +361,7 @@ namespace Nmkoder.UI.Tasks
 
                     if (inPath.IsEmpty() || outPath.IsEmpty())
                     {
-                        Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
-                        RunTask.failed = true;
+                        RunTask.Fail($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
                         Program.MainWin.SetWorking(false);
                         return;
                     }
@@ -385,16 +384,14 @@ namespace Nmkoder.UI.Tasks
 
                 if (outPath == inPath)
                 {
-                    Logger.Log($"Output path can't be the same as the input path!");
-                    RunTask.failed = true;
+                    RunTask.Fail($"Output path can't be the same as the input path!");
                     Program.MainWin.SetWorking(false);
                     return;
                 }
 
                 if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
-                    Logger.Log($"Output path must have a valid file extension!");
-                    RunTask.failed = true;
+                    RunTask.Fail($"Output path must have a valid file extension!");
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -425,8 +422,8 @@ namespace Nmkoder.UI.Tasks
             }
             catch (Exception e)
             {
-                Logger.Log($"Error creating av1an command: {e.Message}\n{e.StackTrace}");
-                RunTask.failed = true;
+                RunTask.Fail($"Error creating av1an command: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true);
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -456,8 +453,7 @@ namespace Nmkoder.UI.Tasks
             }
             catch (Exception e)
             {
-                Logger.Log($"Failed to create output folder: {e.Message}");
-                RunTask.failed = true;
+                RunTask.Fail($"Failed to create output folder: {e.Message}");
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -482,8 +478,7 @@ namespace Nmkoder.UI.Tasks
 
             if (!succeeded && !RunTask.canceled)
             {
-                RunTask.failed = true;
-                Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+                RunTask.Fail($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
             }
 
             if (succeeded)

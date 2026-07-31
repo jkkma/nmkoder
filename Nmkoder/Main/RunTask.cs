@@ -30,6 +30,22 @@ namespace Nmkoder.Main
         /// exiting nonzero sets nothing else, and used to be indistinguishable from success. </summary>
         public static bool failed = false;
 
+        /// <summary>
+        /// Set when Stop is pressed while a batch runs, and cleared only once the queue is over.
+        /// <para/>
+        /// It exists because <see cref="canceled"/> cannot carry this: every task clears that on its
+        /// way in, so Stop pressed while the queue sat between two files was wiped by the very next
+        /// <see cref="ResetOutcome"/> and the following file encoded anyway. Checking it before each
+        /// file is not enough on its own either - the press can land during the checks - so
+        /// ResetOutcome reinstates <see cref="canceled"/> from this rather than clearing it blindly.
+        /// </summary>
+        public static bool batchCanceled = false;
+
+        /// <summary> Why the running task stopped, for the batch's end-of-queue summary. A batch
+        /// shows no error boxes - twelve files would mean twelve of them - so this is where the
+        /// reason goes instead. </summary>
+        public static string lastFailReason = "";
+
         /// <summary> "File 3/12 (name.mkv) - " while a batch runs, so every progress line says where
         /// the queue stands; empty otherwise. </summary>
         static string batchProgressPrefix = "";
@@ -41,11 +57,31 @@ namespace Nmkoder.Main
         /// <summary> Input/output bytes accumulated over a batch, for the end-of-batch total. </summary>
         static long batchBytesIn, batchBytesOut;
 
-        /// <summary> Clears the per-task outcome state before a run. </summary>
+        /// <summary> Clears the per-task outcome state before a run. A batch-level cancel deliberately
+        /// survives it - see <see cref="batchCanceled"/>. </summary>
         public static void ResetOutcome()
         {
-            canceled = canceledManually = failed = false;
-            lastOutputSummary = "";
+            // Outside a queue there is no batch cancel to honour, and leaving a stopped batch's flag
+            // standing would start the next single task already canceled.
+            if (!runningBatch)
+                batchCanceled = false;
+
+            canceled = canceledManually = batchCanceled;
+            failed = false;
+            lastOutputSummary = lastFailReason = "";
+        }
+
+        /// <summary>
+        /// Marks the running task as having failed on its own, and says why. Distinct from
+        /// <see cref="Cancel"/>: nothing is killed and no error box is raised, because the caller has
+        /// already decided there is nothing to run. In a batch the reason lands on the file's row and
+        /// in the end-of-queue summary.
+        /// </summary>
+        public static void Fail(string reason)
+        {
+            failed = true;
+            lastFailReason = reason;
+            Logger.Log(reason);
         }
 
         /// <summary>
@@ -82,6 +118,30 @@ namespace Nmkoder.Main
             }
         }
 
+        /// <summary>
+        /// Whether a task actually wrote what it said it would. An encoder that died has no other way
+        /// of saying so here - ffmpeg's exit code is not carried back - and a run that wrote nothing
+        /// counted as finished, which in a batch meant the tally said twelve of twelve.
+        /// </summary>
+        public static bool OutputExists(string outPath)
+        {
+            try
+            {
+                if (outPath.IsEmpty())
+                    return false;
+
+                if (Path.GetFileName(outPath).Contains('%')) // An ffmpeg sequence pattern - measure the folder it fills
+                    outPath = Path.GetDirectoryName(outPath);
+
+                return Directory.Exists(outPath) ? IoUtils.GetDirSize(outPath, true) > 0 : IoUtils.GetFilesize(outPath) > 0;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not check the output file: {e.Message}", true);
+                return true; // Not knowing is not the same as knowing it failed
+            }
+        }
+
         /// <summary> "2.1 GB → 780 MB (-63%)" </summary>
         static string SizeDelta(long inBytes, long outBytes)
         {
@@ -106,10 +166,15 @@ namespace Nmkoder.Main
         /// in the status label; unticking the box aborts, as does starting another task. Canceled runs
         /// never shut down - a cancellation either has the user at the machine (Stop) or raises a
         /// modal error box that would sit unread on a dead screen (and block the abort checkbox).
+        /// <para/>
+        /// <paramref name="aborted"/> is that judgement, made by the caller rather than read off
+        /// <see cref="canceled"/> here: at the end of a batch that flag describes the last file, and a
+        /// queue of twelve that lost one of them has still finished, with nobody at the machine and no
+        /// modal on the screen.
         /// </summary>
-        internal static async Task ShutdownWhenDoneCountdown()
+        internal static async Task ShutdownWhenDoneCountdown(bool aborted = false)
         {
-            if (!shutdownWhenDone || canceled)
+            if (!shutdownWhenDone || aborted)
                 return;
 
             Logger.Log("Shutting down in 60 seconds - untick 'Shutdown when done' to abort.");
@@ -134,63 +199,114 @@ namespace Nmkoder.Main
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
             canceled = true;
-            Program.MainWin.SetStatus("Canceled.");
+            lastFailReason = reason;
+
+            // Stop is the one cancellation a batch does not survive, and it has to outlive the task
+            // state that is about to be cleared for the next file.
+            if (runningBatch && canceledManually)
+                batchCanceled = true;
+
+            // A file stopping itself does not end the queue any more, so saying "Canceled" over the
+            // whole window would be describing the wrong thing.
+            bool continuingBatch = runningBatch && !canceledManually;
+            Program.MainWin.SetStatus(continuingBatch ? $"{batchProgressPrefix}Failed - continuing with the next file." : "Canceled.");
             Program.MainWin.SetProgress(0);
 
             ProcessManager.KillPrimary();
             ProcessManager.KillSecondary();
 
             Program.MainWin.SetWorking(false);
-            Logger.LogIfLastLineDoesNotContainMsg("Canceled.");
+            Logger.LogIfLastLineDoesNotContainMsg(continuingBatch ? "Continuing with the next file." : "Canceled.");
 
-            // A task stopping itself is news; the user pressing Stop is not.
-            if (!canceledManually)
+            // A task stopping itself is news; the user pressing Stop is not. Neither is worth a
+            // notification per file - the batch sends one of its own when the queue ends.
+            if (!canceledManually && !runningBatch)
                 Notifications.ShowIfInBackground($"{GetTaskName(Program.MainWin.RunningTask)} canceled", reason.IsEmpty() ? "The log has the details." : reason.Trunc(200));
 
-            if (!string.IsNullOrWhiteSpace(reason) && !noMsgBox)
+            // Likewise the error box: twelve files that all fail the same settings check would mean
+            // twelve of them, each one waiting on a click before the queue could go on.
+            if (!string.IsNullOrWhiteSpace(reason) && !noMsgBox && !runningBatch)
                 UiUtils.ShowMessageBoxAsync($"Canceled:\n\n{reason}", UiUtils.MessageType.Error);
         }
 
         public static async Task Start(TaskType batchTask = TaskType.Null)
         {
-            if (batchTask == TaskType.Null)
+            bool inBatch = batchTask != TaskType.Null;
+
+            if (!inBatch)
                 runningBatch = false;
 
-            TaskType task = batchTask == TaskType.Null ? Program.MainWin.SelectedTask : batchTask;
+            TaskType task = inBatch ? batchTask : Program.MainWin.SelectedTask;
+
+            // Ahead of the checks below rather than after them. Each of those used to return without
+            // marking anything, so in a batch the file was counted as finished; they now call Fail,
+            // and this is what would otherwise clear that again. It also reinstates a Stop that
+            // landed while the queue sat between two files.
+            ResetOutcome();
+
+            if (inBatch && batchCanceled)
+                return;
 
             if (FileList.Items.Count < 1)
             {
+                if (inBatch)
+                {
+                    Fail("The file list is empty.");
+                    return;
+                }
+
                 await UiUtils.ShowMessageBox("No input files in file list! Please add one or more files first.");
                 Program.MainWin.SelectedMainTab = 0;
                 return;
             }
-            else
-            {
-                var missingFiles = FileList.Items.Select(x => x.File).Where(x => !x.CheckFiles()).Select(x => x.SourcePath).ToList();
 
-                if (missingFiles.Any())
+            // A batch only cares about the file it is encoding; a mux reads the whole list, so it is
+            // the whole list that has to still be there. Checking all of them in a batch meant one
+            // missing file raised the same modal on every one of the twelve.
+            var missingFiles = (inBatch
+                    ? (TrackList.current == null ? Enumerable.Empty<MediaFile>() : new[] { TrackList.current.File })
+                    : FileList.Items.Select(x => x.File))
+                .Where(x => !x.CheckFiles()).Select(x => x.SourcePath).ToList();
+
+            if (missingFiles.Any())
+            {
+                if (inBatch)
                 {
-                    await UiUtils.ShowMessageBox($"The following files have been imported but are no longer accessible:\n\n{string.Join("\n", missingFiles)}\n\n" +
-                        $"Possibly they were deleted, moved, or renamed.\nPlease either restore them or remove them from the file list.", UiUtils.MessageType.Error);
+                    Fail($"'{Path.GetFileName(missingFiles[0])}' is no longer accessible - it may have been deleted, moved or renamed.");
                     return;
                 }
+
+                await UiUtils.ShowMessageBox($"The following files have been imported but are no longer accessible:\n\n{string.Join("\n", missingFiles)}\n\n" +
+                    $"Possibly they were deleted, moved, or renamed.\nPlease either restore them or remove them from the file list.", UiUtils.MessageType.Error);
+                return;
             }
 
             bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates || task == TaskType.UtilOcr || task == TaskType.UtilCut;
 
-            if (loadedFileRequired && (currentFileListMode == FileListMode.Mux && TrackList.current == null))
+            if (loadedFileRequired && TrackList.current == null && (inBatch || currentFileListMode == FileListMode.Mux))
             {
+                if (inBatch)
+                {
+                    Fail("The file could not be loaded - the log has the details.");
+                    return;
+                }
+
                 await UiUtils.ShowMessageBox("No input file loaded! Please load one first (File List).");
                 return;
             }
 
             if (task == TaskType.None)
             {
+                if (inBatch)
+                {
+                    Fail("No task is selected.");
+                    return;
+                }
+
                 await UiUtils.ShowMessageBox("No task selected! Please select an option (Quick Encode or one of the actions in Utilities).");
                 return;
             }
 
-            ResetOutcome();
             FfmpegOutputHandler.overrideTargetDurationMs = -1;
             NmkdStopwatch sw = new NmkdStopwatch();
 
@@ -207,14 +323,14 @@ namespace Nmkoder.Main
             else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
             Program.MainWin.RunningTask = TaskType.None;
 
-            Logger.Log($"Done - Finished task in {sw}.");
+            Logger.Log(canceled || failed ? $"Stopped after {sw}." : $"Done - Finished task in {sw}.");
             Program.MainWin.SetProgress(0);
             Program.MainWin.SetWorking(false);
 
             if (!runningBatch)
             {
                 NotifyTaskEnd(task, sw);
-                _ = ShutdownWhenDoneCountdown();
+                _ = ShutdownWhenDoneCountdown(canceled);
             }
         }
 
@@ -257,7 +373,7 @@ namespace Nmkoder.Main
 
         public static async Task StartBatch()
         {
-            canceled = canceledManually = false;
+            canceled = canceledManually = batchCanceled = false;
             TaskType batchTask = Program.MainWin.SelectedTask;
 
             if (batchTask == TaskType.None)
@@ -279,8 +395,10 @@ namespace Nmkoder.Main
 
             runningBatch = true;
             batchBytesIn = batchBytesOut = 0;
-            int finishedTasks = 0;
             NmkdStopwatch sw = new NmkdStopwatch();
+
+            foreach (FileListEntry entry in taskFileListItems)
+                entry.SetBatchStatus(BatchStatus.Queued);
 
             // Held for the whole queue rather than per file: every task clears the working state on
             // its way out, and between two files that put the Run button back, took Stop away, and
@@ -292,49 +410,101 @@ namespace Nmkoder.Main
             {
                 for (int i = 0; i < taskFileListItems.Count; i++)
                 {
-                    if (canceled)
-                        break;
-
                     FileListEntry entry = taskFileListItems[i];
+
+                    // Only Stop ends the queue. A file that stopped itself - a bad output path, an
+                    // argument av1an would not take, an encoder that crashed - used to take the other
+                    // eleven with it, which is the last thing an overnight batch should do.
+                    if (batchCanceled)
+                    {
+                        entry.SetBatchStatus(BatchStatus.Skipped, "The batch was stopped before this file ran.");
+                        continue;
+                    }
+
+                    // Ahead of the scan below, not just inside Start: the previous file's cancel is
+                    // still set here, and the output handlers go quiet while it is.
+                    ResetOutcome();
                     Logger.Log($"Queue: Starting task {i + 1}/{taskFileListItems.Count} for {entry.File.Name}.");
                     batchProgressPrefix = $"File {i + 1}/{taskFileListItems.Count} ({entry.File.Name}) - ";
+                    entry.SetBatchStatus(BatchStatus.Running);
+                    Program.MainWin.ScrollFileIntoView(entry);
+                    // Which file the naming template is resolving for, since neither the file being
+                    // loaded nor the task being run is knowable from the output box alone.
+                    BatchNaming.SetContext(batchTask, i + 1, taskFileListItems.Count);
                     TrackList.ClearCurrentFile(resetSettings: false);
                     // Neither of these switches to the Track List tab: the queue is watched from
                     // whichever tab the user left it on, and the list is read-only here anyway.
                     await TrackList.SetAsMainFile(entry, false, false); // Load file info
                     await TrackList.AddStreamsToList(entry.File, entry.RowBrush, false); // Load tracks into list (readonly for user)
 
-                    // Stop pressed while the file was being scanned would otherwise be undone by the
-                    // ResetOutcome at the top of Start, and the file encoded anyway.
-                    if (canceled)
-                        break;
-
                     await Start(batchTask); // Run task
 
                     // A run that failed on its own (av1an exiting nonzero, a bad output path) does not
                     // set canceled, and used to be counted as finished here.
-                    if (!canceled && !failed)
-                        finishedTasks++;
+                    if (batchCanceled)
+                        entry.SetBatchStatus(BatchStatus.Canceled, "Stopped by the user.");
+                    else if (canceled || failed)
+                        entry.SetBatchStatus(BatchStatus.Failed, lastFailReason.IsEmpty() ? "The log has the details." : lastFailReason);
+                    else
+                        entry.SetBatchStatus(BatchStatus.Done, lastOutputSummary);
                 }
             }
             finally
             {
+                BatchNaming.ClearContext();
                 TrackList.ClearCurrentFile(true, resetSettings: false);
                 runningBatch = false;
                 batchProgressPrefix = "";
                 Program.MainWin.SetWorking(false);
             }
 
-            string totalSizes = batchBytesIn > 0 && batchBytesOut > 0 ? $" Total size: {SizeDelta(batchBytesIn, batchBytesOut)}." : "";
-            Logger.Log($"Queue: Completed {finishedTasks}/{taskFileListItems.Count} tasks{(canceled ? " (Canceled)" : "")}. Total time: {sw}.{totalSizes}");
+            ReportBatchEnd(taskFileListItems, sw);
+        }
 
-            // A canceled batch already notified from Cancel(), naming the reason.
-            if (!canceled)
+        /// <summary>
+        /// What became of every file in the queue. A batch that runs overnight is read afterwards,
+        /// not watched, so the per-file outcome has to survive somewhere - the rows keep it, and this
+        /// puts the same thing in the log where it can be copied out.
+        /// </summary>
+        private static void ReportBatchEnd(List<FileListEntry> entries, NmkdStopwatch sw)
+        {
+            int done = entries.Count(x => x.Status == BatchStatus.Done);
+            int failedCount = entries.Count(x => x.Status == BatchStatus.Failed);
+            int skipped = entries.Count(x => x.Status == BatchStatus.Skipped || x.Status == BatchStatus.Canceled);
+
+            string totalSizes = batchBytesIn > 0 && batchBytesOut > 0 ? $" Total size: {SizeDelta(batchBytesIn, batchBytesOut)}." : "";
+            string counts = $"{done}/{entries.Count} finished" +
+                $"{(failedCount > 0 ? $", {failedCount} failed" : "")}" +
+                $"{(skipped > 0 ? $", {skipped} not run" : "")}";
+
+            Logger.Log($"Queue: {counts}{(batchCanceled ? " (Stopped)" : "")}. Total time: {sw}.{totalSizes}");
+
+            foreach (FileListEntry entry in entries)
             {
-                Program.MainWin?.SetStatus($"Batch done - completed {finishedTasks}/{taskFileListItems.Count} tasks in {sw}.{totalSizes}", silent: true);
-                Notifications.ShowIfInBackground("Batch finished", $"Completed {finishedTasks} of {taskFileListItems.Count} tasks. Total time: {sw}.{totalSizes}");
+                // The reason lives on the note rather than the status text, and a settings check's
+                // reason is a paragraph with blank lines in it - which in a queue of forty would be
+                // the log's whole tail.
+                string note = OneLine(entry.StatusNote);
+                Logger.Log($"  {entry.StatusGlyph} {entry.File.Name}: {entry.Status}{(note.IsEmpty() ? "" : $" - {note}")}");
+            }
+
+            string status = $"Batch done - {counts} in {sw}.{totalSizes}";
+            Program.MainWin?.SetStatus(batchCanceled ? $"Batch stopped - {counts}." : status, silent: true);
+
+            // One notification for the queue rather than one per file, and it says how many did not
+            // make it, because a batch left running is exactly the case where nobody saw the log.
+            if (!batchCanceled)
+            {
+                Notifications.ShowIfInBackground(failedCount > 0 ? "Batch finished with failures" : "Batch finished",
+                    $"{counts}. Total time: {sw}.{totalSizes}");
                 _ = ShutdownWhenDoneCountdown();
             }
+        }
+
+        /// <summary> A multi-line reason squeezed onto the one line a summary entry gets. </summary>
+        private static string OneLine(string text)
+        {
+            return string.Join(" ", (text ?? "").Split('\r', '\n').Select(x => x.Trim()).Where(x => x.IsNotEmpty())).Trunc(200);
         }
     }
 }

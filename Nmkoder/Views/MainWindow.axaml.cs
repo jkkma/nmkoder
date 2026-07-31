@@ -184,6 +184,7 @@ namespace Nmkoder.Views
             using (Config.Batch())
             {
                 ConfigParser.LoadComboxIndex(FileListModeBox);
+                ConfigParser.LoadGuiElement(BatchNameTemplateBox);
                 // Quick Convert
                 ConfigParser.LoadGuiElement(FfmpegContainerBox);
                 ConfigParser.LoadComboxIndex(EncVidCodecsBox);
@@ -205,6 +206,7 @@ namespace Nmkoder.Views
             using (Config.Batch())
             {
                 ConfigParser.SaveComboxIndex(FileListModeBox);
+                ConfigParser.SaveGuiElement(BatchNameTemplateBox);
                 // Quick Convert
                 ConfigParser.SaveGuiElement(FfmpegContainerBox);
                 ConfigParser.SaveComboxIndex(EncVidCodecsBox);
@@ -260,6 +262,15 @@ namespace Nmkoder.Views
             StreamDetailsBox.Text = details;
             StreamDetailsBox.IsVisible = !string.IsNullOrWhiteSpace(details);
         }
+
+        /// <summary>
+        /// The task of the last tab that carried one. The File List tab carries none, so
+        /// <see cref="SelectedTask"/> reads None while it is open - and that is exactly where the
+        /// batch naming box sits, which has to show what {codec} and {crf} would come out as. It
+        /// starts on AV1AN because a session that has not opened a task tab yet cannot have run a
+        /// batch either, so the only thing riding on the initial value is that preview.
+        /// </summary>
+        public RunTask.TaskType LastTaskTab { get; private set; } = RunTask.TaskType.Av1an;
 
         public RunTask.TaskType SelectedTask
         {
@@ -509,6 +520,9 @@ namespace Nmkoder.Views
         {
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
             UpdateRunButtonState();
+
+            if (SelectedTask != RunTask.TaskType.None)
+                LastTaskTab = SelectedTask;
 
             if (tab == MainTab.FileList)
                 await RefreshFileListUi();

@@ -32,12 +32,27 @@
         <!-- ─────────── File List ─────────── -->
         <TabItem Header="File List">
           <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="8">
-            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
-              <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
-              <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
-                <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
-                <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
-              </ComboBox>
+            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8" Spacing="6">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
+                <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
+                  <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
+                  <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
+                </ComboBox>
+              </StackPanel>
+
+              <!-- Batch mode overwrites the output box once per file, so it is the only place the
+                   user gets a say in what the twelve outputs are called. -->
+              <StackPanel x:Name="BatchNamingPanel" Orientation="Horizontal" IsVisible="False">
+                <TextBlock Classes="field" Text="Output Names" VerticalAlignment="Center" />
+                <TextBox x:Name="BatchNameTemplateBox" Width="300" PlaceholderText="{}{name}"
+                         TextChanged="BatchNameTemplate_TextChanged" />
+                <!-- The button sits before the hint so that a long example clips against the window
+                     edge rather than pushing the button off it. -->
+                <Button x:Name="BatchNamingHelpBtn" Classes="icon" Content="?" Margin="6,0,0,0"
+                        Click="BatchNamingHelp_Click" />
+                <TextBlock x:Name="BatchNamingHintLabel" Classes="hint" VerticalAlignment="Center" Margin="10,0,0,0" />
+              </StackPanel>
             </StackPanel>
 
             <Grid Grid.Row="1" Grid.Column="0">
@@ -45,8 +60,19 @@
                        SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
-                    <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                    <!-- The status glyph and text only appear once a batch has put the file in a
+                         queue; outside one HasBatchStatus is false and the row is just its name. -->
+                    <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2"
+                            ToolTip.Tip="{Binding StatusTooltip}">
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding StatusGlyph}" Foreground="{Binding StatusBrush}"
+                                   IsVisible="{Binding HasBatchStatus}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"
+                                   IsVisible="{Binding HasBatchStatus}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Margin="12,0,0,0" FontSize="12" />
+                      </Grid>
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>

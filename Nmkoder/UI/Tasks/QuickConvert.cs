@@ -124,6 +124,16 @@ namespace Nmkoder.UI.Tasks
 
             if (!RunTask.canceled && outPath.IsNotEmpty())
             {
+                // ffmpeg's exit code does not come back through RunFfmpeg, so the output file is what
+                // says whether this worked. Without it a run that wrote nothing - a codec the muxer
+                // refused, a full disk - was indistinguishable from a finished one, and a batch
+                // counted it among its finished tasks.
+                if (!RunTask.OutputExists(outPath))
+                {
+                    RunTask.Fail($"ffmpeg did not finish - '{Path.GetFileName(outPath)}' was not written.");
+                    return;
+                }
+
                 // The same inputs GetInputFilesString hands to ffmpeg: the loaded file in batch
                 // mode, everything in the file list when muxing.
                 IEnumerable<string> inPaths = RunTask.currentFileListMode == RunTask.FileListMode.Batch

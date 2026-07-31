@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
@@ -20,6 +21,8 @@ namespace Nmkoder.Views
 
         public async Task RefreshFileListUi()
         {
+            RefreshBatchNamingUi();
+
             int selectedCount = FileListBox.SelectedItems?.Count ?? 0;
             bool anySelected = selectedCount > 0;
             bool oneSelected = selectedCount == 1;
@@ -73,6 +76,7 @@ namespace Nmkoder.Views
 
             RunTask.currentFileListMode = newMode;
             Title = $"NMKODER [{(newMode == RunTask.FileListMode.Mux ? "Mux" : "Batch")}]";
+            BatchNamingPanel.IsVisible = newMode == RunTask.FileListMode.Batch;
 
             SaveUiConfig();
             await RefreshFileListUi();
@@ -214,6 +218,67 @@ namespace Nmkoder.Views
         {
             UiUtils.MoveItem(FileList.Items, FileListBox.SelectedItem as FileListEntry, UiUtils.MoveDirection.Down);
         }
+
+        #region Batch output naming
+
+        private void BatchNameTemplate_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            RefreshBatchNamingUi();
+        }
+
+        /// <summary>
+        /// The hint beside the box, which is a worked example rather than a list of tokens: what
+        /// "{name}_{codec}_{crf}" is going to call the first file in the queue answers the question
+        /// the list only describes. The full list is behind the ? button.
+        /// </summary>
+        public void RefreshBatchNamingUi()
+        {
+            // A running queue owns the naming, and blanking the hint under it would only make the
+            // row look broken for as long as the batch lasts.
+            if (BatchNamingHintLabel == null || RunTask.runningBatch)
+                return;
+
+            BatchNamingHintLabel.Text = BatchNaming.DescribeExample(FileList.Items.FirstOrDefault()?.File, LastTaskTab);
+        }
+
+        private void BatchNamingHelp_Click(object sender, RoutedEventArgs e)
+        {
+            string tokens = string.Join("\n", BatchNaming.Tokens.Select(x => $"{x.Token}  -  {x.Description}"));
+            UiUtils.ShowMessageBoxAsync("Batch mode names every output from this template, since one output box cannot " +
+                "hold twelve names. Anything that is not a placeholder is used as written, so \"{name}-av1\" just adds " +
+                "a suffix.\n\nThe folder is unaffected: outputs still go to the default output folder, or next to " +
+                $"their source when none is set.\n\nPlaceholders:\n\n{tokens}\n\n" +
+                "{width} and {height} come off the file itself, so they are blank in the example until the queue " +
+                "reaches that file and scans it. Two files that resolve to the same name do not overwrite each " +
+                "other - the second is numbered.", UiUtils.MessageType.Message);
+        }
+
+        /// <summary>
+        /// Keeps the file a batch is working on visible. A queue of forty scrolls off the top within
+        /// minutes, and the row indicators are only worth having if the running one can be seen.
+        /// </summary>
+        public void ScrollFileIntoView(FileListEntry entry)
+        {
+            if (entry == null)
+                return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    FileListBox.ScrollIntoView(entry);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Could not scroll the file list: {e.Message}", true);
+                }
+            });
+        }
+
+        #endregion
 
         private void FileListSort_Click(object sender, RoutedEventArgs e)
         {
