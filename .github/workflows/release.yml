@@ -71,6 +71,31 @@ jobs:
             -p:Version=${{ steps.ver.outputs.version }} \
             -o publish/Nmkoder
 
+      - name: Verify the data files survived publish
+        shell: bash
+        run: |
+          # BinFiles/** has to land as loose files under bin/, because that is where the app reads
+          # them back from. The Windows publish dropped them silently for three releases - the only
+          # symptom is an empty argument grid on the AV1AN tab - so a build missing them fails here
+          # instead of shipping.
+          missing=0
+          for f in bin/iso639.csv \
+                   bin/av1an/encoderArgs/AomAv1.json \
+                   bin/av1an/encoderArgs/SvtAv1.json \
+                   bin/av1an/encoderArgs/Vpx.json \
+                   bin/av1an/encoderArgs/X264.json \
+                   bin/av1an/encoderArgs/X265.json; do
+            if [ ! -s "publish/Nmkoder/$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" != "0" ]; then
+            echo "::error::Data files from BinFiles are missing from the ${{ matrix.rid }} publish output"
+            exit 1
+          fi
+          echo "All BinFiles data present in the ${{ matrix.rid }} publish output."
+
       - name: Bundle external tools
         shell: bash
         env:
