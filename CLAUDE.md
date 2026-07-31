@@ -129,6 +129,21 @@ Check the version against the published releases before picking it - the csproj
 is bumped in the same commit range as the release it belongs to, so the number
 sitting in the file is usually the one already released, not the next one.
 
+**Move in patch steps by default.** Nmkoder is an end-user application, not a
+library: nothing consumes an API from it, so semver's minor-versus-patch line -
+which exists to tell consumers whether their code still builds - carries no
+information here. A minor bump is for a release somebody would notice without
+reading the changelog: a new tab, a reworked UI, a capability the app did not
+have before. "This branch adds a feature" is not that bar, and treating it as
+one turns the minor digit into a count of merged branches, which is how 2.1
+through 2.7 went by in twelve releases. Reflex semver is the wrong default here;
+the 2.0.1-2.0.19 stretch is the shape to aim for.
+
+Bump on `master` after the merge, never on the feature branch - step 2 above
+follows step 1 for that reason. Two branches in flight both reaching for the
+next number is how 2.5.0 came to be bumped twice, with a 2.4.2 landing in
+between them.
+
 The run builds win-x64, linux-x64, osx-x64 and osx-arm64, bundles external tools
 via `.github/scripts/bundle-tools.sh`, and composes notes from
 `git log --no-merges` since the previous tag. It takes roughly six minutes.
