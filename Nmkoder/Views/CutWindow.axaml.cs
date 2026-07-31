@@ -139,7 +139,7 @@ namespace Nmkoder.Views
                 ? "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding."
                 : purpose == Purpose.Av1anTrim
                 ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own."
-                : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. Press Run to cut.";
+                : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own. Press Run to cut.";
 
             // Snapping the start point is the button's whole job, and where it happens on its own
             // there is nothing left to press.
@@ -518,18 +518,19 @@ namespace Nmkoder.Views
         }
 
         /// <summary> Whether the start point moves onto that keyframe on its own instead of the move
-        /// being offered as a button. The AV1AN tab is the case where declining it buys nothing: the
-        /// section is copied out before av1an ever sees it, so the copy begins at the keyframe whatever
-        /// this field says. Snapping does not change a frame of what comes out - it makes the range
-        /// shown here the range that is really encoded, rather than one missing the run-up in front of
-        /// it, which is also the duration the copy's own progress is measured against.
+        /// being offered as a button. Both purposes that end in a stream copy do it - the AV1AN trim,
+        /// whose section is cut out before av1an ever sees it, and the standalone cut - because
+        /// declining it there buys nothing: the copy begins at the keyframe whatever this field says,
+        /// so refusing the move only leaves the dialog describing a section that is not the one
+        /// produced. Snapping does not change a frame of what comes out. It makes the range shown here
+        /// the range really copied, run-up and all, which is also the duration the copy's own progress
+        /// is measured against.
         ///
-        /// The other two purposes keep the button. An exact trim re-encodes and begins where it was
-        /// told to, and the standalone cut produces a file the user keeps, so which frame it opens on
-        /// is theirs to decide. </summary>
+        /// The Quick Encode trim keeps the button: that path re-encodes rather than copying, so its
+        /// start point is not forced onto a keyframe the way a copy's is. </summary>
         private bool KeyframeSnapAutomatic
         {
-            get { return _purpose == Purpose.Av1anTrim; }
+            get { return _purpose != Purpose.Trim; }
         }
 
         private void RequestKeyframeNote()
@@ -657,7 +658,7 @@ namespace Nmkoder.Views
             SetPosition(_startMs);
 
             KeyframeNote.Text = $"The start point was moved back to the keyframe at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))} " +
-                $"({(offset / 1000d).ToString("0.##")}s earlier), because the copy av1an is given can only begin at one.";
+                $"({(offset / 1000d).ToString("0.##")}s earlier), because a copy can only begin at one.";
             SnapBtn.IsEnabled = false;
             return true;
         }

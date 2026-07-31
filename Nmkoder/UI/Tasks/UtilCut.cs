@@ -15,7 +15,8 @@ namespace Nmkoder.UI.Tasks
     /// is speed: nothing is decoded, so a cut runs at disk speed and the video comes out untouched.
     ///
     /// The price of not re-encoding is that a copy can only begin at a keyframe, so the output starts
-    /// at the closest one at or before the start point. The cut dialog says where that lands.
+    /// at the closest one at or before the start point. The cut dialog puts the start point on one
+    /// before it gets here, so the section configured is the section that comes out.
     /// </summary>
     class UtilCut
     {
@@ -100,9 +101,11 @@ namespace Nmkoder.UI.Tasks
             // output that looks a few seconds too long and one the user was told to expect.
             long keyframeMs = await FfmpegUtils.GetKeyframeMsAtOrBefore(inPath, startMs);
 
+            // The dialog snaps the start point onto a keyframe, so this is the batch case: one
+            // configured section run against a file whose keyframes sit somewhere else.
             if (keyframeMs >= 0 && keyframeMs < startMs)
                 Logger.Log($"The closest keyframe before the start point is at {FormatDuration(keyframeMs)}, so the cut begins there - {FormatDuration(startMs - keyframeMs)} earlier. " +
-                    $"Snap the start point to a keyframe in the cut dialog to avoid this.");
+                    $"This file's keyframes do not line up with the configured start point, and a copy cannot begin between them.");
 
             // Seeking before -i keeps this cheap - ffmpeg jumps to the keyframe instead of reading
             // its way there - and -map 0 carries every track over, not just the first of each kind.
