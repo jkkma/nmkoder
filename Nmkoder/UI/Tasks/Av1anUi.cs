@@ -1058,6 +1058,10 @@ namespace Nmkoder.UI.Tasks
         /// canceled" for success threw away every finished chunk whenever av1an died on its own - a
         /// crashed encoder, a full disk, a parameter it would not take - which is exactly when
         /// resuming is worth the most.
+        /// <para/>
+        /// A run that stopped before av1an wrote anything is the other end of that, and is deleted:
+        /// there is nothing in the folder to carry on from, so keeping it only puts an entry in the
+        /// Resume list offering to continue an encode that never started.
         /// </summary>
         public static async Task HandleTempFolder(string dir, bool succeeded, bool canceledByUser)
         {
@@ -1070,18 +1074,30 @@ namespace Nmkoder.UI.Tasks
                 return;
             }
 
+            // av1an refusing the command, or not being there to run it, leaves the folder exactly as
+            // this run created it. Resuming from that repeats every step from the first, so the offer
+            // is worth nothing and the count on the Resume button is worth less than nothing - a batch
+            // of twelve that failed the same way used to leave twelve of these, and take a trimmed
+            // copy of each input with them.
+            if (!HasAnyContent(dir))
+            {
+                Logger.Log($"Nothing was written to '{Path.GetFileName(dir)}', so there is nothing to resume from - removing it.", true);
+                DeleteTempFolder(dir);
+                return;
+            }
+
             // Stopped by a bad setting or an error rather than by the user. Not their decision to make,
             // and they may well want to fix whatever it was and carry on from the chunks already done.
             if (!canceledByUser)
             {
-                Logger.Log($"Keeping the temp folder so this encode can be resumed ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))} in '{Path.GetFileName(dir)}').");
+                Logger.Log(DescribeKeptFolder(dir));
                 return;
             }
 
             // Stopping an encode is not the same as abandoning it, and only the user knows which they
             // meant. The chunks are worth however long they took, so this one is worth asking about.
             string size = FormatUtils.Bytes(IoUtils.GetDirSize(dir, true));
-            int chunks = IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Where(x => x.Length >= 1024).Count();
+            int chunks = CountEncodedChunks(dir);
             string msg = $"This encode has been canceled.\n\nKeep its temporary files so it can be resumed later? " +
                 $"They are {size} and hold {chunks} encoded video chunk{(chunks == 1 ? "" : "s")}.\n\n" +
                 $"Choosing No deletes them, and the encode would have to start over from the beginning.";
@@ -1090,11 +1106,53 @@ namespace Nmkoder.UI.Tasks
 
             if (result == UiUtils.DialogResult.Yes)
             {
-                Logger.Log($"Keeping the temp folder so this encode can be resumed ({size} in '{Path.GetFileName(dir)}').");
+                Logger.Log(DescribeKeptFolder(dir));
                 return;
             }
 
             DeleteTempFolder(dir);
+        }
+
+        /// <summary>
+        /// Whether av1an put anything in the folder at all. Directories count as much as files: an
+        /// empty 'encode' is av1an having got as far as laying out its temp folder, and everything
+        /// from that point on - the scene detection, the audio - is work this cannot see but a resume
+        /// would still skip. Only the case where av1an wrote literally nothing is called nothing.
+        /// </summary>
+        private static bool HasAnyContent(string dir)
+        {
+            try
+            {
+                return Directory.EnumerateFileSystemEntries(dir, "*", SearchOption.AllDirectories).Any();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not inspect the temp folder '{Path.GetFileName(dir)}': {e.Message}", true);
+                return true; // Not being able to tell is not a reason to delete an encode's chunks
+            }
+        }
+
+        /// <summary> Encoded video chunks in a temp folder. Sub-kilobyte files in there are av1an's
+        /// own bookkeeping rather than video. </summary>
+        private static int CountEncodedChunks(string dir)
+        {
+            return IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Count(x => x.Length >= 1024);
+        }
+
+        /// <summary>
+        /// What a kept folder is actually worth, since "so this encode can be resumed" over a folder
+        /// with no finished chunks promises more than resuming it delivers.
+        /// </summary>
+        private static string DescribeKeptFolder(string dir)
+        {
+            string size = FormatUtils.Bytes(IoUtils.GetDirSize(dir, true));
+            int chunks = CountEncodedChunks(dir);
+
+            if (chunks < 1)
+                return $"Keeping the temp folder '{Path.GetFileName(dir)}' ({size}) - no video chunks were finished, " +
+                    $"so resuming it would repeat most of the work.";
+
+            return $"Keeping the temp folder so this encode can be resumed ({chunks} chunk{(chunks == 1 ? "" : "s")}, {size} in '{Path.GetFileName(dir)}').";
         }
 
         /// <summary> Removes a temp folder along with the resume arguments, and the trimmed input,
