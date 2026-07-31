@@ -169,10 +169,12 @@ namespace Nmkoder.Views
             UpdateAv1anTrimBtnText();
         }
 
-        /// <summary> The Trim button doubles as the readout of what is configured. </summary>
+        /// <summary> The Trim button doubles as the readout of what is configured. A range is wider
+        /// than the column, so the end of one is only ever read off the tooltip. </summary>
         public void UpdateAv1anTrimBtnText()
         {
             Av1anTrimConfBtn.Content = Av1anUi.CurrentTrim == null ? "Configure…" : Av1anUi.CurrentTrim.ToString();
+            ToolTip.SetTip(Av1anTrimConfBtn, Av1anUi.CurrentTrim?.ToString());
             Av1anTrimClearBtn.IsVisible = Av1anUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 

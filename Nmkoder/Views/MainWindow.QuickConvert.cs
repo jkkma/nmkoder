@@ -172,9 +172,22 @@ namespace Nmkoder.Views
             UpdateTrimBtnText();
         }
 
+        /// <summary> Drops the configured trim, so the whole video is encoded again. The dialog cannot
+        /// say this: dismissing it keeps whatever was configured, and confirming it always writes a
+        /// range, so a trim picked once could not be taken back. </summary>
+        private void EncTrimClear_Click(object sender, RoutedEventArgs e)
+        {
+            QuickConvertUi.CurrentTrim = null;
+            UpdateTrimBtnText();
+        }
+
+        /// <summary> The Trim button doubles as the readout of what is configured. A range is wider
+        /// than the column, so the end of one is only ever read off the tooltip. </summary>
         public void UpdateTrimBtnText()
         {
             EncTrimConfBtn.Content = QuickConvertUi.CurrentTrim == null ? "Configure…" : QuickConvertUi.CurrentTrim.ToString();
+            ToolTip.SetTip(EncTrimConfBtn, QuickConvertUi.CurrentTrim?.ToString());
+            EncTrimClearBtn.IsVisible = QuickConvertUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 
         private async void EncAudConfigure_Click(object sender, RoutedEventArgs e)
