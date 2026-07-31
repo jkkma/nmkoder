@@ -634,6 +634,11 @@ namespace Nmkoder.Views
         /// own, and says whether it did. The end point stays where it is, so the section grows by
         /// however far back the keyframe sits rather than sliding: the frames asked for are all still
         /// in it, with the run-up the copy has to include in front of them.
+        /// <para/>
+        /// The playhead follows, the same as it does off the button, so the preview is showing the
+        /// frame the encode really opens on rather than the one that was picked a moment ago. The
+        /// cost is that nudging a frame past a keyframe and setting the start point there lands back
+        /// on the keyframe - which is the honest answer, since a copy cannot begin anywhere else.
         /// </summary>
         private bool TryAutoSnap(long keyframeMs)
         {
@@ -649,6 +654,7 @@ namespace Nmkoder.Views
             _startMs = keyframeMs;
             WriteFields();
             UpdateBars();
+            SetPosition(_startMs);
 
             KeyframeNote.Text = $"The start point was moved back to the keyframe at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))} " +
                 $"({(offset / 1000d).ToString("0.##")}s earlier), because the copy av1an is given can only begin at one.";
