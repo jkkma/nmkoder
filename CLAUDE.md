@@ -100,7 +100,8 @@ pinned Avalonia version exactly rather than whatever the docs site publishes.
 tag push or a manual dispatch.
 
 **Do not push the tag from a Claude Code on the web session.** The sandbox's git
-proxy takes branch pushes but hangs up on tag pushes:
+proxy takes an ordinary branch push and hangs up on anything else. A tag push and
+a branch deletion fail identically:
 
 ```
 send-pack: unexpected disconnect while reading sideband packet
@@ -108,10 +109,18 @@ fatal: the remote end hung up unexpectedly
 Everything up-to-date
 ```
 
-It fails identically every time, so retrying with backoff only burns time - this
-is a property of the sandbox, not of the repository, the tag, or GitHub. The
+It fails the same way every time, so retrying with backoff only burns time - this
+is a property of the sandbox, not of the repository, the ref, or GitHub. The
 workflow's dispatch path exists precisely to work around it and creates the tag
 itself.
+
+Deleting a finished branch has no such workaround. `git push --delete` hangs up
+as above, and the GitHub MCP server has `create_branch` and `list_branches` but
+nothing that removes a ref, so both routes are closed and the branch can only be
+deleted from the repository's branches page by hand. Delete the local one, say
+the remote is still there and why, and leave it - never report a branch deleted
+when only the local copy is gone. The queue of merged `claude/*` branches sitting
+on the remote is what that costs, and it costs nothing else.
 
 The steps:
 
