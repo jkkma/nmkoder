@@ -139,6 +139,7 @@ namespace Nmkoder.Views
         private void Av1anCrop_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             Av1anCropConfBtn.IsVisible = Av1anCropBox.GetText().ToLower().Contains("manual");
+            Av1anUi.RefreshResizeBox(); // A crop changes the frame the resize targets are measured against
         }
 
         private async void Av1anCropConf_Click(object sender, RoutedEventArgs e)
@@ -152,6 +153,28 @@ namespace Nmkoder.Views
 
             if (crop != null)
                 Av1anUi.CurrentCrop = crop;
+
+            Av1anUi.RefreshResizeBox();
+        }
+
+        private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Saving is left to the handler: refilling the list raises this too, and that is not a change
+            Av1anUi.ResizePresetSelected(Av1anResizeBox.SelectedIndex);
+        }
+
+        private async void Av1anResizeConf_Click(object sender, RoutedEventArgs e)
+        {
+            ResizeConfig resize = await ResizeWindow.Show(Av1anUi.GetResizeSourceSize(), Av1anUi.GetResizeSar(), Av1anUi.CurrentResize);
+
+            if (resize != null)
+            {
+                resize.PresetKey = ResizePresets.CustomKey;
+                Av1anUi.CurrentResize = resize;
+                SaveAv1anEncodeSettings();
+            }
+
+            Av1anUi.UpdateResizeReadout();
         }
 
         private async void Av1anTrimConf_Click(object sender, RoutedEventArgs e)
@@ -227,8 +250,8 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
             ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
             ConfigParser.RestoreIfSaved(Av1anFpsBox);
-            ConfigParser.RestoreIfSaved(Av1anScaleBoxW);
-            ConfigParser.RestoreIfSaved(Av1anScaleBoxH);
+            Av1anUi.LoadResizeConfig();
+            Av1anUi.RefreshResizeBox();
             ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(Av1anAudChannelsBox);
             ConfigParser.RestoreIfSaved(CheckAv1anCopySubs);
@@ -258,8 +281,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
                 ConfigParser.SaveGuiElement(Av1anFpsBox);
-                ConfigParser.SaveGuiElement(Av1anScaleBoxW);
-                ConfigParser.SaveGuiElement(Av1anScaleBoxH);
+                Av1anUi.SaveResizeConfig();
                 ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
                 ConfigParser.SaveGuiElement(CheckAv1anCopySubs);

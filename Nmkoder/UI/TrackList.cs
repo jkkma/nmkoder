@@ -82,7 +82,8 @@ namespace Nmkoder.UI
 
             if (resetAll || ResetSettingsOnNewFile.ResetResize)
             {
-                f.EncScaleBoxW.Text = f.EncScaleBoxH.Text = f.Av1anScaleBoxW.Text = f.Av1anScaleBoxH.Text = "";
+                f.EncScaleBoxW.Text = f.EncScaleBoxH.Text = "";
+                Av1anUi.CurrentResize = new ResizeConfig();
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetResize)]);
             }
 
@@ -110,6 +111,9 @@ namespace Nmkoder.UI
                 f.Av1anFilterRows.Clear();
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetCustomFilters)]);
             }
+
+            // Both the crop and the resize clauses above move what the resize dropdown's entries work out to
+            Av1anUi.RefreshResizeBox();
 
             if (showMsgBox)
                 UiUtils.ShowMessageBoxAsync($"The following settings have been reset:\n{string.Join(", ", clearedSettings)}.", UiUtils.MessageType.Message);

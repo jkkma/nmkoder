@@ -199,11 +199,17 @@
                     <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
                     <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
 
-                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                    <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                      <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                      <TextBlock Text="x" VerticalAlignment="Center" />
-                      <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize" />
+                    <!-- Spans into the filler column so the readout under the dropdown stays on one line:
+                         at 320 wide it wraps, and it is rewritten on every file load, so a wrap would
+                         reflow the rows beneath it each time a file is selected. -->
+                    <StackPanel Grid.Row="3" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="Av1anResizeBox" Width="260" SelectionChanged="Av1anResize_SelectionChanged"
+                                  ToolTip.Tip="Each target is a box the picture is fitted inside, so the source's aspect ratio is kept whatever it is. The size beside each one is what this file comes out as." />
+                        <Button x:Name="Av1anResizeConfBtn" Content="Configure…" IsVisible="False" Click="Av1anResizeConf_Click" />
+                      </StackPanel>
+                      <TextBlock x:Name="Av1anResizeInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />

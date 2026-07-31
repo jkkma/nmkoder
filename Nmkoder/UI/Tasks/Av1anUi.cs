@@ -61,7 +61,13 @@ namespace Nmkoder.UI.Tasks
                     Form.Av1anOutputPathBox.Text = UiData.GetDefaultOutPath(path);
 
                 if (!RunTask.runningBatch) // Don't load new values into UI in batch mode since we apply the same for all files
+                {
                     InitAudioChannels(TrackList.current?.File.AudioStreams.FirstOrDefault()?.Channels);
+                    // The resize targets are named for what they produce for *this* file, so the list is
+                    // rewritten whenever the file behind it changes - but not while a batch is stepping
+                    // through files of its own accord, which is not the user loading one.
+                    RefreshResizeBox();
+                }
 
                 ValidateContainer();
             }
@@ -336,21 +342,41 @@ namespace Nmkoder.UI.Tasks
             if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
-            if ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0)) // Check Filter: Pad for mod2
+            // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
+            // settled here: this runs per file, after the crop above the scale filter has been decided,
+            // which is what lets one setting mean the right thing for a batch of differently shaped files
+            // and for the frame a crop leaves behind rather than the one the file started with.
+            bool resizing = CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled
+                && !CurrentResize.Compute(vs.Resolution, vs.Sar).IsEmpty;
+
+            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
+            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
+            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
+            // was measured against the unpadded frame.
+            if (!resizing && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0))) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
 
-            string scaleW = (Form.Av1anScaleBoxW.Text ?? "").Trim().ToLower();
-            string scaleH = (Form.Av1anScaleBoxH.Text ?? "").Trim().ToLower();
             string cropMode = Form.Av1anCropBox.GetText().ToLower();
+            Size scaleInput = vs.Resolution; // What the scale filter is handed, once the crop has taken its share
 
             if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
+            {
                 filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                scaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+            }
 
             if (cropMode.Contains("auto")) // Check Filter: Autocrop
-                filters.Add(await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false));
+            {
+                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false);
+                filters.Add(autoCrop);
+                scaleInput = ParseCropSize(autoCrop, scaleInput);
+            }
 
-            if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
-                filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
+            if (resizing && !CurrentResize.IsNoOp(scaleInput, vs.Sar)) // Check Filter: Scale
+            {
+                filters.Add(CurrentResize.GetFilterArgs(scaleInput, vs.Sar));
+                LogResize(scaleInput, vs.Sar);
+            }
 
             filters.AddRange(GetCustomFilters());
 
@@ -366,6 +392,293 @@ namespace Nmkoder.UI.Tasks
         {
             return Form.Av1anFilterRows.Select(x => x.Filter).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
         }
+
+        /// <summary> The frame size out of a "crop=w:h:x:y" filter, or <paramref name="fallback"/> if it is not one. </summary>
+        private static Size ParseCropSize(string cropFilter, Size fallback)
+        {
+            try
+            {
+                string[] parts = cropFilter.Split('=').Last().Split(':');
+                Size size = new Size(parts[0].GetInt(), parts[1].GetInt());
+                return size.Width > 0 && size.Height > 0 ? size : fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        /// <summary> Said out loud at encode time, because with an automatic crop this is the first moment
+        /// the numbers exist at all, and in a batch it is different for every file. </summary>
+        private static void LogResize(Size scaleInput, Size sar)
+        {
+            Size result = CurrentResize.Compute(scaleInput, sar);
+            string source = AspectRatio.IsAnamorphic(sar) && CurrentResize.CorrectAspect
+                ? $"{scaleInput.Width}x{scaleInput.Height} at {sar.Width}:{sar.Height} pixels"
+                : $"{scaleInput.Width}x{scaleInput.Height}";
+
+            Logger.Log($"Resizing {source} to {result.Width}x{result.Height} ({AspectRatio.Describe(result.Width, result.Height)}).");
+
+            // Not clamped to, only mentioned: silently growing a frame to something the user did not ask
+            // for is worse than an encoder saying no. SVT-AV1 refuses anything under 64 in either
+            // direction, x265 anything under 16; the other encoders take whatever they are given.
+            if (result.Width < 64 || result.Height < 64)
+                Logger.Log($"Warning: {result.Width}x{result.Height} is very small - SVT-AV1 will not encode a frame under 64 pixels on either side.");
+        }
+
+        #endregion
+
+        #region Resize
+
+        /// <summary> The resize to apply, held as intent rather than as pixels. Never null. </summary>
+        public static ResizeConfig CurrentResize = new ResizeConfig();
+
+        /// <summary> Set while the dropdown is being refilled, because doing that raises the very
+        /// SelectionChanged that would then read the new selection back over what is being shown. </summary>
+        private static bool _loadingResizeBox;
+
+        /// <summary>
+        /// The frame the resize will be measured against, as far as this can be known without running
+        /// anything: the source, less a manual crop. An automatic crop is measured by sampling the video
+        /// with ffmpeg, which is far too slow to do while filling a dropdown, so its bars are still in
+        /// this number - and the readout says so rather than showing a size that will not be the one.
+        /// </summary>
+        public static Size GetResizeSourceSize()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return Size.Empty;
+
+            if (Form.Av1anCropBox.GetText().ToLower().Contains("manual") && CurrentCrop != null)
+                return new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+
+            return vs.Resolution;
+        }
+
+        public static Size GetResizeSar()
+        {
+            return TrackList.current?.File.VideoStreams.FirstOrDefault()?.Sar ?? Size.Empty;
+        }
+
+        /// <summary>
+        /// Refills the dropdown, whose entries name what each target produces *for the loaded file* -
+        /// "1080p (Full HD) — 1920x804" against a 2.39:1 film - so the list answers the question rather
+        /// than restating it. Called whenever the frame those targets are measured against moves, which
+        /// is a file being loaded or a crop being set, and pointedly not the user picking an entry:
+        /// clearing a dropdown's own items from inside its SelectionChanged throws.
+        /// </summary>
+        public static void RefreshResizeBox()
+        {
+            Size storage = GetResizeSourceSize();
+            Size sar = GetResizeSar();
+
+            try
+            {
+                _loadingResizeBox = true;
+                Form.Av1anResizeBox.SetItems(ResizePresets.All.Select(p => (object)ResizePresets.GetLabel(p, storage, sar)),
+                    ResizePresets.IndexFor(CurrentResize));
+            }
+            finally
+            {
+                // In a finally because this is the guard that keeps a refill from being read back as a
+                // choice - left stuck on, every subsequent pick would be ignored and the dropdown dead.
+                _loadingResizeBox = false;
+            }
+
+            UpdateResizeReadout();
+        }
+
+        /// <summary>
+        /// The parts that change when the selection does: the button beside the box, and the line under
+        /// it. Touches no collection, so it is safe to call from a SelectionChanged.
+        /// <para/>
+        /// Deliberately not skipped during a batch, and neither is <see cref="RefreshResizeBox"/>: the
+        /// caller that has to stand back for one is the per-file loop, and that is where the check lives.
+        /// Anything that moves <see cref="CurrentResize"/> - Reset On New File among them, which the
+        /// Settings tab can fire mid-batch - has to move the control with it, or the tab is left naming a
+        /// resize that is no longer set and the next queue runs unresized underneath it.
+        /// </summary>
+        public static void UpdateResizeReadout()
+        {
+            Form.Av1anResizeConfBtn.IsVisible = ResizePresets.Get(ResizePresets.IndexFor(CurrentResize)).Key == ResizePresets.CustomKey;
+            Form.Av1anResizeInfoLabel.Text = GetResizeInfoText(GetResizeSourceSize(), GetResizeSar());
+        }
+
+        /// <summary>
+        /// Acts on the user picking an entry - and only on the user: refilling the list raises the same
+        /// event, and acting on that would read the freshly selected entry back over what is being shown,
+        /// as well as committing an unrelated save on every file load.
+        /// </summary>
+        public static void ResizePresetSelected(int index)
+        {
+            if (_loadingResizeBox || index < 0)
+                return;
+
+            ResizePreset preset = ResizePresets.Get(index);
+
+            if (preset.Key == ResizePresets.CustomKey)
+            {
+                // Custom names no target of its own, so picking it changes nothing but where the settings
+                // are edited: whatever was selected stays in force and becomes the dialog's starting
+                // point. Building a target here instead would silently apply a 1920x1080 nobody asked
+                // for, and would throw away a resize configured by hand on a trip through the dropdown.
+                CurrentResize = CurrentResize?.Clone() ?? new ResizeConfig();
+
+                if (CurrentResize.Mode == ResizeMode.Disabled)
+                    CurrentResize = preset.Build();
+
+                CurrentResize.PresetKey = ResizePresets.CustomKey;
+            }
+            else
+            {
+                CurrentResize = preset.Build();
+            }
+
+            UpdateResizeReadout();
+            Form.SaveAv1anEncodeSettings();
+        }
+
+        /// <summary> The line under the dropdown: the size, the ratio it works out to, and whichever caveat applies. </summary>
+        private static string GetResizeInfoText(Size storage, Size sar)
+        {
+            if (CurrentResize == null || CurrentResize.Mode == ResizeMode.Disabled)
+                return "The source is encoded at its own resolution.";
+
+            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count < 1)
+                return "No video track - the resize will be skipped.";
+
+            if (storage.IsEmpty)
+                return $"{CurrentResize.DescribeTarget()} - the size is worked out per file when the encode starts.";
+
+            Size result = CurrentResize.Compute(storage, sar);
+
+            if (result.IsEmpty)
+                return "Nothing configured yet - press Configure… to set a target.";
+
+            string text = $"{result.Width}x{result.Height} · {AspectRatio.Describe(result.Width, result.Height)}";
+            string note = CurrentResize.GetNote(storage, sar);
+
+            if (note.Length > 0)
+                text += $" · {note}";
+
+            if (Form.Av1anCropBox.GetText().ToLower().Contains("auto"))
+                text += " · before autocrop; the final size is measured when the encode starts";
+
+            return text;
+        }
+
+        #endregion
+
+        #region Resize Persistence
+
+        public static void SaveResizeConfig()
+        {
+            Config.Set(Config.Key.Av1anResize, JsonConvert.SerializeObject(CurrentResize));
+        }
+
+        /// <summary>
+        /// Restores the saved resize, or - for a config written before this tab had one - translates
+        /// whatever the two scale text boxes it replaced were holding.
+        /// </summary>
+        public static void LoadResizeConfig()
+        {
+            string json = Config.Get(Config.Key.Av1anResize);
+
+            if (json.IsEmpty())
+            {
+                CurrentResize = MigrateOldScaleBoxes();
+                // Written back straight away rather than left to the next save, so the translation - and
+                // the log line that goes with the cases it cannot translate - happens exactly once.
+                SaveResizeConfig();
+                return;
+            }
+
+            try
+            {
+                CurrentResize = JsonConvert.DeserializeObject<ResizeConfig>(json) ?? new ResizeConfig();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to read the saved resize settings: {e.Message}", true);
+                CurrentResize = new ResizeConfig();
+            }
+        }
+
+        /// <summary>
+        /// The old UI was two free-text boxes fed straight to an ffmpeg scale filter, so a saved value can
+        /// be a number, a percentage, or an expression like "iw/2". The first two have an exact equivalent
+        /// here and are carried over; an expression has none, and rather than approximate it the setting is
+        /// dropped with a line saying where the same thing can still be written by hand.
+        /// </summary>
+        private static ResizeConfig MigrateOldScaleBoxes()
+        {
+            // Asked of the cache rather than of Config.Get, which writes a default for any key it does not
+            // find - so a fresh install would be given two dead scale entries by the act of looking.
+            string w = ReadOldScaleBox("Av1anScaleBoxW");
+            string h = ReadOldScaleBox("Av1anScaleBoxH");
+
+            if (w.IsEmpty() && h.IsEmpty())
+                return new ResizeConfig();
+
+            ResizeConfig migrated = TranslateOldScaleBoxes(w, h);
+
+            if (migrated == null)
+            {
+                Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
+                    $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
+                return new ResizeConfig();
+            }
+
+            // Custom rather than a preset: the old boxes held a size, and no size is one of the targets in
+            // the list. Left keyless it would select "No resizing" while a resize was in force.
+            migrated.PresetKey = ResizePresets.CustomKey;
+            return migrated;
+        }
+
+        /// <summary> The pair of old values as a resize, or null where there is no equivalent. </summary>
+        private static ResizeConfig TranslateOldScaleBoxes(string w, string h)
+        {
+            if (w.EndsWith("%") || h.EndsWith("%"))
+            {
+                // Read as a float and rounded: GetInt strips the dot rather than the fraction, so "12.5%"
+                // came out as 125% - an upscale, off a value that asked to shrink the picture eightfold.
+                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetFloat().RoundToInt();
+                return percent > 0 ? new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent } : null;
+            }
+
+            if (IsPlainNumber(w) && IsPlainNumber(h))
+                return new ResizeConfig { Mode = ResizeMode.Exact, Fill = ResizeFill.Stretch, TargetWidth = w.GetInt(), TargetHeight = h.GetInt() };
+
+            if (IsPlainNumber(h) && IsAutoOrEmpty(w))
+                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
+
+            if (IsPlainNumber(w) && IsAutoOrEmpty(h))
+                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
+
+            return null;
+        }
+
+        private static string ReadOldScaleBox(string key)
+        {
+            return Config.cachedValues.TryGetValue(key, out string value) ? (value ?? "").Trim().ToLower() : "";
+        }
+
+        private static bool IsPlainNumber(string s)
+        {
+            return s.Length > 0 && s.All(char.IsDigit) && s.GetInt() > 0;
+        }
+
+        /// <summary> Blank, or one of the negative values ffmpeg reads as "work this one out from the other" -
+        /// which is exactly what the Width and Height modes do. </summary>
+        private static bool IsAutoOrEmpty(string s)
+        {
+            return s.IsEmpty() || s == "-1" || s == "-2";
+        }
+
+        #endregion
+
+        #region Get Args
 
         public static string GetSplittingMethodArgs()
         {
