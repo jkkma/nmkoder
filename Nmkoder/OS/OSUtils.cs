@@ -327,9 +327,9 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
-        /// OS-level attention ping for when the in-window toast cannot be seen - which is every time
-        /// this is called, since the toast is drawn inside a window that by then is minimized or
-        /// buried. Each platform has a one-shot desktop notification: Windows through the Windows
+        /// The end-of-run notification, and the only one there is - it fires when the window is
+        /// buried or minimized, which is the one case an in-app toast could never have covered.
+        /// Each platform has a one-shot desktop notification: Windows through the Windows
         /// App SDK, macOS through osascript, everything else through notify-send.
         ///
         /// Windows keeps the taskbar flash as its fallback. It used to be all Windows got, on the
@@ -352,7 +352,9 @@ namespace Nmkoder.OS
             }
             catch (Exception e)
             {
-                Logger.Log($"System notification failed: {e.Message}", true); // e.g. no notify-send installed - the in-window toast still showed
+                // e.g. no notify-send installed. Nothing else announces the run now, so the log line
+                // is the whole record of it - the run's own result is in there either way.
+                Logger.Log($"System notification failed: {e.Message}", true);
             }
         }
 
