@@ -138,15 +138,23 @@ Check the version against the published releases before picking it - the csproj
 is bumped in the same commit range as the release it belongs to, so the number
 sitting in the file is usually the one already released, not the next one.
 
-**Move in patch steps by default.** Nmkoder is an end-user application, not a
-library: nothing consumes an API from it, so semver's minor-versus-patch line -
-which exists to tell consumers whether their code still builds - carries no
-information here. A minor bump is for a release somebody would notice without
-reading the changelog: a new tab, a reworked UI, a capability the app did not
-have before. "This branch adds a feature" is not that bar, and treating it as
-one turns the minor digit into a count of merged branches, which is how 2.1
-through 2.7 went by in twelve releases. Reflex semver is the wrong default here;
-the 2.0.1-2.0.19 stretch is the shape to aim for.
+**The version is 2.8.x, and every release is a patch step.** Not a default with
+a carve-out for big changes - a rule. The next number after 2.8.0 is 2.8.1, then
+2.8.2, and on past 2.8.9 to 2.8.10. Do not bump the minor digit, and do not bump
+the major one; there is no size of change that earns either.
+
+Nmkoder is an end-user application, not a library. Nothing consumes an API from
+it, so semver's minor-versus-patch line - which exists to tell consumers whether
+their code still builds - carries no information here, and a digit that carries
+no information is one nobody should be spending judgement on. What it did carry
+was a count of merged branches: 2.1 through 2.7 went by in twelve releases. That
+is what this rule exists to stop.
+
+This file used to say "patch by default" and then hand back a bar to argue about
+- a new tab, a reworked UI, a capability the app did not have before. Anything
+substantial clears a bar written like that, so 2.8.0 was cut for one tab's
+resize control. The bar is gone rather than raised, because the arguing was the
+problem.
 
 Bump on `master` after the merge, never on the feature branch - step 2 above
 follows step 1 for that reason. Two branches in flight both reaching for the
