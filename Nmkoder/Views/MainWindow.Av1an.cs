@@ -160,10 +160,20 @@ namespace Nmkoder.Views
             UpdateAv1anTrimBtnText();
         }
 
+        /// <summary> Drops the configured trim, so the whole video is encoded again. The dialog cannot
+        /// say this: dismissing it keeps whatever was configured, and confirming it always writes a
+        /// range, so a trim picked once could not be taken back. </summary>
+        private void Av1anTrimClear_Click(object sender, RoutedEventArgs e)
+        {
+            Av1anUi.CurrentTrim = null;
+            UpdateAv1anTrimBtnText();
+        }
+
         /// <summary> The Trim button doubles as the readout of what is configured. </summary>
         public void UpdateAv1anTrimBtnText()
         {
             Av1anTrimConfBtn.Content = Av1anUi.CurrentTrim == null ? "Configure…" : Av1anUi.CurrentTrim.ToString();
+            Av1anTrimClearBtn.IsVisible = Av1anUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 
         public void LoadConfigAv1an()
