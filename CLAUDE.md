@@ -173,11 +173,28 @@ user to install the App SDK runtime before a notification worked, which a
 portable zip cannot ask, so the runtime ships in the build - and that is what
 `WindowsAppSDKSelfContained`, `SelfContained` and `EnableMsixTooling` in the
 csproj are for. The App SDK's single-file validation additionally *demands*
-`IncludeAllContentForSelfExtract`, which sweeps `Content` items into the exe;
-`BinFiles/**` carries `ExcludeFromSingleFile="true"` to stay out of that, because
-`Paths.GetBinPath()` resolves against the exe's own directory and `bundle-tools.sh`
-writes there too. Dropping that metadata silently empties the AV1AN tab's
-per-encoder arguments in release builds only.
+`IncludeAllContentForSelfExtract`, and that flag does **two** things, both of
+which bite:
+
+1. It sweeps `Content` items into the exe. `BinFiles/**` carries
+   `ExcludeFromSingleFile="true"` to stay out of that, because
+   `Paths.GetBinPath()` resolves against the exe's own directory and
+   `bundle-tools.sh` writes there too. Dropping that metadata silently empties
+   the AV1AN tab's per-encoder arguments.
+2. It repoints **`AppContext.BaseDirectory` at the bundle's extraction folder
+   under temp**, not at the exe. This is the one that actually shipped broken,
+   in 2.7.2: `Paths.GetExeDir()` was built on `BaseDirectory`, so `bin/` resolved
+   into temp, the bundled ffmpeg and ffprobe were not there, and every file
+   loaded scanned as having no media streams - with settings and logs going to
+   the same temp folder. `GetExeDir()` now derives from `Environment.ProcessPath`,
+   which is the exe under every bundling mode. Never reintroduce
+   `AppContext.BaseDirectory` for anything that has to sit beside the exe.
+
+Both are invisible on Linux and macOS, which do not set the flag, and invisible
+in a normal `dotnet build` - only a single-file *publish* shows them. Checking
+one means publishing with `-p:IncludeAllContentForSelfExtract=true` and running
+the result; that reproduces on linux-x64 just as well, since the flag's effect
+on `BaseDirectory` is not platform-specific.
 
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,
