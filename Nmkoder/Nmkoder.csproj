@@ -71,4 +71,21 @@
     <Content Include="BinFiles/**" Link="bin/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
+  <!-- The Content item above is enough on every publish except the Windows one, where the files
+       reach neither the bundle nor the output directory and simply vanish: 2.7.2 through 2.7.4 all
+       shipped a win-x64 zip with no bin/iso639.csv and no bin/av1an/encoderArgs, which is what
+       leaves the AV1AN tab's Advanced grid empty. ExcludeFromSingleFile was meant to cover this and
+       does not - the App SDK build drops the items rather than bundling them - so they are copied
+       again once publish has laid everything else out, independent of whatever the single-file and
+       MSIX machinery decided. A no-op on the platforms that already got it right, since the files
+       are already there and identical. -->
+  <Target Name="CopyBinFilesToPublishDir" AfterTargets="Publish">
+    <ItemGroup>
+      <BinFilesToPublish Include="$(MSBuildProjectDirectory)/BinFiles/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BinFilesToPublish)"
+          DestinationFiles="@(BinFilesToPublish->'$(PublishDir)bin/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
