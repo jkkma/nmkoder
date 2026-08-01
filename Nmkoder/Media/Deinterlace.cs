@@ -79,8 +79,8 @@ namespace Nmkoder.Media
         {
             string why = GetQtgmcProblem(file, req);
 
-            if (why.IsEmpty() && !await Qtgmc.IsAvailableAsync())
-                why = Qtgmc.UnavailableReason;
+            if (why.IsEmpty() && !await Qtgmc.IsAvailableAsync(req.QtgmcPreset))
+                why = Qtgmc.GetUnavailableReason(req.QtgmcPreset);
 
             if (why.IsEmpty())
                 return DeinterlaceEngine.Qtgmc;
@@ -190,15 +190,20 @@ namespace Nmkoder.Media
                 return;
             }
 
-            if (Qtgmc.KnownAvailability == false)
+            // Asked about this preset, not about QTGMC in general: the two slowest ones denoise and
+            // need a plugin the others do not, so "QTGMC works here" is a different question for
+            // Very Slow than it is for Medium.
+            bool? known = Qtgmc.GetKnownAvailability(req.QtgmcPreset);
+
+            if (known == false)
             {
-                caveat = $", because {Qtgmc.UnavailableReason}";
+                caveat = $", because {Qtgmc.GetUnavailableReason(req.QtgmcPreset)}";
                 return;
             }
 
             engine = $"QTGMC ({req.QtgmcPreset})";
 
-            if (Qtgmc.KnownAvailability == null)
+            if (known == null)
                 caveat = " if VapourSynth can run it here";
         }
 

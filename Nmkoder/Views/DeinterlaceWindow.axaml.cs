@@ -70,6 +70,15 @@ namespace Nmkoder.Views
             ReadUi();
         }
 
+        /// <summary> The readout says "if VapourSynth can run it here" until the check comes back, and
+        /// this utility is reached by people who never open the encode tabs - so it starts its own,
+        /// for its own preset, rather than waiting on a tab that may never be looked at. </summary>
+        protected override void OnOpened(EventArgs e)
+        {
+            base.OnOpened(e);
+            DeinterlaceUi.StartProbeIfNeeded(_cfg.QtgmcPreset, () => { if (IsVisible) UpdateLabels(); });
+        }
+
         #region Handlers
 
         private void Mode_SelectionChanged(object sender, SelectionChangedEventArgs e) => ReadUi();
@@ -84,6 +93,10 @@ namespace Nmkoder.Views
             _cfg.Mode = DeinterlaceUi.AllModes[ModeBox.SelectedIndex.Clamp(0, DeinterlaceUi.AllModes.Length - 1)];
             _cfg.QtgmcPreset = PresetBox.GetText().IsEmpty() ? Qtgmc.DefaultPreset : PresetBox.GetText();
             _cfg.DoubleRate = DoubleRateBox.IsChecked == true;
+
+            // Switching to Placebo or Very Slow asks a question no faster preset's check answered.
+            if (_cfg.Mode == DeinterlaceMode.Qtgmc || _cfg.Mode == DeinterlaceMode.Automatic)
+                DeinterlaceUi.StartProbeIfNeeded(_cfg.QtgmcPreset, () => { if (IsVisible) UpdateLabels(); });
 
             // The preset only means something where QTGMC could be what runs. Hidden rather than
             // disabled, so a row that does not apply is not a control that looks broken.

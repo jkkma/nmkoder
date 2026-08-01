@@ -124,6 +124,13 @@ jobs:
           # QTGMC graph and render a frame of it - the same thing Nmkoder.Media.Qtgmc does per
           # session - and loads each plugin by hand when that fails, because LoadPlugin reports the
           # reason autoload swallows.
+          #
+          # And one preset is not the test either. havsfunc turns QTGMC's noise processing on for
+          # Placebo and Very Slow and no other preset, which pulls in a denoiser plugin the rest of
+          # them never touch - so a check that renders only a fast preset passes on a bundle that
+          # has no fft3dfilter in it. That is exactly what 2.8.6 shipped. Every preset whose plugin
+          # set differs gets rendered here; the clip is 160x120 and four frames, so the slow ones
+          # cost seconds rather than the hours their names suggest.
           VS="publish/Nmkoder/bin/av1an/vsynth"
 
           if [ ! -f "$VS/python.exe" ]; then
@@ -137,10 +144,14 @@ jobs:
 
           core = vs.core
           here = os.path.dirname(os.path.abspath(sys.argv[0]))
-          needed = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m']
+
+          # Keep in step with Nmkoder.Media.Qtgmc: the base set, plus the denoiser for the two
+          # presets that process noise.
+          BASE = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m']
+          CASES = [('Very Fast', BASE), ('Very Slow', BASE + ['fft3dfilter'])]
 
           print('autoloaded namespaces:', ', '.join(sorted(p.namespace for p in core.plugins())))
-          missing = [n for n in needed if not hasattr(core, n)]
+          missing = sorted({n for _, need in CASES for n in need if not hasattr(core, n)})
 
           if missing:
               print('MISSING NAMESPACES:', ', '.join(missing))
@@ -154,12 +165,16 @@ jobs:
               sys.exit(1)
 
           import havsfunc
-          clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4,
-                                    fpsnum=30000, fpsden=1001, color=[128, 128, 128])
-          clip = core.std.SetFieldBased(clip, 2)
-          clip = havsfunc.QTGMC(clip, Preset='Very Fast', TFF=True, FPSDivisor=1, opencl=False)
-          clip.get_frame(0)
-          print('QTGMC built a graph and rendered a frame - the toolchain is complete.')
+
+          for preset, _ in CASES:
+              clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4,
+                                        fpsnum=30000, fpsden=1001, color=[128, 128, 128])
+              clip = core.std.SetFieldBased(clip, 2)
+              clip = havsfunc.QTGMC(clip, Preset=preset, TFF=True, FPSDivisor=1, opencl=False)
+              clip.get_frame(0)
+              print(f'QTGMC rendered a frame at {preset}.')
+
+          print('QTGMC works at every preset shape - the toolchain is complete.')
           CHECK
 
           ( cd "$VS" && ./python.exe qtgmc-check.py ) || {
@@ -247,7 +262,9 @@ jobs:
             - Linux includes ffmpeg/ffprobe; install VapourSynth and the encoders from
               your package manager. QTGMC additionally wants the mvtools, znedi3, eedi3m,
               fmtconv, rgvs, misc and focus2 plugins plus the havsfunc, vsutil and mvsfunc
-              scripts; without them Nmkoder deinterlaces with ffmpeg's bwdif and says so.
+              scripts - and fft3dfilter on top of those for the Placebo and Very Slow presets,
+              the only two that denoise; without them Nmkoder deinterlaces with ffmpeg's bwdif
+              and says so.
             - macOS ships none of them; install with
               `brew install ffmpeg mkvtoolnix av1an aom libvpx x265`.
 

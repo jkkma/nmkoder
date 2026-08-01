@@ -38,45 +38,86 @@ namespace Nmkoder.Media
         public static readonly string[] Presets = { "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast" };
         public const string DefaultPreset = "Medium";
 
-        /// <summary> This session's verdict: true/false once the chain has been asked, null while it
-        /// has not been - or when the question went unanswered, which is asked again rather than
-        /// acted on, exactly as the Vship GPU probe treats a timeout. </summary>
-        private static bool? available;
+        /// <summary>
+        /// The presets that turn QTGMC's noise processing on, which needs a plugin none of the others
+        /// touch. havsfunc 33 sets NoiseProcess itself, from the preset name and nothing else - only
+        /// Placebo and Very Slow get it - and the default NoisePreset then picks fft3dfilter as the
+        /// denoiser. So the plugin set QTGMC needs has two shapes, not one, and which one applies is
+        /// decided by this list.
+        /// <para/>
+        /// 2.8.6 and everything before it checked one shape and shipped the other's plugin missing:
+        /// the probe rendered at Very Fast, passed, and then a Very Slow encode died two seconds in
+        /// on "there is no attribute or namespace named fft3dfilter". Anything that asks whether
+        /// QTGMC works has to ask about the preset that is going to run.
+        /// </summary>
+        private static readonly string[] NoiseProcessingPresets = { "Placebo", "Very Slow" };
 
-        /// <summary> Why QTGMC cannot run here, in a sentence, or "" when it can. </summary>
-        public static string UnavailableReason { get; private set; } = "";
+        /// <summary> Whether <paramref name="preset"/> pulls in the denoiser plugin on top of the
+        /// plugins every preset needs. </summary>
+        public static bool NeedsNoisePlugins(string preset)
+        {
+            return NoiseProcessingPresets.Contains((preset ?? "").Trim(), StringComparer.OrdinalIgnoreCase);
+        }
 
-        /// <summary> This session's answer if there is one, null while there is not - for the UI,
+        /// <summary> One probe's answer. Two of these are kept - the plugin set has two shapes - so a
+        /// session that uses both a fast preset and a slow one asks twice and no more. </summary>
+        private class Verdict
+        {
+            public bool? Available;
+            public string Reason = "";
+        }
+
+        private static readonly Verdict basePlugins = new Verdict();
+        private static readonly Verdict withNoisePlugins = new Verdict();
+
+        private static Verdict VerdictFor(string preset)
+        {
+            return NeedsNoisePlugins(preset) ? withNoisePlugins : basePlugins;
+        }
+
+        /// <summary> Why QTGMC cannot run at this preset, in a sentence, or "" when it can. </summary>
+        public static string GetUnavailableReason(string preset)
+        {
+            return VerdictFor(preset).Reason;
+        }
+
+        /// <summary> The answer for this preset if there is one, null while there is not - for the UI,
         /// which describes what will happen without being allowed to spend a probe finding out. </summary>
-        public static bool? KnownAvailability { get { return available; } }
+        public static bool? GetKnownAvailability(string preset)
+        {
+            return VerdictFor(preset).Available;
+        }
 
         /// <summary> Guards the probe so two callers arriving at once cannot both run it - a batch
         /// resolving its first file while the UI is still describing the loaded one. </summary>
         private static readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
 
         /// <summary>
-        /// Whether QTGMC can actually be run on this machine. Cached for the session once a definite
-        /// answer comes back; a probe that could not be run at all is left unanswered so a VapourSynth
-        /// installed halfway through a session is still found.
+        /// Whether QTGMC can actually be run on this machine at <paramref name="preset"/>. Cached once
+        /// a definite answer comes back, per plugin set rather than per preset - there are only two -
+        /// and a probe that could not be run at all is left unanswered so a VapourSynth installed
+        /// halfway through a session is still found.
         /// </summary>
-        public static async Task<bool> IsAvailableAsync()
+        public static async Task<bool> IsAvailableAsync(string preset)
         {
-            if (available != null)
-                return available == true;
+            Verdict cached = VerdictFor(preset);
+
+            if (cached.Available != null)
+                return cached.Available == true;
 
             await gate.WaitAsync();
 
             try
             {
-                if (available != null)
-                    return available == true;
+                if (cached.Available != null)
+                    return cached.Available == true;
 
-                bool? verdict = await Probe();
+                bool? verdict = await Probe(preset, cached);
 
                 if (verdict == null)
                     return false; // Unanswered - not cached, so the next encode asks again
 
-                available = verdict;
+                cached.Available = verdict;
                 return verdict == true;
             }
             finally
@@ -146,13 +187,13 @@ namespace Nmkoder.Media
         /// the chain comes apart - each of which would otherwise surface as ffmpeg complaining about
         /// invalid data on stdin, minutes into an encode.
         /// </summary>
-        private static async Task<bool?> Probe()
+        private static async Task<bool?> Probe(string preset, Verdict verdict)
         {
             string vspipe = GetVspipePath();
 
             if (vspipe.IsEmpty())
             {
-                UnavailableReason = Shell.IsWindows
+                verdict.Reason = Shell.IsWindows
                     ? "VapourSynth is not bundled with this build and VSPipe is not on your PATH"
                     : "VapourSynth is not installed - VSPipe is not on your PATH";
                 // Not cached as a verdict: looking for the executable again costs a handful of
@@ -161,38 +202,43 @@ namespace Nmkoder.Media
                 return null;
             }
 
+            // The probe runs at the preset that is going to run, because the plugins QTGMC resolves
+            // depend on it. Named in the file names too, so a Very Fast probe and a Very Slow one do
+            // not overwrite each other's script mid-flight.
+            bool noise = NeedsNoisePlugins(preset);
+            string tag = noise ? "noise" : "base";
             string dir = Paths.GetSessionDataPath();
-            string script = Path.Combine(dir, "qtgmc_probe.vpy");
-            string frame = Path.Combine(dir, "qtgmc_probe.y4m");
+            string script = Path.Combine(dir, $"qtgmc_probe_{tag}.vpy");
+            string frame = Path.Combine(dir, $"qtgmc_probe_{tag}.y4m");
 
             try
             {
-                File.WriteAllText(script, BuildProbeScript());
+                File.WriteAllText(script, BuildProbeScript(preset));
                 IoUtils.TryDeleteIfExists(frame);
 
                 var result = await RunVspipe(vspipe, $"-c y4m -s 0 -e 0 {script.Wrap()} {frame.Wrap()}", 90000);
 
                 if (result == null)
                 {
-                    UnavailableReason = "the VapourSynth check did not answer in time";
+                    verdict.Reason = "the VapourSynth check did not answer in time";
                     return null;
                 }
 
                 if (result.Value.exitCode == 0)
                 {
-                    Logger.Log($"QTGMC is available ({vspipe}).", true);
-                    UnavailableReason = "";
+                    Logger.Log($"QTGMC is available at {preset} ({vspipe}).", true);
+                    verdict.Reason = "";
                     return true;
                 }
 
-                UnavailableReason = SummarizeVsError(result.Value.output);
-                Logger.Log($"QTGMC check failed (exit {result.Value.exitCode}): {result.Value.output.Trim().Trunc(1200)}", true);
+                verdict.Reason = SummarizeVsError(result.Value.output, noise);
+                Logger.Log($"QTGMC check failed at {preset} (exit {result.Value.exitCode}): {result.Value.output.Trim().Trunc(1200)}", true);
                 return false;
             }
             catch (Exception e)
             {
                 Logger.Log($"QTGMC check could not be run: {e.Message}", true);
-                UnavailableReason = $"the VapourSynth check could not be run ({e.Message})";
+                verdict.Reason = $"the VapourSynth check could not be run ({e.Message})";
                 return null;
             }
             finally
@@ -207,7 +253,7 @@ namespace Nmkoder.Media
         /// really "this was never installed" are named outright, because the traceback for those says
         /// nothing a user could act on.
         /// </summary>
-        private static string SummarizeVsError(string output)
+        private static string SummarizeVsError(string output, bool noise)
         {
             if (output.Contains("No module named 'havsfunc'"))
                 return "the havsfunc script package, which provides QTGMC, is not installed for this VapourSynth";
@@ -223,9 +269,15 @@ namespace Nmkoder.Media
                 // "Missing" on its own is what sent 2.8.3 and 2.8.4 out the door believing the bundle
                 // was complete: the file was there, correctly named and correctly built, and the core
                 // had simply turned it down. Say which of the two it was.
-                return rejected.IsEmpty()
+                string what = rejected.IsEmpty()
                     ? $"VapourSynth has no plugin providing what QTGMC needs ({names})"
                     : $"VapourSynth refused a plugin QTGMC needs ({names}) - {rejected}";
+
+                // Only the two slowest presets denoise, so a plugin missing only for them is worth
+                // pointing at a preset the machine can actually run rather than at bwdif.
+                return noise && names.Contains("fft3dfilter")
+                    ? $"{what}; only Placebo and Very Slow need it, so a faster QTGMC preset would still run"
+                    : what;
             }
 
             string last = output.SplitIntoLines().Select(x => x.Trim()).LastOrDefault(x => x.IsNotEmpty()) ?? "";
@@ -260,7 +312,7 @@ namespace Nmkoder.Media
             return $"{best.Trunc(220)}{more}";
         }
 
-        private static string BuildProbeScript()
+        private static string BuildProbeScript(string preset)
         {
             // The plugin check is explicit and comes first because its message is the useful one: the
             // traceback from a missing mvtools is a line deep inside havsfunc about an attribute that
@@ -274,6 +326,12 @@ namespace Nmkoder.Media
             // nnedi3 or nnedi3cl, because that is the one it calls when opencl is off. focus2
             // (TemporalSoften2) in turn refuses to run without misc.
             //
+            // fft3dfilter is the one entry that is not constant. QTGMC's noise processing is what
+            // needs it, havsfunc turns that on for Placebo and Very Slow and no other preset, and the
+            // graph is therefore a different shape depending on which one is asked for - so the probe
+            // builds the preset that is actually going to run rather than a fixed cheap one. Checking
+            // Very Fast and running Very Slow is exactly how 2.8.6 shipped with this plugin absent.
+            //
             // "Missing" then gets asked a second question, because it turned out to cover two very
             // different situations and to name only the innocent one. A namespace is absent either
             // because no such plugin is installed, or because one is installed and the core refused
@@ -284,12 +342,15 @@ namespace Nmkoder.Media
             string dirs = string.Join(", ", GetPluginDirs()
                 .Select(x => $"'{x.Replace("\\", "\\\\").Replace("'", "\\'")}'"));
 
+            string noise = NeedsNoisePlugins(preset) ? ", 'fft3dfilter'" : "";
+            string safePreset = (preset ?? DefaultPreset).Replace("\\", "").Replace("'", "");
+
             return $@"import os, sys
 import vapoursynth as vs
 
 core = vs.core
 
-needed = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m']
+needed = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m'{noise}]
 missing = [n for n in needed if not hasattr(core, n)]
 
 if missing:
@@ -335,7 +396,7 @@ import havsfunc
 
 clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4, fpsnum=30000, fpsden=1001, color=[128, 128, 128])
 clip = core.std.SetFieldBased(clip, 2)
-clip = havsfunc.QTGMC(clip, Preset='Very Fast', TFF=True, FPSDivisor=1, opencl=False)
+clip = havsfunc.QTGMC(clip, Preset='{safePreset}', TFF=True, FPSDivisor=1, opencl=False)
 clip.set_output()
 ";
         }

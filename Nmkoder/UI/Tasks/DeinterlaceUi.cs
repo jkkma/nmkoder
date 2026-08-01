@@ -5,6 +5,7 @@ using Nmkoder.IO;
 using Nmkoder.Media;
 using Nmkoder.Views;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -44,9 +45,10 @@ namespace Nmkoder.UI.Tasks
         public const string Av1anQtgmcProblem = "av1an applies video filters with ffmpeg, once per chunk, " +
             "so a VapourSynth script cannot sit in front of them - the Deinterlace For Encoding utility runs QTGMC first";
 
-        /// <summary> Set once a background availability check has been started, so hovering over a
-        /// file list does not queue one per file. </summary>
-        private static bool probeStarted;
+        /// <summary> Which plugin sets a background availability check has already been started for,
+        /// so hovering over a file list does not queue one per file - and so switching to a preset
+        /// with different requirements still gets asked about. </summary>
+        private static readonly HashSet<string> probed = new HashSet<string>();
 
         public static void Init()
         {
@@ -115,24 +117,41 @@ namespace Nmkoder.UI.Tasks
                 Form.EncDeintInfoLabel.Text = Deinterlace.DescribeForUi(file, enc);
                 Form.Av1anDeintInfoLabel.Text = Deinterlace.DescribeForUi(file, av1an);
 
-                // Asked for in the background the first time anything on screen depends on the answer,
-                // rather than at startup: a machine with no VapourSynth pays a process launch for a
-                // setting it may never touch, and one with it pays a couple of seconds of graph
-                // building. The readout says "if VapourSynth can run it here" until this comes back.
-                if (qtgmcPossible && !probeStarted && Qtgmc.KnownAvailability == null && Qtgmc.GetVspipePath().IsNotEmpty())
-                {
-                    probeStarted = true;
-                    _ = Task.Run(async () =>
-                    {
-                        await Qtgmc.IsAvailableAsync();
-                        Dispatcher.UIThread.Post(RefreshInfo);
-                    });
-                }
+                if (qtgmcPossible)
+                    StartProbeIfNeeded(enc.QtgmcPreset, RefreshInfo);
             }
             catch (Exception e)
             {
                 Logger.Log($"Failed to describe the deinterlace setting: {e.Message}", true);
             }
+        }
+
+        /// <summary>
+        /// Asks in the background whether QTGMC can run at <paramref name="preset"/>, then calls
+        /// <paramref name="onAnswered"/> on the UI thread so whatever is on screen can say so.
+        /// <para/>
+        /// Asked the first time something on screen depends on the answer rather than at startup: a
+        /// machine with no VapourSynth pays a process launch for a setting it may never touch, and one
+        /// with it pays a couple of seconds of graph building. Once per plugin set rather than once
+        /// per session, because switching to Very Slow asks a question the Medium probe did not answer
+        /// - it needs a denoiser plugin no other preset touches.
+        /// </summary>
+        public static void StartProbeIfNeeded(string preset, Action onAnswered)
+        {
+            // Nothing is recorded as probed until the probe is genuinely about to run. Marking it any
+            // earlier means a machine with no VSPipe when the window opened never looks again, and a
+            // VapourSynth installed while the app is open should not need a restart to be found.
+            if (Qtgmc.GetKnownAvailability(preset) != null || Qtgmc.GetVspipePath().IsEmpty())
+                return;
+
+            if (!probed.Add(Qtgmc.NeedsNoisePlugins(preset) ? "noise" : "base"))
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                await Qtgmc.IsAvailableAsync(preset);
+                Dispatcher.UIThread.Post(() => onAnswered?.Invoke());
+            });
         }
 
         /// <summary>
