@@ -796,6 +796,14 @@ TEMPORALSOFTEN2_TAG="${TEMPORALSOFTEN2_TAG:-v1}"
 EEDI3_TAG="${EEDI3_TAG:-r8}"
 EEDI3_SHA256="${EEDI3_SHA256-fa8515e0aa711ca979a87d812860c8582c7789fd805df2be10760748c0a9c486}"
 
+# The denoiser QTGMC's noise processing runs on, which havsfunc 33 enables for Placebo and Very
+# Slow and no other preset - so this was missing from every build up to 2.8.6 without anything
+# noticing, because the checks all rendered at a fast preset. R2 is upstream's "first API4
+# release" and reads as API 4.0, so R72 takes it; the repository has published nothing since
+# 2021, so the hash is pinned as eedi3's is.
+FFT3DFILTER_TAG="${FFT3DFILTER_TAG:-R2}"
+FFT3DFILTER_SHA256="${FFT3DFILTER_SHA256-ebc2c2d8a437c8ecae656778221882d6fe2b5b7723404dd57b1e2b092962eb09}"
+
 # The download URL of one file from a PyPI release. Pinned to a version and matched on the whole
 # file name, because the unversioned /json endpoint lists every past release's files too - so a
 # looser match happily returns a five-year-old build of the same package.
@@ -847,16 +855,20 @@ install_wheel_module() {
   cp -R "$stage"/. "$site"/
 }
 
-# install_vs_plugin with the hash checked first. Worth the extra step here and not for the
-# plugins beside it: those track a version that moves, where a fixed hash would reject every
-# future build, while this one is frozen at a tag upstream will not touch again.
-install_eedi3m() {
+# install_vs_plugin with the hash checked first, for the plugins pinned to a frozen tag. Worth
+# the extra step on those and not on the ones beside them: a package that tracks a version which
+# moves would have every future build rejected by a fixed hash, while a tag upstream will not
+# touch again either arrives byte-for-byte or has been swapped. Set VS_PLUGIN_SHA256 before
+# try_assets, clear it after.
+VS_PLUGIN_SHA256=""
+
+install_vs_plugin_pinned() {
   local file="$1" dir="$2" got
 
-  if [ -n "${EEDI3_SHA256:-}" ]; then
+  if [ -n "${VS_PLUGIN_SHA256:-}" ]; then
     got="$(sha256sum "$file" 2>/dev/null | cut -d' ' -f1)"
-    if [ "$got" != "$EEDI3_SHA256" ]; then
-      echo "  [warn] $(basename "$file") hashes to ${got:-<unreadable>}, expected $EEDI3_SHA256"
+    if [ "$got" != "$VS_PLUGIN_SHA256" ]; then
+      echo "  [warn] $(basename "$file") hashes to ${got:-<unreadable>}, expected $VS_PLUGIN_SHA256"
       return 1
     fi
   fi
@@ -889,7 +901,8 @@ bundle_qtgmc() {
   # why this one plugin is sourced differently from the three around it.
   VS_PLUGIN_DLL='EEDI3m.dll'
   ASSET_RELEASE_TAG="$EEDI3_TAG"
-  if try_assets "${EEDI3_REPO:-HolyWu/VapourSynth-EEDI3}" 'EEDI3-.*\.7z$' '\.(7z|zip)$' install_eedi3m; then
+  VS_PLUGIN_SHA256="$EEDI3_SHA256"
+  if try_assets "${EEDI3_REPO:-HolyWu/VapourSynth-EEDI3}" 'EEDI3-.*\.7z$' '' install_vs_plugin_pinned; then
     got=$((got + 1)); note_ok "vapoursynth plugin: eedi3m $EEDI3_TAG (referenced by QTGMC even on the NNEDI3 path)"
     note_licence "  EEDI3              GPL-3.0-or-later (VapourSynth edge interpolation, referenced by QTGMC)
                      Source: https://github.com/HolyWu/VapourSynth-EEDI3"
@@ -897,6 +910,32 @@ bundle_qtgmc() {
     missing+=("eedi3m")
   fi
   ASSET_RELEASE_TAG=""
+  VS_PLUGIN_SHA256=""
+
+  # QTGMC's denoiser, and unlike everything else here it is not needed by every preset - havsfunc
+  # turns noise processing on for Placebo and Very Slow only. It is still bundled unconditionally,
+  # because which preset a user picks is not something a build can know; what is conditional is the
+  # runtime check, which asks about the preset that is actually going to run (Media/Qtgmc.cs).
+  #
+  # Also the only plugin here that brings a companion library - libfftw3f-3.dll, beside it in the
+  # archive. install_vs_plugin stages that next to VSPipe rather than into vs-plugins, which is
+  # where Windows looks for a plugin's own dependencies. Its MSVCP140/VCRUNTIME140 imports are
+  # satisfied by the portable VapourSynth zip, which ships those at its root.
+  VS_PLUGIN_DLL='fft3dfilter.dll'
+  ASSET_RELEASE_TAG="$FFT3DFILTER_TAG"
+  VS_PLUGIN_SHA256="$FFT3DFILTER_SHA256"
+  if try_assets "${FFT3DFILTER_REPO:-myrsloik/VapourSynth-FFT3DFilter}" 'FFT3DFilter-.*\.7z$' '' install_vs_plugin_pinned; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: fft3dfilter $FFT3DFILTER_TAG (QTGMC noise processing, Placebo and Very Slow)"
+    note_licence "  FFT3DFilter        GPL-2.0-or-later (VapourSynth frequency-domain denoiser, used by QTGMC)
+                     Source: https://github.com/myrsloik/VapourSynth-FFT3DFilter
+
+  FFTW                GPL-2.0-or-later (libfftw3f, the FFT library FFT3DFilter is built on)
+                     Source: https://www.fftw.org/"
+  else
+    missing+=("fft3dfilter")
+  fi
+  ASSET_RELEASE_TAG=""
+  VS_PLUGIN_SHA256=""
 
   if install_wheel_plugin vapoursynth-fmtconv "$FMTCONV_VERSION" "vapoursynth_fmtconv-${FMTCONV_VERSION}-py3-none-win_amd64.whl"; then
     got=$((got + 1)); note_ok "vapoursynth plugin: fmtconv $FMTCONV_VERSION (QTGMC's bob)"

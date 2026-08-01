@@ -318,11 +318,30 @@ eedi3 partial *before* it looks at EdiMode, so it is resolved even on the NNEDI3
 `focus2` (TemporalSoften2) in turn refuses to run without `misc`. Grepping for `core.<ns>.`
 finds none of these: havsfunc reaches most plugins as `clip.<ns>.<Func>()` method chains.
 
+**The plugin set depends on the preset, and checking one preset is checking half of it.**
+havsfunc turns QTGMC's noise processing on for `Placebo` and `Very Slow` and no other preset -
+that is a literal `Preset in ['placebo', 'very slow']` in its own source - and the default
+`NoisePreset` then selects `fft3dfilter` as the denoiser. So there are two plugin sets: the
+seven above, and those seven plus `fft3dfilter`. 2.8.6 and everything before it shipped without
+the denoiser, because the probe, the release check and the bundle list were all written from a
+`Very Fast` render. A Very Slow encode died two seconds in on "there is no attribute or
+namespace named fft3dfilter". `Qtgmc.NeedsNoisePlugins` is the one place that mapping lives;
+the probe caches a verdict per set, not per session, and the release check renders both.
+
+That second set was found by tracing rather than by rendering, because there is no VapourSynth
+in a web session: a stand-in `vapoursynth` module that records every namespace touched, with
+havsfunc walking its own graph-building code over it, run for all eight presets. Validated by
+reproducing the known `Very Fast` answer before trusting the rest. It reports `rgvs` as unused
+by QTGMC (every `rgvs` call in havsfunc 33 is in some other function) - that is left required
+anyway, since requiring too much only costs a spurious fallback and the real-render evidence
+that put it there cannot be re-run here.
+
 None of that is load-bearing for the build. `Qtgmc.IsAvailableAsync` builds a QTGMC graph
-over a blank clip and renders a frame of it, once per session, through the same VSPipe the
-encode would use - so a missing plugin, a Python that cannot import havsfunc, or a znedi3
-whose weights file did not travel with it all come out as a fallback to bwdif naming what is
-wrong, rather than as ffmpeg complaining about invalid data on stdin ten minutes in.
+over a blank clip and renders a frame of it, at the preset that is about to run, through the
+same VSPipe the encode would use - so a missing plugin, a Python that cannot import havsfunc,
+or a znedi3 whose weights file did not travel with it all come out as a fallback to bwdif
+naming what is wrong, rather than as ffmpeg complaining about invalid data on stdin ten
+minutes in.
 
 **Every plugin here also has to satisfy the core's API version, and that is a separate
 question from whether it downloaded.** A plugin hands `configPlugin` the API it was built
