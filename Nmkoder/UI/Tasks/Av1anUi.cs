@@ -331,11 +331,106 @@ namespace Nmkoder.UI.Tasks
 
         #region Get Args
 
-        public static async Task<string> GetVideoFilterArgs(CodecArgs codecArgs = null)
+        /// <summary>
+        /// Works out what this encode's frames will be: the source, less whatever crop is set, then
+        /// the resize - or the anamorphic de-squeeze that runs in its place, or the mod-2 pad that
+        /// runs when neither does.
+        /// <para/>
+        /// Split off from <see cref="GetVideoFilterArgs"/> and run ahead of the encoder's own
+        /// arguments, because those need the size: the tile count belongs to the frame being encoded
+        /// rather than to the file it came from. The crop is resolved here rather than there because
+        /// an automatic one has to be measured by sampling the video, which is the whole reason this
+        /// is the async half of the pair - and the reason its answer is carried rather than asked for
+        /// twice. See <see cref="Av1anFrame"/>.
+        /// </summary>
+        public static async Task<Av1anFrame> ResolveFrameAsync()
+        {
+            Av1anFrame frame = new Av1anFrame();
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return frame;
+
+            frame.Source = frame.ScaleInput = frame.Encoded = vs.Resolution;
+            frame.Sar = vs.Sar;
+
+            // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
+            // settled here: this runs per file, after the crop above the scale filter has been decided,
+            // which is what lets one setting mean the right thing for a batch of differently shaped files
+            // and for the frame a crop leaves behind rather than the one the file started with.
+            frame.Resizing = CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled
+                && !CurrentResize.Compute(vs.Resolution, vs.Sar).IsEmpty;
+
+            // With no resize configured, an anamorphic source still needs its shape restored here:
+            // av1an hands its encoders bare frames and muxes without an aspect flag, so a SAR left
+            // to "carry through" arrives nowhere, and a 16:9 DVD would come out playing as a
+            // squashed 3:2. De-squeezing to the display size is the only way the shape survives
+            // this pipeline - which is what the resize dialog's anamorphic switch says in as many
+            // words. A custom filter that sets a SAR or DAR itself is the user taking this over,
+            // and is left in charge.
+            frame.Desqueezing = !frame.Resizing && AspectRatio.IsAnamorphic(vs.Sar)
+                && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
+
+            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
+            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
+            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
+            // was measured against the unpadded frame.
+            frame.Padding = !frame.Resizing && !frame.Desqueezing
+                && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0));
+
+            string cropMode = Form.Av1anCropBox.GetText().ToLower();
+
+            if (cropMode.Contains("manual") && CurrentCrop != null) // Manual Crop
+            {
+                frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                frame.ScaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+            }
+
+            if (cropMode.Contains("auto")) // Autocrop - the sampling run this method exists to do only once
+            {
+                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false);
+
+                if (autoCrop.IsNotEmpty())
+                {
+                    frame.CropFilters.Add(autoCrop);
+                    frame.ScaleInput = FfmpegUtils.ParseCropSize(autoCrop, frame.ScaleInput);
+                }
+            }
+
+            frame.Encoded = frame.ScaleInput;
+
+            if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar))
+                frame.Encoded = OrKeep(CurrentResize.Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
+            else if (frame.Desqueezing)
+                frame.Encoded = OrKeep(ResizeConfig.DesqueezeOnly().Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
+            else if (frame.Padding && frame.CropFilters.Count < 1)
+                // The pad runs ahead of the crop, so it only decides the frame's size when there is no
+                // crop behind it to take a rectangle of its own out of the padded picture.
+                frame.Encoded = new Size(RoundUpToEven(frame.ScaleInput.Width), RoundUpToEven(frame.ScaleInput.Height));
+
+            return frame;
+        }
+
+        /// <summary> <paramref name="computed"/>, or the frame it was computed from where there was nothing to compute. </summary>
+        private static Size OrKeep(Size computed, Size fallback)
+        {
+            return computed.IsEmpty ? fallback : computed;
+        }
+
+        private static int RoundUpToEven(int value)
+        {
+            return value % 2 == 0 ? value : value + 1;
+        }
+
+        /// <summary>
+        /// The '-vf' argument for the encode, built from the geometry <see cref="ResolveFrameAsync"/>
+        /// has already settled. Nothing here has to be measured, which is what lets it be synchronous.
+        /// </summary>
+        public static string GetVideoFilterArgs(Av1anFrame frame, CodecArgs codecArgs = null)
         {
             List<string> filters = new List<string>();
 
-            if (TrackList.current.File.VideoStreams.Count < 1)
+            if (frame == null || frame.Source.IsEmpty || TrackList.current.File.VideoStreams.Count < 1)
                 return "";
 
             // First in the chain, because the crop and the resize below it are both measured against a
@@ -355,61 +450,25 @@ namespace Nmkoder.UI.Tasks
             if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
-            // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
-            // settled here: this runs per file, after the crop above the scale filter has been decided,
-            // which is what lets one setting mean the right thing for a batch of differently shaped files
-            // and for the frame a crop leaves behind rather than the one the file started with.
-            bool resizing = CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled
-                && !CurrentResize.Compute(vs.Resolution, vs.Sar).IsEmpty;
-
-            // With no resize configured, an anamorphic source still needs its shape restored here:
-            // av1an hands its encoders bare frames and muxes without an aspect flag, so a SAR left
-            // to "carry through" arrives nowhere, and a 16:9 DVD would come out playing as a
-            // squashed 3:2. De-squeezing to the display size is the only way the shape survives
-            // this pipeline - which is what the resize dialog's anamorphic switch says in as many
-            // words. A custom filter that sets a SAR or DAR itself is the user taking this over,
-            // and is left in charge.
-            bool desqueezing = !resizing && AspectRatio.IsAnamorphic(vs.Sar)
-                && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
-
-            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
-            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
-            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
-            // was measured against the unpadded frame.
-            if (!resizing && !desqueezing && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0))) // Check Filter: Pad for mod2
+            if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
 
-            string cropMode = Form.Av1anCropBox.GetText().ToLower();
-            Size scaleInput = vs.Resolution; // What the scale filter is handed, once the crop has taken its share
+            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
 
-            if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
+            if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, frame.Sar)) // Check Filter: Scale
             {
-                filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
-                scaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+                filters.Add(CurrentResize.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                LogResize(frame);
             }
-
-            if (cropMode.Contains("auto")) // Check Filter: Autocrop
-            {
-                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false);
-                filters.Add(autoCrop);
-                scaleInput = FfmpegUtils.ParseCropSize(autoCrop, scaleInput);
-            }
-
-            if (resizing && !CurrentResize.IsNoOp(scaleInput, vs.Sar)) // Check Filter: Scale
-            {
-                filters.Add(CurrentResize.GetFilterArgs(scaleInput, vs.Sar));
-                LogResize(scaleInput, vs.Sar);
-            }
-            else if (desqueezing) // Check Filter: De-squeeze, when no resize will run
+            else if (frame.Desqueezing) // Check Filter: De-squeeze, when no resize will run
             {
                 ResizeConfig desqueeze = ResizeConfig.DesqueezeOnly();
-                Size result = desqueeze.Compute(scaleInput, vs.Sar);
 
-                if (!result.IsEmpty)
+                if (!desqueeze.Compute(frame.ScaleInput, frame.Sar).IsEmpty)
                 {
-                    filters.Add(desqueeze.GetFilterArgs(scaleInput, vs.Sar));
-                    Logger.Log($"De-squeezing {scaleInput.Width}x{scaleInput.Height} ({vs.Sar.Width}:{vs.Sar.Height} pixels) to " +
-                        $"{result.Width}x{result.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
+                    filters.Add(desqueeze.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                    Logger.Log($"De-squeezing {frame.ScaleInput.Width}x{frame.ScaleInput.Height} ({frame.Sar.Width}:{frame.Sar.Height} pixels) to " +
+                        $"{frame.Encoded.Width}x{frame.Encoded.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
                         $"has to be baked into the pixels to survive. Configure a resize to control the size.");
                 }
             }
@@ -431,12 +490,12 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary> Said out loud at encode time, because with an automatic crop this is the first moment
         /// the numbers exist at all, and in a batch it is different for every file. </summary>
-        private static void LogResize(Size scaleInput, Size sar)
+        private static void LogResize(Av1anFrame frame)
         {
-            Size result = CurrentResize.Compute(scaleInput, sar);
-            string source = AspectRatio.IsAnamorphic(sar) && CurrentResize.CorrectAspect
-                ? $"{scaleInput.Width}x{scaleInput.Height} at {sar.Width}:{sar.Height} pixels"
-                : $"{scaleInput.Width}x{scaleInput.Height}";
+            Size result = frame.Encoded;
+            string source = AspectRatio.IsAnamorphic(frame.Sar) && CurrentResize.CorrectAspect
+                ? $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height} at {frame.Sar.Width}:{frame.Sar.Height} pixels"
+                : $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height}";
 
             Logger.Log($"Resizing {source} to {result.Width}x{result.Height} ({AspectRatio.Describe(result.Width, result.Height)}).");
 

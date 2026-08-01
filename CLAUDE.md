@@ -269,6 +269,31 @@ for. `enable-qm` was one and has been removed. Do not add one back. (Mainline de
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
 
+**av1an's target quality probes never see the `-f` filters.** `Encoder::probe_cmd` composes the
+probe's ffmpeg pipe out of nothing but the probing-rate `select`, and the chunk's own source
+command carries no filters either, so a resize, a crop or a deinterlace is invisible to the
+quantizer search - it settles on the value that hits the target at the *source's* size and that
+value is then used on chunks encoded at another. Nothing here can fix that, so the tab says so
+whenever a target mode meets a filter chain, naming both sizes when the frame changes size.
+
+`--vmaf-filter` is not the way out and was actively making it worse. It filters the *reference*
+VMAF is scored against while the probe stays unfiltered, so passing this tab's chain compared a
+filtered reference with an unfiltered encode: with a resize, a sharp probe against a softened
+downscale-and-back-up reference, scoring far under the truth and dragging the quantizer down with
+it. Where the chain also changed the aspect ratio - an anamorphic de-squeeze, which runs on its
+own with Resize on "No resizing", or a crop, or an exact size that pads - the two feeds came out
+different sizes after av1an's own scale to `--vmaf-res` and libvmaf refused them outright
+("input width must match"), minutes into a run. Do not put it back.
+
+**The frame the encoder is handed is not the file's own size**, and things built from it have to
+say which they mean. `Av1anUi.ResolveFrameAsync` settles the geometry - source, less the crop,
+then the resize or the de-squeeze - before the encoder's arguments are built, because the tile
+count is a property of the frame being encoded: four tile columns are right for a 4K source and
+wrong for the 720p it is being scaled to. It resolves the automatic crop too, which is ten ffmpeg
+probes and a line in the log, which is why the answer is carried in an `Av1anFrame` rather than
+worked out again wherever it is wanted. The Quick Convert tab still tiles off the source's own
+size; its scale boxes hold ffmpeg expressions, so there is no size to resolve there.
+
 ## Deinterlacing
 
 Both encode tabs carry a Deinterlace setting, defaulting to Automatic, which does nothing at
