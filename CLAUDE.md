@@ -269,6 +269,49 @@ for. `enable-qm` was one and has been removed. Do not add one back. (Mainline de
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
 
+**av1an's target quality probes never see the `-f` filters.** `Encoder::probe_cmd` composes the
+probe's ffmpeg pipe out of nothing but the probing-rate `select`, and the chunk's own source
+command carries no filters either, so a resize, a crop or a deinterlace is invisible to the
+quantizer search - it settles on the value that hits the target at the *source's* size and that
+value is then used on chunks encoded at another. Nothing here can fix that, so the tab says so
+whenever a target mode meets a filter chain, naming both sizes when the frame changes size.
+
+`--vmaf-filter` is not the way out and was actively making it worse. It filters the *reference*
+VMAF is scored against while the probe stays unfiltered, so passing this tab's chain compared a
+filtered reference with an unfiltered encode: with a resize, a sharp probe against a softened
+downscale-and-back-up reference, scoring far under the truth and dragging the quantizer down with
+it. Where the chain also changed the aspect ratio - an anamorphic de-squeeze, which runs on its
+own with Resize on "No resizing", or a crop, or an exact size that pads - the two feeds came out
+different sizes after av1an's own scale to `--vmaf-res` and libvmaf refused them outright
+("input width must match"), minutes into a run. Do not put it back.
+
+**The frame the encoder is handed is not the file's own size**, and things built from it have to
+say which they mean. `Av1anUi.ResolveFrameAsync` settles the geometry - source, less the crop,
+then the resize or the de-squeeze - before the encoder's arguments are built, because the tile
+count is a property of the frame being encoded: four tile columns are right for a 4K source and
+wrong for the 720p it is being scaled to. It resolves the automatic crop too, which is ten ffmpeg
+probes and a line in the log, which is why the answer is carried in an `Av1anFrame` rather than
+worked out again wherever it is wanted.
+
+Quick Convert has the same tile count and no such pass to hang it on: its scale boxes are free
+text handed to ffmpeg, and it builds its codec arguments per pass, right beside the filter chain.
+`QuickConvertUi.GetEncodedFrameSize` therefore resolves only what can be stated with certainty -
+a plain pair of numbers, or a lone number with the other side derived by ffmpeg's own `-2`
+arithmetic - and returns `Size.Empty` for a percentage or an expression, which leaves the encoder
+on the source's size exactly where it always was. It does not apply the crop either: resolving an
+automatic one costs those ten probes, and there is nowhere here to spend them once. A tile count
+worked out from a size that is not the real one is the thing being fixed, so guessing is worse
+than abstaining.
+
+**av1an fails a chunk whose frame count is not the one it expected**, retries it to `--max-tries`,
+then shuts the worker down and with it the run. A frame rate change is that mismatch by
+construction and on every chunk - writing a different number of frames than came in is the whole
+point of the filter - so the Frame Rate box killed any av1an encode it was used on, hours in, each
+doomed chunk having been encoded four times first. `--ignore-frame-mismatch` is av1an's own answer:
+its concat step reads the flag as "an FPS changing filter might have been applied" and stops
+forcing the source's rate onto the output, which is the other half of what a resampled encode
+needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual help-text check.
+
 ## Deinterlacing
 
 Both encode tabs carry a Deinterlace setting, defaulting to Automatic, which does nothing at

@@ -264,7 +264,6 @@ namespace Nmkoder.UI.Tasks
                     videoArgs["qMode"] = ((int)qualMode).ToString();
                     videoArgs["q"] = ((int)quality).ToString();
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
-                    CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
 
                     // Settled before the filters are built, and once: in Automatic mode working out
                     // whether the source is interlaced can mean decoding a few hundred frames of it.
@@ -273,7 +272,18 @@ namespace Nmkoder.UI.Tasks
                     if (Av1anUi.CurrentDeinterlace.Runs)
                         Logger.Log($"Deinterlacing '{TrackList.current.File.Name.Trunc(40)}' with {Av1anUi.CurrentDeinterlace.Describe()}.");
 
-                    string vf = await GetVideoFilterArgs(codecArgs);
+                    // The frame the encoder will actually be handed, worked out before its arguments
+                    // rather than after them: the tile count is a property of that frame and not of the
+                    // file it came from, and a crop or a resize makes the two different sizes. This is
+                    // also where an automatic crop gets measured, which is why the filters below are
+                    // handed the answer instead of going and asking for it a second time.
+                    Av1anFrame frame = await ResolveFrameAsync();
+
+                    if (!frame.Encoded.IsEmpty)
+                        videoArgs[CodecUtils.FrameSizeKey] = $"{frame.Encoded.Width}x{frame.Encoded.Height}";
+
+                    CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
+                    string vf = GetVideoFilterArgs(frame, codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
                     // audio track, and this tab has one bitrate and one channel count for all of them.
@@ -325,22 +335,37 @@ namespace Nmkoder.UI.Tasks
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
                         $"-o {outPath.Wrap()}";
 
+                    // av1an counts the frames every finished chunk holds and compares them with the
+                    // number it expects, failing the chunk when they differ - and then retrying it,
+                    // three times over, before shutting the worker down and with it the run. A frame
+                    // rate change is that mismatch by construction, on every chunk: writing a
+                    // different number of frames than came in is the entire point of the filter. So
+                    // the Frame Rate box killed any encode it was used on, hours in and after each
+                    // doomed chunk had been encoded four times. --ignore-frame-mismatch is av1an's
+                    // own answer to exactly this - its concat step reads the flag as "an FPS changing
+                    // filter might have been applied" and stops forcing the source's rate onto the
+                    // output, which is the other half of what a resampled encode needs.
+                    if (frame.ResamplesFrameRate)
+                    {
+                        // Old enough that an av1an without it would fail on half this tab's command
+                        // anyway; checked all the same, because one unrecognised flag is refused as a
+                        // whole command. A help text that could not be read says nothing, so the flag
+                        // goes out and an av1an that really is too old refuses it at startup.
+                        if (!await AvProcess.Av1anHelpKnown() || await AvProcess.Av1anSupportsFlag("--ignore-frame-mismatch"))
+                            args += " --ignore-frame-mismatch";
+                        else
+                            Logger.Log("Warning: this av1an has no --ignore-frame-mismatch, and the frame rate is being " +
+                                "changed. av1an checks every chunk's frame count against the source's and will fail the " +
+                                "encode over the difference. Leave the Frame Rate box empty, or update av1an.");
+                    }
+
                     if (qualMode != QualityMode.Crf)
                     {
+                        if (vf.Length > 3)
+                            Logger.Log(GetFilteredTargetQualityNote(frame));
+
                         if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr)
                         {
-                            // These metrics are scored outside libvmaf - SSIMULACRA2 and Butteraugli
-                            // through VapourSynth (vszip, the julek plugin or vship), XPSNR by
-                            // ffmpeg's xpsnr filter - so none of the --vmaf-* flags apply, including
-                            // --vmaf-filter, which is how the VMAF branch shows the probes its
-                            // filtered frames. There is no equivalent here: probes are compared
-                            // against the unfiltered source, so any filter that visibly alters the
-                            // frames skews the search.
-                            if (vf.Length > 3)
-                                Logger.Log("Note: video filters are not applied when scoring " +
-                                    $"{GetTargetMetricName(qualMode)} probes, " +
-                                    "so any filter that visibly changes the frames will skew the target quality search.");
-
                             // The INF norm rather than the 3-norm, because av1an only scores the
                             // 3-norm through the GPU plugin (Vship), while INF is also meant to work
                             // on the bundled CPU plugin (julek) - meant to, because av1an's releases
@@ -361,8 +386,19 @@ namespace Nmkoder.UI.Tasks
                         }
                         else
                         {
-                            string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
-                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                            // No --vmaf-filter, deliberately. It filters the *reference* VMAF scores
+                            // against, while the probe it is compared with comes off the unfiltered
+                            // source - so handing it this tab's chain measures a filtered reference
+                            // against an unfiltered encode. With a resize that is a sharp probe against
+                            // a softened downscale-and-back-up reference, which scores far under the
+                            // truth and drags the quantizer down with it; and where the chain also
+                            // changes the aspect ratio - an anamorphic de-squeeze, a crop, an exact size
+                            // that pads - the two frames come out different sizes after av1an's own
+                            // scale to --vmaf-res and libvmaf refuses them outright ("input width must
+                            // match"), minutes into a run. Both sides unfiltered is at least like for
+                            // like; that the search then runs at the source's size is what the note
+                            // above says out loud.
+                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} --vmaf-threads 2";
                         }
                     }
                 }
@@ -560,6 +596,34 @@ namespace Nmkoder.UI.Tasks
 
             return intro + "and the bundled Vship plugin's GPU check could not get an answer just now.\n\n" +
                 "Pick Target SSIMULACRA2 or Target XPSNR instead, or try again in a moment.";
+        }
+
+        /// <summary>
+        /// What to say about running a target quality mode over a filtered source.
+        /// <para/>
+        /// av1an encodes its probes from the source rather than from the filtered frames - probe_cmd
+        /// composes the probe's ffmpeg pipe with nothing in it but the probing-rate select filter, and
+        /// the chunk's own source command carries no filters either - so nothing set on this tab is
+        /// visible to the quality search, whichever metric it steers by.
+        /// <para/>
+        /// The size clause is the part with teeth, which is why it names both numbers: a resize changes
+        /// how many pixels the quantizer is being spread across, so a search settled at the source's
+        /// size lands somewhere else entirely at the one being written. Filters that leave the size
+        /// alone skew it too - a denoise makes frames cheaper to encode - but by how much is not
+        /// something that can be said from here.
+        /// </summary>
+        private static string GetFilteredTargetQualityNote(Av1anFrame frame)
+        {
+            string note = "Note: av1an encodes its target quality probes from the source, not from the filtered " +
+                "frames, so the video filters set on this tab are invisible to the quality search.";
+
+            if (frame != null && frame.ChangesSize)
+                note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
+                    $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
+                    "the target at the source's size rather than at the size being written. Encoding at the source's " +
+                    "size, or using CRF, is the only way to be sure of the target.";
+
+            return note;
         }
 
         /// <summary> The metric a target quality mode steers by, as it is named in messages. </summary>
