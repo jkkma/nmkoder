@@ -288,7 +288,7 @@ namespace Nmkoder.Media
             try
             {
                 string dir = Path.Combine(Paths.GetBinPath(), "av1an");
-                bool show = Config.GetBool(Config.Key.Av1anCmdVisible, true); // = Config.GetInt(Config.Key.cmdDebugMode) > 0;
+                bool show = ShowAv1anConsole();
 
                 string vsynthPath = Path.Combine(dir, "vsynth");
                 string encPath = Path.Combine(dir, "enc");
@@ -520,6 +520,26 @@ namespace Nmkoder.Media
             IEnumerable<string> dirs = searchDirs.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator));
             string resolved = Shell.ResolveExecutable(name, dirs);
             return File.Exists(resolved) ? resolved : "";
+        }
+
+        /// <summary>
+        /// Whether to run av1an in a console of its own rather than capturing its output.
+        /// <para/>
+        /// The setting only means anything on Windows, and honouring it elsewhere threw av1an's
+        /// entire output away for nothing. Showing the console means UseShellExecute, which means no
+        /// redirection - so <see cref="Av1anOutputHandler"/> never sees a line, and everything the app
+        /// knows about the encode comes from the exit code and the chunk counts it tails out of
+        /// av1an's log file. On Windows that is a fair trade: the console is right there to read. On
+        /// Linux and macOS UseShellExecute opens no terminal emulator, so the output goes to the
+        /// stdio this GUI process inherited - which is to say nowhere - and the launch script's
+        /// "stay open for five seconds" pause is five seconds nobody spends looking at anything.
+        /// <para/>
+        /// So off-Windows the answer is always no, and av1an's diagnostics reach the log like every
+        /// other tool's. The checkbox stays, because a Windows user's session settings travel.
+        /// </summary>
+        public static bool ShowAv1anConsole()
+        {
+            return Shell.IsWindows && Config.GetBool(Config.Key.Av1anCmdVisible, true);
         }
 
         /// <summary>

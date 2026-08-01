@@ -200,7 +200,9 @@ namespace Nmkoder.Media
                 catch { }
             }
 
-            Logger.Log("Failed to get total frame count of video.");
+            // A warning rather than a plain line: a frame count of zero is what makes a progress bar
+            // sit at nothing for the whole encode, and it is worth being able to see why afterwards.
+            Logger.LogWarn("Could not read the video's frame count - progress reporting will be less accurate.");
             return 0;
         }
 

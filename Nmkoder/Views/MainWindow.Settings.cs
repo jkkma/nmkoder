@@ -18,6 +18,12 @@ namespace Nmkoder.Views
             UseZeroIndexedStreamsBox.IsChecked = Config.GetBool(Config.Key.UseZeroIndexedStreams);
             Mp4FaststartBox.IsChecked = Config.GetBool(Config.Key.mp4Faststart, true);
             Av1anCmdVisibleBox.IsChecked = Config.GetBool(Config.Key.Av1anCmdVisible, true);
+            // Left visible rather than hidden off-Windows: the setting is saved either way and a
+            // session's settings travel, so a box that vanished would silently keep its old value.
+            Av1anCmdVisibleBox.IsEnabled = OS.Shell.IsWindows;
+            Av1anCmdVisibleBox.Content = OS.Shell.IsWindows
+                ? "Show the av1an console window"
+                : "Show the av1an console window (Windows only - av1an's output goes to the log here)";
             DefaultOutDirBox.Text = Config.Get(Config.Key.DefaultOutputDir, "");
         }
 

@@ -69,18 +69,30 @@ namespace Nmkoder.Media
 
             bool hidden = logMode == LogMode.Hidden;
 
-            if (HideMessage(line)) // Don't print certain warnings 
+            if (HideMessage(line)) // Don't print certain warnings
                 hidden = true;
 
             bool replaceLastLine = logMode == LogMode.OnlyLastLine;
+            bool fatal = line.Contains("Could not open file");
 
-            Logger.Log(line, hidden, replaceLastLine, "av1an");
+            // Levelled the way the ffmpeg handler is, and for the same reason: OnlyLastLine rewrites
+            // the last row on every line av1an prints, so anything that mattered was overwritten
+            // within a fraction of a second. An Error line is neither replaced nor replaces.
+            Logger.Log(line, hidden, replaceLastLine, "av1an",
+                fatal ? Logger.Level.Error : LooksLikeTrouble(line) ? Logger.Level.Warning : Logger.Level.Info);
 
-            if (line.Contains("Could not open file"))
-            {
+            if (fatal)
                 RunTask.Cancel($"Error: {line}");
-                return;
-            }
+        }
+
+        /// <summary>
+        /// Lines worth colouring amber. Only a hint - av1an's own exit code decides whether the
+        /// encode failed, exactly as ffmpeg's does, and a chunk that retries is not a failure.
+        /// </summary>
+        private static bool LooksLikeTrouble(string line)
+        {
+            return new[] { "ERROR", "error:", "Error:", "panicked", "thread '", "warning:", "WARN" }
+                .Any(x => line.Contains(x));
         }
 
         public static async Task ParseProgressLoop(int workers)

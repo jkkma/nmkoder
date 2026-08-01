@@ -233,6 +233,10 @@ namespace Nmkoder.UI
                 return;
 
             string outDir = await FfmpegExtract.ExtractAttachments(entry.MediaFile.SourcePath, entry.Stream.Index);
+
+            if (outDir.IsEmpty()) // It said why; opening a folder that is not there would not add to it
+                return;
+
             Shell.OpenWithDefaultHandler(outDir);
         }
 
