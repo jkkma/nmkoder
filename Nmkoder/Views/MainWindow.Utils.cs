@@ -24,6 +24,7 @@ namespace Nmkoder.Views
         private void SelectConcat(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilConcat);
         private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.PlotBitrate);
         private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
+        private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
 
         private async void SelectGetMetrics(object sender, TappedEventArgs e)
         {
@@ -144,6 +145,7 @@ namespace Nmkoder.Views
                 { UtilsConcatPanel, RunTask.TaskType.UtilConcat },
                 { UtilsBitratePlotPanel, RunTask.TaskType.PlotBitrate },
                 { UtilsOcrPanel, RunTask.TaskType.UtilOcr },
+                { UtilsDeinterlacePanel, RunTask.TaskType.UtilDeinterlace },
             };
 
             foreach (var pair in panels)

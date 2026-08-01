@@ -568,66 +568,91 @@
         <!-- ─────────── Utilities ─────────── -->
         <TabItem Header="Utilities">
           <ScrollViewer>
-            <StackPanel Margin="8" Spacing="8" Width="760" HorizontalAlignment="Left">
+            <!-- A WrapPanel rather than a column: eight cards stacked one per row ran off the
+                 bottom of the tab with most of the width sitting empty beside them. Fixed-width
+                 cards wrap into as many columns as the window allows - three at the default size,
+                 two at the minimum - and each row is only as tall as its own tallest card, which a
+                 UniformGrid could not do without padding every card out to the longest one. -->
+            <StackPanel Margin="8" Spacing="8">
               <TextBlock Classes="dim" Text="Pick a utility, then press Run. Utilities are shortcuts for actions that normally need long CLI commands." />
 
-              <Border x:Name="UtilsBitratesPanel" Classes="card" Tapped="SelectReadBitrates">
-                <StackPanel>
-                  <TextBlock Text="Read Bitrates" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Calculates stream size and average bitrate for each selected track." />
-                </StackPanel>
-              </Border>
+              <WrapPanel>
+                <Border x:Name="UtilsBitratesPanel" Classes="card util" Tapped="SelectReadBitrates">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Read Bitrates" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Calculates stream size and average bitrate for each selected track." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsMetricsPanel" Classes="card" Tapped="SelectGetMetrics">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsMetricsPanel" Classes="card util" Tapped="SelectGetMetrics">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsColorDataPanel" Classes="card" Tapped="SelectColorData">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Copy color properties and HDR metadata from one file to another." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsColorDataPanel" Classes="card util" Tapped="SelectColorData">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Copy color properties and HDR metadata from one file to another." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsDeinterlacePanel" Classes="card util" Tapped="SelectDeinterlace"
+                        ToolTip.Tip="Do this before encoding a tape capture on the AV1AN tab. av1an would otherwise re-run the deinterlacer for scene detection, for every chunk, and for every target-quality probe - and it drops the audio when it reads a VapourSynth script.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Deinterlace For Encoding" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Runs the Quick Convert tab's deinterlacer - QTGMC where it can - once over the whole file, into a near-lossless MKV with the audio copied across." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsConcatPanel" Classes="card" Tapped="SelectConcat">
-                <StackPanel>
-                  <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Merge all loaded files into a single MKV without re-encoding." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsBitratePlotPanel" Classes="card" Tapped="SelectBitratePlot">
-                <StackPanel>
-                  <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Samples the bitrate across the whole video and plots it." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsConcatPanel" Classes="card util" Tapped="SelectConcat">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Merge all loaded files into a single MKV without re-encoding." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsOcrPanel" Classes="card" Tapped="SelectOcr">
-                <StackPanel>
-                  <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsBitratePlotPanel" Classes="card util" Tapped="SelectBitratePlot">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Samples the bitrate across the whole video and plots it." />
+                  </StackPanel>
+                </Border>
+
+                <Border x:Name="UtilsOcrPanel" Classes="card util" Tapped="SelectOcr">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
+                  </StackPanel>
+                </Border>
+              </WrapPanel>
             </StackPanel>
           </ScrollViewer>
         </TabItem>
