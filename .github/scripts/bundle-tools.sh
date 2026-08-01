@@ -756,16 +756,45 @@ EOF
 # None of it is load-bearing for the rest of the build: Nmkoder.Media.Qtgmc builds a QTGMC graph
 # and renders a frame before it uses any of this, once per session, so a piece that failed to
 # download shows up as a fallback to bwdif naming what is missing, not as a broken encode.
+#
+# The other thing every one of these has to satisfy is the VapourSynth *API* version, and that
+# is not the same question as whether the download worked. A plugin passes the API it was built
+# against to configPlugin, and a core older than that refuses to register it - silently, because
+# autoload reports nothing. VapourSynth is pinned to R72 here (see VAPOURSYNTH_TAG, and av1an's
+# VSScript API3 requirement behind it), which speaks API 4.0 and 4.1 and rejects 4.2. So a
+# version is only pinnable here if its binary is 4.1 or lower, whatever its packaging metadata
+# claims: every vapoursynth-eedi3 wheel declares "VapourSynth>=74" and so does vapoursynth-fmtconv,
+# yet fmtconv's DLL is API 4.0 and loads fine while eedi3's is 4.2 and never has. Read it out of
+# the binary rather than the metadata - the constant sits in the first bytes of the plugin's
+# VapourSynthPluginInit2 - and let the release workflow's QTGMC check be the backstop.
 HAVSFUNC_VERSION="${HAVSFUNC_VERSION:-33}"
 VSUTIL_VERSION="${VSUTIL_VERSION:-0.8.0}"
 MVSFUNC_TAG="${MVSFUNC_TAG:-r10}"
 MVTOOLS_VERSION="${MVTOOLS_VERSION:-29}"
 ZNEDI3_VERSION="${ZNEDI3_VERSION:-3.3}"
-EEDI3_VERSION="${EEDI3_VERSION:-10.0}"
 FMTCONV_VERSION="${FMTCONV_VERSION:-31}"
 REMOVEGRAIN_TAG="${REMOVEGRAIN_TAG:-R1}"
 MISCFILTERS_TAG="${MISCFILTERS_TAG:-R2}"
 TEMPORALSOFTEN2_TAG="${TEMPORALSOFTEN2_TAG:-v1}"
+
+# eedi3m is the one plugin here that cannot come from PyPI, and the reason is the paragraph
+# above rather than anything about the plugin. Every wheel upstream has ever published -
+# 9.0, 9.1 and 10.0 alike - is built against API 4.2, so R72 rejects all three: that is what
+# shipped in 2.8.3 and 2.8.4, where the missing namespace sent every QTGMC deinterlace to
+# bwdif. Downgrading the wheel does not help, because there is no wheel that predates the
+# switch. r8 is the last Windows binary upstream attached to a GitHub release, it is API 4.0,
+# and it registers the same eedi3m/EEDI3 that havsfunc 33 asks for.
+#
+# It is a frozen tag with a published hash, so the hash is pinned: this asset is not going to
+# roll forward, and a binary arriving under that name with different contents should fail the
+# build rather than ship. Clear EEDI3_SHA256 to skip the check when deliberately pointing
+# EEDI3_TAG at something else.
+#
+# The one thing r8 does not carry is EEDI3CL, the OpenCL variant. Nothing asks for it today -
+# havsfunc only reaches for it when QTGMC is called with opencl=True, which Nmkoder does not
+# do - but a future GPU option would need a source for it that this one is not.
+EEDI3_TAG="${EEDI3_TAG:-r8}"
+EEDI3_SHA256="${EEDI3_SHA256-fa8515e0aa711ca979a87d812860c8582c7789fd805df2be10760748c0a9c486}"
 
 # The download URL of one file from a PyPI release. Pinned to a version and matched on the whole
 # file name, because the unversioned /json endpoint lists every past release's files too - so a
@@ -818,6 +847,23 @@ install_wheel_module() {
   cp -R "$stage"/. "$site"/
 }
 
+# install_vs_plugin with the hash checked first. Worth the extra step here and not for the
+# plugins beside it: those track a version that moves, where a fixed hash would reject every
+# future build, while this one is frozen at a tag upstream will not touch again.
+install_eedi3m() {
+  local file="$1" dir="$2" got
+
+  if [ -n "${EEDI3_SHA256:-}" ]; then
+    got="$(sha256sum "$file" 2>/dev/null | cut -d' ' -f1)"
+    if [ "$got" != "$EEDI3_SHA256" ]; then
+      echo "  [warn] $(basename "$file") hashes to ${got:-<unreadable>}, expected $EEDI3_SHA256"
+      return 1
+    fi
+  fi
+
+  install_vs_plugin "$file" "$dir"
+}
+
 bundle_qtgmc() {
   local got=0 missing=()
 
@@ -839,13 +885,18 @@ bundle_qtgmc() {
     missing+=("znedi3")
   fi
 
-  if install_wheel_plugin vapoursynth-eedi3 "$EEDI3_VERSION" "vapoursynth_eedi3-${EEDI3_VERSION}-py3-none-win_amd64.whl"; then
-    got=$((got + 1)); note_ok "vapoursynth plugin: eedi3m $EEDI3_VERSION (referenced by QTGMC even on the NNEDI3 path)"
+  # From a release asset rather than a wheel, and pinned to a hash - see EEDI3_TAG above for
+  # why this one plugin is sourced differently from the three around it.
+  VS_PLUGIN_DLL='EEDI3m.dll'
+  ASSET_RELEASE_TAG="$EEDI3_TAG"
+  if try_assets "${EEDI3_REPO:-HolyWu/VapourSynth-EEDI3}" 'EEDI3-.*\.7z$' '\.(7z|zip)$' install_eedi3m; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: eedi3m $EEDI3_TAG (referenced by QTGMC even on the NNEDI3 path)"
     note_licence "  EEDI3              GPL-3.0-or-later (VapourSynth edge interpolation, referenced by QTGMC)
-                     Source: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3"
+                     Source: https://github.com/HolyWu/VapourSynth-EEDI3"
   else
     missing+=("eedi3m")
   fi
+  ASSET_RELEASE_TAG=""
 
   if install_wheel_plugin vapoursynth-fmtconv "$FMTCONV_VERSION" "vapoursynth_fmtconv-${FMTCONV_VERSION}-py3-none-win_amd64.whl"; then
     got=$((got + 1)); note_ok "vapoursynth plugin: fmtconv $FMTCONV_VERSION (QTGMC's bob)"

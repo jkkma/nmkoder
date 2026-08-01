@@ -112,6 +112,16 @@ namespace Nmkoder.Media
             return Directory.Exists(dir) ? dir : "";
         }
 
+        /// <summary> Where the bundled build keeps its plugins, when there is one. Only the probe uses
+        /// this, and only to have somewhere to look when a namespace is missing and no plugin loaded
+        /// from anywhere - so there is no loaded one left to ask where its neighbours are. </summary>
+        public static string[] GetPluginDirs()
+        {
+            string dir = GetVsynthDir();
+            dir = dir.IsEmpty() ? "" : Path.Combine(dir, "vs-plugins");
+            return Directory.Exists(dir) ? new[] { dir } : new string[0];
+        }
+
         /// <summary>
         /// The directories a shell running <see cref="BuildVspipeCommand"/> has to have on its PATH
         /// for the bare name "vspipe" to resolve. Both of them matter: the portable build keeps
@@ -206,10 +216,48 @@ namespace Nmkoder.Media
                 return "havsfunc's own dependencies (vsutil, mvsfunc) are not installed for this VapourSynth";
 
             if (output.Contains("QTGMC_MISSING_PLUGINS"))
-                return $"VapourSynth is missing the plugins QTGMC needs ({output.Split("QTGMC_MISSING_PLUGINS").Last().SplitIntoLines().First().Trim()})";
+            {
+                string names = output.Split("QTGMC_MISSING_PLUGINS").Last().SplitIntoLines().First().Trim();
+                string rejected = DescribeRejectedPlugins(output, names);
+
+                // "Missing" on its own is what sent 2.8.3 and 2.8.4 out the door believing the bundle
+                // was complete: the file was there, correctly named and correctly built, and the core
+                // had simply turned it down. Say which of the two it was.
+                return rejected.IsEmpty()
+                    ? $"VapourSynth has no plugin providing what QTGMC needs ({names})"
+                    : $"VapourSynth refused a plugin QTGMC needs ({names}) - {rejected}";
+            }
 
             string last = output.SplitIntoLines().Select(x => x.Trim()).LastOrDefault(x => x.IsNotEmpty()) ?? "";
             return last.IsEmpty() ? "the VapourSynth check failed" : $"VapourSynth said: {last.Trunc(200)}";
+        }
+
+        /// <summary>
+        /// What the probe found when it loaded the unregistered plugin files by hand, in a clause, or
+        /// "" when every one of them was simply absent.
+        /// <para/>
+        /// One is quoted, not all: they share a cause far more often than not, and the full list is in
+        /// the log either way. The one picked is a file named after a namespace that went missing -
+        /// eedi3m out of EEDI3m.dll - because the folder holds plugins nothing here asked for, and a
+        /// Vship staged for a GPU this machine does not have would otherwise be the line quoted at
+        /// someone whose actual problem is somewhere else entirely.
+        /// </summary>
+        private static string DescribeRejectedPlugins(string output, string missingNames)
+        {
+            string[] lines = output.SplitIntoLines()
+                .Where(x => x.Contains("QTGMC_PLUGIN_REJECTED"))
+                .Select(x => x.Split("QTGMC_PLUGIN_REJECTED").Last().Trim())
+                .Where(x => x.IsNotEmpty()).ToArray();
+
+            if (lines.Length < 1)
+                return "";
+
+            string[] names = missingNames.Split(',').Select(x => x.Trim()).Where(x => x.IsNotEmpty()).ToArray();
+            string best = lines.FirstOrDefault(line => names.Any(n => line.Split(':').First().Contains(n, StringComparison.OrdinalIgnoreCase))) ?? lines[0];
+
+            int rest = lines.Length - 1;
+            string more = rest < 1 ? "" : rest == 1 ? " (and one other plugin file)" : $" (and {rest} other plugin files)";
+            return $"{best.Trunc(220)}{more}";
         }
 
         private static string BuildProbeScript()
@@ -225,7 +273,18 @@ namespace Nmkoder.Media
             // EdiMode, so it is resolved even on the NNEDI3 path, and znedi3 by that name rather than
             // nnedi3 or nnedi3cl, because that is the one it calls when opencl is off. focus2
             // (TemporalSoften2) in turn refuses to run without misc.
-            return @"import sys
+            //
+            // "Missing" then gets asked a second question, because it turned out to cover two very
+            // different situations and to name only the innocent one. A namespace is absent either
+            // because no such plugin is installed, or because one is installed and the core refused
+            // it - which is what shipped in 2.8.3 and 2.8.4, where a bundled EEDI3m.dll built against
+            // VapourSynth API 4.2 was turned down by an API 4.1 core, silently, since autoload
+            // reports nothing at all. LoadPlugin does report it, so a missing namespace is followed
+            // by loading the unregistered files by hand purely to collect the reason.
+            string dirs = string.Join(", ", GetPluginDirs()
+                .Select(x => $"'{x.Replace("\\", "\\\\").Replace("'", "\\'")}'"));
+
+            return $@"import os, sys
 import vapoursynth as vs
 
 core = vs.core
@@ -235,6 +294,41 @@ missing = [n for n in needed if not hasattr(core, n)]
 
 if missing:
     print('QTGMC_MISSING_PLUGINS ' + ', '.join(missing), file=sys.stderr)
+
+    # Where the plugins that did load came from, which is where the ones that did not will be
+    # too. Discovered rather than assumed, so this works for a system VapourSynth as well as the
+    # bundled one; the bundled folder is named as well, for the case where nothing loaded at all
+    # and there is no loaded plugin left to ask.
+    seen, folders = set(), [{dirs}]
+
+    for plugin in core.plugins():
+        path = getattr(plugin, 'plugin_path', '') or ''
+        if path:
+            seen.add(os.path.normcase(path))
+            folders.append(os.path.dirname(path))
+
+    for folder in folders:
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+
+        for name in names:
+            if not name.lower().endswith(('.dll', '.so', '.dylib')):
+                continue
+
+            full = os.path.join(folder, name)
+
+            if os.path.normcase(full) in seen:
+                continue
+
+            seen.add(os.path.normcase(full))
+
+            try:
+                core.std.LoadPlugin(path=full)
+            except Exception as problem:
+                print('QTGMC_PLUGIN_REJECTED ' + name + ': ' + ' '.join(str(problem).split()), file=sys.stderr)
+
     raise RuntimeError('missing plugins: ' + ', '.join(missing))
 
 import havsfunc

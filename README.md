@@ -122,8 +122,10 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
-                             vszip, which scores Target SSIMULACRA2 probes, and julek, staged
-                             for Butteraugli until av1an can call it (see the caveat above)
+                             vszip, which scores Target SSIMULACRA2 probes, julek, staged
+                             for Butteraugli until av1an can call it (see the caveat above),
+                             and mvtools, znedi3, EEDI3, fmtconv, RemoveGrain, MiscFilters and
+                             TemporalSoften2, which are what QTGMC deinterlacing is made of
 bin/av1an/vsynth/vship/      Vship's NVIDIA + AMD builds, parked; the app stages the one this
                              machine's GPU passes into vs-plugins, and unstages both when none does
 bin/av1an/enc/               SvtAv1EncApp, aomenc and x265
