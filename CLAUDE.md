@@ -339,3 +339,25 @@ the encoder does would be paid for several times over. That tab gets bwdif or ya
 source frame rate: av1an works out the output's frame rate from the source and hands each
 encoder a fixed number of frames per chunk, so one frame per field would write twice the
 frames under the source's own rate, and the file would play at half speed.
+
+**Deinterlace For Encoding is the answer to that second one.** The utility runs the same plan
+the Quick Convert tab would - it reads that tab's own Deinterlace controls, so the mode and
+the QTGMC preset are set in one place - into a near-lossless x264 MKV, audio and subtitles
+copied, and then loads the result. QTGMC is paid for exactly once, sequentially, and av1an
+gets a progressive file with nothing in front of the encoder.
+
+Feeding av1an a `.vpy` directly is possible and is the wrong trade. Measured rather than
+assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come
+out bit-identical to the same frames of a sequential render, and three 240-frame chunks took
+1.11 / 1.19 / 1.17 s against 3.41 s for all 720 in one go, so the per-chunk cost is about 2%.
+What it costs is the *repeats* above, and three sharp edges: av1an's own source says
+"vapoursynth audio is currently unsupported" and skips the audio thread entirely, its Select,
+Segment and Hybrid chunk methods call `as_video_path()` which panics on a VapourSynth input,
+and seeking into an MPEG program stream is not frame-accurate - `vspipe -s 300` on a `.mpg`
+came back with the frame the sequential render calls 298, where the same video remuxed to MKV
+landed on 300 exactly.
+
+The utility only takes over the file list when that list held nothing but the source. In
+muxing mode the file list *is* the set of inputs, so adding one quietly would change what the
+next mux writes, and a batch is stepping through a queue that must not move underneath it -
+both are told where the file is instead.

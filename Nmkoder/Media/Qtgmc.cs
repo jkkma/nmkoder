@@ -281,6 +281,7 @@ clip.set_output()
         ('lsmas', lambda: core.lsmas.LWLibavSource(source=path)),
         ('bestsource', lambda: core.bs.VideoSource(source=path, cachepath=CACHE_DIR)),
         ('bestsource', lambda: core.bs.VideoSource(source=path)),
+        ('ffms2', lambda: core.ffms2.Source(source=path, cachefile=CACHE_DIR + '/ffms2.ffindex')),
         ('ffms2', lambda: core.ffms2.Source(source=path)),
     ]
     problems = []

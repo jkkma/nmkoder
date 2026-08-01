@@ -598,6 +598,13 @@
                 </StackPanel>
               </Border>
 
+              <Border x:Name="UtilsDeinterlacePanel" Classes="card" Tapped="SelectDeinterlace">
+                <StackPanel>
+                  <TextBlock Text="Deinterlace For Encoding" FontWeight="SemiBold" />
+                  <TextBlock Classes="dim" TextWrapping="Wrap" Text="Runs the Quick Convert tab's Deinterlace setting - QTGMC where it can - once over the whole file, into a near-lossless MKV with the audio copied across. Do this before encoding a tape capture on the AV1AN tab: av1an would otherwise re-run the deinterlacer for scene detection, for every chunk, and for every quality probe." />
+                </StackPanel>
+              </Border>
+
               <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
                 <StackPanel>
                   <Grid ColumnDefinitions="*,Auto">
