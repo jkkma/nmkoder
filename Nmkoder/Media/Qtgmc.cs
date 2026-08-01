@@ -1,7 +1,9 @@
 using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.Main;
 using Nmkoder.OS;
+using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -529,11 +531,155 @@ clip.set_output()");
 
         #endregion
 
-        /// <summary> Runs VSPipe directly - no shell, so nothing expands what is in a file name - and
-        /// hands back its exit code and combined output, or null if it had to be killed. </summary>
-        private static async Task<(int exitCode, string output)?> RunVspipe(string exePath, string args, int timeoutMs)
+        #region Measuring the output
+
+        /// <summary>
+        /// How long VSPipe is allowed to take to say how long its output is. Generous, because what
+        /// it spends the time on is the source plugin indexing the file - minutes for an hour of
+        /// MPEG-2 off a slow disk - and a timeout firing in the middle of that throws the work away
+        /// rather than saving any, leaving the encode to index the same file over again. Stop kills
+        /// it long before this, since it runs as a Secondary process.
+        /// </summary>
+        private const int InfoTimeoutMs = 15 * 60 * 1000;
+
+        /// <summary>
+        /// Measures what this script will produce and points the progress bar at that, rather than at
+        /// what the file says about itself.
+        /// <para/>
+        /// The container's duration is the wrong ruler for the files this feature exists for. An
+        /// analogue capture is timestamped by whatever captured it and ffprobe reads the duration
+        /// straight back out of those timestamps, so a capture whose clock stalled or restarted
+        /// leaves a file reporting an hour and holding rather more - and everything scaled against
+        /// that is wrong along with it. The bar reaches 100% with a third of the encode still to run
+        /// and then stays there, which is what this is here to stop.
+        /// <para/>
+        /// VapourSynth has no such problem. Its source plugin has indexed the file by the time
+        /// <c>--info</c> answers, so the frame count it reports is a count rather than an estimate,
+        /// and it is exactly the set of frames that will come down the pipe. The indexing is not an
+        /// added cost either: the encode's own VSPipe would do it moments later, and every source
+        /// plugin in <see cref="WriteScript"/> is told to cache its index - so this moves that step
+        /// in front of the encode instead of adding one, and gives the app something to say while it
+        /// happens, which it previously spent staring at an empty bar.
+        /// <para/>
+        /// Never throws and never fails a run: an answer that does not arrive leaves the bar
+        /// measuring against the source's own duration, which is where it was already.
+        /// </summary>
+        public static async Task SetProgressTargetAsync(string scriptPath, MediaFile source)
         {
-            Process proc = OsUtils.NewProcess(true, NmkoderProcess.ProcessType.Background, exePath);
+            try
+            {
+                Logger.Log($"Reading '{source?.Name.Trunc(40)}' through VapourSynth to measure it. This indexes the " +
+                    $"source, which the encode then reuses.");
+                RunTask.ReportProgress("Indexing the source for VapourSynth...");
+
+                long durationMs = await GetOutputDurationMsAsync(scriptPath);
+
+                if (durationMs < 1)
+                {
+                    Logger.Log("VSPipe did not say how long its output will be, so progress is measured against the " +
+                        "duration the file reports.", true);
+                    return;
+                }
+
+                FfmpegOutputHandler.overrideTargetDurationMs = durationMs;
+                long claimedMs = source == null ? 0 : source.DurationMs;
+
+                // Worth putting in front of the user rather than only in the debug log, because it is
+                // a fact about their file and not about this app: the output will not be the length
+                // the source claims, and nothing else would ever explain why.
+                if (claimedMs > 0 && Math.Abs(durationMs - claimedMs) > FfmpegOutputHandler.TargetToleranceMs(claimedMs))
+                {
+                    Logger.Log($"Note: '{source.Name.Trunc(40)}' reports a duration of {FormatUtils.Time(claimedMs)}, but " +
+                        $"there are {FormatUtils.Time(durationMs)} of video in it - its container's duration is wrong. " +
+                        $"Progress is measured against the real length, and what this writes will be that long.");
+                }
+                else
+                {
+                    Logger.Log($"VapourSynth will produce {FormatUtils.Time(durationMs)} of video.", true);
+                }
+            }
+            catch (Exception e)
+            {
+                // Measuring the encode is not the encode. Anything that goes wrong here costs a
+                // progress bar and must not cost the run.
+                Logger.Log($"Could not measure what the QTGMC script will produce: {e.Message}", true);
+            }
+        }
+
+        /// <summary> How long the video this script produces will be, in milliseconds, or -1 where
+        /// VSPipe would not say - it not being installed, the script not evaluating, or an output
+        /// whose length or frame rate is not fixed, which a QTGMC graph's never is. </summary>
+        private static async Task<long> GetOutputDurationMsAsync(string scriptPath)
+        {
+            string vspipe = GetVspipePath();
+
+            if (vspipe.IsEmpty())
+                return -1;
+
+            // "-" is the output file. --info does not write frames to it and current VSPipe does not
+            // ask for one at all, but older ones refuse to run without it, and "-" is stdout - which
+            // is where the report goes anyway.
+            var result = await RunVspipe(vspipe, $"--info {scriptPath.Wrap()} -", InfoTimeoutMs,
+                NmkoderProcess.ProcessType.Secondary);
+
+            if (result == null)
+            {
+                Logger.Log("vspipe --info did not answer in time.", true);
+                return -1;
+            }
+
+            if (result.Value.exitCode != 0)
+            {
+                Logger.Log($"vspipe --info failed (exit {result.Value.exitCode}): {result.Value.output.Trim().Trunc(600)}", true);
+                return -1;
+            }
+
+            return ParseInfoDurationMs(result.Value.output);
+        }
+
+        /// <summary>
+        /// The duration in a <c>vspipe --info</c> report, which gives it as a frame count over a
+        /// frame rate - "Frames: 215584" and "FPS: 60000/1001 (59.940 fps)" - and says "Variable"
+        /// for either where the clip does not have one.
+        /// <para/>
+        /// Read as the exact fraction rather than as the decimal in the brackets: 59.940 is not
+        /// 60000/1001, and over a couple of hundred thousand frames that rounding is seconds.
+        /// </summary>
+        private static long ParseInfoDurationMs(string info)
+        {
+            string[] lines = info.SplitIntoLines().Select(x => x.Trim()).ToArray();
+            long frames = ReadField(lines, "Frames:").GetLong();
+            string[] rate = ReadField(lines, "FPS:").Split(' ').First().Split('/');
+
+            if (frames < 1 || rate.Length != 2 || rate[0].GetLong() < 1 || rate[1].GetLong() < 1)
+            {
+                Logger.Log($"vspipe --info said nothing usable about the output's length:\n{info.Trim().Trunc(600)}", true);
+                return -1;
+            }
+
+            return frames * 1000L * rate[1].GetLong() / rate[0].GetLong();
+        }
+
+        /// <summary> What one line of a VSPipe report says after its label, or "" when there is no
+        /// such line. </summary>
+        private static string ReadField(string[] lines, string label)
+        {
+            string line = lines.FirstOrDefault(x => x.StartsWith(label, StringComparison.Ordinal)) ?? "";
+            return line.Substring(Math.Min(line.Length, label.Length)).Trim();
+        }
+
+        #endregion
+
+        /// <summary> Runs VSPipe directly - no shell, so nothing expands what is in a file name - and
+        /// hands back its exit code and combined output, or null if it had to be killed.
+        /// <para/>
+        /// The process type decides what Stop reaches: the probe is Background because it runs off
+        /// the UI while a file is being described and nothing is waiting on it, while anything a task
+        /// waits for has to be Secondary or pressing Stop leaves the task blocked on it. </summary>
+        private static async Task<(int exitCode, string output)?> RunVspipe(string exePath, string args, int timeoutMs,
+            NmkoderProcess.ProcessType procType = NmkoderProcess.ProcessType.Background)
+        {
+            Process proc = OsUtils.NewProcess(true, procType, exePath);
             string vsynth = GetVsynthDir();
             OsUtils.SetPathVar(proc, GetSearchDirs());
 

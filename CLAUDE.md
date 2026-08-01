@@ -307,6 +307,33 @@ file missing its last hour. VSPipe's stderr therefore goes to a log file which
 `Qtgmc.ReadRunProblem` checks for VSPipe's own "Output N frames in …" line afterwards - once
 per pass, which is why a two-pass encode expects two of them.
 
+**The progress bar is measured against `vspipe --info`, not against the container.** ffmpeg's
+`time=` is scaled by the duration ffprobe read out of the file, and a tape capture's duration is
+whatever its capture card's timestamps claimed: a 3.3 GB MPEG-PS reporting 59:56 was still
+encoding at 01:18:36, so the bar sat on 100% for twenty minutes of an encode that was working
+perfectly. VapourSynth is not guessing - its source plugin has indexed the file by the time
+`--info` answers, so the frame count it reports is a count, and it is exactly the frames that
+will come down the pipe. `Qtgmc.SetProgressTargetAsync` asks before the encode and installs
+`frames × den / num` as `FfmpegOutputHandler.overrideTargetDurationMs`. Read the rate as the
+fraction and not as the decimal beside it - 59.940 is not 60000/1001, and over a couple of
+hundred thousand frames that rounding is seconds.
+
+The indexing this pays for is not added work: the encode's own VSPipe would do it moments later,
+and every source plugin in `WriteScript` is told to cache its index - so it moves that step in
+front of the encode rather than adding one, which also gives the pause before a QTGMC encode
+something to say for itself. It cannot collide with a trim, either, because a trim rules QTGMC
+out. Nothing about it is load-bearing: an answer that does not arrive leaves the bar measuring
+against the file's own duration, which is where it was already.
+
+That still leaves every path VapourSynth is not on, so the bar is also made to admit it.
+Once `time=` is past the target by more than `FfmpegOutputHandler.TargetToleranceMs`, the run has
+*proved* the target wrong - an encode cannot write more of a file than there is - and the bar
+goes indeterminate with the footer reading "01:18:36 in, past the 59:56 this file claims" rather
+than pinning at 100%. The tolerance is not zero because a muxer pads the last frame and a target
+worked out from a frame count is rounded to begin with. The log line that goes with it names a
+wrong duration as the *usual* cause rather than the only one: a mux whose longest track is not
+the loaded file's lands here too, and neither is a fault in the run.
+
 **The plugin set is not guesswork, and it is pinned to havsfunc 33.** 33 is the last release
 carrying the classic `QTGMC(Preset=…)`; 34 replaced it with vs-jetpack's builder API and a
 dependency tree many times the size. What 33 resolves on its default path was established by

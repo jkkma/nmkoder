@@ -152,6 +152,15 @@ namespace Nmkoder.UI.Tasks
                     vsLogPath = Path.Combine(Paths.GetSessionDataPath(), "qtgmc-util.log");
                     IoUtils.TryDeleteIfExists(vsLogPath);
                     string script = Qtgmc.WriteScript(plan, file.ImportPath, Path.Combine(Paths.GetSessionDataPath(), "qtgmc-util.vpy"));
+
+                    // Before the encode rather than during it: the frames VapourSynth will hand over
+                    // are the only honest thing to measure this against, and a tape capture whose
+                    // container lies about its duration is exactly the file this utility is for.
+                    await Qtgmc.SetProgressTargetAsync(script, file);
+
+                    if (RunTask.canceled)
+                        return;
+
                     pipe = Qtgmc.BuildVspipeCommand(script, vsLogPath);
                     pipeIn = "-f yuv4mpegpipe -thread_queue_size 1024 -i -";
                     videoMap = "1:v:0";

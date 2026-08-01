@@ -17,9 +17,18 @@ namespace Nmkoder.Media
         public static readonly string prefix = "[ffmpeg]";
         public static long overrideTargetDurationMs = -1;
 
+        /// <summary> The percentage for "running, and nobody can say how far along" - which is a real
+        /// answer rather than a failure to have one, and which the bar shows by running indeterminate
+        /// rather than by picking a number. </summary>
+        public const int Unknown = -1;
+
         /// <summary> Wall time of the encode being tracked, for the ETA. </summary>
         static NmkdStopwatch encodeSw = new NmkdStopwatch();
         static int lastProgressPercent = -1;
+
+        /// <summary> Whether this run has already been found to be running past the length its
+        /// source claims to be, so the explanation is said once rather than three times a second. </summary>
+        static bool pastTargetDuration = false;
 
         /// <summary> Called before each progress-tracked ffmpeg run, so the ETA never extrapolates
         /// from a previous run's elapsed time. </summary>
@@ -27,6 +36,22 @@ namespace Nmkoder.Media
         {
             encodeSw.sw.Restart();
             lastProgressPercent = -1;
+            pastTargetDuration = false;
+        }
+
+        /// <summary>
+        /// How far past a target duration an encode can land while the target is still the right
+        /// one. Not zero: a muxer pads the last frame, a filter graph flushes one more, and a target
+        /// worked out from a frame count and a frame rate is rounded to begin with - all of which put
+        /// the final <c>time=</c> a frame or two beyond the number it was measured against.
+        /// <para/>
+        /// Anything past this is not overshoot, it is the target being wrong, and the difference
+        /// matters because the two call for opposite behaviour: overshoot is rounded away, while a
+        /// wrong target has to stop being reported as a percentage.
+        /// </summary>
+        public static long TargetToleranceMs(long durationMs)
+        {
+            return Math.Max(2000, durationMs / 100);
         }
 
         /// <summary>
@@ -225,9 +250,19 @@ namespace Nmkoder.Media
                 }
 
                 long currentMs = FormatUtils.TimestampToMs(ffmpegTime);
-                int progress = (((double)currentMs / (double)durationMs) * (double)100).RoundToInt();
+
+                // Past the end of the video the target duration describes, by more than an encode
+                // overshoots - which proves the target wrong, since an encode cannot write more of a
+                // file than there is. What is being encoded is fine; what was measured against is
+                // not, and a bar sitting on 100% for the rest of an hour says the opposite.
+                bool overrun = currentMs > durationMs + TargetToleranceMs(durationMs);
+
+                if (overrun)
+                    NoteOverrun(durationMs);
+
+                int progress = overrun ? Unknown : (((double)currentMs / (double)durationMs) * (double)100).RoundToInt();
                 Program.MainWin?.SetProgress(progress);
-                RunTask.ReportProgress(BuildProgressLine(progress, statsLine));
+                RunTask.ReportProgress(BuildProgressLine(progress, currentMs, durationMs, statsLine));
             }
             catch (Exception e)
             {
@@ -235,22 +270,56 @@ namespace Nmkoder.Media
             }
         }
 
+        /// <summary>
+        /// Says once, in the log, that the run has outlasted the length everything here is measured
+        /// against - because the bar going indeterminate is a symptom, and this is the cause.
+        /// <para/>
+        /// Usually the duration is wrong. It comes out of the container, and a container can be wrong
+        /// about it: an analogue capture is timestamped by whatever wrote it and ffprobe reads the
+        /// duration straight back out of those timestamps, so a capture that stalled or restarted its
+        /// clock leaves a file reporting an hour and holding considerably more. Said as the usual
+        /// reason rather than the only one, because a mux whose longest track is not the loaded
+        /// file's lands here too, and neither is a fault in the run.
+        /// </summary>
+        static void NoteOverrun(long durationMs)
+        {
+            if (pastTargetDuration)
+                return;
+
+            pastTargetDuration = true;
+            Logger.Log($"This run has passed {FormatUtils.Time(durationMs)}, which is all the loaded file says it is - " +
+                $"so the progress bar cannot say how far along it is, and shows that rather than sitting at 100%. " +
+                $"Usually that means the file's own duration is wrong, which a tape capture's often is. The run itself is fine.");
+        }
+
         /// <summary> Footer status line: percentage and ETA, plus the speed figures ffmpeg reported.
-        /// The same numbers already scroll by in the log; this keeps the current ones in one place. </summary>
-        static string BuildProgressLine(int progress, string statsLine)
+        /// The same numbers already scroll by in the log; this keeps the current ones in one place.
+        /// <para/>
+        /// A <see cref="Unknown"/> progress replaces the percentage and the ETA - both of which are
+        /// derived from a target that has just been proved wrong - with the two figures that are
+        /// still true: how much video has been written, and how much the source said there was. </summary>
+        static string BuildProgressLine(int progress, long currentMs, long durationMs, string statsLine)
         {
             // The second pass of a two-pass encode restarts at zero within the same run - the only
-            // thing that distinguishes it from a progress update is the direction.
-            if (progress < lastProgressPercent - 10)
-                encodeSw.sw.Restart();
+            // thing that distinguishes it from a progress update is the direction. Skipped while the
+            // progress is unknown, so the pass that overran leaves the pass after it a real baseline.
+            if (progress >= 0)
+            {
+                if (progress < lastProgressPercent - 10)
+                    encodeSw.sw.Restart();
 
-            lastProgressPercent = progress;
+                lastProgressPercent = progress;
+            }
 
             // Progress-tracked ffmpeg runs are not all encodes - Get Metrics scores files this way too.
             RunTask.TaskType task = Program.MainWin != null ? Program.MainWin.RunningTask : RunTask.TaskType.None;
             string action = task == RunTask.TaskType.Convert || task == RunTask.TaskType.Av1an ? "Encoding" : "Processing";
 
-            List<string> parts = new List<string> { $"{action} - {progress.Clamp(0, 100)}%" };
+            string state = progress < 0
+                ? $"{FormatUtils.Time(currentMs)} in, past the {FormatUtils.Time(durationMs)} this file claims"
+                : $"{progress.Clamp(0, 100)}%";
+
+            List<string> parts = new List<string> { $"{action} - {state}" };
 
             string fps = Regex.Match(statsLine, @"(?<=FPS: )[\d\.]+").Value;
             string speed = Regex.Match(statsLine, @"(?<=Relative Speed: )[\d\.]+x").Value;
