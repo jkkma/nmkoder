@@ -568,7 +568,11 @@ clip.set_output()");
         {
             try
             {
-                Logger.Log($"Reading '{source?.Name.Trunc(40)}' through VapourSynth to measure it. This indexes the " +
+                // Named where there is a file to name it after. There is not when what is being read
+                // is a cut copy of one, whose length is not the length that file reports - which is
+                // also why the comparison below is skipped in that case rather than made against it.
+                string named = source == null ? "the video" : $"'{source.Name.Trunc(40)}'";
+                Logger.Log($"Reading {named} through VapourSynth to measure it. This indexes the " +
                     $"source, which the encode then reuses.");
                 RunTask.ReportProgress("Indexing the source for VapourSynth...");
 

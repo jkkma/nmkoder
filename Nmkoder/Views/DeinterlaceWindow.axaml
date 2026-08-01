@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Nmkoder.Views.DeinterlaceWindow"
-        Title="Configure Deinterlace For Encoding"
+        Title="Configure Deinterlace Video"
         Width="620" SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
@@ -10,7 +10,7 @@
 
     <Border Classes="card">
       <TextBlock TextWrapping="Wrap"
-                 Text="This is the utility's own setting. It does not read the Quick Convert tab and changing it here changes nothing over there." />
+                 Text="This is the utility's own setting. It does not read either encode tab, and changing it here changes nothing over there - this utility writes a deinterlaced file and stops, where the tabs deinterlace on their way through an encode." />
     </Border>
 
     <TextBlock Classes="h" Text="SOURCE" />
@@ -36,13 +36,13 @@
     <Grid ColumnDefinitions="150,*" Margin="0,6,0,0">
       <TextBlock Grid.Column="0" Classes="field" Text="Frame rate" />
       <CheckBox Grid.Column="1" x:Name="DoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Option_Changed"
-                ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. The file this writes is an ordinary progressive video, so av1an reads whatever rate it ends up with - unlike the AV1AN tab's own deinterlacer, which has to keep the source rate." />
+                ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
     </Grid>
 
     <TextBlock Classes="h" Text="RESULT" />
     <TextBlock x:Name="ResultLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
     <TextBlock Classes="hint" TextWrapping="Wrap"
-               Text="Written beside the source as a near-lossless x264 MKV (CRF 12), with the audio and subtitles copied across, ready to encode on the AV1AN tab." />
+               Text="Written beside the source as a near-lossless x264 MKV (CRF 12), with the audio and subtitles copied across. That file is all this produces - nothing is loaded back into the file list." />
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
       <Button Content="Reset" MinWidth="90" Click="Reset_Click" />

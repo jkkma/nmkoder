@@ -28,8 +28,9 @@ namespace Nmkoder.UI.Tasks
         public static TrimSettings CurrentTrim;
 
         /// <summary> The deinterlacing settled for the encode being built, resolved once in
-        /// <see cref="Av1an.Run"/>. Always an ffmpeg filter here - see
-        /// <see cref="DeinterlaceUi.Av1anQtgmcProblem"/> for why QTGMC is not on offer. </summary>
+        /// <see cref="Av1an.Run"/>. Either an ffmpeg filter that goes into av1an's '-f' chain, or -
+        /// where it is QTGMC - a pass that runs before av1an and replaces its input, since a
+        /// VapourSynth script cannot sit inside av1an's per-chunk filtering. </summary>
         public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
 
         public static void Init()
@@ -1267,7 +1268,7 @@ namespace Nmkoder.UI.Tasks
             return $"Keeping the temp folder so this encode can be resumed ({chunks} chunk{(chunks == 1 ? "" : "s")}, {size} in '{Path.GetFileName(dir)}').";
         }
 
-        /// <summary> Removes a temp folder along with the resume arguments, and the trimmed input,
+        /// <summary> Removes a temp folder along with the resume arguments, and any prepared input,
         /// saved beside it. </summary>
         public static void DeleteTempFolder(string dir)
         {
@@ -1282,31 +1283,42 @@ namespace Nmkoder.UI.Tasks
 
             IoUtils.DeleteIfExists(dir + ".json");
 
-            foreach (string path in GetTrimmedInputs(dir))
+            foreach (string path in GetPreparedInputs(dir))
                 IoUtils.DeleteIfExists(path);
         }
 
         /// <summary>
-        /// Where a trimmed run keeps the copy of its input that av1an is actually given: beside the
-        /// temp folder, the way the resume arguments are, rather than inside it. av1an empties its
-        /// own temp folder at startup whenever it is not resuming, so the one file its command has
-        /// to be able to read is the one file that cannot live in there.
+        /// Where a run keeps the copy of its input that av1an is actually given - a trimmed one, a
+        /// deinterlaced one, or a trimmed one that was then deinterlaced: beside the temp folder, the
+        /// way the resume arguments are, rather than inside it. av1an empties its own temp folder at
+        /// startup whenever it is not resuming, so the one file its command has to be able to read is
+        /// the one file that cannot live in there.
         /// </summary>
         public static string GetTrimmedInputPath(string tempDir, string ext)
         {
             return $"{tempDir}.trim{ext}";
         }
 
-        /// <summary> Whatever GetTrimmedInputPath wrote for this temp folder, in any container. </summary>
-        private static IEnumerable<string> GetTrimmedInputs(string tempDir)
+        /// <summary> Where the QTGMC pass writes the progressive file av1an is given. Always Matroska:
+        /// it holds one frame per field at any rate, and every track the pass copies over. </summary>
+        public static string GetDeinterlacedInputPath(string tempDir)
+        {
+            return $"{tempDir}.deint.mkv";
+        }
+
+        /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
+        /// Both suffixes, because a trimmed *and* deinterlaced run leaves one of each. </summary>
+        private static IEnumerable<string> GetPreparedInputs(string tempDir)
         {
             try
             {
-                return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{Path.GetFileName(tempDir)}.trim.*").ToList();
+                string name = Path.GetFileName(tempDir);
+                return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
+                    .Where(f => Path.GetFileName(f).StartsWith($"{name}.trim.") || Path.GetFileName(f).StartsWith($"{name}.deint.")).ToList();
             }
             catch (Exception e)
             {
-                Logger.Log($"Could not look for a trimmed input beside '{Path.GetFileName(tempDir)}': {e.Message}", true);
+                Logger.Log($"Could not look for a prepared input beside '{Path.GetFileName(tempDir)}': {e.Message}", true);
                 return Enumerable.Empty<string>();
             }
         }

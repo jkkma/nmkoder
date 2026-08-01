@@ -157,7 +157,13 @@ namespace Nmkoder.Views
             Av1anUi.RefreshResizeBox();
         }
 
-        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+        private void Av1anDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+        private void Av1anDeintRate_Changed(object sender, RoutedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+
+        /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
+        /// whenever any part of the setting moves - not only on the dropdown itself. </summary>
+        private void Av1anDeinterlaceSetting_Changed()
         {
             if (!_initialized)
                 return;
@@ -259,7 +265,9 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
             ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
             ConfigParser.RestoreIfSaved(Av1anFpsBox);
-            ConfigParser.RestoreIndexIfSaved(Av1anDeintModeBox);
+            DeinterlaceUi.RestoreAv1anMode(); // By name rather than by index - see the method
+            ConfigParser.RestoreIfSaved(Av1anDeintPresetBox);
+            ConfigParser.RestoreIfSaved(Av1anDeintDoubleRateBox);
             Av1anUi.LoadResizeConfig();
             Av1anUi.RefreshResizeBox();
             ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
@@ -291,7 +299,9 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
                 ConfigParser.SaveGuiElement(Av1anFpsBox);
-                ConfigParser.SaveComboxIndex(Av1anDeintModeBox);
+                ConfigParser.SaveGuiElement(Av1anDeintModeBox); // The mode's name, not its index - see RestoreAv1anMode
+                ConfigParser.SaveGuiElement(Av1anDeintPresetBox);
+                ConfigParser.SaveGuiElement(Av1anDeintDoubleRateBox);
                 Av1anUi.SaveResizeConfig();
                 ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);

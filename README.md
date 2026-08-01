@@ -46,8 +46,10 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
   XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
   bundle ships and enables per machine - see below)
 - Same audio and video options as FFmpeg encoding
-- Deinterlacing too, though with bwdif or yadif rather than QTGMC and at the source frame rate - av1an filters
-  each chunk with ffmpeg, which has nowhere to run a VapourSynth script and counts on the frame count not changing
+- **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with ffmpeg, which has
+  nowhere to run a VapourSynth script, so picking QTGMC renders the video through it once beforehand - into a
+  near-lossless intermediate that av1an then encodes, optionally at one frame per field. Automatic and the ffmpeg
+  deinterlacers run inside av1an as before, at the source frame rate
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
 - Encodes can be paused and resumed live, or stopped entirely and picked up again later from the finished chunks
@@ -56,10 +58,10 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 
 - Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
 - Read Bitrates: Calculates stream size and average bitrate for each stream
-- Deinterlace For Encoding: Runs **QTGMC** once over a capture into a near-lossless MKV, ready to be encoded on the
-  AV1AN tab - av1an would otherwise re-run the deinterlacer for scene detection, every chunk and every quality probe.
-  Has its own Deinterlace settings, under Configure on its card, so using it does not mean setting anything up on a tab
-  you are not encoding from
+- Deinterlace Video: Exports a deinterlaced copy - **QTGMC** over the whole file into a near-lossless MKV, with the
+  audio and subtitles copied across. That file is all it produces; nothing is loaded back into the file list, and you
+  do not need it in order to encode an interlaced source, since both encode tabs deinterlace on their way through.
+  Has its own Deinterlace settings, under Configure on its card, separate from either tab's
 - Get Metrics: Calculate quality metrics like **VMAF**, SSIM, PSNR
 - Transfer Color Metadata: Copy color properties and HDR metadata from one file to another (e.g. from Bluray Remux to an encode)
 - Concatenate Into Single MKV: Merge any amount of any compatible video format into a single MKV (e.g. for chunked encoding)

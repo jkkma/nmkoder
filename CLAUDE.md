@@ -453,38 +453,42 @@ probe finds a namespace missing it now calls `LoadPlugin` on the unregistered fi
 purely to collect the reason autoload swallows, so the app says "VapourSynth refused a plugin
 QTGMC needs (eedi3m) - … requires API R4.2" rather than the flatly misleading "missing".
 
-**Two things QTGMC deliberately does not cover.**
+**A trim is the one thing QTGMC does not cover on the Quick Convert tab**, because that trim is
+ffmpeg's - an input seek, an output duration, or a frame-number filter - and none of the three
+reaches the script that reads the source, so the video would arrive whole while the audio
+arrived cut. Both together means cutting first; the Cut utility does that without re-encoding,
+and the log says so. The AV1AN tab's trim is not ffmpeg's - it cuts a copy before av1an starts -
+so there the two compose, and `Av1an.Run` runs the cut first and QTGMC over what it produced.
 
-A trim, because the trim is ffmpeg's - an input seek, an output duration, or a frame-number
-filter - and none of the three reaches the script that reads the source, so the video would
-arrive whole while the audio arrived cut. Both together means cutting first; the Cut utility
-does that without re-encoding, and the log says so.
+**QTGMC cannot run inside av1an, so the AV1AN tab renders it in front.** av1an applies video
+filters with ffmpeg once per chunk and there is nowhere in that to put a script; and it
+evaluates its input for scene detection, again for every chunk, and again for every probe a
+target-quality mode runs, so a filter costing more than the encoder would be paid for several
+times over. `Av1an.RenderDeinterlacedInput` therefore runs `DeinterlacePass` over the whole
+video into `{tempDir}.deint.mkv` - beside the temp folder, where the trimmed input goes, because
+av1an empties its own temp folder at startup - and av1an is given that. Paid for exactly once,
+sequentially, and the encoder gets a progressive, seekable, frame-accurate file.
 
-The AV1AN tab, for two reasons and the second is the one that would remain even if the first
-were solved. av1an applies video filters with ffmpeg once per chunk, and there is nowhere in
-that to put a script; and av1an evaluates its input for scene detection, again for every
-chunk, and again for every probe a target-quality mode runs - so a filter costing more than
-the encoder does would be paid for several times over. That tab gets bwdif or yadif, at the
-source frame rate: av1an works out the output's frame rate from the source and hands each
-encoder a fixed number of frames per chunk, so one frame per field would write twice the
-frames under the source's own rate, and the file would play at half speed.
+That is why **one frame per field is offered for QTGMC there and for nothing else**. The pass
+runs before av1an, so the doubled rate is simply the rate of the file av1an opens; a filter
+*inside* av1an emitting one frame per field would write twice the frames its chunking expects
+under the source's own rate, and the file would play at half speed. A QTGMC that falls back to
+bwdif - no VapourSynth, an RGB source - falls back into exactly that position, so `Av1an.Run`
+clears `DoubleRate` on any plan that is not the pipe. Do not remove that line.
 
-**Deinterlace For Encoding is the answer to that second one.** The utility runs the same
-VapourSynth pipe Quick Convert would, into a near-lossless x264 MKV, audio and subtitles
-copied, and then loads the result. QTGMC is paid for exactly once, sequentially, and av1an
-gets a progressive file with nothing in front of the encoder.
+**Automatic on the AV1AN tab stays on bwdif**, where Automatic everywhere else reaches for
+QTGMC. Automatic's whole job is to be the setting nobody thinks about, and starting an
+hours-long pass and a tens-of-gigabytes intermediate is not that. The expensive engine is the
+one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said, through the
+same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
 
-**Its settings are its own** - `UtilDeinterlace.Settings`, a `Configure…` dialog off its card,
-persisted under three `Config.Key` entries, defaulting to QTGMC outright where the tabs default
-to Automatic. It read the Quick Convert tab's Deinterlace row until 2.8.6, on the reasoning that
-the mode and the preset should be set in one place. That only holds for someone who uses both
-tabs, and this utility exists *because* the AV1AN tab cannot run QTGMC - so the person reaching
-for it is by definition encoding somewhere else, and was being sent to a tab they do not use to
-change a setting that also changes what that tab does. Automatic is likewise right on a tab that
-encodes whatever it is given and wrong here, where doing nothing means re-encoding the source
-into a copy for no reason.
+Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order. The AV1AN box therefore saves
+the mode's **name** where every other fixed dropdown saves its index: adding QTGMC in its proper
+place moved Bwdif and Yadif down one, and a saved index of 2 would have started an unwanted
+QTGMC pass for someone who had picked Bwdif. `DeinterlaceUi.RestoreAv1anMode` reads a saved
+integer once, against the list as it stood in 2.8.9, and writes a name back.
 
-Feeding av1an a `.vpy` directly is possible and is the wrong trade. Measured rather than
+Feeding av1an a `.vpy` directly is possible and is still the wrong trade. Measured rather than
 assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come
 out bit-identical to the same frames of a sequential render, and three 240-frame chunks took
 1.11 / 1.19 / 1.17 s against 3.41 s for all 720 in one go, so the per-chunk cost is about 2%.
@@ -495,7 +499,19 @@ and seeking into an MPEG program stream is not frame-accurate - `vspipe -s 300` 
 came back with the frame the sequential render calls 298, where the same video remuxed to MKV
 landed on 300 exactly.
 
-The utility only takes over the file list when that list held nothing but the source. In
-muxing mode the file list *is* the set of inputs, so adding one quietly would change what the
-next mux writes, and a batch is stepping through a queue that must not move underneath it -
-both are told where the file is instead.
+**The Deinterlace Video utility exports a file and stops.** It shares the pass - `DeinterlacePass`
+is the one place the near-lossless x264 MKV with its audio and subtitles copied is written - and
+its output is the deliverable rather than a step on the way to a tab. Until 2.8.10 it was that
+step, and loaded its own result into the file list to make the AV1AN tab reachable; the tab
+reaches QTGMC itself now, so the loading is gone, along with the muxing-mode and batch carve-outs
+that guarded it. A utility that exports a file has no business rearranging the file list on the
+way out. The Cut utility is the same shape and always was, which is worth keeping true of both:
+utilities write a file, the encode tabs' own Trim and Deinterlace settings apply during an encode,
+and neither reads the other's.
+
+**Its settings are its own** - `UtilDeinterlace.Settings`, a `Configure…` dialog off its card,
+persisted under three `Config.Key` entries, defaulting to QTGMC outright where the tabs default
+to Automatic. It read the Quick Convert tab's Deinterlace row until 2.8.6, on the reasoning that
+the mode and the preset should be set in one place. That only holds for someone who uses both,
+and the defaults do not want to agree anyway: Automatic is right on a tab that encodes whatever
+it is given and wrong here, where doing nothing means writing a re-encoded copy for no reason.

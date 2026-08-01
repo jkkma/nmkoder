@@ -267,9 +267,21 @@ namespace Nmkoder.UI.Tasks
 
                     // Settled before the filters are built, and once: in Automatic mode working out
                     // whether the source is interlaced can mean decoding a few hundred frames of it.
+                    // What comes back decides which of two shapes the deinterlacing takes - a filter
+                    // in av1an's own '-f' chain, or the separate pass RenderDeinterlacedInput runs -
+                    // so it has to be settled before either is built.
                     Av1anUi.CurrentDeinterlace = await Deinterlace.ResolveAsync(TrackList.current.File, DeinterlaceUi.GetAv1anRequest());
 
-                    if (Av1anUi.CurrentDeinterlace.Runs)
+                    // One frame per field is asked for with QTGMC and is only safe with QTGMC, because
+                    // that pass runs *before* av1an: the doubled rate is simply the rate of the file
+                    // av1an then opens. A QTGMC that fell back to bwdif - no VapourSynth, an RGB
+                    // source - would otherwise carry the setting into av1an's own per-chunk filter
+                    // chain, where it writes twice the frames the chunking expects under the source's
+                    // own rate, and the encode comes out playing at half speed.
+                    if (!Av1anUi.CurrentDeinterlace.UsesPipe)
+                        Av1anUi.CurrentDeinterlace.DoubleRate = false;
+
+                    if (Av1anUi.CurrentDeinterlace.Runs && !Av1anUi.CurrentDeinterlace.UsesPipe)
                         Logger.Log($"Deinterlacing '{TrackList.current.File.Name.Trunc(40)}' with {Av1anUi.CurrentDeinterlace.Describe()}.");
 
                     // The frame the encoder will actually be handed, worked out before its arguments
@@ -468,6 +480,24 @@ namespace Nmkoder.UI.Tasks
 
                     if (trimmed.IsNotEmpty())
                         inPath = trimmed;
+
+                    // After the cut rather than before it, which is the cheap ordering and the only
+                    // correct one: the cut is a stream copy of the section being encoded, so putting
+                    // it first means QTGMC renders that section instead of the whole tape - and the
+                    // Quick Convert tab's reason for refusing the pairing outright (its trim is
+                    // ffmpeg's, and cannot reach the script that reads the source) does not apply
+                    // here, because this trim has already produced a file.
+                    string deinterlaced = await RenderDeinterlacedInput(inPath, tempDir, trimmed.IsNotEmpty(), resume);
+
+                    if (RunTask.canceled || RunTask.failed)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (deinterlaced.IsNotEmpty())
+                        inPath = deinterlaced;
 
                     args = $"-i {inPath.Wrap()} {args}";
                 }
@@ -675,6 +705,68 @@ namespace Nmkoder.UI.Tasks
                 RunTask.Cancel($"Could not cut the section to encode out of '{file.Name}'. The log has the details.");
 
             return "";
+        }
+
+        /// <summary>
+        /// Renders the QTGMC pass and returns the progressive file av1an should be given, or "" where
+        /// there is no such pass - which is every mode but QTGMC, the ffmpeg deinterlacers going into
+        /// av1an's own filter chain instead.
+        /// <para/>
+        /// QTGMC cannot run inside av1an at all. av1an applies video filters by composing an ffmpeg
+        /// command per chunk, and there is nowhere in one to evaluate a VapourSynth script; and even
+        /// if there were, av1an reads its input for scene detection, again for every chunk, and again
+        /// for every probe a target-quality mode runs, so the most expensive filter in the app would
+        /// be paid for several times over. Rendering it once, in front, costs one pass and one
+        /// temporary file, and hands av1an a progressive, seekable, frame-accurate input.
+        /// <para/>
+        /// The file goes beside the temp folder, where the trimmed input goes and for the same reason:
+        /// av1an empties its own temp folder at startup. It is deleted with that folder - on success,
+        /// or when a canceled encode's chunks are thrown away - so it lives exactly as long as the
+        /// encode it belongs to.
+        /// </summary>
+        private static async Task<string> RenderDeinterlacedInput(string inPath, string tempDir, bool trimmed, bool resume)
+        {
+            DeinterlacePlan plan = Av1anUi.CurrentDeinterlace;
+
+            if (!plan.UsesPipe)
+                return "";
+
+            string outPath = Av1anUi.GetDeinterlacedInputPath(tempDir);
+            MediaFile file = TrackList.current?.File;
+
+            // Resuming with new settings rebuilds the whole command, and re-rendering QTGMC over an
+            // hour of tape to change a CRF would cost more than the encode being resumed. Only ever a
+            // file this same encode wrote: a fresh run mints a temp folder from the clock, so there is
+            // never one of these sitting next to it already.
+            if (resume && IoUtils.GetFilesize(outPath) > 0)
+            {
+                Logger.Log($"Reusing the deinterlaced file this encode was started from ('{Path.GetFileName(outPath)}'). " +
+                    $"The pass is not run again and the Deinterlace setting is not re-read - delete that file to redo it.");
+                return outPath;
+            }
+
+            Logger.Log($"Deinterlacing {(trimmed ? "the section to encode" : $"'{file?.Name.Trunc(40)}'")} with {plan.Describe()}, " +
+                $"into {DeinterlacePass.DescribeOutput()} that av1an will then encode. QTGMC cannot run inside av1an, so it " +
+                $"runs once here instead; this is a full pass over the video and its output is a temporary file the size of one.");
+
+            // The loaded file either way - the cut copy carries its track layout - but only the
+            // whole of it when nothing was cut, since a section's length is not the length that file
+            // reports and the progress target would be measured against the wrong number.
+            string problem = await DeinterlacePass.RunAsync(plan, inPath, outPath, "qtgmc-av1an", file, wholeSource: !trimmed);
+
+            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            {
+                // Whatever is on disk stops partway through the video, and the reuse above would take
+                // it for a finished pass on the next resume - so a stopped pass leaves nothing behind.
+                IoUtils.TryDeleteIfExists(outPath);
+
+                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                    RunTask.Fail($"The deinterlace pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
+
+                return "";
+            }
+
+            return outPath;
         }
 
         /// <summary>

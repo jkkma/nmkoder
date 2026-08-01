@@ -12,15 +12,16 @@ using System.Threading.Tasks;
 namespace Nmkoder.Views
 {
     /// <summary>
-    /// The Deinterlace For Encoding utility's own settings.
+    /// The Deinterlace Video utility's own settings.
     /// <para/>
-    /// A separate dialog rather than a second reading of the Quick Convert tab's row, because the
-    /// people who use this utility are the ones who do not use that tab: it exists precisely because
-    /// the AV1AN tab cannot run QTGMC itself. Sending them somewhere else to change a setting that
-    /// also changes what that somewhere else does was the wrong shape.
+    /// A separate dialog rather than a second reading of an encode tab's row: this utility exports a
+    /// file where the tabs encode one, so the two do not want the same default - Automatic is right on
+    /// a tab that encodes whatever it is given and wrong here, where doing nothing means writing a
+    /// copy for no reason. Sending someone to a tab they may never use, to change a setting that also
+    /// changes what that tab does, was the wrong shape.
     /// <para/>
-    /// The engines offered are the same five, though. This runs the same VapourSynth pipe Quick
-    /// Convert does - the difference is only where the frames end up.
+    /// The engines offered are the same five, though. This runs the same VapourSynth pipe the encode
+    /// tabs do - the difference is only where the frames end up.
     /// </summary>
     public partial class DeinterlaceWindow : Window
     {

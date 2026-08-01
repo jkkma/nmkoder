@@ -266,8 +266,14 @@
                     <TextBlock Grid.Row="6" Grid.Column="3" Classes="field" Text="Deinterlace" />
                     <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
                     <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
-                      <ComboBox x:Name="Av1anDeintModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="Av1anDeintMode_SelectionChanged"
-                                ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is not offered here - av1an filters each chunk with ffmpeg, which cannot run a VapourSynth script. To get QTGMC onto this tab, run the Deinterlace For Encoding utility first and encode the file it writes." />
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
+                                  ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
+                        <ComboBox x:Name="Av1anDeintPresetBox" Width="125" SelectionChanged="Av1anDeintPreset_SelectionChanged"
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                        <CheckBox x:Name="Av1anDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Av1anDeintRate_Changed"
+                                  ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Only offered for QTGMC: it runs before av1an, so the doubled rate is simply the rate of the file av1an is given, where a filter inside av1an emitting one frame per field would write twice the frames its chunking expects." />
+                      </StackPanel>
                       <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
                   </Grid>
@@ -607,17 +613,18 @@
                 </Border>
 
                 <Border x:Name="UtilsDeinterlacePanel" Classes="card util" Tapped="SelectDeinterlace"
-                        ToolTip.Tip="Do this before encoding a tape capture on the AV1AN tab. av1an would otherwise re-run the deinterlacer for scene detection, for every chunk, and for every target-quality probe - and it drops the audio when it reads a VapourSynth script.">
+                        ToolTip.Tip="Writes a deinterlaced file and stops there - nothing is loaded back into the file list. You do not need this to encode an interlaced source: both encode tabs deinterlace on their way through, QTGMC included. Use it when the deinterlaced file is what you are after, or to look at one before committing to a long encode.">
                   <StackPanel>
                     <Grid ColumnDefinitions="*,Auto" MinHeight="30">
-                      <TextBlock Grid.Column="0" Text="Deinterlace For Encoding" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="0" Text="Deinterlace Video" FontWeight="SemiBold" VerticalAlignment="Center" />
                       <Button Grid.Column="1" x:Name="UtilsDeinterlaceConfBtn" Content="Configure…" Click="UtilsDeinterlaceConf_Click" />
                     </Grid>
-                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Runs QTGMC once over the whole file, into a near-lossless MKV with the audio copied across. Has its own settings - it does not read the Quick Convert tab." />
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Exports a deinterlaced copy - QTGMC over the whole file into a near-lossless MKV, audio and subtitles copied across. Has its own settings, separate from the encode tabs." />
                   </StackPanel>
                 </Border>
 
-                <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut">
+                <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut"
+                        ToolTip.Tip="Writes the section to a new file and stops there - nothing is loaded back into the file list. To encode part of a video rather than export it, use the Trim setting on the encode tab you are encoding from; this utility's section is its own and does not reach them.">
                   <StackPanel>
                     <Grid ColumnDefinitions="*,Auto" MinHeight="30">
                       <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" VerticalAlignment="Center" />
