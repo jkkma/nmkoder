@@ -206,6 +206,61 @@ namespace Nmkoder.Media
             return $"pad=width=ceil(iw/{px})*{px}:height=ceil(ih/{px})*{px}:color=black@0";
         }
 
+        /// <summary>
+        /// The first video stream's sample aspect ratio, or an empty size when there is no video or
+        /// ffprobe does not know - which downstream code reads as square. The loaded file's streams
+        /// are already parsed, so they are consulted first; the probe is only for a path that is not
+        /// the loaded file, and its output is cached alongside every other probe of that file.
+        /// </summary>
+        public static async Task<Size> GetSampleAspectRatio(string path)
+        {
+            try
+            {
+                MediaFile current = TrackList.current?.File;
+
+                if (current != null && (current.SourcePath == path || current.ImportPath == path))
+                {
+                    VideoStream vs = current.VideoStreams?.FirstOrDefault();
+
+                    if (vs != null)
+                        return vs.Sar;
+                }
+
+                // Only video streams carry the key, so the first matching line is the first video
+                // stream wherever it sits among the file's streams.
+                string output = await GetFfprobeInfoAsync(path, showStreams, "sample_aspect_ratio");
+                return SizeFromString(output.SplitIntoLines().FirstOrDefault(x => x.IsNotEmpty()) ?? "");
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"GetSampleAspectRatio failed for '{path}': {e.Message}", true);
+                return new Size();
+            }
+        }
+
+        /// <summary>
+        /// The scale filter for a preview image, or "" when the frame can be shown as it is. Two
+        /// jobs in one filter: capping the height at <paramref name="maxH"/>, and de-squeezing
+        /// anamorphic sources - an image file is shown pixel for pixel, so a shape carried in the
+        /// SAR flag is a shape the viewer never sees, and a DVD frame that looks squashed.
+        /// </summary>
+        public static string GetPreviewScaleFilter(Size storage, Size sar, int maxH)
+        {
+            Size display = AspectRatio.GetDisplaySize(storage, sar);
+
+            if (display.Width <= 0 || display.Height <= 0)
+                return "";
+
+            double f = Math.Min(1d, (double)maxH / display.Height);
+            int w = Math.Max(2, (int)Math.Round(display.Width * f / 2d, MidpointRounding.AwayFromZero) * 2);
+            int h = Math.Max(2, (int)Math.Round(display.Height * f / 2d, MidpointRounding.AwayFromZero) * 2);
+
+            if (w == storage.Width && h == storage.Height)
+                return "";
+
+            return $"scale={w}:{h}";
+        }
+
         public static async Task<string> GetCurrentAutoCrop(string path, bool quiet)
         {
             string msg = "Detecting crop... This can take a while for long videos.";
@@ -251,6 +306,21 @@ namespace Nmkoder.Media
             Logger.Log($"Automatically detected crop: {cropVals[0]}x{cropVals[1]} (X = {cropVals[2]}, Y = {cropVals[3]})", quiet, !quiet && repl);
 
             return $"crop={chosen}";
+        }
+
+        /// <summary> The frame size out of a "crop=w:h:x:y" filter, or <paramref name="fallback"/> if it is not one. </summary>
+        public static Size ParseCropSize(string cropFilter, Size fallback)
+        {
+            try
+            {
+                string[] parts = cropFilter.Split('=').Last().Split(':');
+                Size size = new Size(parts[0].GetInt(), parts[1].GetInt());
+                return size.Width > 0 && size.Height > 0 ? size : fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         public struct StreamSizeInfo { public float Kbps; public long Bytes; }
