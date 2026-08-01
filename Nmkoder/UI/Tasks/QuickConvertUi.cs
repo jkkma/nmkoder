@@ -587,15 +587,46 @@ namespace Nmkoder.UI.Tasks
             string scaleW = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
             string scaleH = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
             string cropMode = Form.EncCropModeBox.GetText().ToLower();
+            Size scaleInput = vs.Resolution; // What the scale filter is handed, once a crop has taken its share
 
             if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
+            {
                 filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                scaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+            }
 
             if (cropMode.Contains("auto")) // Check Filter: Autocrop
-                filters.Add(await FfmpegUtils.GetCurrentAutoCrop(currFile.ImportPath, quiet));
+            {
+                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(currFile.ImportPath, quiet);
+                filters.Add(autoCrop);
+                scaleInput = Av1anUi.ParseCropSize(autoCrop, scaleInput);
+            }
 
             if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
+            {
+                // The boxes talk about the picture, but the filter they build is measured in storage
+                // pixels and ends in setsar=1:1 - which is how a percentage or a lone width used to
+                // turn a 4:3 DVD into a squashed 3:2 one, the way the AV1AN tab's old boxes did. An
+                // anamorphic source is de-squeezed first, so the numbers measure the real shape. A
+                // custom filter that sets a SAR or DAR itself is the user taking this over.
+                bool desqueeze = AspectRatio.IsAnamorphic(vs.Sar)
+                    && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
+
+                if (desqueeze)
+                {
+                    ResizeConfig dq = ResizeConfig.DesqueezeOnly();
+                    Size result = dq.Compute(scaleInput, vs.Sar);
+
+                    if (!result.IsEmpty)
+                    {
+                        filters.Add(dq.GetFilterArgs(scaleInput, vs.Sar));
+                        Logger.Log($"De-squeezing {scaleInput.Width}x{scaleInput.Height} ({vs.Sar.Width}:{vs.Sar.Height} pixels) to " +
+                            $"{result.Width}x{result.Height} before the scale, so it measures the shape the video plays at.", quiet);
+                    }
+                }
+
                 filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
+            }
 
             filters.AddRange(GetCustomFilters());
 

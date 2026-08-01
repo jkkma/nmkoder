@@ -74,6 +74,18 @@ namespace Nmkoder.Data
             return new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent, PresetKey = presetKey };
         }
 
+        /// <summary>
+        /// A resize that changes nothing but the pixels' shape: an anamorphic source comes out
+        /// de-squeezed to its display size, and a square-pixel one computes back to its own
+        /// dimensions. This is what runs when no resize is configured but the frames are headed
+        /// somewhere the SAR flag cannot follow - av1an's encoders, or a scale that ends in
+        /// setsar=1:1 - so the shape has to be baked into the pixels to survive the trip.
+        /// </summary>
+        public static ResizeConfig DesqueezeOnly()
+        {
+            return new ResizeConfig { Mode = ResizeMode.Percent, Percent = 100 };
+        }
+
         #region Geometry
 
         /// <summary>

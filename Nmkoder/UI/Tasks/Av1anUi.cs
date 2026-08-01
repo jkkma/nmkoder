@@ -349,11 +349,21 @@ namespace Nmkoder.UI.Tasks
             bool resizing = CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled
                 && !CurrentResize.Compute(vs.Resolution, vs.Sar).IsEmpty;
 
+            // With no resize configured, an anamorphic source still needs its shape restored here:
+            // av1an hands its encoders bare frames and muxes without an aspect flag, so a SAR left
+            // to "carry through" arrives nowhere, and a 16:9 DVD would come out playing as a
+            // squashed 3:2. De-squeezing to the display size is the only way the shape survives
+            // this pipeline - which is what the resize dialog's anamorphic switch says in as many
+            // words. A custom filter that sets a SAR or DAR itself is the user taking this over,
+            // and is left in charge.
+            bool desqueezing = !resizing && AspectRatio.IsAnamorphic(vs.Sar)
+                && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
+
             // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
             // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
             // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
             // was measured against the unpadded frame.
-            if (!resizing && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0))) // Check Filter: Pad for mod2
+            if (!resizing && !desqueezing && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0))) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
 
             string cropMode = Form.Av1anCropBox.GetText().ToLower();
@@ -377,6 +387,19 @@ namespace Nmkoder.UI.Tasks
                 filters.Add(CurrentResize.GetFilterArgs(scaleInput, vs.Sar));
                 LogResize(scaleInput, vs.Sar);
             }
+            else if (desqueezing) // Check Filter: De-squeeze, when no resize will run
+            {
+                ResizeConfig desqueeze = ResizeConfig.DesqueezeOnly();
+                Size result = desqueeze.Compute(scaleInput, vs.Sar);
+
+                if (!result.IsEmpty)
+                {
+                    filters.Add(desqueeze.GetFilterArgs(scaleInput, vs.Sar));
+                    Logger.Log($"De-squeezing {scaleInput.Width}x{scaleInput.Height} ({vs.Sar.Width}:{vs.Sar.Height} pixels) to " +
+                        $"{result.Width}x{result.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
+                        $"has to be baked into the pixels to survive. Configure a resize to control the size.");
+                }
+            }
 
             filters.AddRange(GetCustomFilters());
 
@@ -394,7 +417,7 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> The frame size out of a "crop=w:h:x:y" filter, or <paramref name="fallback"/> if it is not one. </summary>
-        private static Size ParseCropSize(string cropFilter, Size fallback)
+        public static Size ParseCropSize(string cropFilter, Size fallback)
         {
             try
             {
@@ -543,7 +566,22 @@ namespace Nmkoder.UI.Tasks
         private static string GetResizeInfoText(Size storage, Size sar)
         {
             if (CurrentResize == null || CurrentResize.Mode == ResizeMode.Disabled)
+            {
+                // The one thing that still runs without a resize: an anamorphic source is de-squeezed,
+                // because the encoders cannot keep its aspect flag - saying "its own resolution" here
+                // would promise dimensions the output will not have.
+                if (!storage.IsEmpty && AspectRatio.IsAnamorphic(sar))
+                {
+                    Size desqueezed = ResizeConfig.DesqueezeOnly().Compute(storage, sar);
+
+                    if (!desqueezed.IsEmpty)
+                        return $"{desqueezed.Width}x{desqueezed.Height} · {AspectRatio.Describe(desqueezed.Width, desqueezed.Height)} · " +
+                            $"de-squeezed from {storage.Width}x{storage.Height}, whose pixels are {sar.Width}:{sar.Height} - " +
+                            "the encoder cannot keep the anamorphic flag";
+                }
+
                 return "The source is encoded at its own resolution.";
+            }
 
             if (TrackList.current != null && TrackList.current.File.VideoStreams.Count < 1)
                 return "No video track - the resize will be skipped.";
