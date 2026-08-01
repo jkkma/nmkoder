@@ -303,6 +303,17 @@ automatic one costs those ten probes, and there is nowhere here to spend them on
 worked out from a size that is not the real one is the thing being fixed, so guessing is worse
 than abstaining.
 
+**The resize dialog's anamorphic switch is warned about rather than overridden.** Off, the targets
+measure the stored pixels and nothing bakes the display shape in - and there is nowhere else for it
+to live, since av1an hands its encoders bare frames and a chain ending in `setsar=1:1` drops the
+flag anyway. So a 16:9 DVD comes out playing as 3:2. That is a defensible thing to ask for, on an
+archival re-encode that will be flagged later, so it is not taken away; what was wrong was saying
+nothing. `ResizeConfig.GetNote` now leads with it - ahead of every other clause, because it is the
+only one describing a file whose *shape* is wrong rather than a size nobody asked for - and the
+encode logs it too. The case that made this worth doing is a target the source already meets: the
+resize is a no-op, no filter runs at all, and the readout used to answer "already this size, so it
+is left alone", which is true of the pixels and wrong about the picture.
+
 **av1an fails a chunk whose frame count is not the one it expected**, retries it to `--max-tries`,
 then shuts the worker down and with it the run. A frame rate change is that mismatch by
 construction and on every chunk - writing a different number of frames than came in is the whole

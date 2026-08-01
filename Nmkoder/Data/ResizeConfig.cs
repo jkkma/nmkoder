@@ -405,6 +405,19 @@ namespace Nmkoder.Data
             Size src = GetSourceSize(storage, sar);
             bool desqueezed = CorrectAspect && AspectRatio.IsAnamorphic(sar);
 
+            // Ahead of every other clause, because it is the only one describing a file whose *shape* is
+            // wrong rather than a size nobody asked for. What makes 720x480 mean 16:9 is a flag, not the
+            // pixels; the correction being off is what stops that shape being baked into them, and a
+            // chain ending in setsar=1:1 drops the flag regardless - as does an encoder handed bare
+            // frames. Left to the clauses below, the commonest case of this reads "already this size, so
+            // it is left alone", which is true of the pixels and wrong about the picture.
+            if (!CorrectAspect && AspectRatio.IsAnamorphic(sar))
+            {
+                Size display = AspectRatio.GetDisplaySize(storage, sar);
+                return $"the {sar.Width}:{sar.Height} pixel shape is dropped, so this plays as " +
+                    $"{AspectRatio.Describe(result.Width, result.Height)} rather than {AspectRatio.Describe(display.Width, display.Height)}";
+            }
+
             if (Mode == ResizeMode.Exact && Fill == ResizeFill.Stretch)
             {
                 double distortion = ((double)result.Width / result.Height) / ((double)src.Width / src.Height);
