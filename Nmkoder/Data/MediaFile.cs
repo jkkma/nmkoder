@@ -38,6 +38,11 @@ namespace Nmkoder.Data
         public List<DataStream> DataStreams = new List<DataStream>();
         public List<AttachmentStream> AttachmentStreams = new List<AttachmentStream>();
         public VideoColorData ColorData = null;
+
+        /// <summary> What this file's scan type turned out to be, or null until something asks.
+        /// Filled by <see cref="Media.InterlaceDetect.GetAsync"/> and kept here because measuring it
+        /// can mean decoding frames, which is not worth doing twice for one file. </summary>
+        public InterlaceInfo Interlacing = null;
         public long CreationTime;
         public bool Initialized = false;
         public bool SequenceInitialized = false;

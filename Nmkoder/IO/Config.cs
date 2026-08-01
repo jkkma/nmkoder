@@ -400,6 +400,7 @@ namespace Nmkoder.IO
             Av1anOptsChunkModeBox,
             Av1anOptsSplitModeBox,
             Av1anOptsWorkerCountUpDown,
+            Av1anResize,
             CmdDebugMode,
             DefaultKeyIntSecs,
             DefaultOutputDir,
@@ -413,6 +414,9 @@ namespace Nmkoder.IO
             RecentFiles,
             ResetSettingsList,
             UseZeroIndexedStreams,
+            UtilDeinterlaceDoubleRate,
+            UtilDeinterlaceMode,
+            UtilDeinterlacePreset,
             WindowGeometry
         }
     }

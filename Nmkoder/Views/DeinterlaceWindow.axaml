@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.DeinterlaceWindow"
+        Title="Configure Deinterlace Video"
+        Width="620" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="6">
+
+    <Border Classes="card">
+      <TextBlock TextWrapping="Wrap"
+                 Text="This is the utility's own setting. It does not read either encode tab, and changing it here changes nothing over there - this utility writes a deinterlaced file and stops, where the tabs deinterlace on their way through an encode." />
+    </Border>
+
+    <TextBlock Classes="h" Text="SOURCE" />
+    <TextBlock x:Name="SourceLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+
+    <TextBlock Classes="h" Text="DEINTERLACER" />
+
+    <Grid ColumnDefinitions="150,*">
+      <TextBlock Grid.Column="0" Classes="field" Text="Mode" />
+      <ComboBox Grid.Column="1" x:Name="ModeBox" Width="220" HorizontalAlignment="Left" SelectionChanged="Mode_SelectionChanged"
+                ToolTip.Tip="QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it. Automatic only does something when the source really is interlaced, which is the safer default on an encode tab and the less useful one here." />
+    </Grid>
+
+    <Grid x:Name="PresetRow" ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" Classes="field" Text="QTGMC preset" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <ComboBox x:Name="PresetBox" Width="140" SelectionChanged="Preset_SelectionChanged"
+                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+        <TextBlock Classes="hint" VerticalAlignment="Center" Text="Slower presets look better and cost hours." />
+      </StackPanel>
+    </Grid>
+
+    <Grid ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" Classes="field" Text="Frame rate" />
+      <CheckBox Grid.Column="1" x:Name="DoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Option_Changed"
+                ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
+    </Grid>
+
+    <TextBlock Classes="h" Text="RESULT" />
+    <TextBlock x:Name="ResultLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+    <TextBlock Classes="hint" TextWrapping="Wrap"
+               Text="Written beside the source as a near-lossless x264 MKV (CRF 12), with the audio and subtitles copied across. That file is all this produces - nothing is loaded back into the file list." />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

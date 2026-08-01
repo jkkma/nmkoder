@@ -2,10 +2,12 @@ using Avalonia;
 using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using Nmkoder.Views;
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 
 namespace Nmkoder
 {
@@ -18,6 +20,37 @@ namespace Nmkoder
 
         /// <summary> The application's main window. Set as soon as it has been constructed. </summary>
         public static MainWindow MainWin;
+
+        private static string _version;
+
+        /// <summary>
+        /// The build's version, as "2.8.0". Read from the informational version, which is what
+        /// &lt;Version&gt; in the csproj writes verbatim - the assembly version pads it to four parts,
+        /// so "2.8.0.0" is what asking for that would show. A '+' suffix, which some builds append,
+        /// is cut: it names a commit, not a release.
+        /// </summary>
+        public static string Version
+        {
+            get
+            {
+                if (_version != null)
+                    return _version;
+
+                try
+                {
+                    Assembly asm = Assembly.GetExecutingAssembly();
+                    string info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                    _version = (info.IsNotEmpty() ? info.Split('+')[0] : asm.GetName().Version?.ToString(3)) ?? "";
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Could not read the application version: {e.Message}", true);
+                    _version = "";
+                }
+
+                return _version;
+            }
+        }
 
         [STAThread]
         static void Main(string[] cmdArgs)
@@ -32,7 +65,13 @@ namespace Nmkoder
             Logger.Log($"Files: {(fileArgs.Length > 0 ? string.Join(", ", fileArgs) : "None")}", true);
             Logger.Log($"Args: {(args.Length > 0 ? string.Join(", ", args) : "None")}", true);
 
+            // Before the UI, which is what the App SDK asks for, and paired with the Unregister
+            // below so a portable copy does not leave its COM registration behind in the registry.
+            WindowsToast.Register();
+
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(cmdArgs);
+
+            WindowsToast.Unregister();
         }
 
         // Also used by the Avalonia XAML previewer/designer.

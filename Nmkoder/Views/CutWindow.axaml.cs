@@ -22,12 +22,13 @@ namespace Nmkoder.Views
     /// is on screen while the section is picked, so the points are chosen by looking at the video
     /// rather than by guessing timestamps and running the encode to find out.
     ///
-    /// The same dialog configures both the trim an encode applies and the standalone lossless cut
-    /// utility - the two differ in what happens to the section afterwards, not in how it is picked.
+    /// The same dialog configures the trim an encode applies, the trim the AV1AN tab applies and
+    /// the standalone lossless cut utility - they differ in what happens to the section afterwards,
+    /// not in how it is picked.
     /// </summary>
     public partial class CutWindow : Window
     {
-        public enum Purpose { Trim, LosslessCut }
+        public enum Purpose { Trim, Av1anTrim, LosslessCut }
 
         /// <summary> The configured range. Null means "no cut". </summary>
         public TrimSettings Result { get; private set; }
@@ -54,6 +55,11 @@ namespace Nmkoder.Views
         private long _kfWanted = -1, _kfDone = long.MinValue, _kfResultMs = -1;
         private bool _kfBusy;
 
+        /// <summary> The dialog currently open, if any. Two of these at once cannot be told apart
+        /// afterwards: both write the same setting on their way out, so the one closed last wins and
+        /// a window the user never touched could overwrite the one they filled in. </summary>
+        private static CutWindow _open;
+
         public CutWindow()
         {
             InitializeComponent();
@@ -65,6 +71,12 @@ namespace Nmkoder.Views
             return await Show(Purpose.Trim, file, saved);
         }
 
+        /// <summary> Configures the section the AV1AN tab encodes. </summary>
+        public static async Task<TrimSettings> ShowForAv1anTrim(MediaFile file, TrimSettings saved)
+        {
+            return await Show(Purpose.Av1anTrim, file, saved);
+        }
+
         /// <summary> Configures the section the lossless cut utility copies out. </summary>
         public static async Task<TrimSettings> ShowForCut(MediaFile file, TrimSettings saved)
         {
@@ -73,15 +85,29 @@ namespace Nmkoder.Views
 
         private static async Task<TrimSettings> Show(Purpose purpose, MediaFile file, TrimSettings saved)
         {
+            if (_open != null) // Already picking a section - a second copy of this answers nothing
+            {
+                _open.Activate();
+                return saved;
+            }
+
             var window = new CutWindow();
             window.Load(purpose, file, saved);
+            _open = window;
 
-            Window owner = UiUtils.MainWindowHandle;
+            try
+            {
+                Window owner = UiUtils.MainWindowHandle;
 
-            if (owner != null && owner.IsVisible)
-                await window.ShowDialog(owner);
-            else
-                window.Show();
+                if (owner != null && owner.IsVisible)
+                    await window.ShowDialog(owner);
+                else
+                    window.Show();
+            }
+            finally
+            {
+                _open = null;
+            }
 
             // Dismissing without confirming keeps whatever was configured before.
             return window._confirmed ? window.Result : saved;
@@ -102,14 +128,22 @@ namespace Nmkoder.Views
             if (file != null && !file.IsDirectory)
                 _videoPath = file.ImportPath.IsNotEmpty() ? file.ImportPath : file.SourcePath;
 
+            // Only the encode trim offers the three modes: the other two end in a stream copy, which
+            // begins at a keyframe whatever it was asked for, so there is nothing to choose between.
             bool trim = purpose == Purpose.Trim;
-            Title = trim ? "Configure Trim" : "Cut Video";
+            Title = purpose == Purpose.LosslessCut ? "Cut Video" : "Configure Trim";
             ModeLabel.IsVisible = ModeBox.IsVisible = trim;
             ModeBox.SelectedIndex = trim ? (int)(saved?.TrimMode ?? TrimSettings.Mode.TimeKeyframe) : 0;
 
-            HintLabel.Text = trim
+            HintLabel.Text = purpose == Purpose.Trim
                 ? "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding."
-                : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. Press Run to cut.";
+                : purpose == Purpose.Av1anTrim
+                ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own."
+                : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own. Press Run to cut.";
+
+            // Snapping the start point is the button's whole job, and where it happens on its own
+            // there is nothing left to press.
+            SnapBtn.IsVisible = !KeyframeSnapAutomatic;
 
             LoadRange(saved);
 
@@ -255,6 +289,9 @@ namespace Nmkoder.Views
 
         private async void Confirm_Click(object sender, RoutedEventArgs e)
         {
+            if (_closed)
+                return;
+
             if (!TryReadFields(out long start, out long end))
             {
                 await UiUtils.ShowMessageBox($"Invalid input.\n\n{(IsFrameMode() ? "Please enter numeric values only." : "Please use the HH:MM:SS (or HH:MM:SS.mmm) format.")}", UiUtils.MessageType.Error);
@@ -263,6 +300,12 @@ namespace Nmkoder.Views
 
             _startMs = start;
             _endMs = end;
+
+            await SnapStartBeforeClosing();
+
+            if (_closed) // Confirmed twice while the probe above ran - the first one already closed
+                return;
+
             Result = BuildResult();
             _confirmed = true;
             Close();
@@ -471,7 +514,23 @@ namespace Nmkoder.Views
         /// starts wherever it was told to. </summary>
         private bool KeyframeSnapRelevant
         {
-            get { return _videoPath.IsNotEmpty() && (_purpose == Purpose.LosslessCut || ModeBox.SelectedIndex == 0); }
+            get { return _videoPath.IsNotEmpty() && (_purpose != Purpose.Trim || ModeBox.SelectedIndex == 0); }
+        }
+
+        /// <summary> Whether the start point moves onto that keyframe on its own instead of the move
+        /// being offered as a button. Both purposes that end in a stream copy do it - the AV1AN trim,
+        /// whose section is cut out before av1an ever sees it, and the standalone cut - because
+        /// declining it there buys nothing: the copy begins at the keyframe whatever this field says,
+        /// so refusing the move only leaves the dialog describing a section that is not the one
+        /// produced. Snapping does not change a frame of what comes out. It makes the range shown here
+        /// the range really copied, run-up and all, which is also the duration the copy's own progress
+        /// is measured against.
+        ///
+        /// The Quick Encode trim keeps the button: that path re-encodes rather than copying, so its
+        /// start point is not forced onto a keyframe the way a copy's is. </summary>
+        private bool KeyframeSnapAutomatic
+        {
+            get { return _purpose != Purpose.Trim; }
         }
 
         private void RequestKeyframeNote()
@@ -521,7 +580,14 @@ namespace Nmkoder.Views
 
                     _kfDone = wanted;
                     _kfResultMs = keyframeMs;
-                    WriteKeyframeNote(wanted, keyframeMs);
+
+                    // A snap answers its own question - the start point now sits on that keyframe -
+                    // so the loop is told the new point is resolved rather than asking the file again
+                    // to be told what it just did.
+                    if (TryAutoSnap(keyframeMs))
+                        _kfWanted = _kfDone = _startMs;
+                    else
+                        WriteKeyframeNote(wanted, keyframeMs);
                 }
             }
             catch (Exception e)
@@ -553,9 +619,81 @@ namespace Nmkoder.Views
                 return;
             }
 
-            KeyframeNote.Text = $"The closest keyframe at or before the start point is at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))}, " +
-                $"so a copy begins {(offset / 1000d).ToString("0.##")}s earlier than the start point.";
-            SnapBtn.IsEnabled = true;
+            string keyframe = TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs));
+
+            // Automatic and still off the keyframe is the one case the snap is held back for: the
+            // start point is mid-edit, so this says what is about to happen rather than offering it.
+            KeyframeNote.Text = KeyframeSnapAutomatic
+                ? $"The closest keyframe at or before the start point is at {keyframe}, and the start point moves back to it once this field is done being edited."
+                : $"The closest keyframe at or before the start point is at {keyframe}, so a copy begins {(offset / 1000d).ToString("0.##")}s earlier than the start point.";
+
+            SnapBtn.IsEnabled = !KeyframeSnapAutomatic;
+        }
+
+        /// <summary>
+        /// Moves the start point onto <paramref name="keyframeMs"/> where the purpose snaps on its
+        /// own, and says whether it did. The end point stays where it is, so the section grows by
+        /// however far back the keyframe sits rather than sliding: the frames asked for are all still
+        /// in it, with the run-up the copy has to include in front of them.
+        /// <para/>
+        /// The playhead follows, the same as it does off the button, so the preview is showing the
+        /// frame the encode really opens on rather than the one that was picked a moment ago. The
+        /// cost is that nudging a frame past a keyframe and setting the start point there lands back
+        /// on the keyframe - which is the honest answer, since a copy cannot begin anywhere else.
+        /// </summary>
+        private bool TryAutoSnap(long keyframeMs)
+        {
+            if (!KeyframeSnapAutomatic || !KeyframeSnapRelevant || keyframeMs < 0 || keyframeMs >= _startMs)
+                return false;
+
+            // Rewriting the box under the caret would swallow the digits still coming, so a start
+            // point being typed is snapped when it is finished instead of between two keystrokes.
+            if (StartBox.IsFocused)
+                return false;
+
+            long offset = _startMs - keyframeMs;
+            _startMs = keyframeMs;
+            WriteFields();
+            UpdateBars();
+            SetPosition(_startMs);
+
+            KeyframeNote.Text = $"The start point was moved back to the keyframe at {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(keyframeMs))} " +
+                $"({(offset / 1000d).ToString("0.##")}s earlier), because a copy can only begin at one.";
+            SnapBtn.IsEnabled = false;
+            return true;
+        }
+
+        /// <summary> Applies a snap the box's own focus held back, now that it has lost it. </summary>
+        private void StartBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (!_ready || _kfBusy) // Busy means a probe is already on its way to doing this
+                return;
+
+            if (_kfDone != _startMs) // No answer for this point yet
+                RequestKeyframeNote();
+            else if (TryAutoSnap(_kfResultMs))
+                _kfWanted = _kfDone = _startMs;
+        }
+
+        /// <summary>
+        /// Snaps a start point that never got the chance - typed into the box and confirmed before the
+        /// probe behind it had run, or while the box still held focus. The dialog closes on the range
+        /// that is really encoded whichever route the start point took to get here.
+        /// </summary>
+        private async Task SnapStartBeforeClosing()
+        {
+            if (!KeyframeSnapAutomatic || !KeyframeSnapRelevant)
+                return;
+
+            if (_kfDone != _startMs) // Never asked about this point, or asked about a different one
+            {
+                KeyframeNote.Text = "Looking for the closest keyframe…";
+                _kfResultMs = await FfmpegUtils.GetKeyframeMsAtOrBefore(_videoPath, _startMs);
+                _kfDone = _startMs;
+            }
+
+            if (_kfResultMs >= 0 && _kfResultMs < _startMs)
+                _startMs = _kfResultMs;
         }
 
         private void SnapToKeyframe_Click(object sender, RoutedEventArgs e)

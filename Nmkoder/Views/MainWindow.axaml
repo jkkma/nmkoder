@@ -15,8 +15,13 @@
 
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
-      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
-                 Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
+                   Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
+        <!-- Filled in from the assembly - the header is where a version is looked for, and it was
+             not anywhere in the app before. -->
+        <TextBlock x:Name="VersionLabel" Classes="dim" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+      </StackPanel>
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
         <Button Classes="subtle" Content="Discord" Click="Discord_Click" />
         <Button Classes="subtle" Content="Patreon" Click="Patreon_Click" />
@@ -32,12 +37,27 @@
         <!-- ─────────── File List ─────────── -->
         <TabItem Header="File List">
           <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="8">
-            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
-              <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
-              <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
-                <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
-                <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
-              </ComboBox>
+            <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8" Spacing="6">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="field" Text="Mode" VerticalAlignment="Center" />
+                <ComboBox x:Name="FileListModeBox" Classes="wide" SelectionChanged="FileListMode_SelectionChanged">
+                  <ComboBoxItem Content="Muxing Mode - Merge all loaded files into one output" />
+                  <ComboBoxItem Content="Batch Processing Mode - Run the task on each file separately" />
+                </ComboBox>
+              </StackPanel>
+
+              <!-- Batch mode overwrites the output box once per file, so it is the only place the
+                   user gets a say in what the twelve outputs are called. -->
+              <StackPanel x:Name="BatchNamingPanel" Orientation="Horizontal" IsVisible="False">
+                <TextBlock Classes="field" Text="Output Names" VerticalAlignment="Center" />
+                <TextBox x:Name="BatchNameTemplateBox" Width="300" PlaceholderText="{}{name}"
+                         TextChanged="BatchNameTemplate_TextChanged" />
+                <!-- The button sits before the hint so that a long example clips against the window
+                     edge rather than pushing the button off it. -->
+                <Button x:Name="BatchNamingHelpBtn" Classes="icon" Content="?" Margin="6,0,0,0"
+                        Click="BatchNamingHelp_Click" />
+                <TextBlock x:Name="BatchNamingHintLabel" Classes="hint" VerticalAlignment="Center" Margin="10,0,0,0" />
+              </StackPanel>
             </StackPanel>
 
             <Grid Grid.Row="1" Grid.Column="0">
@@ -45,8 +65,19 @@
                        SelectionChanged="FileList_SelectionChanged" DoubleTapped="FileList_DoubleTapped">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
-                    <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2">
-                      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                    <!-- The status glyph and text only appear once a batch has put the file in a
+                         queue; outside one HasBatchStatus is false and the row is just its name. -->
+                    <Border BorderBrush="{Binding RowBrush}" BorderThickness="4,0,0,0" Padding="6,2"
+                            ToolTip.Tip="{Binding StatusTooltip}">
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding StatusGlyph}" Foreground="{Binding StatusBrush}"
+                                   IsVisible="{Binding HasBatchStatus}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"
+                                   IsVisible="{Binding HasBatchStatus}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Margin="12,0,0,0" FontSize="12" />
+                      </Grid>
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -171,7 +202,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -199,11 +230,17 @@
                     <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Frame Rate" />
                     <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
 
-                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
-                    <StackPanel Grid.Row="3" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                      <TextBox x:Name="Av1anScaleBoxW" Classes="num" PlaceholderText="Auto" />
-                      <TextBlock Text="x" VerticalAlignment="Center" />
-                      <TextBox x:Name="Av1anScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Resize" />
+                    <!-- Spans into the filler column so the readout under the dropdown stays on one line:
+                         at 320 wide it wraps, and it is rewritten on every file load, so a wrap would
+                         reflow the rows beneath it each time a file is selected. -->
+                    <StackPanel Grid.Row="3" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="Av1anResizeBox" Width="260" SelectionChanged="Av1anResize_SelectionChanged"
+                                  ToolTip.Tip="Each target is a box the picture is fitted inside, so the source's aspect ratio is kept whatever it is. The size beside each one is what this file comes out as." />
+                        <Button x:Name="Av1anResizeConfBtn" Content="Configure…" IsVisible="False" Click="Av1anResizeConf_Click" />
+                      </StackPanel>
+                      <TextBlock x:Name="Av1anResizeInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Crop" />
@@ -214,6 +251,30 @@
                         <ComboBoxItem Content="Manual" />
                       </ComboBox>
                       <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Trim" />
+                    <StackPanel Grid.Row="5" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                      <!-- Capped so the button beside it stays inside this 320 wide column: a horizontal
+                           StackPanel measures its children with no width limit, where the Grid cell the
+                           button used to sit in directly imposed one. 320 - the Clear button (67) - the gap (6). -->
+                      <Button x:Name="Av1anTrimConfBtn" Content="Configure…" MaxWidth="247" Click="Av1anTrimConf_Click" />
+                      <Button x:Name="Av1anTrimClearBtn" Content="Clear" IsVisible="False" Click="Av1anTrimClear_Click"
+                              ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="6" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
+                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
+                                  ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
+                        <ComboBox x:Name="Av1anDeintPresetBox" Width="125" SelectionChanged="Av1anDeintPreset_SelectionChanged"
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                        <CheckBox x:Name="Av1anDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Av1anDeintRate_Changed"
+                                  ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Only offered for QTGMC: it runs before av1an, so the doubled rate is simply the rate of the file av1an is given, where a filter inside av1an emitting one frame per field would write twice the frames its chunking expects." />
+                      </StackPanel>
+                      <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
                   </Grid>
                 </ScrollViewer>
@@ -344,7 +405,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -390,7 +451,27 @@
                     </StackPanel>
 
                     <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
-                    <Button Grid.Row="4" Grid.Column="4" x:Name="EncTrimConfBtn" Content="Configure…" HorizontalAlignment="Left" Click="EncTrimConf_Click" />
+                    <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                      <!-- Capped to keep the button beside it inside this 320 wide column, as on the AV1AN tab -->
+                      <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="247" Click="EncTrimConf_Click" />
+                      <Button x:Name="EncTrimClearBtn" Content="Clear" IsVisible="False" Click="EncTrimClear_Click"
+                              ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Spans into the filler column, as the AV1AN tab's Resize row does: the readout
+                         under it is rewritten on every file load and must not wrap. -->
+                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="EncDeintModeBox" Width="200" SelectionChanged="EncDeintMode_SelectionChanged"
+                                  ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />
+                        <ComboBox x:Name="EncDeintPresetBox" Width="125" SelectionChanged="EncDeintPreset_SelectionChanged"
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                        <CheckBox x:Name="EncDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="EncDeintRate_Changed"
+                                  ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
+                      </StackPanel>
+                      <TextBlock x:Name="EncDeintInfoLabel" Classes="hint" Text="" />
+                    </StackPanel>
                   </Grid>
                 </ScrollViewer>
               </TabItem>
@@ -493,66 +574,93 @@
         <!-- ─────────── Utilities ─────────── -->
         <TabItem Header="Utilities">
           <ScrollViewer>
-            <StackPanel Margin="8" Spacing="8" Width="760" HorizontalAlignment="Left">
+            <!-- A WrapPanel rather than a column: eight cards stacked one per row ran off the
+                 bottom of the tab with most of the width sitting empty beside them. Fixed-width
+                 cards wrap into as many columns as the window allows - three at the default size,
+                 two at the minimum - and each row is only as tall as its own tallest card, which a
+                 UniformGrid could not do without padding every card out to the longest one. -->
+            <StackPanel Margin="8" Spacing="8">
               <TextBlock Classes="dim" Text="Pick a utility, then press Run. Utilities are shortcuts for actions that normally need long CLI commands." />
 
-              <Border x:Name="UtilsBitratesPanel" Classes="card" Tapped="SelectReadBitrates">
-                <StackPanel>
-                  <TextBlock Text="Read Bitrates" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Calculates stream size and average bitrate for each selected track." />
-                </StackPanel>
-              </Border>
+              <WrapPanel>
+                <Border x:Name="UtilsBitratesPanel" Classes="card util" Tapped="SelectReadBitrates">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Read Bitrates" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Calculates stream size and average bitrate for each selected track." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsMetricsPanel" Classes="card" Tapped="SelectGetMetrics">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsMetricsPanel" Classes="card util" Tapped="SelectGetMetrics">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Get Metrics" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Content="Configure…" Click="UtilsMetricsConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Calculate quality metrics like VMAF, SSIM and PSNR between two loaded files." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsColorDataPanel" Classes="card" Tapped="SelectColorData">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Copy color properties and HDR metadata from one file to another." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsColorDataPanel" Classes="card util" Tapped="SelectColorData">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Transfer Color Metadata" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Content="Configure…" Click="UtilsColorDataConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Copy color properties and HDR metadata from one file to another." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsCutPanel" Classes="card" Tapped="SelectCut">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
-                  </Grid>
-                  <TextBlock Classes="dim" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsDeinterlacePanel" Classes="card util" Tapped="SelectDeinterlace"
+                        ToolTip.Tip="Writes a deinterlaced file and stops there - nothing is loaded back into the file list. You do not need this to encode an interlaced source: both encode tabs deinterlace on their way through, QTGMC included. Use it when the deinterlaced file is what you are after, or to look at one before committing to a long encode.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Deinterlace Video" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsDeinterlaceConfBtn" Content="Configure…" Click="UtilsDeinterlaceConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Exports a deinterlaced copy - QTGMC over the whole file into a near-lossless MKV, audio and subtitles copied across. Has its own settings, separate from the encode tabs." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsConcatPanel" Classes="card" Tapped="SelectConcat">
-                <StackPanel>
-                  <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Merge all loaded files into a single MKV without re-encoding." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut"
+                        ToolTip.Tip="Writes the section to a new file and stops there - nothing is loaded back into the file list. To encode part of a video rather than export it, use the Trim setting on the encode tab you are encoding from; this utility's section is its own and does not reach them.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Cut Video" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsCutConfBtn" Content="Configure…" Click="UtilsCutConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Keep only a chosen section of the video, copied out without re-encoding. Pick the start and end point while watching the frame you are on." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsBitratePlotPanel" Classes="card" Tapped="SelectBitratePlot">
-                <StackPanel>
-                  <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Samples the bitrate across the whole video and plots it." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsConcatPanel" Classes="card util" Tapped="SelectConcat">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Concatenate Into Single MKV" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Merge all loaded files into a single MKV without re-encoding." />
+                  </StackPanel>
+                </Border>
 
-              <Border x:Name="UtilsOcrPanel" Classes="card" Tapped="SelectOcr">
-                <StackPanel>
-                  <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" />
-                  <TextBlock Classes="dim" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
-                </StackPanel>
-              </Border>
+                <Border x:Name="UtilsBitratePlotPanel" Classes="card util" Tapped="SelectBitratePlot">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="Show Bitrate Chart" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Samples the bitrate across the whole video and plots it." />
+                  </StackPanel>
+                </Border>
+
+                <Border x:Name="UtilsOcrPanel" Classes="card util" Tapped="SelectOcr">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Text="OCR Bitmap Subtitles" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Converts selected bitmap-based subtitle tracks into text subtitles." />
+                  </StackPanel>
+                </Border>
+              </WrapPanel>
             </StackPanel>
           </ScrollViewer>
         </TabItem>
@@ -610,10 +718,42 @@
 
     <!-- ══════════════ Log ══════════════ -->
     <Grid Grid.Row="3" x:Name="LogPanel" RowDefinitions="Auto,*">
-      <TextBlock Grid.Row="0" Classes="h" Text="LOG" Margin="0,0,0,2" />
-      <TextBox Grid.Row="1" x:Name="LogBox" Classes="log" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
-               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-               FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" FontSize="11" />
+      <!-- The controls share the header row rather than taking one of their own: the log's minimum
+           height is 60px and a second row would spend most of it. -->
+      <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,2">
+        <TextBlock Grid.Column="0" Classes="h" Text="LOG" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" x:Name="LogPausedLabel" Classes="hint" IsVisible="False" Margin="10,0,0,0"
+                   VerticalAlignment="Center" Text="Scrolled up - new lines are not being followed. Scroll to the bottom to resume." />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+          <Button x:Name="LogCopyBtn" Classes="logbtn" Content="Copy" Click="LogCopy_Click"
+                  ToolTip.Tip="Copy the whole log to the clipboard." />
+          <Button x:Name="LogSaveBtn" Classes="logbtn" Content="Save…" Click="LogSave_Click"
+                  ToolTip.Tip="Write the log to a text file." />
+          <Button x:Name="LogFolderBtn" Classes="logbtn" Content="Log Folder" Click="LogFolder_Click"
+                  ToolTip.Tip="Open this session's log folder, which also holds the per-tool logs (ffmpeg, av1an, mkvmerge)." />
+          <Button x:Name="LogClearBtn" Classes="logbtn" Content="Clear" Click="LogClear_Click"
+                  ToolTip.Tip="Empty the box. The session log on disk keeps everything." />
+        </StackPanel>
+      </Grid>
+
+      <!-- A virtualizing list rather than one text control: severity needs per-line colour, and a
+           TextBlock relays out every line it holds whenever one of them changes - at ten thousand
+           lines that is seconds per scroll step, against milliseconds here.
+           What virtualization costs is dragging a text selection ACROSS lines: each row owns its own
+           SelectableTextBlock and Avalonia has no cross-control selection. Whole rows are selectable
+           instead, which covers the same ground - but SelectableTextBlock takes the pointer press and
+           the keys for its own use, so both are claimed on the tunnelling route in MainWindow.Log.cs
+           before it sees them, and deliberately not marked handled, so dragging still selects text
+           within a line. -->
+      <ListBox Grid.Row="1" x:Name="LogBox" Classes="log" SelectionMode="Multiple"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <SelectableTextBlock Classes="logline" Classes.err="{Binding IsError}" Classes.warn="{Binding IsWarning}"
+                                 Classes.dim="{Binding IsDim}" Text="{Binding Display}" TextWrapping="NoWrap" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
     </Grid>
 
     <!-- ══════════════ Footer: progress + run controls ══════════════ -->

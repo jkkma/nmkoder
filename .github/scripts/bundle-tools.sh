@@ -501,6 +501,7 @@ bundle_vapoursynth() {
                      Source: https://www.python.org/downloads/"
     bundle_vs_source_plugins
     bundle_vs_metric_plugins
+    bundle_qtgmc
   else
     ASSET_RELEASE_TAG=""
     note_skip "vapoursynth" "no portable asset in $VAPOURSYNTH_TAG"
@@ -734,6 +735,280 @@ EOF
     note_licence "  Vship              MIT (GPU VapourSynth metric plugin; parked in vsynth/vship,
                      staged into vs-plugins per machine once its GPU check passes)
                      Source: https://github.com/Line-fr/Vship"
+  fi
+}
+
+# ─────────────────────────── QTGMC ───────────────────────────
+# QTGMC is the deinterlacer the Quick Convert tab reaches for on an interlaced source - a tape
+# or DVD capture, which is what this whole group exists for. It is a Python function rather than
+# a plugin, so what has to land here is havsfunc plus every VapourSynth plugin it touches, on top
+# of the VapourSynth staged above.
+#
+# All of it is pinned, and to one version of havsfunc in particular. havsfunc 33 is the last
+# release carrying the classic QTGMC(Preset=...) function - 34 replaced it with vs-jetpack's
+# builder API and a dependency tree many times this size - so 33 is what Nmkoder's generated
+# script is written against, and its plugins are pinned alongside it rather than tracking
+# releases that were never tested with it. The set below is not guesswork: it is what havsfunc 33
+# actually resolves on the default path, established by running the graph. eedi3m is in it even
+# though the default EdiMode is NNEDI3, because QTGMC_Interpolate builds an eedi3 partial before
+# it looks at EdiMode, and znedi3 specifically (not nnedi3) because that is the name it calls.
+#
+# None of it is load-bearing for the rest of the build: Nmkoder.Media.Qtgmc builds a QTGMC graph
+# and renders a frame before it uses any of this, once per session, so a piece that failed to
+# download shows up as a fallback to bwdif naming what is missing, not as a broken encode.
+#
+# The other thing every one of these has to satisfy is the VapourSynth *API* version, and that
+# is not the same question as whether the download worked. A plugin passes the API it was built
+# against to configPlugin, and a core older than that refuses to register it - silently, because
+# autoload reports nothing. VapourSynth is pinned to R72 here (see VAPOURSYNTH_TAG, and av1an's
+# VSScript API3 requirement behind it), which speaks API 4.0 and 4.1 and rejects 4.2. So a
+# version is only pinnable here if its binary is 4.1 or lower, whatever its packaging metadata
+# claims: every vapoursynth-eedi3 wheel declares "VapourSynth>=74" and so does vapoursynth-fmtconv,
+# yet fmtconv's DLL is API 4.0 and loads fine while eedi3's is 4.2 and never has. Read it out of
+# the binary rather than the metadata - the constant sits in the first bytes of the plugin's
+# VapourSynthPluginInit2 - and let the release workflow's QTGMC check be the backstop.
+HAVSFUNC_VERSION="${HAVSFUNC_VERSION:-33}"
+VSUTIL_VERSION="${VSUTIL_VERSION:-0.8.0}"
+MVSFUNC_TAG="${MVSFUNC_TAG:-r10}"
+MVTOOLS_VERSION="${MVTOOLS_VERSION:-29}"
+ZNEDI3_VERSION="${ZNEDI3_VERSION:-3.3}"
+FMTCONV_VERSION="${FMTCONV_VERSION:-31}"
+REMOVEGRAIN_TAG="${REMOVEGRAIN_TAG:-R1}"
+MISCFILTERS_TAG="${MISCFILTERS_TAG:-R2}"
+TEMPORALSOFTEN2_TAG="${TEMPORALSOFTEN2_TAG:-v1}"
+
+# eedi3m is the one plugin here that cannot come from PyPI, and the reason is the paragraph
+# above rather than anything about the plugin. Every wheel upstream has ever published -
+# 9.0, 9.1 and 10.0 alike - is built against API 4.2, so R72 rejects all three: that is what
+# shipped in 2.8.3 and 2.8.4, where the missing namespace sent every QTGMC deinterlace to
+# bwdif. Downgrading the wheel does not help, because there is no wheel that predates the
+# switch. r8 is the last Windows binary upstream attached to a GitHub release, it is API 4.0,
+# and it registers the same eedi3m/EEDI3 that havsfunc 33 asks for.
+#
+# It is a frozen tag with a published hash, so the hash is pinned: this asset is not going to
+# roll forward, and a binary arriving under that name with different contents should fail the
+# build rather than ship. Clear EEDI3_SHA256 to skip the check when deliberately pointing
+# EEDI3_TAG at something else.
+#
+# The one thing r8 does not carry is EEDI3CL, the OpenCL variant. Nothing asks for it today -
+# havsfunc only reaches for it when QTGMC is called with opencl=True, which Nmkoder does not
+# do - but a future GPU option would need a source for it that this one is not.
+EEDI3_TAG="${EEDI3_TAG:-r8}"
+EEDI3_SHA256="${EEDI3_SHA256-fa8515e0aa711ca979a87d812860c8582c7789fd805df2be10760748c0a9c486}"
+
+# The denoiser QTGMC's noise processing runs on, which havsfunc 33 enables for Placebo and Very
+# Slow and no other preset - so this was missing from every build up to 2.8.6 without anything
+# noticing, because the checks all rendered at a fast preset. R2 is upstream's "first API4
+# release" and reads as API 4.0, so R72 takes it; the repository has published nothing since
+# 2021, so the hash is pinned as eedi3's is.
+FFT3DFILTER_TAG="${FFT3DFILTER_TAG:-R2}"
+FFT3DFILTER_SHA256="${FFT3DFILTER_SHA256-ebc2c2d8a437c8ecae656778221882d6fe2b5b7723404dd57b1e2b092962eb09}"
+
+# The download URL of one file from a PyPI release. Pinned to a version and matched on the whole
+# file name, because the unversioned /json endpoint lists every past release's files too - so a
+# looser match happily returns a five-year-old build of the same package.
+pypi_file_url() {
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 "https://pypi.org/pypi/$1/$2/json" 2>/dev/null \
+    | tr '{' '\n' \
+    | grep -F "\"filename\":\"$3\"" \
+    | grep -oE 'https://files\.pythonhosted\.org/[^"]+' \
+    | head -1
+}
+
+# Fetch and unpack one PyPI file into <dest>. A wheel is a zip, so nothing beyond unzip is needed.
+fetch_wheel() {
+  local pkg="$1" ver="$2" file="$3" dest="$4" url status
+  url="$(pypi_file_url "$pkg" "$ver" "$file")"
+  [ -n "$url" ] || return 1
+  fetch "$url" "$WORK/$file" || return 1
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  unzip -qo "$WORK/$file" -d "$dest"
+  status=$?
+  [ "$status" -le 1 ] || return 1 # unzip exits 1 for warnings, having written the files anyway
+}
+
+# A VapourSynth plugin published as a wheel. These carry vapoursynth/plugins/<name>.dll, and
+# znedi3's carries its neural network weights beside it - a file the plugin looks for in its own
+# directory, so it has to travel into vs-plugins rather than beside VSPipe.
+install_wheel_plugin() {
+  local pkg="$1" ver="$2" file="$3" stage="$WORK/whlplug" plugins="$VSYNTH_DIR/vs-plugins" got=0 f
+
+  fetch_wheel "$pkg" "$ver" "$file" "$stage" || return 1
+  mkdir -p "$plugins"
+
+  while IFS= read -r f; do
+    [ -n "$f" ] && cp "$f" "$plugins/" && got=$((got + 1))
+  done < <(find "$stage" -type f \( -iname '*.dll' -o -iname '*.bin' \) 2>/dev/null)
+
+  [ "$got" -gt 0 ]
+}
+
+# A pure-Python script package, unpacked where the embedded interpreter imports from. The
+# .dist-info folders are dropped: nothing here uses pip, so they are only weight.
+install_wheel_module() {
+  local pkg="$1" ver="$2" file="$3" stage="$WORK/whlmod" site="$VSYNTH_DIR/lib/site-packages"
+
+  fetch_wheel "$pkg" "$ver" "$file" "$stage" || return 1
+  rm -rf "$stage"/*.dist-info
+  mkdir -p "$site"
+  cp -R "$stage"/. "$site"/
+}
+
+# install_vs_plugin with the hash checked first, for the plugins pinned to a frozen tag. Worth
+# the extra step on those and not on the ones beside them: a package that tracks a version which
+# moves would have every future build rejected by a fixed hash, while a tag upstream will not
+# touch again either arrives byte-for-byte or has been swapped. Set VS_PLUGIN_SHA256 before
+# try_assets, clear it after.
+VS_PLUGIN_SHA256=""
+
+install_vs_plugin_pinned() {
+  local file="$1" dir="$2" got
+
+  if [ -n "${VS_PLUGIN_SHA256:-}" ]; then
+    got="$(sha256sum "$file" 2>/dev/null | cut -d' ' -f1)"
+    if [ "$got" != "$VS_PLUGIN_SHA256" ]; then
+      echo "  [warn] $(basename "$file") hashes to ${got:-<unreadable>}, expected $VS_PLUGIN_SHA256"
+      return 1
+    fi
+  fi
+
+  install_vs_plugin "$file" "$dir"
+}
+
+bundle_qtgmc() {
+  local got=0 missing=()
+
+  # Plugins from PyPI, which is where these three publish their Windows builds - mvtools' own
+  # GitHub releases carry source archives only.
+  if install_wheel_plugin vapoursynth-mvtools "$MVTOOLS_VERSION" "vapoursynth_mvtools-${MVTOOLS_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: mvtools $MVTOOLS_VERSION (QTGMC motion search)"
+    note_licence "  mvtools            GPL-2.0-or-later (VapourSynth motion plugin, used by QTGMC)
+                     Source: https://github.com/dubhater/vapoursynth-mvtools"
+  else
+    missing+=("mvtools")
+  fi
+
+  if install_wheel_plugin vapoursynth-znedi3 "$ZNEDI3_VERSION" "vapoursynth_znedi3-${ZNEDI3_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: znedi3 $ZNEDI3_VERSION (QTGMC field interpolation)"
+    note_licence "  znedi3             GPL-2.0-or-later (VapourSynth NNEDI3 implementation, used by QTGMC)
+                     Source: https://github.com/sekrit-twc/znedi3"
+  else
+    missing+=("znedi3")
+  fi
+
+  # From a release asset rather than a wheel, and pinned to a hash - see EEDI3_TAG above for
+  # why this one plugin is sourced differently from the three around it.
+  VS_PLUGIN_DLL='EEDI3m.dll'
+  ASSET_RELEASE_TAG="$EEDI3_TAG"
+  VS_PLUGIN_SHA256="$EEDI3_SHA256"
+  if try_assets "${EEDI3_REPO:-HolyWu/VapourSynth-EEDI3}" 'EEDI3-.*\.7z$' '' install_vs_plugin_pinned; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: eedi3m $EEDI3_TAG (referenced by QTGMC even on the NNEDI3 path)"
+    note_licence "  EEDI3              GPL-3.0-or-later (VapourSynth edge interpolation, referenced by QTGMC)
+                     Source: https://github.com/HolyWu/VapourSynth-EEDI3"
+  else
+    missing+=("eedi3m")
+  fi
+  ASSET_RELEASE_TAG=""
+  VS_PLUGIN_SHA256=""
+
+  # QTGMC's denoiser, and unlike everything else here it is not needed by every preset - havsfunc
+  # turns noise processing on for Placebo and Very Slow only. It is still bundled unconditionally,
+  # because which preset a user picks is not something a build can know; what is conditional is the
+  # runtime check, which asks about the preset that is actually going to run (Media/Qtgmc.cs).
+  #
+  # Also the only plugin here that brings a companion library - libfftw3f-3.dll, beside it in the
+  # archive. install_vs_plugin stages that next to VSPipe rather than into vs-plugins, which is
+  # where Windows looks for a plugin's own dependencies. Its MSVCP140/VCRUNTIME140 imports are
+  # satisfied by the portable VapourSynth zip, which ships those at its root.
+  VS_PLUGIN_DLL='fft3dfilter.dll'
+  ASSET_RELEASE_TAG="$FFT3DFILTER_TAG"
+  VS_PLUGIN_SHA256="$FFT3DFILTER_SHA256"
+  if try_assets "${FFT3DFILTER_REPO:-myrsloik/VapourSynth-FFT3DFilter}" 'FFT3DFilter-.*\.7z$' '' install_vs_plugin_pinned; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: fft3dfilter $FFT3DFILTER_TAG (QTGMC noise processing, Placebo and Very Slow)"
+    note_licence "  FFT3DFilter        GPL-2.0-or-later (VapourSynth frequency-domain denoiser, used by QTGMC)
+                     Source: https://github.com/myrsloik/VapourSynth-FFT3DFilter
+
+  FFTW                GPL-2.0-or-later (libfftw3f, the FFT library FFT3DFilter is built on)
+                     Source: https://www.fftw.org/"
+  else
+    missing+=("fft3dfilter")
+  fi
+  ASSET_RELEASE_TAG=""
+  VS_PLUGIN_SHA256=""
+
+  if install_wheel_plugin vapoursynth-fmtconv "$FMTCONV_VERSION" "vapoursynth_fmtconv-${FMTCONV_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: fmtconv $FMTCONV_VERSION (QTGMC's bob)"
+    note_licence "  fmtconv            WTFPL (VapourSynth format conversion, used by QTGMC)
+                     Source: https://github.com/EleonoreMizo/fmtconv"
+  else
+    missing+=("fmtconv")
+  fi
+
+  # And three that only exist as GitHub release archives. All are frozen upstream - the first two
+  # are archived repositories with a single release each - so the tags above will not move.
+  VS_PLUGIN_DLL='RemoveGrainVS.dll'
+  ASSET_RELEASE_TAG="$REMOVEGRAIN_TAG"
+  if try_assets "${REMOVEGRAIN_REPO:-vapoursynth/vs-removegrain}" 'removegrain.*\.(7z|zip)$' '\.(7z|zip)$' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: RemoveGrain ($LAST_ASSET)"
+    note_licence "  RemoveGrainVS      GPL-2.0-or-later (VapourSynth rgvs plugin, used by QTGMC)
+                     Source: https://github.com/vapoursynth/vs-removegrain"
+  else
+    missing+=("rgvs")
+  fi
+  ASSET_RELEASE_TAG=""
+
+  VS_PLUGIN_DLL='MiscFilters.dll'
+  ASSET_RELEASE_TAG="$MISCFILTERS_TAG"
+  if try_assets "${MISCFILTERS_REPO:-vapoursynth/vs-miscfilters-obsolete}" 'miscfilters.*\.(7z|zip)$' '\.(7z|zip)$' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: MiscFilters ($LAST_ASSET)"
+    note_licence "  MiscFilters        GPL-2.0-or-later (VapourSynth misc plugin; TemporalSoften2 needs it)
+                     Source: https://github.com/vapoursynth/vs-miscfilters-obsolete"
+  else
+    missing+=("misc")
+  fi
+
+  VS_PLUGIN_DLL='libtemporalsoften2.dll'
+  ASSET_RELEASE_TAG="$TEMPORALSOFTEN2_TAG"
+  if try_assets "${TEMPORALSOFTEN2_REPO:-dubhater/vapoursynth-temporalsoften2}" 'win64.*\.(7z|zip)$' '' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: TemporalSoften2 ($LAST_ASSET)"
+    note_licence "  TemporalSoften2    GPL-2.0-or-later (VapourSynth focus2 plugin, used by QTGMC)
+                     Source: https://github.com/dubhater/vapoursynth-temporalsoften2"
+  else
+    missing+=("focus2")
+  fi
+  ASSET_RELEASE_TAG=""
+
+  # The scripts themselves. havsfunc imports mvsfunc at module level even though QTGMC never
+  # calls it, so it has to be there or nothing imports at all; mvsfunc has no PyPI release, so it
+  # comes off its repository at a pinned tag.
+  if install_wheel_module havsfunc "$HAVSFUNC_VERSION" "havsfunc-${HAVSFUNC_VERSION}-py3-none-any.whl"; then
+    got=$((got + 1)); note_ok "havsfunc $HAVSFUNC_VERSION (the QTGMC function itself)"
+    note_licence "  HAvsFunc           Unlicense (public domain; provides QTGMC)
+                     Source: https://github.com/HomeOfVapourSynthEvolution/havsfunc"
+  else
+    missing+=("havsfunc")
+  fi
+
+  if install_wheel_module vsutil "$VSUTIL_VERSION" "vsutil-${VSUTIL_VERSION}-py3-none-any.whl"; then
+    got=$((got + 1)); note_ok "vsutil $VSUTIL_VERSION (havsfunc dependency)"
+    note_licence "  vsutil             MIT (VapourSynth helper functions, havsfunc dependency)
+                     Source: https://github.com/Irrational-Encoding-Wizardry/vs-util"
+  else
+    missing+=("vsutil")
+  fi
+
+  if fetch "https://raw.githubusercontent.com/HomeOfVapourSynthEvolution/mvsfunc/${MVSFUNC_TAG}/mvsfunc.py" "$WORK/mvsfunc.py" \
+     && mkdir -p "$VSYNTH_DIR/lib/site-packages" && cp "$WORK/mvsfunc.py" "$VSYNTH_DIR/lib/site-packages/"; then
+    got=$((got + 1)); note_ok "mvsfunc $MVSFUNC_TAG (havsfunc dependency)"
+    note_licence "  mvsfunc            MIT (VapourSynth helper functions, havsfunc dependency)
+                     Source: https://github.com/HomeOfVapourSynthEvolution/mvsfunc"
+  else
+    missing+=("mvsfunc")
+  fi
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    note_skip "QTGMC" "incomplete - missing ${missing[*]} - the app will deinterlace with bwdif instead"
   fi
 }
 

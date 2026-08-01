@@ -25,6 +25,21 @@ namespace Nmkoder.UI.Tasks
         public static CropConfig CurrentCrop;
         public static TrimSettings CurrentTrim;
 
+        /// <summary>
+        /// The deinterlacing settled for the run whose arguments are being built. Resolved once in
+        /// <see cref="QuickConvert.Run"/> rather than asked for again here: working it out can mean
+        /// decoding a few hundred frames to see whether the source is interlaced at all, and the
+        /// filter arguments are built several times over the course of one run.
+        /// </summary>
+        public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
+
+        /// <summary>
+        /// Where the VapourSynth pipe sits among the '-i' arguments, or -1 when this run has none.
+        /// QTGMC hands ffmpeg its frames on stdin, so the first video track is mapped from that input
+        /// instead of from the file the rest of the tracks come out of.
+        /// </summary>
+        public static int DeinterlacePipeInput = -1;
+
         public static new void Init()
         {
             // Load video codecs
@@ -530,24 +545,98 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", args);
         }
 
+        /// <summary>
+        /// The frame the encoder will be handed, as far as the scale boxes can be read without asking
+        /// ffmpeg - or <see cref="Size.Empty"/> where they cannot be read at all, which leaves whoever
+        /// asked to fall back on the source's own size.
+        /// <para/>
+        /// It exists for the tile count, which belongs to the frame being encoded and not to the file
+        /// it came from: four tile columns are right for a 4K source and wrong for the 1080p it is
+        /// being scaled to. The AV1AN tab settles this exactly, because its resize is held as an
+        /// intent; here the boxes are free text handed to ffmpeg, so only what can be worked out with
+        /// certainty is worked out. A plain pair of numbers is exact, and a lone number derives the
+        /// other side by ffmpeg's own '-2' arithmetic - av_rescale, which rounds to nearest and ties
+        /// away from zero - so the answer is the size ffmpeg will reach, not an approximation of it.
+        /// A percentage or an expression is left to the caller's fallback rather than guessed at,
+        /// since a tile count worked out from the wrong size is what this is here to stop.
+        /// <para/>
+        /// The crop is deliberately not applied. Resolving an automatic one means ten ffmpeg probes
+        /// and a visible progress bar, and this is asked once per pass ahead of the filter chain that
+        /// will run them again - where the AV1AN tab could put that behind a single resolve pass and
+        /// this cannot. The scale is what moves a frame across a tile threshold in any case.
+        /// </summary>
+        public static Size GetEncodedFrameSize()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return Size.Empty;
+
+            string w = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
+            string h = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
+
+            if (w.IsEmpty() && h.IsEmpty())
+                return Size.Empty; // No scale, so only the crop could have moved it - see above
+
+            bool plainW = w.Length > 0 && w.All(char.IsDigit) && w.GetInt() > 0;
+            bool plainH = h.Length > 0 && h.All(char.IsDigit) && h.GetInt() > 0;
+
+            if (plainW && plainH)
+                return new Size(w.GetInt(), h.GetInt());
+
+            // What the scale filter is handed, which for an anamorphic source is the de-squeezed
+            // frame - the same correction GetVideoFilterArgs puts in front of the scale, so the
+            // derived side is worked out against the shape ffmpeg will actually be scaling.
+            Size input = AspectRatio.IsAnamorphic(vs.Sar) ? ResizeConfig.DesqueezeOnly().Compute(vs.Resolution, vs.Sar) : vs.Resolution;
+
+            if (input.IsEmpty || input.Width < 1 || input.Height < 1)
+                return Size.Empty;
+
+            if (plainW && h.IsEmpty())
+                return new Size(w.GetInt(), (int)DivideRounded(w.GetInt() * (long)input.Height, input.Width * 2L) * 2);
+
+            if (plainH && w.IsEmpty())
+                return new Size((int)DivideRounded(h.GetInt() * (long)input.Width, input.Height * 2L) * 2, h.GetInt());
+
+            return Size.Empty; // A percentage or an ffmpeg expression - not something to guess at
+        }
+
+        /// <summary> ffmpeg's av_rescale: rounded to nearest, ties away from zero. </summary>
+        private static long DivideRounded(long value, long divisor)
+        {
+            return divisor == 0 ? 0 : (value + divisor / 2) / divisor;
+        }
+
         public static async Task<string> GetVideoFilterArgs(IEncoder vCodec, CodecArgs codecArgs = null, bool quiet = false)
         {
             MediaFile currFile = TrackList.current.File;
             List<string> filters = new List<string>();
 
-            if (codecArgs != null && codecArgs.ForcedFilters != null)
-                filters.AddRange(codecArgs.ForcedFilters);
-
             if (currFile.VideoStreams.Count < 1 || (vCodec != null && vCodec.DoesNotEncode))
                 return "";
 
+            // Deinterlacing comes before everything else, because everything else is measured against
+            // a whole frame: a crop rectangle, a scale, a burnt-in subtitle. QTGMC contributes nothing
+            // here - it runs in VapourSynth ahead of ffmpeg and its frames arrive already deinterlaced.
+            string deinterlace = CurrentDeinterlace.GetFfmpegFilter();
+
+            if (deinterlace.IsNotEmpty())
+                filters.Add(deinterlace);
+
+            if (codecArgs != null && codecArgs.ForcedFilters != null)
+                filters.AddRange(codecArgs.ForcedFilters);
+
             VideoStream vs = currFile.VideoStreams.First();
             Fraction fps = GetUiFps();
+            // What the frames actually arrive at, which a bob has already doubled. Compared against
+            // the file's own rate instead, asking for 29.97 out of a bobbed 29.97i source would match
+            // and add no filter at all, leaving the output at 59.94.
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
             if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.FrameNumbers) // Check Filter: Frame Number Trim
                 filters.Add(CurrentTrim.StartArg);
 
-            if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
+            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
             int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In
@@ -587,15 +676,46 @@ namespace Nmkoder.UI.Tasks
             string scaleW = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
             string scaleH = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
             string cropMode = Form.EncCropModeBox.GetText().ToLower();
+            Size scaleInput = vs.Resolution; // What the scale filter is handed, once a crop has taken its share
 
             if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
+            {
                 filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                scaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+            }
 
             if (cropMode.Contains("auto")) // Check Filter: Autocrop
-                filters.Add(await FfmpegUtils.GetCurrentAutoCrop(currFile.ImportPath, quiet));
+            {
+                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(currFile.ImportPath, quiet);
+                filters.Add(autoCrop);
+                scaleInput = FfmpegUtils.ParseCropSize(autoCrop, scaleInput);
+            }
 
             if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
+            {
+                // The boxes talk about the picture, but the filter they build is measured in storage
+                // pixels and ends in setsar=1:1 - which is how a percentage or a lone width used to
+                // turn a 4:3 DVD into a squashed 3:2 one, the way the AV1AN tab's old boxes did. An
+                // anamorphic source is de-squeezed first, so the numbers measure the real shape. A
+                // custom filter that sets a SAR or DAR itself is the user taking this over.
+                bool desqueeze = AspectRatio.IsAnamorphic(vs.Sar)
+                    && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
+
+                if (desqueeze)
+                {
+                    ResizeConfig dq = ResizeConfig.DesqueezeOnly();
+                    Size result = dq.Compute(scaleInput, vs.Sar);
+
+                    if (!result.IsEmpty)
+                    {
+                        filters.Add(dq.GetFilterArgs(scaleInput, vs.Sar));
+                        Logger.Log($"De-squeezing {scaleInput.Width}x{scaleInput.Height} ({vs.Sar.Width}:{vs.Sar.Height} pixels) to " +
+                            $"{result.Width}x{result.Height} before the scale, so it measures the shape the video plays at.", quiet);
+                    }
+                }
+
                 filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
+            }
 
             filters.AddRange(GetCustomFilters());
 
@@ -622,7 +742,13 @@ namespace Nmkoder.UI.Tasks
                 filterChain += $"[vf]{(last ? "" : ";")}";
             }
 
-            return $"-filter_complex {filterChain}";
+            // Quoted, because a chain of two or more filters is joined by semicolons and this command
+            // line is handed to a shell: sh reads an unquoted ';' as the end of the command, so the
+            // graph reached ffmpeg cut off at the first one - with a dangling [vf] label it then
+            // refused - and the rest was run as a command of its own. Any two filters at once did it,
+            // a crop with a scale among them. cmd does not split on ';', so this only ever showed on
+            // Linux and macOS.
+            return $"-filter_complex \"{filterChain}\"";
         }
 
         private static List<string> GetCustomFilters()

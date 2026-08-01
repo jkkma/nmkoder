@@ -42,7 +42,8 @@ namespace Nmkoder.UI.Tasks
             }
             catch(Exception e)
             {
-                Logger.Log($"{e.Message}\n{e.StackTrace}");
+                RunTask.Fail($"The color data could not be transferred: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
             
             Program.MainWin.SetWorking(false);

@@ -25,12 +25,64 @@ namespace Nmkoder.Media
         {
             public string Args { get; set; } = "";
             public string WorkingDir { get; set; } = "";
+
+            /// <summary>
+            /// A command and a trailing "| " to put in front of ffmpeg, so it reads its video from
+            /// another process's stdout instead of decoding it itself. That is how QTGMC's frames get
+            /// in: VSPipe evaluates a VapourSynth script and ffmpeg takes the result as an input.
+            /// <para/>
+            /// Deliberately a prefix rather than a suffix - see <see cref="TryReadExitCode"/>: the
+            /// shell reports the *last* command's status, so ffmpeg has to stay last for a failed
+            /// encode to still read as one.
+            /// </summary>
+            public string PipeFrom { get; set; } = "";
+
+            /// <summary> Directories to put on the process's PATH beyond the app's own bin folder -
+            /// the portable VapourSynth, when something in the command line needs it. </summary>
+            public string[] ExtraPathDirs { get; set; } = new string[0];
+
             public LogMode LoggingMode { get; set; } = LogMode.Hidden;
             public string LogLevel { get; set; } = "warning";
             public bool ReliableOutput { get; set; } = false;
             public bool SetBusy { get; set;} = false;
             public bool ProgressBar { get; set; } = false;
             public NmkoderProcess.ProcessType ProcessType { get; set; } = NmkoderProcess.ProcessType.Primary;
+
+            /// <summary>
+            /// ffmpeg's own exit status, written by <see cref="RunFfmpeg"/> when it returns, or -1
+            /// when it could not be established. Read it rather than searching the output for words
+            /// that look like errors: ffmpeg says "Error submitting packet to decoder" a hundred and
+            /// thirty times while encoding a damaged file perfectly, and says nothing recognisable at
+            /// all for some of the failures that matter.
+            /// <para/>
+            /// It is the shell's status, which for both `cmd /C` and `sh -c` is the last command's -
+            /// so ffmpeg's, including for the two-pass `&amp;&amp; ` chain, where a first-pass failure
+            /// stops the second from running and hands its own code back.
+            /// </summary>
+            public int ExitCode { get; set; } = -1;
+
+            /// <summary> Whether a non-zero exit is a failure worth reporting. False for the probes
+            /// and best-effort runs whose callers already cope with getting nothing back - and for
+            /// callers that would rather report it themselves, which is what <see cref="Problem"/>
+            /// is for. </summary>
+            public bool ReportFailure { get; set; } = false;
+
+            /// <summary> Why this run failed, worded as the user would be told, or "" when it did
+            /// not. Written either way, so a caller holding a better explanation than ffmpeg's can
+            /// choose between the two - see the VapourSynth pipe, where an input that simply ended
+            /// is all ffmpeg can see of a script that died. </summary>
+            public string Problem { get; set; } = "";
+
+            /// <summary> Whether <see cref="ExitCode"/> means anything. A run whose status could not
+            /// be established leaves this false, which is not the same as exiting 0 - and cannot be
+            /// expressed by a sentinel value, since -1 and other negatives are real exit codes on
+            /// Windows. </summary>
+            public bool ExitCodeKnown { get; set; } = false;
+
+            /// <summary> Whether a fatal line in this run's output may stop the running task. False
+            /// for the auxiliary runs - thumbnails, frame extraction, capability probes - which are
+            /// not the task and have no business killing it over what they printed. </summary>
+            public bool CanCancelTask { get; set; } = true;
         }
 
         public static async Task<string> RunFfmpeg(FfmpegSettings settings)
@@ -43,17 +95,21 @@ namespace Nmkoder.Media
             string beforeArgs = $"-hide_banner -stats -loglevel {settings.LogLevel} -y";
 
             string wd = Shell.ChangeDir(settings.WorkingDir);
-            ffmpeg.StartInfo.Arguments = Shell.BuildArguments($"{wd} ffmpeg {beforeArgs} {settings.Args}", StayOpen());
-            OsUtils.SetPathVar(ffmpeg, new[] { Paths.GetBinPath() });
+            ffmpeg.StartInfo.Arguments = Shell.BuildArguments($"{wd} {settings.PipeFrom}ffmpeg {beforeArgs} {settings.Args}", StayOpen());
+            OsUtils.SetPathVar(ffmpeg, new[] { Paths.GetBinPath() }.Concat(settings.ExtraPathDirs));
 
             if (settings.LoggingMode != LogMode.Hidden) Logger.Log("Running FFmpeg...", false);
-            Logger.Log($"ffmpeg {beforeArgs} {settings.Args}", true, false, "ffmpeg");
+            Logger.Log($"{settings.PipeFrom}ffmpeg {beforeArgs} {settings.Args}", true, false, "ffmpeg");
+
+            // One per run rather than one shared: a thumbnail extraction started on a background
+            // task while this encode runs would otherwise contribute its output to this run's verdict.
+            var errors = new FfmpegOutputHandler.RunErrors();
 
             if (!show)
             {
                 string[] ignore = GetIgnoreStringsFromFfmpegCmd(settings.Args);
-                ffmpeg.OutputDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, settings.ProgressBar); timeSinceLastOutput.sw.Restart(); };
-                ffmpeg.ErrorDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, settings.ProgressBar); timeSinceLastOutput.sw.Restart(); };
+                ffmpeg.OutputDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, settings.ProgressBar, settings.CanCancelTask, errors); timeSinceLastOutput.sw.Restart(); };
+                ffmpeg.ErrorDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, settings.ProgressBar, settings.CanCancelTask, errors); timeSinceLastOutput.sw.Restart(); };
             }
 
             if (settings.SetBusy) Program.MainWin?.SetWorking(true);
@@ -68,14 +124,97 @@ namespace Nmkoder.Media
             }
 
             while (!ffmpeg.HasExited) await Task.Delay(10);
+
+            // HasExited only says the process is gone; the redirected readers can still have lines in
+            // flight, and those last lines are exactly the ones that say why a run failed. The
+            // parameterless wait is the documented way to be sure they have all been delivered.
+            if (!show)
+            {
+                try { await ffmpeg.WaitForExitAsync(); }
+                catch (Exception e) { Logger.Log($"Waiting for FFmpeg's output to drain failed: {e.Message}", true, level: Logger.Level.Debug); }
+            }
+
             while (settings.ReliableOutput && timeSinceLastOutput.ElapsedMs < 200) await Task.Delay(50);
+
+            settings.ExitCodeKnown = TryReadExitCode(ffmpeg, out int exitCode);
+            settings.ExitCode = exitCode;
 
             if (settings.SetBusy) Program.MainWin?.SetWorking(false);
 
             if (settings.ProgressBar)
                 Program.MainWin?.SetProgress(0);
 
+            settings.Problem = GetFfmpegProblem(settings, errors);
+
+            if (settings.ReportFailure && settings.Problem.IsNotEmpty())
+                RunTask.Fail(settings.Problem);
+
             return processOutput;
+        }
+
+        /// <summary>
+        /// A finished process's exit status, or -1 when it cannot be trusted.
+        /// <para/>
+        /// The one mode where it cannot is Windows with the console debug setting on "keep open",
+        /// which turns the wrapper into `cmd /K`: that shell outlives the tool and whatever it
+        /// eventually exits with is its own. (In practice the wait loop above never gets past such a
+        /// shell either, but a check that quietly reports someone else's status is worse than one
+        /// that says it does not know.) Elsewhere `cmd /C` and `sh -c` both exit with the status of
+        /// the last command they ran, which is the tool's - including across the two-pass `&amp;&amp; `
+        /// chain, where a failing first pass stops the second and hands back its own code.
+        /// <para/>
+        /// "The last command" is why nothing run through here may end in a pipe. A trailing `| grep`,
+        /// which <see cref="Shell.GrepStderr"/> builds, would make grep the last command and its
+        /// status the one read - so a failed tool whose output grep happened to match would come back
+        /// a success. Nothing does today: GrepStderr is only ever used by FfmpegUtils' own launcher,
+        /// which does not come through here. A pipe in *front* of ffmpeg is fine for the same reason,
+        /// and that is what <see cref="FfmpegSettings.PipeFrom"/> builds - but it is also why a
+        /// failing VSPipe cannot be noticed here, since ffmpeg reads its early end-of-stream as the
+        /// end of the video and finishes cleanly. <see cref="Qtgmc.ReadRunProblem"/> covers that.
+        /// </summary>
+        private static bool TryReadExitCode(Process p, out int exitCode)
+        {
+            exitCode = 0;
+
+            if (Shell.IsWindows && StayOpen())
+                return false;
+
+            try
+            {
+                exitCode = p.ExitCode;
+                return true;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read the exit code: {e.Message}", true, level: Logger.Level.Debug);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Why an ffmpeg run failed, or "" if it did not. The exit code is the authority; the output
+        /// only supplies the explanation, and a run that exited cleanly can still have failed on one
+        /// of the few messages that mean the output is worthless whatever the status said.
+        /// </summary>
+        private static string GetFfmpegProblem(FfmpegSettings settings, FfmpegOutputHandler.RunErrors errors)
+        {
+            if (RunTask.canceled) // Killing the process is what made it exit non-zero
+                return "";
+
+            string evidence = errors.Evidence;
+            string suspect = errors.Suspect;
+
+            if (evidence.IsNotEmpty())
+                return $"FFmpeg did not produce a usable result:\n\n{evidence}";
+
+            // Anything non-zero is a failure, negatives included: a Windows crash code such as
+            // 0xC0000005 arrives here as a negative int, and a run that could not be judged at all
+            // says so through ExitCodeKnown rather than by borrowing a value.
+            if (!settings.ExitCodeKnown || settings.ExitCode == 0)
+                return "";
+
+            string why = suspect.IsNotEmpty() ? $"\n\nIt reported:\n{suspect}" : "\n\nThe log has its output.";
+            return $"FFmpeg exited with code {settings.ExitCode}.{why}";
         }
 
         private static string[] GetIgnoreStringsFromFfmpegCmd(string cmd)
@@ -139,8 +278,10 @@ namespace Nmkoder.Media
             if (!show)
             {
                 string[] ignore = new string[0];
-                ffprobe.OutputDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, false); timeSinceLastOutput.sw.Restart(); };
-                ffprobe.ErrorDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, false); timeSinceLastOutput.sw.Restart(); };
+                // canCancelTask: false - a probe reads a file's metadata, and what it finds there is
+                // never grounds for killing an encode that happens to be running.
+                ffprobe.OutputDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, false, false); timeSinceLastOutput.sw.Restart(); };
+                ffprobe.ErrorDataReceived += (sender, outLine) => { FfmpegOutputHandler.LogOutput(outLine.Data, ignore, ref processOutput, "ffmpeg", settings.LoggingMode, false, false); timeSinceLastOutput.sw.Restart(); };
             }
 
             ffprobe.Start();
@@ -173,7 +314,7 @@ namespace Nmkoder.Media
             try
             {
                 string dir = Path.Combine(Paths.GetBinPath(), "av1an");
-                bool show = Config.GetBool(Config.Key.Av1anCmdVisible, true); // = Config.GetInt(Config.Key.cmdDebugMode) > 0;
+                bool show = ShowAv1anConsole();
 
                 string vsynthPath = Path.Combine(dir, "vsynth");
                 string encPath = Path.Combine(dir, "enc");
@@ -405,6 +546,26 @@ namespace Nmkoder.Media
             IEnumerable<string> dirs = searchDirs.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator));
             string resolved = Shell.ResolveExecutable(name, dirs);
             return File.Exists(resolved) ? resolved : "";
+        }
+
+        /// <summary>
+        /// Whether to run av1an in a console of its own rather than capturing its output.
+        /// <para/>
+        /// The setting only means anything on Windows, and honouring it elsewhere threw av1an's
+        /// entire output away for nothing. Showing the console means UseShellExecute, which means no
+        /// redirection - so <see cref="Av1anOutputHandler"/> never sees a line, and everything the app
+        /// knows about the encode comes from the exit code and the chunk counts it tails out of
+        /// av1an's log file. On Windows that is a fair trade: the console is right there to read. On
+        /// Linux and macOS UseShellExecute opens no terminal emulator, so the output goes to the
+        /// stdio this GUI process inherited - which is to say nowhere - and the launch script's
+        /// "stay open for five seconds" pause is five seconds nobody spends looking at anything.
+        /// <para/>
+        /// So off-Windows the answer is always no, and av1an's diagnostics reach the log like every
+        /// other tool's. The checkbox stays, because a Windows user's session settings travel.
+        /// </summary>
+        public static bool ShowAv1anConsole()
+        {
+            return Shell.IsWindows && Config.GetBool(Config.Key.Av1anCmdVisible, true);
         }
 
         /// <summary>

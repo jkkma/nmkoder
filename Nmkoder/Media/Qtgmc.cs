@@ -1,0 +1,713 @@
+using Nmkoder.Data;
+using Nmkoder.Extensions;
+using Nmkoder.IO;
+using Nmkoder.Main;
+using Nmkoder.OS;
+using Nmkoder.Utils;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Nmkoder.Media
+{
+    /// <summary>
+    /// Runs QTGMC - the motion-compensated deinterlacer everyone means when they say "the good one" -
+    /// by writing a VapourSynth script and letting VSPipe feed its frames to ffmpeg.
+    /// <para/>
+    /// ffmpeg cannot call QTGMC itself. QTGMC is a Python function built on a handful of VapourSynth
+    /// plugins (mvtools for the motion search, znedi3 for the field interpolation, RemoveGrain and
+    /// fmtconv underneath both), and the only way to get its output into an encoder is to evaluate the
+    /// script and pipe the frames across. That is what <see cref="BuildVspipeCommand"/> produces: a
+    /// `vspipe … | ffmpeg …` pair where ffmpeg reads the deinterlaced video from stdin and everything
+    /// else - audio, subtitles, metadata - still comes from the file itself.
+    /// <para/>
+    /// None of it can be assumed present. The Windows build bundles VapourSynth for av1an already and
+    /// the release adds QTGMC's plugins beside it, but a bundling step is best-effort, and on Linux
+    /// and macOS VapourSynth is whatever the user installed. So the whole chain is asked once per
+    /// session - by building a QTGMC graph over a blank clip and actually rendering a frame of it -
+    /// and a machine that cannot do it falls back to ffmpeg's own bwdif with the reason said out loud.
+    /// </summary>
+    class Qtgmc
+    {
+        /// <summary> havsfunc's own preset names, slowest first. Its documented default is "Slower";
+        /// this app defaults to "Medium" because the sources this runs on are usually hour-long tape
+        /// captures, where the difference between the two is hours of wall clock. </summary>
+        public static readonly string[] Presets = { "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast" };
+        public const string DefaultPreset = "Medium";
+
+        /// <summary>
+        /// The presets that turn QTGMC's noise processing on, which needs a plugin none of the others
+        /// touch. havsfunc 33 sets NoiseProcess itself, from the preset name and nothing else - only
+        /// Placebo and Very Slow get it - and the default NoisePreset then picks fft3dfilter as the
+        /// denoiser. So the plugin set QTGMC needs has two shapes, not one, and which one applies is
+        /// decided by this list.
+        /// <para/>
+        /// 2.8.6 and everything before it checked one shape and shipped the other's plugin missing:
+        /// the probe rendered at Very Fast, passed, and then a Very Slow encode died two seconds in
+        /// on "there is no attribute or namespace named fft3dfilter". Anything that asks whether
+        /// QTGMC works has to ask about the preset that is going to run.
+        /// </summary>
+        private static readonly string[] NoiseProcessingPresets = { "Placebo", "Very Slow" };
+
+        /// <summary> Whether <paramref name="preset"/> pulls in the denoiser plugin on top of the
+        /// plugins every preset needs. </summary>
+        public static bool NeedsNoisePlugins(string preset)
+        {
+            return NoiseProcessingPresets.Contains((preset ?? "").Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary> One probe's answer. Two of these are kept - the plugin set has two shapes - so a
+        /// session that uses both a fast preset and a slow one asks twice and no more. </summary>
+        private class Verdict
+        {
+            public bool? Available;
+            public string Reason = "";
+        }
+
+        private static readonly Verdict basePlugins = new Verdict();
+        private static readonly Verdict withNoisePlugins = new Verdict();
+
+        private static Verdict VerdictFor(string preset)
+        {
+            return NeedsNoisePlugins(preset) ? withNoisePlugins : basePlugins;
+        }
+
+        /// <summary> Why QTGMC cannot run at this preset, in a sentence, or "" when it can. </summary>
+        public static string GetUnavailableReason(string preset)
+        {
+            return VerdictFor(preset).Reason;
+        }
+
+        /// <summary> The answer for this preset if there is one, null while there is not - for the UI,
+        /// which describes what will happen without being allowed to spend a probe finding out. </summary>
+        public static bool? GetKnownAvailability(string preset)
+        {
+            return VerdictFor(preset).Available;
+        }
+
+        /// <summary> Guards the probe so two callers arriving at once cannot both run it - a batch
+        /// resolving its first file while the UI is still describing the loaded one. </summary>
+        private static readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// Whether QTGMC can actually be run on this machine at <paramref name="preset"/>. Cached once
+        /// a definite answer comes back, per plugin set rather than per preset - there are only two -
+        /// and a probe that could not be run at all is left unanswered so a VapourSynth installed
+        /// halfway through a session is still found.
+        /// </summary>
+        public static async Task<bool> IsAvailableAsync(string preset)
+        {
+            Verdict cached = VerdictFor(preset);
+
+            if (cached.Available != null)
+                return cached.Available == true;
+
+            await gate.WaitAsync();
+
+            try
+            {
+                if (cached.Available != null)
+                    return cached.Available == true;
+
+                bool? verdict = await Probe(preset, cached);
+
+                if (verdict == null)
+                    return false; // Unanswered - not cached, so the next encode asks again
+
+                cached.Available = verdict;
+                return verdict == true;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        /// <summary> Where VSPipe lives, or "" when it is nowhere to be found. The bundled portable
+        /// VapourSynth sits beside av1an's; anything else comes off PATH. </summary>
+        public static string GetVspipePath()
+        {
+            string resolved = Shell.ResolveExecutable("vspipe", GetSearchDirs());
+            return File.Exists(resolved) ? resolved : "";
+        }
+
+        /// <summary> Where to look for VSPipe, and what a VSPipe launched directly needs on its PATH:
+        /// the bundled folders first, because the portable build keeps Python and the VapourSynth
+        /// core beside the executable rather than installing them, then whatever is on PATH. </summary>
+        public static string[] GetSearchDirs()
+        {
+            string av1an = Path.Combine(Paths.GetBinPath(), "av1an");
+            return new[] { Path.Combine(av1an, "vsynth"), av1an, Paths.GetBinPath() }
+                .Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator))
+                .ToArray();
+        }
+
+        /// <summary> The folder VSPipe should run in and find its libraries through, or "" when
+        /// VapourSynth is installed on the system rather than bundled. </summary>
+        public static string GetVsynthDir()
+        {
+            string dir = Path.Combine(Paths.GetBinPath(), "av1an", "vsynth");
+            return Directory.Exists(dir) ? dir : "";
+        }
+
+        /// <summary> Where the bundled build keeps its plugins, when there is one. Only the probe uses
+        /// this, and only to have somewhere to look when a namespace is missing and no plugin loaded
+        /// from anywhere - so there is no loaded one left to ask where its neighbours are. </summary>
+        public static string[] GetPluginDirs()
+        {
+            string dir = GetVsynthDir();
+            dir = dir.IsEmpty() ? "" : Path.Combine(dir, "vs-plugins");
+            return Directory.Exists(dir) ? new[] { dir } : new string[0];
+        }
+
+        /// <summary>
+        /// The directories a shell running <see cref="BuildVspipeCommand"/> has to have on its PATH
+        /// for the bare name "vspipe" to resolve. Both of them matter: the portable build keeps
+        /// Python and the VapourSynth core beside the executable, and on Windows
+        /// <see cref="OsUtils.GetPathVar"/> deliberately throws the inherited PATH away - so an
+        /// installed VapourSynth is only reachable if the folder it sits in is named here.
+        /// </summary>
+        public static string[] GetPathDirs()
+        {
+            string exe = GetVspipePath();
+            return new[] { GetVsynthDir(), exe.IsEmpty() ? "" : Path.GetDirectoryName(exe) }
+                .Where(x => x.IsNotEmpty()).Distinct().ToArray();
+        }
+
+        #region Probe
+
+        /// <summary>
+        /// Builds a QTGMC graph over a tiny blank clip and renders one frame of it. Deliberately not a
+        /// list of files to look for: what matters is whether the script evaluates and produces a
+        /// frame, and that question covers the source plugins' dependencies, a Python that cannot
+        /// import havsfunc, a znedi3 whose weights file did not travel with it, and every other way
+        /// the chain comes apart - each of which would otherwise surface as ffmpeg complaining about
+        /// invalid data on stdin, minutes into an encode.
+        /// </summary>
+        private static async Task<bool?> Probe(string preset, Verdict verdict)
+        {
+            string vspipe = GetVspipePath();
+
+            if (vspipe.IsEmpty())
+            {
+                verdict.Reason = Shell.IsWindows
+                    ? "VapourSynth is not bundled with this build and VSPipe is not on your PATH"
+                    : "VapourSynth is not installed - VSPipe is not on your PATH";
+                // Not cached as a verdict: looking for the executable again costs a handful of
+                // File.Exists calls, and a VapourSynth installed while the app is open should not
+                // need a restart to be noticed.
+                return null;
+            }
+
+            // The probe runs at the preset that is going to run, because the plugins QTGMC resolves
+            // depend on it. Named in the file names too, so a Very Fast probe and a Very Slow one do
+            // not overwrite each other's script mid-flight.
+            bool noise = NeedsNoisePlugins(preset);
+            string tag = noise ? "noise" : "base";
+            string dir = Paths.GetSessionDataPath();
+            string script = Path.Combine(dir, $"qtgmc_probe_{tag}.vpy");
+            string frame = Path.Combine(dir, $"qtgmc_probe_{tag}.y4m");
+
+            try
+            {
+                File.WriteAllText(script, BuildProbeScript(preset));
+                IoUtils.TryDeleteIfExists(frame);
+
+                var result = await RunVspipe(vspipe, $"-c y4m -s 0 -e 0 {script.Wrap()} {frame.Wrap()}", 90000);
+
+                if (result == null)
+                {
+                    verdict.Reason = "the VapourSynth check did not answer in time";
+                    return null;
+                }
+
+                if (result.Value.exitCode == 0)
+                {
+                    Logger.Log($"QTGMC is available at {preset} ({vspipe}).", true);
+                    verdict.Reason = "";
+                    return true;
+                }
+
+                verdict.Reason = SummarizeVsError(result.Value.output, noise);
+                Logger.Log($"QTGMC check failed at {preset} (exit {result.Value.exitCode}): {result.Value.output.Trim().Trunc(1200)}", true);
+                return false;
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"QTGMC check could not be run: {e.Message}", true);
+                verdict.Reason = $"the VapourSynth check could not be run ({e.Message})";
+                return null;
+            }
+            finally
+            {
+                IoUtils.TryDeleteIfExists(frame);
+            }
+        }
+
+        /// <summary>
+        /// Turns VapourSynth's output into one sentence. Its errors arrive as Python tracebacks, whose
+        /// last line is the only part worth putting in front of anyone; the two failures that are
+        /// really "this was never installed" are named outright, because the traceback for those says
+        /// nothing a user could act on.
+        /// </summary>
+        private static string SummarizeVsError(string output, bool noise)
+        {
+            if (output.Contains("No module named 'havsfunc'"))
+                return "the havsfunc script package, which provides QTGMC, is not installed for this VapourSynth";
+
+            if (output.Contains("No module named 'vsutil'") || output.Contains("No module named 'mvsfunc'"))
+                return "havsfunc's own dependencies (vsutil, mvsfunc) are not installed for this VapourSynth";
+
+            if (output.Contains("QTGMC_MISSING_PLUGINS"))
+            {
+                string names = output.Split("QTGMC_MISSING_PLUGINS").Last().SplitIntoLines().First().Trim();
+                string rejected = DescribeRejectedPlugins(output, names);
+
+                // "Missing" on its own is what sent 2.8.3 and 2.8.4 out the door believing the bundle
+                // was complete: the file was there, correctly named and correctly built, and the core
+                // had simply turned it down. Say which of the two it was.
+                string what = rejected.IsEmpty()
+                    ? $"VapourSynth has no plugin providing what QTGMC needs ({names})"
+                    : $"VapourSynth refused a plugin QTGMC needs ({names}) - {rejected}";
+
+                // Only the two slowest presets denoise, so a plugin missing only for them is worth
+                // pointing at a preset the machine can actually run rather than at bwdif.
+                return noise && names.Contains("fft3dfilter")
+                    ? $"{what}; only Placebo and Very Slow need it, so a faster QTGMC preset would still run"
+                    : what;
+            }
+
+            string last = output.SplitIntoLines().Select(x => x.Trim()).LastOrDefault(x => x.IsNotEmpty()) ?? "";
+            return last.IsEmpty() ? "the VapourSynth check failed" : $"VapourSynth said: {last.Trunc(200)}";
+        }
+
+        /// <summary>
+        /// What the probe found when it loaded the unregistered plugin files by hand, in a clause, or
+        /// "" when every one of them was simply absent.
+        /// <para/>
+        /// One is quoted, not all: they share a cause far more often than not, and the full list is in
+        /// the log either way. The one picked is a file named after a namespace that went missing -
+        /// eedi3m out of EEDI3m.dll - because the folder holds plugins nothing here asked for, and a
+        /// Vship staged for a GPU this machine does not have would otherwise be the line quoted at
+        /// someone whose actual problem is somewhere else entirely.
+        /// </summary>
+        private static string DescribeRejectedPlugins(string output, string missingNames)
+        {
+            string[] lines = output.SplitIntoLines()
+                .Where(x => x.Contains("QTGMC_PLUGIN_REJECTED"))
+                .Select(x => x.Split("QTGMC_PLUGIN_REJECTED").Last().Trim())
+                .Where(x => x.IsNotEmpty()).ToArray();
+
+            if (lines.Length < 1)
+                return "";
+
+            string[] names = missingNames.Split(',').Select(x => x.Trim()).Where(x => x.IsNotEmpty()).ToArray();
+            string best = lines.FirstOrDefault(line => names.Any(n => line.Split(':').First().Contains(n, StringComparison.OrdinalIgnoreCase))) ?? lines[0];
+
+            int rest = lines.Length - 1;
+            string more = rest < 1 ? "" : rest == 1 ? " (and one other plugin file)" : $" (and {rest} other plugin files)";
+            return $"{best.Trunc(220)}{more}";
+        }
+
+        private static string BuildProbeScript(string preset)
+        {
+            // The plugin check is explicit and comes first because its message is the useful one: the
+            // traceback from a missing mvtools is a line deep inside havsfunc about an attribute that
+            // does not exist, naming neither the plugin nor what to do about it.
+            //
+            // The list is what havsfunc 33's QTGMC actually resolves on the default path, established
+            // by building the graph rather than by reading it - grepping finds only half of them,
+            // since havsfunc reaches most plugins as clip.<ns>.<Func>() method chains. Two are not
+            // obvious: eedi3m because QTGMC_Interpolate builds an eedi3 partial before it looks at
+            // EdiMode, so it is resolved even on the NNEDI3 path, and znedi3 by that name rather than
+            // nnedi3 or nnedi3cl, because that is the one it calls when opencl is off. focus2
+            // (TemporalSoften2) in turn refuses to run without misc.
+            //
+            // fft3dfilter is the one entry that is not constant. QTGMC's noise processing is what
+            // needs it, havsfunc turns that on for Placebo and Very Slow and no other preset, and the
+            // graph is therefore a different shape depending on which one is asked for - so the probe
+            // builds the preset that is actually going to run rather than a fixed cheap one. Checking
+            // Very Fast and running Very Slow is exactly how 2.8.6 shipped with this plugin absent.
+            //
+            // "Missing" then gets asked a second question, because it turned out to cover two very
+            // different situations and to name only the innocent one. A namespace is absent either
+            // because no such plugin is installed, or because one is installed and the core refused
+            // it - which is what shipped in 2.8.3 and 2.8.4, where a bundled EEDI3m.dll built against
+            // VapourSynth API 4.2 was turned down by an API 4.1 core, silently, since autoload
+            // reports nothing at all. LoadPlugin does report it, so a missing namespace is followed
+            // by loading the unregistered files by hand purely to collect the reason.
+            string dirs = string.Join(", ", GetPluginDirs()
+                .Select(x => $"'{x.Replace("\\", "\\\\").Replace("'", "\\'")}'"));
+
+            string noise = NeedsNoisePlugins(preset) ? ", 'fft3dfilter'" : "";
+            string safePreset = (preset ?? DefaultPreset).Replace("\\", "").Replace("'", "");
+
+            return $@"import os, sys
+import vapoursynth as vs
+
+core = vs.core
+
+needed = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m'{noise}]
+missing = [n for n in needed if not hasattr(core, n)]
+
+if missing:
+    print('QTGMC_MISSING_PLUGINS ' + ', '.join(missing), file=sys.stderr)
+
+    # Where the plugins that did load came from, which is where the ones that did not will be
+    # too. Discovered rather than assumed, so this works for a system VapourSynth as well as the
+    # bundled one; the bundled folder is named as well, for the case where nothing loaded at all
+    # and there is no loaded plugin left to ask.
+    seen, folders = set(), [{dirs}]
+
+    for plugin in core.plugins():
+        path = getattr(plugin, 'plugin_path', '') or ''
+        if path:
+            seen.add(os.path.normcase(path))
+            folders.append(os.path.dirname(path))
+
+    for folder in folders:
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+
+        for name in names:
+            if not name.lower().endswith(('.dll', '.so', '.dylib')):
+                continue
+
+            full = os.path.join(folder, name)
+
+            if os.path.normcase(full) in seen:
+                continue
+
+            seen.add(os.path.normcase(full))
+
+            try:
+                core.std.LoadPlugin(path=full)
+            except Exception as problem:
+                print('QTGMC_PLUGIN_REJECTED ' + name + ': ' + ' '.join(str(problem).split()), file=sys.stderr)
+
+    raise RuntimeError('missing plugins: ' + ', '.join(missing))
+
+import havsfunc
+
+clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4, fpsnum=30000, fpsden=1001, color=[128, 128, 128])
+clip = core.std.SetFieldBased(clip, 2)
+clip = havsfunc.QTGMC(clip, Preset='{safePreset}', TFF=True, FPSDivisor=1, opencl=False)
+clip.set_output()
+";
+        }
+
+        #endregion
+
+        #region Script
+
+        /// <summary>
+        /// Writes the script this encode will be fed through and returns its path. Regenerated per run
+        /// rather than kept, because everything in it - the source, the field order, the preset - is
+        /// this run's, and in a batch it is a different file every time.
+        /// </summary>
+        public static string WriteScript(DeinterlacePlan plan, string sourcePath, string scriptPath)
+        {
+            var sb = new StringBuilder();
+            string cacheDir = Path.Combine(Paths.GetSessionDataPath(), "vsindex");
+            Directory.CreateDirectory(cacheDir);
+
+            sb.AppendLine("# Written by Nmkoder for one encode - it is rewritten every run, so edits do not survive.");
+            sb.AppendLine("import vapoursynth as vs");
+            sb.AppendLine("import havsfunc");
+            sb.AppendLine();
+            sb.AppendLine("core = vs.core");
+            sb.AppendLine($"SOURCE = {PyString(sourcePath)}");
+            sb.AppendLine($"CACHE_DIR = {PyString(cacheDir)}");
+            sb.AppendLine($"TFF = {(plan.TopFieldFirst ? "True" : "False")}");
+            sb.AppendLine($"PRESET = {PyString(plan.QtgmcPreset)}");
+            sb.AppendLine($"FPS_DIVISOR = {(plan.DoubleRate ? 1 : 2)}");
+            sb.AppendLine();
+            // Index files are written beside the source by default, which would leave .lwi litter in
+            // the user's own folders; every plugin here can be told to put them somewhere else, and
+            // each is tried again without that argument in case this build of it cannot.
+            sb.AppendLine(@"def open_video(path):
+    attempts = [
+        ('lsmas', lambda: core.lsmas.LWLibavSource(source=path, cachedir=CACHE_DIR)),
+        ('lsmas', lambda: core.lsmas.LWLibavSource(source=path)),
+        ('bestsource', lambda: core.bs.VideoSource(source=path, cachepath=CACHE_DIR)),
+        ('bestsource', lambda: core.bs.VideoSource(source=path)),
+        ('ffms2', lambda: core.ffms2.Source(source=path, cachefile=CACHE_DIR + '/ffms2.ffindex')),
+        ('ffms2', lambda: core.ffms2.Source(source=path)),
+    ]
+    problems = []
+
+    for name, attempt in attempts:
+        try:
+            return attempt()
+        except Exception as e:
+            problems.append('%s: %s' % (name, e))
+
+    raise RuntimeError('No VapourSynth source plugin could open the file.\n  ' + '\n  '.join(problems))
+
+
+clip = open_video(SOURCE)
+# Said rather than inferred: the source plugin passes through whatever the file claims, and the
+# whole reason a file reaches this script is that what it claims cannot be relied on.
+clip = core.std.SetFieldBased(clip, 2 if TFF else 1)
+clip = havsfunc.QTGMC(clip, Preset=PRESET, TFF=TFF, FPSDivisor=FPS_DIVISOR, opencl=False)
+clip.set_output()");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
+            File.WriteAllText(scriptPath, sb.ToString());
+            Logger.Log($"Wrote QTGMC script to '{scriptPath}':\n{sb}", true);
+            return scriptPath;
+        }
+
+        /// <summary>
+        /// The `vspipe … |` half of the command, ready to be put in front of an ffmpeg invocation.
+        /// VSPipe's own diagnostics go to a file rather than into ffmpeg's output: they are on stderr,
+        /// which the shell leaves interleaved with ffmpeg's, and a VapourSynth traceback landing in
+        /// the middle of an encode's progress lines is neither readable there nor available
+        /// afterwards, when it is the only thing that explains a truncated encode.
+        /// <para/>
+        /// Named rather than given as a path, and that is not a style choice: `cmd /C` strips the
+        /// first quote of a command line that begins with one, along with the last quote anywhere in
+        /// it, whenever the line holds more than two - which every command here does. A full path in
+        /// front would therefore arrive at cmd with its opening quote gone and the output file's
+        /// closing quote gone with it. <see cref="GetPathDirs"/> is what makes the bare name resolve.
+        /// </summary>
+        public static string BuildVspipeCommand(string scriptPath, string logPath, bool append = false)
+        {
+            return $"vspipe -c y4m {scriptPath.Wrap()} - 2{(append ? ">>" : ">")}{logPath.Wrap()} | ";
+        }
+
+        /// <summary>
+        /// What VSPipe made of the run, as a sentence, or "" if it is not complaining. Worth reading,
+        /// because ffmpeg cannot tell the difference between "the script stopped early" and "the video
+        /// ended": both are end-of-stream on stdin, so a VapourSynth error two thirds of the way
+        /// through leaves ffmpeg finishing normally and exiting 0 over a file that stops there.
+        /// <para/>
+        /// A clean run ends with VSPipe's own "Output N frames in X seconds"; one such line per run is
+        /// the whole test, which is why <paramref name="runs"/> is 2 for a two-pass encode - the first
+        /// pass's success would otherwise vouch for a second pass that never finished. Only asked of
+        /// runs that were not cancelled and did not already fail: killing ffmpeg breaks the pipe under
+        /// VSPipe, and its complaint about that says nothing about the script.
+        /// </summary>
+        public static string ReadRunProblem(string logPath, int runs = 1)
+        {
+            try
+            {
+                if (!File.Exists(logPath))
+                    return "";
+
+                string log = File.ReadAllText(logPath);
+
+                if (log.IsEmpty())
+                    return "";
+
+                Logger.Log($"vspipe output:\n{log.Trim()}", true);
+
+                if (log.SplitIntoLines().Count(x => x.Contains("Output ") && x.Contains(" frames in ")) >= runs)
+                    return "";
+
+                string last = log.SplitIntoLines().Select(x => x.Trim()).LastOrDefault(x => x.IsNotEmpty()) ?? "";
+                return last.IsEmpty() ? "" : $"VapourSynth did not finish: {last.Trunc(300)}";
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read the VapourSynth log: {e.Message}", true);
+                return "";
+            }
+        }
+
+        /// <summary> A path as a Python string literal. Backslashes and quotes are the only characters
+        /// a file path can carry that Python would read as syntax. </summary>
+        private static string PyString(string value)
+        {
+            return "\"" + (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+
+        #endregion
+
+        #region Measuring the output
+
+        /// <summary>
+        /// How long VSPipe is allowed to take to say how long its output is. Generous, because what
+        /// it spends the time on is the source plugin indexing the file - minutes for an hour of
+        /// MPEG-2 off a slow disk - and a timeout firing in the middle of that throws the work away
+        /// rather than saving any, leaving the encode to index the same file over again. Stop kills
+        /// it long before this, since it runs as a Secondary process.
+        /// </summary>
+        private const int InfoTimeoutMs = 15 * 60 * 1000;
+
+        /// <summary>
+        /// Measures what this script will produce and points the progress bar at that, rather than at
+        /// what the file says about itself.
+        /// <para/>
+        /// The container's duration is the wrong ruler for the files this feature exists for. An
+        /// analogue capture is timestamped by whatever captured it and ffprobe reads the duration
+        /// straight back out of those timestamps, so a capture whose clock stalled or restarted
+        /// leaves a file reporting an hour and holding rather more - and everything scaled against
+        /// that is wrong along with it. The bar reaches 100% with a third of the encode still to run
+        /// and then stays there, which is what this is here to stop.
+        /// <para/>
+        /// VapourSynth has no such problem. Its source plugin has indexed the file by the time
+        /// <c>--info</c> answers, so the frame count it reports is a count rather than an estimate,
+        /// and it is exactly the set of frames that will come down the pipe. The indexing is not an
+        /// added cost either: the encode's own VSPipe would do it moments later, and every source
+        /// plugin in <see cref="WriteScript"/> is told to cache its index - so this moves that step
+        /// in front of the encode instead of adding one, and gives the app something to say while it
+        /// happens, which it previously spent staring at an empty bar.
+        /// <para/>
+        /// Never throws and never fails a run: an answer that does not arrive leaves the bar
+        /// measuring against the source's own duration, which is where it was already.
+        /// </summary>
+        public static async Task SetProgressTargetAsync(string scriptPath, MediaFile source)
+        {
+            try
+            {
+                // Named where there is a file to name it after. There is not when what is being read
+                // is a cut copy of one, whose length is not the length that file reports - which is
+                // also why the comparison below is skipped in that case rather than made against it.
+                string named = source == null ? "the video" : $"'{source.Name.Trunc(40)}'";
+                Logger.Log($"Reading {named} through VapourSynth to measure it. This indexes the " +
+                    $"source, which the encode then reuses.");
+                RunTask.ReportProgress("Indexing the source for VapourSynth...");
+
+                long durationMs = await GetOutputDurationMsAsync(scriptPath);
+
+                if (durationMs < 1)
+                {
+                    Logger.Log("VSPipe did not say how long its output will be, so progress is measured against the " +
+                        "duration the file reports.", true);
+                    return;
+                }
+
+                FfmpegOutputHandler.overrideTargetDurationMs = durationMs;
+                long claimedMs = source == null ? 0 : source.DurationMs;
+
+                // Worth putting in front of the user rather than only in the debug log, because it is
+                // a fact about their file and not about this app: the output will not be the length
+                // the source claims, and nothing else would ever explain why.
+                if (claimedMs > 0 && Math.Abs(durationMs - claimedMs) > FfmpegOutputHandler.TargetToleranceMs(claimedMs))
+                {
+                    Logger.Log($"Note: '{source.Name.Trunc(40)}' reports a duration of {FormatUtils.Time(claimedMs)}, but " +
+                        $"there are {FormatUtils.Time(durationMs)} of video in it - its container's duration is wrong. " +
+                        $"Progress is measured against the real length, and what this writes will be that long.");
+                }
+                else
+                {
+                    Logger.Log($"VapourSynth will produce {FormatUtils.Time(durationMs)} of video.", true);
+                }
+            }
+            catch (Exception e)
+            {
+                // Measuring the encode is not the encode. Anything that goes wrong here costs a
+                // progress bar and must not cost the run.
+                Logger.Log($"Could not measure what the QTGMC script will produce: {e.Message}", true);
+            }
+        }
+
+        /// <summary> How long the video this script produces will be, in milliseconds, or -1 where
+        /// VSPipe would not say - it not being installed, the script not evaluating, or an output
+        /// whose length or frame rate is not fixed, which a QTGMC graph's never is. </summary>
+        private static async Task<long> GetOutputDurationMsAsync(string scriptPath)
+        {
+            string vspipe = GetVspipePath();
+
+            if (vspipe.IsEmpty())
+                return -1;
+
+            // "-" is the output file. --info does not write frames to it and current VSPipe does not
+            // ask for one at all, but older ones refuse to run without it, and "-" is stdout - which
+            // is where the report goes anyway.
+            var result = await RunVspipe(vspipe, $"--info {scriptPath.Wrap()} -", InfoTimeoutMs,
+                NmkoderProcess.ProcessType.Secondary);
+
+            if (result == null)
+            {
+                Logger.Log("vspipe --info did not answer in time.", true);
+                return -1;
+            }
+
+            if (result.Value.exitCode != 0)
+            {
+                Logger.Log($"vspipe --info failed (exit {result.Value.exitCode}): {result.Value.output.Trim().Trunc(600)}", true);
+                return -1;
+            }
+
+            return ParseInfoDurationMs(result.Value.output);
+        }
+
+        /// <summary>
+        /// The duration in a <c>vspipe --info</c> report, which gives it as a frame count over a
+        /// frame rate - "Frames: 215584" and "FPS: 60000/1001 (59.940 fps)" - and says "Variable"
+        /// for either where the clip does not have one.
+        /// <para/>
+        /// Read as the exact fraction rather than as the decimal in the brackets: 59.940 is not
+        /// 60000/1001, and over a couple of hundred thousand frames that rounding is seconds.
+        /// </summary>
+        private static long ParseInfoDurationMs(string info)
+        {
+            string[] lines = info.SplitIntoLines().Select(x => x.Trim()).ToArray();
+            long frames = ReadField(lines, "Frames:").GetLong();
+            string[] rate = ReadField(lines, "FPS:").Split(' ').First().Split('/');
+
+            if (frames < 1 || rate.Length != 2 || rate[0].GetLong() < 1 || rate[1].GetLong() < 1)
+            {
+                Logger.Log($"vspipe --info said nothing usable about the output's length:\n{info.Trim().Trunc(600)}", true);
+                return -1;
+            }
+
+            return frames * 1000L * rate[1].GetLong() / rate[0].GetLong();
+        }
+
+        /// <summary> What one line of a VSPipe report says after its label, or "" when there is no
+        /// such line. </summary>
+        private static string ReadField(string[] lines, string label)
+        {
+            string line = lines.FirstOrDefault(x => x.StartsWith(label, StringComparison.Ordinal)) ?? "";
+            return line.Substring(Math.Min(line.Length, label.Length)).Trim();
+        }
+
+        #endregion
+
+        /// <summary> Runs VSPipe directly - no shell, so nothing expands what is in a file name - and
+        /// hands back its exit code and combined output, or null if it had to be killed.
+        /// <para/>
+        /// The process type decides what Stop reaches: the probe is Background because it runs off
+        /// the UI while a file is being described and nothing is waiting on it, while anything a task
+        /// waits for has to be Secondary or pressing Stop leaves the task blocked on it. </summary>
+        private static async Task<(int exitCode, string output)?> RunVspipe(string exePath, string args, int timeoutMs,
+            NmkoderProcess.ProcessType procType = NmkoderProcess.ProcessType.Background)
+        {
+            Process proc = OsUtils.NewProcess(true, procType, exePath);
+            string vsynth = GetVsynthDir();
+            OsUtils.SetPathVar(proc, GetSearchDirs());
+
+            if (vsynth.IsNotEmpty())
+                proc.StartInfo.WorkingDirectory = vsynth;
+
+            proc.StartInfo.Arguments = args;
+            Logger.Log($"Running: {exePath} {args}", true);
+            proc.Start();
+
+            // Both pipes at once - reading one to the end first deadlocks as soon as the other fills
+            // its buffer, the same caveat av1an's help call and the Vship probe document.
+            Task<string> stdout = proc.StandardOutput.ReadToEndAsync();
+            Task<string> stderr = proc.StandardError.ReadToEndAsync();
+            Task both = Task.WhenAll(stdout, stderr);
+
+            if (await Task.WhenAny(both, Task.Delay(timeoutMs)) != both)
+            {
+                OsUtils.KillProcessTree(proc.Id);
+                return null;
+            }
+
+            await proc.WaitForExitAsync();
+            return (proc.ExitCode, $"{stdout.Result}\n{stderr.Result}");
+        }
+    }
+}

@@ -139,6 +139,7 @@ namespace Nmkoder.Views
         private void Av1anCrop_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             Av1anCropConfBtn.IsVisible = Av1anCropBox.GetText().ToLower().Contains("manual");
+            Av1anUi.RefreshResizeBox(); // A crop changes the frame the resize targets are measured against
         }
 
         private async void Av1anCropConf_Click(object sender, RoutedEventArgs e)
@@ -152,6 +153,67 @@ namespace Nmkoder.Views
 
             if (crop != null)
                 Av1anUi.CurrentCrop = crop;
+
+            Av1anUi.RefreshResizeBox();
+        }
+
+        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+        private void Av1anDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+        private void Av1anDeintRate_Changed(object sender, RoutedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+
+        /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
+        /// whenever any part of the setting moves - not only on the dropdown itself. </summary>
+        private void Av1anDeinterlaceSetting_Changed()
+        {
+            if (!_initialized)
+                return;
+
+            DeinterlaceUi.RefreshInfo();
+            SaveAv1anEncodeSettings();
+        }
+
+        private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Saving is left to the handler: refilling the list raises this too, and that is not a change
+            Av1anUi.ResizePresetSelected(Av1anResizeBox.SelectedIndex);
+        }
+
+        private async void Av1anResizeConf_Click(object sender, RoutedEventArgs e)
+        {
+            ResizeConfig resize = await ResizeWindow.Show(Av1anUi.GetResizeSourceSize(), Av1anUi.GetResizeSar(), Av1anUi.CurrentResize);
+
+            if (resize != null)
+            {
+                resize.PresetKey = ResizePresets.CustomKey;
+                Av1anUi.CurrentResize = resize;
+                SaveAv1anEncodeSettings();
+            }
+
+            Av1anUi.UpdateResizeReadout();
+        }
+
+        private async void Av1anTrimConf_Click(object sender, RoutedEventArgs e)
+        {
+            Av1anUi.CurrentTrim = await CutWindow.ShowForAv1anTrim(TrackList.current?.File, Av1anUi.CurrentTrim);
+            UpdateAv1anTrimBtnText();
+        }
+
+        /// <summary> Drops the configured trim, so the whole video is encoded again. The dialog cannot
+        /// say this: dismissing it keeps whatever was configured, and confirming it always writes a
+        /// range, so a trim picked once could not be taken back. </summary>
+        private void Av1anTrimClear_Click(object sender, RoutedEventArgs e)
+        {
+            Av1anUi.CurrentTrim = null;
+            UpdateAv1anTrimBtnText();
+        }
+
+        /// <summary> The Trim button doubles as the readout of what is configured. A range is wider
+        /// than the column, so the end of one is only ever read off the tooltip. </summary>
+        public void UpdateAv1anTrimBtnText()
+        {
+            Av1anTrimConfBtn.Content = Av1anUi.CurrentTrim == null ? "Configure…" : Av1anUi.CurrentTrim.ToString();
+            ToolTip.SetTip(Av1anTrimConfBtn, Av1anUi.CurrentTrim?.ToString());
+            Av1anTrimClearBtn.IsVisible = Av1anUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 
         public void LoadConfigAv1an()
@@ -203,8 +265,11 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
             ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
             ConfigParser.RestoreIfSaved(Av1anFpsBox);
-            ConfigParser.RestoreIfSaved(Av1anScaleBoxW);
-            ConfigParser.RestoreIfSaved(Av1anScaleBoxH);
+            DeinterlaceUi.RestoreAv1anMode(); // By name rather than by index - see the method
+            ConfigParser.RestoreIfSaved(Av1anDeintPresetBox);
+            ConfigParser.RestoreIfSaved(Av1anDeintDoubleRateBox);
+            Av1anUi.LoadResizeConfig();
+            Av1anUi.RefreshResizeBox();
             ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(Av1anAudChannelsBox);
             ConfigParser.RestoreIfSaved(CheckAv1anCopySubs);
@@ -234,8 +299,10 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
                 ConfigParser.SaveGuiElement(Av1anFpsBox);
-                ConfigParser.SaveGuiElement(Av1anScaleBoxW);
-                ConfigParser.SaveGuiElement(Av1anScaleBoxH);
+                ConfigParser.SaveGuiElement(Av1anDeintModeBox); // The mode's name, not its index - see RestoreAv1anMode
+                ConfigParser.SaveGuiElement(Av1anDeintPresetBox);
+                ConfigParser.SaveGuiElement(Av1anDeintDoubleRateBox);
+                Av1anUi.SaveResizeConfig();
                 ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
                 ConfigParser.SaveGuiElement(CheckAv1anCopySubs);

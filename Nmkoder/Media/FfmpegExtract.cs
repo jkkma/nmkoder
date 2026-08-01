@@ -19,10 +19,12 @@ namespace Nmkoder.Media
             bool isPng = (Path.GetExtension(outputPath).ToLower() == ".png");
             string comprArg = isPng ? pngCompr : "-q:v 1";
             string pixFmt = "-pix_fmt " + (isPng ? $"rgb24 {comprArg}" : "yuvj420p");
-            Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
-            string vf = res.Height > maxH ? $"-vf scale=-1:{maxH.RoundMod(2)}" : "";
-            string args = $"-i {inputFile.Wrap()} -vf \"select=eq(n\\,{frameNum})\" -vframes 1 {pixFmt} {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden };
+            string scale = await GetPreviewScale(inputFile, maxH);
+            // The scale joins the selection in a single -vf: ffmpeg takes the last -vf per stream,
+            // so a second one would silently replace the frame selection whenever the scale kicked in.
+            string vf = $"-vf \"select=eq(n\\,{frameNum}){(scale.Length > 0 ? $",{scale}" : "")}\"";
+            string args = $"-i {inputFile.Wrap()} {vf} -vframes 1 {pixFmt} {outputPath.Wrap()}";
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 
@@ -32,11 +34,11 @@ namespace Nmkoder.Media
             bool isPng = (Path.GetExtension(outputPath).ToLower() == ".png");
             string comprArg = isPng ? pngCompr : "-q:v 1";
             string pixFmt = "-pix_fmt " + (isPng ? $"rgb24 {comprArg}" : "yuvj420p");
-            Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
-            string vf = res.Height > maxH ? $"-vf scale=-1:{maxH.RoundMod(2)}" : "";
+            string scale = await GetPreviewScale(inputFile, maxH);
+            string vf = scale.Length > 0 ? $"-vf {scale}" : "";
             string noKeyArg = noKey ? "-skip_frame nokey" : "";
             string args = $"{noKeyArg} -ss {skipSeconds} -i {inputFile.Wrap()} -map 0:v -vframes 1 {pixFmt} {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 
@@ -47,12 +49,23 @@ namespace Nmkoder.Media
         /// </summary>
         public static async Task ExtractSingleFrameAtMs(string inputFile, string outputPath, long ms, int maxH = 2160)
         {
-            Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
-            string vf = res.Height > maxH ? $"-vf scale=-2:{maxH.RoundMod(2)}" : "";
+            string scale = await GetPreviewScale(inputFile, maxH);
+            string vf = scale.Length > 0 ? $"-vf {scale}" : "";
             string time = (Math.Max(0, ms) / 1000d).ToString("0.###", CultureInfo.InvariantCulture);
             string args = $"-ss {time} -i {inputFile.Wrap()} -map 0:v:0 -frames:v 1 -update 1 -pix_fmt yuvj420p -q:v 2 {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, ProcessType = OS.NmkoderProcess.ProcessType.Background };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false, ProcessType = OS.NmkoderProcess.ProcessType.Background };
             await RunFfmpeg(settings);
+        }
+
+        /// <summary>
+        /// The scale these previews share: height capped, and anamorphic sources de-squeezed so the
+        /// image shows the shape the video plays at rather than the one it is stored at.
+        /// </summary>
+        private static async Task<string> GetPreviewScale(string inputFile, int maxH)
+        {
+            Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
+            Size sar = await FfmpegUtils.GetSampleAspectRatio(inputFile);
+            return FfmpegUtils.GetPreviewScaleFilter(res, sar, maxH);
         }
 
         public static async Task ExtractThumbs(string inputFile, string outputDir, int amount, int maxH = 360, string format = "jpg")
@@ -73,19 +86,43 @@ namespace Nmkoder.Media
             await Task.WhenAll(tasks);
         }
 
+        /// <summary>
+        /// Dumps a file's attachments into a folder beside it and hands back the folder, or "" when
+        /// nothing came out. The empty answer is the point: the caller opens the folder, and a failed
+        /// extraction used to open an empty one with nothing anywhere saying why.
+        /// </summary>
         public static async Task<string> ExtractAttachments(string inputFile, int index = -1)
         {
             string outputDir = $"{inputFile} Attachments";
-            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+            catch (Exception e)
+            {
+                Logger.LogErr($"Could not create '{Path.GetFileName(outputDir)}': {e.Message}");
+                return "";
+            }
+
             await ExtractAttachments(inputFile, outputDir, index);
-            return outputDir;
+
+            if (IoUtils.GetFileInfosSorted(outputDir, true, "*").Length > 0)
+                return outputDir;
+
+            Logger.LogErr($"Nothing was extracted from '{Path.GetFileName(inputFile)}' - FFmpeg wrote no attachment files. The log has its output.");
+            IoUtils.TryDeleteIfExists(outputDir); // An empty folder beside the source is worse than none
+            return "";
         }
 
         public static async Task ExtractAttachments (string inputFile, string outputDir, int index = -1)
         {
             string idx = index < 0 ? ":t" : $":{index}";
             string args = $"-dump_attachment{idx} \"\" -i {inputFile.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, WorkingDir = outputDir, LogLevel = "error", LoggingMode = LogMode.Hidden };
+            // ffmpeg has nothing to mux here, so it ends with "Output file #0 does not contain any
+            // stream" and a non-zero code even when every attachment came out. What was written is
+            // the only usable answer, which is why the caller counts files rather than reading this.
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, WorkingDir = outputDir, LogLevel = "error", LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 
