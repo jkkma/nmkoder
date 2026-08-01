@@ -64,7 +64,8 @@ namespace Nmkoder.Media
                             Size sar = SizeFromString(await GetFfprobeInfoAsync(path, showStreams, "sample_aspect_ratio", idx));
                             Size dar = SizeFromString(await GetFfprobeInfoAsync(path, showStreams, "display_aspect_ratio", idx));
                             Fraction fps = path.IsConcatFile() ? defaultFps : await IoUtils.GetVideoFramerate(path);
-                            VideoStream vStream = new VideoStream(lang, title, codec, codecLong, pixFmt, kbits, res, sar, dar, fps);
+                            FieldOrder fieldOrder = InterlaceDetect.ParseFfprobeFieldOrder(await GetFfprobeInfoAsync(path, showStreams, "field_order", idx));
+                            VideoStream vStream = new VideoStream(lang, title, codec, codecLong, pixFmt, kbits, res, sar, dar, fps, fieldOrder);
                             vStream.Index = idx;
                             vStream.IsDefault = def;
                             Logger.Log($"Added video stream: {vStream}", true);

@@ -31,6 +31,9 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Encoder Options: Set quality and speed/effort aka preset, set color format
 - Quality Modes: Either use a **constant quality**, target **bitrate**, or target **filesize**
 - Video Options: Resample frame rate, **resize** either using absolute or relative numbers, manually or **automatically crop** black bars
+- **Deinterlacing**, on by default and applied only to sources that really are interlaced - a tape, DVD or
+  camcorder capture. Uses **QTGMC** through VapourSynth where it can (bundled on Windows), otherwise ffmpeg's
+  bwdif, and outputs one frame per field so none of the motion is thrown away
 - Audio Options: Set quality and channels/layout
 - Subtitle Options: Optionally **burn in** a subtitle track
 
@@ -43,6 +46,8 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
   XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
   bundle ships and enables per machine - see below)
 - Same audio and video options as FFmpeg encoding
+- Deinterlacing too, though with bwdif or yadif rather than QTGMC and at the source frame rate - av1an filters
+  each chunk with ffmpeg, which has nowhere to run a VapourSynth script and counts on the frame count not changing
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
 - Encodes can be paused and resumed live, or stopped entirely and picked up again later from the finished chunks

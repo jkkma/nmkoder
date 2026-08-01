@@ -25,6 +25,22 @@ namespace Nmkoder.Media
         {
             public string Args { get; set; } = "";
             public string WorkingDir { get; set; } = "";
+
+            /// <summary>
+            /// A command and a trailing "| " to put in front of ffmpeg, so it reads its video from
+            /// another process's stdout instead of decoding it itself. That is how QTGMC's frames get
+            /// in: VSPipe evaluates a VapourSynth script and ffmpeg takes the result as an input.
+            /// <para/>
+            /// Deliberately a prefix rather than a suffix - see <see cref="TryReadExitCode"/>: the
+            /// shell reports the *last* command's status, so ffmpeg has to stay last for a failed
+            /// encode to still read as one.
+            /// </summary>
+            public string PipeFrom { get; set; } = "";
+
+            /// <summary> Directories to put on the process's PATH beyond the app's own bin folder -
+            /// the portable VapourSynth, when something in the command line needs it. </summary>
+            public string[] ExtraPathDirs { get; set; } = new string[0];
+
             public LogMode LoggingMode { get; set; } = LogMode.Hidden;
             public string LogLevel { get; set; } = "warning";
             public bool ReliableOutput { get; set; } = false;
@@ -46,8 +62,16 @@ namespace Nmkoder.Media
             public int ExitCode { get; set; } = -1;
 
             /// <summary> Whether a non-zero exit is a failure worth reporting. False for the probes
-            /// and best-effort runs whose callers already cope with getting nothing back. </summary>
+            /// and best-effort runs whose callers already cope with getting nothing back - and for
+            /// callers that would rather report it themselves, which is what <see cref="Problem"/>
+            /// is for. </summary>
             public bool ReportFailure { get; set; } = false;
+
+            /// <summary> Why this run failed, worded as the user would be told, or "" when it did
+            /// not. Written either way, so a caller holding a better explanation than ffmpeg's can
+            /// choose between the two - see the VapourSynth pipe, where an input that simply ended
+            /// is all ffmpeg can see of a script that died. </summary>
+            public string Problem { get; set; } = "";
 
             /// <summary> Whether <see cref="ExitCode"/> means anything. A run whose status could not
             /// be established leaves this false, which is not the same as exiting 0 - and cannot be
@@ -71,11 +95,11 @@ namespace Nmkoder.Media
             string beforeArgs = $"-hide_banner -stats -loglevel {settings.LogLevel} -y";
 
             string wd = Shell.ChangeDir(settings.WorkingDir);
-            ffmpeg.StartInfo.Arguments = Shell.BuildArguments($"{wd} ffmpeg {beforeArgs} {settings.Args}", StayOpen());
-            OsUtils.SetPathVar(ffmpeg, new[] { Paths.GetBinPath() });
+            ffmpeg.StartInfo.Arguments = Shell.BuildArguments($"{wd} {settings.PipeFrom}ffmpeg {beforeArgs} {settings.Args}", StayOpen());
+            OsUtils.SetPathVar(ffmpeg, new[] { Paths.GetBinPath() }.Concat(settings.ExtraPathDirs));
 
             if (settings.LoggingMode != LogMode.Hidden) Logger.Log("Running FFmpeg...", false);
-            Logger.Log($"ffmpeg {beforeArgs} {settings.Args}", true, false, "ffmpeg");
+            Logger.Log($"{settings.PipeFrom}ffmpeg {beforeArgs} {settings.Args}", true, false, "ffmpeg");
 
             // One per run rather than one shared: a thumbnail extraction started on a background
             // task while this encode runs would otherwise contribute its output to this run's verdict.
@@ -120,8 +144,10 @@ namespace Nmkoder.Media
             if (settings.ProgressBar)
                 Program.MainWin?.SetProgress(0);
 
-            if (settings.ReportFailure)
-                ReportFfmpegOutcome(settings, errors);
+            settings.Problem = GetFfmpegProblem(settings, errors);
+
+            if (settings.ReportFailure && settings.Problem.IsNotEmpty())
+                RunTask.Fail(settings.Problem);
 
             return processOutput;
         }
@@ -141,7 +167,10 @@ namespace Nmkoder.Media
         /// which <see cref="Shell.GrepStderr"/> builds, would make grep the last command and its
         /// status the one read - so a failed tool whose output grep happened to match would come back
         /// a success. Nothing does today: GrepStderr is only ever used by FfmpegUtils' own launcher,
-        /// which does not come through here.
+        /// which does not come through here. A pipe in *front* of ffmpeg is fine for the same reason,
+        /// and that is what <see cref="FfmpegSettings.PipeFrom"/> builds - but it is also why a
+        /// failing VSPipe cannot be noticed here, since ffmpeg reads its early end-of-stream as the
+        /// end of the video and finishes cleanly. <see cref="Qtgmc.ReadRunProblem"/> covers that.
         /// </summary>
         private static bool TryReadExitCode(Process p, out int exitCode)
         {
@@ -163,32 +192,29 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
-        /// Turns a bad ffmpeg run into a reported failure. The exit code is the authority; the output
-        /// only supplies the explanation, and a run that exited cleanly can still be failed by one of
-        /// the few messages that mean the output is worthless whatever the status said.
+        /// Why an ffmpeg run failed, or "" if it did not. The exit code is the authority; the output
+        /// only supplies the explanation, and a run that exited cleanly can still have failed on one
+        /// of the few messages that mean the output is worthless whatever the status said.
         /// </summary>
-        private static void ReportFfmpegOutcome(FfmpegSettings settings, FfmpegOutputHandler.RunErrors errors)
+        private static string GetFfmpegProblem(FfmpegSettings settings, FfmpegOutputHandler.RunErrors errors)
         {
             if (RunTask.canceled) // Killing the process is what made it exit non-zero
-                return;
+                return "";
 
             string evidence = errors.Evidence;
             string suspect = errors.Suspect;
 
             if (evidence.IsNotEmpty())
-            {
-                RunTask.Fail($"FFmpeg did not produce a usable result:\n\n{evidence}");
-                return;
-            }
+                return $"FFmpeg did not produce a usable result:\n\n{evidence}";
 
             // Anything non-zero is a failure, negatives included: a Windows crash code such as
             // 0xC0000005 arrives here as a negative int, and a run that could not be judged at all
             // says so through ExitCodeKnown rather than by borrowing a value.
             if (!settings.ExitCodeKnown || settings.ExitCode == 0)
-                return;
+                return "";
 
             string why = suspect.IsNotEmpty() ? $"\n\nIt reported:\n{suspect}" : "\n\nThe log has its output.";
-            RunTask.Fail($"FFmpeg exited with code {settings.ExitCode}.{why}");
+            return $"FFmpeg exited with code {settings.ExitCode}.{why}";
         }
 
         private static string[] GetIgnoreStringsFromFfmpegCmd(string cmd)

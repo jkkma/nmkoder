@@ -268,3 +268,74 @@ a value carried only to make them half-work there is a no-op on every build they
 for. `enable-qm` was one and has been removed. Do not add one back. (Mainline defaults
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
+
+## Deinterlacing
+
+Both encode tabs carry a Deinterlace setting, defaulting to Automatic, which does nothing at
+all unless the source really is interlaced. That default is the point: a Hi8 or VHS capture
+comes out deinterlaced without anyone having had to know to ask, and a modern download is
+left alone.
+
+**What decides "interlaced" is two things, in order.** The container's own field-order flag
+is free - ffprobe has already reported it by the time a file is loaded - and for the formats
+this matters most for it is not a guess: an MPEG-2 tape capture writes `tt` in its sequence
+header, DV writes `bb`. A flag that says nothing is the case worth spending time on, and
+there `InterlaceDetect` decodes a few hundred frames through ffmpeg's `idet` filter. A flag
+that says `progressive` is *believed* rather than checked, because checking it would put a
+multi-second scan in front of loading any modern video to catch a case one click settles.
+
+The `idet` reading needs two conditions, and the first is the one doing the work: interlaced
+video has *one* field order for the whole file, so a real interlaced source puts essentially
+every combed frame in the same bucket, while idet's false positives split roughly evenly.
+Measured here on a 720x480 synthetic pattern with no fields in it at all, idet reported
+TFF 79 / BFF 96 / progressive 27 - which "more combed frames than progressive ones" alone
+calls interlaced, and which the three-quarters-one-way rule rejects. The genuinely interlaced
+clips scored 202/0 and 0/202. The second condition is a volume bar, and it is deliberately
+low: idet cannot see combing in a frame that does not move, so a tape with quiet stretches
+scores well under half.
+
+**QTGMC runs in VapourSynth, so ffmpeg cannot call it.** `Qtgmc` writes a `.vpy` and the
+command becomes `vspipe … | ffmpeg …`, with the pipe added as the *last* `-i` so that every
+input already on the command line keeps the number the stream maps were built against; only
+the first video track is remapped, to `{pipe}:v:0`. The pipe goes in *front* of ffmpeg on
+purpose - the shell reports the last command's status, and ffmpeg has to stay last for a
+failed encode to still read as one.
+
+Which means a VapourSynth failure is invisible to ffmpeg: a script that dies two thirds of
+the way through is end-of-stream on stdin, and ffmpeg finishes normally and exits 0 over a
+file missing its last hour. VSPipe's stderr therefore goes to a log file which
+`Qtgmc.ReadRunProblem` checks for VSPipe's own "Output N frames in …" line afterwards - once
+per pass, which is why a two-pass encode expects two of them.
+
+**The plugin set is not guesswork, and it is pinned to havsfunc 33.** 33 is the last release
+carrying the classic `QTGMC(Preset=…)`; 34 replaced it with vs-jetpack's builder API and a
+dependency tree many times the size. What 33 resolves on its default path was established by
+building the graph and rendering a frame: `mv`, `rgvs`, `fmtc`, `focus2`, `misc`, `znedi3`
+and `eedi3m`, plus the `havsfunc`, `vsutil` and `mvsfunc` scripts. Two of those are not
+obvious and both were found the hard way - `eedi3m` because `QTGMC_Interpolate` builds an
+eedi3 partial *before* it looks at EdiMode, so it is resolved even on the NNEDI3 path, and
+`znedi3` specifically rather than nnedi3 or nnedi3cl because that is the name it calls.
+`focus2` (TemporalSoften2) in turn refuses to run without `misc`. Grepping for `core.<ns>.`
+finds none of these: havsfunc reaches most plugins as `clip.<ns>.<Func>()` method chains.
+
+None of that is load-bearing for the build. `Qtgmc.IsAvailableAsync` builds a QTGMC graph
+over a blank clip and renders a frame of it, once per session, through the same VSPipe the
+encode would use - so a missing plugin, a Python that cannot import havsfunc, or a znedi3
+whose weights file did not travel with it all come out as a fallback to bwdif naming what is
+wrong, rather than as ffmpeg complaining about invalid data on stdin ten minutes in.
+
+**Two things QTGMC deliberately does not cover.**
+
+A trim, because the trim is ffmpeg's - an input seek, an output duration, or a frame-number
+filter - and none of the three reaches the script that reads the source, so the video would
+arrive whole while the audio arrived cut. Both together means cutting first; the Cut utility
+does that without re-encoding, and the log says so.
+
+The AV1AN tab, for two reasons and the second is the one that would remain even if the first
+were solved. av1an applies video filters with ffmpeg once per chunk, and there is nowhere in
+that to put a script; and av1an evaluates its input for scene detection, again for every
+chunk, and again for every probe a target-quality mode runs - so a filter costing more than
+the encoder does would be paid for several times over. That tab gets bwdif or yadif, at the
+source frame rate: av1an works out the output's frame rate from the source and hands each
+encoder a fixed number of frames per chunk, so one frame per field would write twice the
+frames under the source's own rate, and the file would play at half speed.

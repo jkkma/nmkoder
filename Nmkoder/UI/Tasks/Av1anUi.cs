@@ -27,6 +27,11 @@ namespace Nmkoder.UI.Tasks
         /// <summary> The section to encode, or null for the whole video. Picked in the cut dialog. </summary>
         public static TrimSettings CurrentTrim;
 
+        /// <summary> The deinterlacing settled for the encode being built, resolved once in
+        /// <see cref="Av1an.Run"/>. Always an ffmpeg filter here - see
+        /// <see cref="DeinterlaceUi.Av1anQtgmcProblem"/> for why QTGMC is not on offer. </summary>
+        public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
+
         public static void Init()
         {
             // Load video codecs
@@ -330,16 +335,24 @@ namespace Nmkoder.UI.Tasks
         {
             List<string> filters = new List<string>();
 
-            if (codecArgs != null && codecArgs.ForcedFilters != null)
-                filters.AddRange(codecArgs.ForcedFilters);
-
             if (TrackList.current.File.VideoStreams.Count < 1)
                 return "";
 
+            // First in the chain, because the crop and the resize below it are both measured against a
+            // whole frame rather than against a pair of fields.
+            string deinterlace = CurrentDeinterlace.GetFfmpegFilter();
+
+            if (deinterlace.IsNotEmpty())
+                filters.Add(deinterlace);
+
+            if (codecArgs != null && codecArgs.ForcedFilters != null)
+                filters.AddRange(codecArgs.ForcedFilters);
+
             VideoStream vs = TrackList.current.File.VideoStreams.First();
             Fraction fps = GetUiFps();
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
-            if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
+            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
             // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only

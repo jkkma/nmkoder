@@ -157,6 +157,15 @@ namespace Nmkoder.Views
             Av1anUi.RefreshResizeBox();
         }
 
+        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            DeinterlaceUi.RefreshInfo();
+            SaveAv1anEncodeSettings();
+        }
+
         private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // Saving is left to the handler: refilling the list raises this too, and that is not a change
@@ -250,6 +259,7 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
             ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
             ConfigParser.RestoreIfSaved(Av1anFpsBox);
+            ConfigParser.RestoreIndexIfSaved(Av1anDeintModeBox);
             Av1anUi.LoadResizeConfig();
             Av1anUi.RefreshResizeBox();
             ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
@@ -281,6 +291,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
                 ConfigParser.SaveGuiElement(Av1anFpsBox);
+                ConfigParser.SaveComboxIndex(Av1anDeintModeBox);
                 Av1anUi.SaveResizeConfig();
                 ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);

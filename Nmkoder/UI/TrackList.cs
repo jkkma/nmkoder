@@ -51,6 +51,7 @@ namespace Nmkoder.UI
             f.FormatInfoLabel.Text = "";
             f.MetadataRows.Clear();
             ThumbnailView.ClearUi();
+            DeinterlaceUi.RefreshInfo(); // The readouts describe the loaded file, and there is none now
 
             if (resetSettings)
                 ResetSettings();
@@ -144,6 +145,9 @@ namespace Nmkoder.UI
 
             QuickConvertUi.InitFile(current.File.SourcePath);
             Av1anUi.InitFile(current.File.SourcePath);
+            // Off the UI thread: a file whose container says nothing about its scan type has to have a
+            // few hundred frames decoded before anything is known, and loading should not wait on it.
+            DeinterlaceUi.AnalyzeInBackground(current.File);
 
             if (setWorking)
                 Program.MainWin.SetWorking(false);
@@ -258,6 +262,7 @@ namespace Nmkoder.UI
                 int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(v.PixelFormat);
                 lines.Add($"Color Format: {v.PixelFormat}{(bitDepth > 0 ? $" ({bitDepth}-bit)" : "")}");
                 lines.Add($"Frame Rate: {v.Rate} (~{v.Rate.GetString()} FPS)");
+                lines.Add($"Scan Type: {DescribeScanType(mediaFile, v)}");
             }
 
             else if (stream.Type == Stream.StreamType.Audio)
@@ -288,6 +293,28 @@ namespace Nmkoder.UI
             return string.Join(Environment.NewLine, lines);
         }
 
+        /// <summary>
+        /// What the track's scan type is, preferring what was measured over what the file claims - a
+        /// container flag that says nothing is exactly the case the frame scan exists to settle, and
+        /// showing "Unknown" beside a verdict that has already been reached would contradict the
+        /// Deinterlace readout on the encode tabs.
+        /// </summary>
+        private static string DescribeScanType(MediaFile file, VideoStream v)
+        {
+            InterlaceInfo info = file.Interlacing;
+
+            if (info != null && (v.FieldOrder == FieldOrder.Unknown || info.Scanned))
+                return $"{info.DescribeOrder().ToTitleCase()}{(info.Scanned ? $" ({info.Evidence})" : "")}";
+
+            switch (v.FieldOrder)
+            {
+                case FieldOrder.TopFieldFirst: return "Interlaced, Top Field First";
+                case FieldOrder.BottomFieldFirst: return "Interlaced, Bottom Field First";
+                case FieldOrder.Progressive: return "Progressive";
+                default: return "Unknown";
+            }
+        }
+
         public static string GetInputFilesString()
         {
             if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
@@ -316,6 +343,10 @@ namespace Nmkoder.UI
         {
             List<string> args = new List<string>();
             bool hasSkippedFirstVideoStream = false;
+            bool seenFirstVideoStream = false;
+            // Where QTGMC's deinterlaced frames come in, when this run is using it: the first video
+            // track is then read off that pipe rather than out of the file it belongs to.
+            int pipeInput = QuickConvertUi.DeinterlacePipeInput;
             Containers.Container container = QuickConvertUi.GetCurrentContainer();
             List<string> dropped = new List<string>();
 
@@ -346,6 +377,11 @@ namespace Nmkoder.UI
                     continue;
                 }
 
+                bool firstVideo = entry.Stream.Type == Stream.StreamType.Video && !seenFirstVideoStream;
+
+                if (entry.Stream.Type == Stream.StreamType.Video)
+                    seenFirstVideoStream = true;
+
                 if (accountForFilterChain && !hasSkippedFirstVideoStream && entry.Stream.Type == Stream.StreamType.Video && !noVideoEncode)
                 {
                     if (!string.IsNullOrWhiteSpace(await QuickConvertUi.GetVideoFilterArgs(enc, null, true)))
@@ -356,7 +392,7 @@ namespace Nmkoder.UI
                     }
                 }
 
-                args.Add($"-map {fileIdx}:{entry.Stream.Index}");
+                args.Add(firstVideo && pipeInput >= 0 ? $"-map {pipeInput}:v:0" : $"-map {fileIdx}:{entry.Stream.Index}");
             }
 
             foreach (var kind in dropped.GroupBy(x => x))

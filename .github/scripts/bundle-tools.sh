@@ -501,6 +501,7 @@ bundle_vapoursynth() {
                      Source: https://www.python.org/downloads/"
     bundle_vs_source_plugins
     bundle_vs_metric_plugins
+    bundle_qtgmc
   else
     ASSET_RELEASE_TAG=""
     note_skip "vapoursynth" "no portable asset in $VAPOURSYNTH_TAG"
@@ -734,6 +735,190 @@ EOF
     note_licence "  Vship              MIT (GPU VapourSynth metric plugin; parked in vsynth/vship,
                      staged into vs-plugins per machine once its GPU check passes)
                      Source: https://github.com/Line-fr/Vship"
+  fi
+}
+
+# ─────────────────────────── QTGMC ───────────────────────────
+# QTGMC is the deinterlacer the Quick Convert tab reaches for on an interlaced source - a tape
+# or DVD capture, which is what this whole group exists for. It is a Python function rather than
+# a plugin, so what has to land here is havsfunc plus every VapourSynth plugin it touches, on top
+# of the VapourSynth staged above.
+#
+# All of it is pinned, and to one version of havsfunc in particular. havsfunc 33 is the last
+# release carrying the classic QTGMC(Preset=...) function - 34 replaced it with vs-jetpack's
+# builder API and a dependency tree many times this size - so 33 is what Nmkoder's generated
+# script is written against, and its plugins are pinned alongside it rather than tracking
+# releases that were never tested with it. The set below is not guesswork: it is what havsfunc 33
+# actually resolves on the default path, established by running the graph. eedi3m is in it even
+# though the default EdiMode is NNEDI3, because QTGMC_Interpolate builds an eedi3 partial before
+# it looks at EdiMode, and znedi3 specifically (not nnedi3) because that is the name it calls.
+#
+# None of it is load-bearing for the rest of the build: Nmkoder.Media.Qtgmc builds a QTGMC graph
+# and renders a frame before it uses any of this, once per session, so a piece that failed to
+# download shows up as a fallback to bwdif naming what is missing, not as a broken encode.
+HAVSFUNC_VERSION="${HAVSFUNC_VERSION:-33}"
+VSUTIL_VERSION="${VSUTIL_VERSION:-0.8.0}"
+MVSFUNC_TAG="${MVSFUNC_TAG:-r10}"
+MVTOOLS_VERSION="${MVTOOLS_VERSION:-29}"
+ZNEDI3_VERSION="${ZNEDI3_VERSION:-3.3}"
+EEDI3_VERSION="${EEDI3_VERSION:-10.0}"
+FMTCONV_VERSION="${FMTCONV_VERSION:-31}"
+REMOVEGRAIN_TAG="${REMOVEGRAIN_TAG:-R1}"
+MISCFILTERS_TAG="${MISCFILTERS_TAG:-R2}"
+TEMPORALSOFTEN2_TAG="${TEMPORALSOFTEN2_TAG:-v1}"
+
+# The download URL of one file from a PyPI release. Pinned to a version and matched on the whole
+# file name, because the unversioned /json endpoint lists every past release's files too - so a
+# looser match happily returns a five-year-old build of the same package.
+pypi_file_url() {
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 "https://pypi.org/pypi/$1/$2/json" 2>/dev/null \
+    | tr '{' '\n' \
+    | grep -F "\"filename\":\"$3\"" \
+    | grep -oE 'https://files\.pythonhosted\.org/[^"]+' \
+    | head -1
+}
+
+# Fetch and unpack one PyPI file into <dest>. A wheel is a zip, so nothing beyond unzip is needed.
+fetch_wheel() {
+  local pkg="$1" ver="$2" file="$3" dest="$4" url status
+  url="$(pypi_file_url "$pkg" "$ver" "$file")"
+  [ -n "$url" ] || return 1
+  fetch "$url" "$WORK/$file" || return 1
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  unzip -qo "$WORK/$file" -d "$dest"
+  status=$?
+  [ "$status" -le 1 ] || return 1 # unzip exits 1 for warnings, having written the files anyway
+}
+
+# A VapourSynth plugin published as a wheel. These carry vapoursynth/plugins/<name>.dll, and
+# znedi3's carries its neural network weights beside it - a file the plugin looks for in its own
+# directory, so it has to travel into vs-plugins rather than beside VSPipe.
+install_wheel_plugin() {
+  local pkg="$1" ver="$2" file="$3" stage="$WORK/whlplug" plugins="$VSYNTH_DIR/vs-plugins" got=0 f
+
+  fetch_wheel "$pkg" "$ver" "$file" "$stage" || return 1
+  mkdir -p "$plugins"
+
+  while IFS= read -r f; do
+    [ -n "$f" ] && cp "$f" "$plugins/" && got=$((got + 1))
+  done < <(find "$stage" -type f \( -iname '*.dll' -o -iname '*.bin' \) 2>/dev/null)
+
+  [ "$got" -gt 0 ]
+}
+
+# A pure-Python script package, unpacked where the embedded interpreter imports from. The
+# .dist-info folders are dropped: nothing here uses pip, so they are only weight.
+install_wheel_module() {
+  local pkg="$1" ver="$2" file="$3" stage="$WORK/whlmod" site="$VSYNTH_DIR/lib/site-packages"
+
+  fetch_wheel "$pkg" "$ver" "$file" "$stage" || return 1
+  rm -rf "$stage"/*.dist-info
+  mkdir -p "$site"
+  cp -R "$stage"/. "$site"/
+}
+
+bundle_qtgmc() {
+  local got=0 missing=()
+
+  # Plugins from PyPI, which is where these three publish their Windows builds - mvtools' own
+  # GitHub releases carry source archives only.
+  if install_wheel_plugin vapoursynth-mvtools "$MVTOOLS_VERSION" "vapoursynth_mvtools-${MVTOOLS_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: mvtools $MVTOOLS_VERSION (QTGMC motion search)"
+    note_licence "  mvtools            GPL-2.0-or-later (VapourSynth motion plugin, used by QTGMC)
+                     Source: https://github.com/dubhater/vapoursynth-mvtools"
+  else
+    missing+=("mvtools")
+  fi
+
+  if install_wheel_plugin vapoursynth-znedi3 "$ZNEDI3_VERSION" "vapoursynth_znedi3-${ZNEDI3_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: znedi3 $ZNEDI3_VERSION (QTGMC field interpolation)"
+    note_licence "  znedi3             GPL-2.0-or-later (VapourSynth NNEDI3 implementation, used by QTGMC)
+                     Source: https://github.com/sekrit-twc/znedi3"
+  else
+    missing+=("znedi3")
+  fi
+
+  if install_wheel_plugin vapoursynth-eedi3 "$EEDI3_VERSION" "vapoursynth_eedi3-${EEDI3_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: eedi3m $EEDI3_VERSION (referenced by QTGMC even on the NNEDI3 path)"
+    note_licence "  EEDI3              GPL-3.0-or-later (VapourSynth edge interpolation, referenced by QTGMC)
+                     Source: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3"
+  else
+    missing+=("eedi3m")
+  fi
+
+  if install_wheel_plugin vapoursynth-fmtconv "$FMTCONV_VERSION" "vapoursynth_fmtconv-${FMTCONV_VERSION}-py3-none-win_amd64.whl"; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: fmtconv $FMTCONV_VERSION (QTGMC's bob)"
+    note_licence "  fmtconv            WTFPL (VapourSynth format conversion, used by QTGMC)
+                     Source: https://github.com/EleonoreMizo/fmtconv"
+  else
+    missing+=("fmtconv")
+  fi
+
+  # And three that only exist as GitHub release archives. All are frozen upstream - the first two
+  # are archived repositories with a single release each - so the tags above will not move.
+  VS_PLUGIN_DLL='RemoveGrainVS.dll'
+  ASSET_RELEASE_TAG="$REMOVEGRAIN_TAG"
+  if try_assets "${REMOVEGRAIN_REPO:-vapoursynth/vs-removegrain}" 'removegrain.*\.(7z|zip)$' '\.(7z|zip)$' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: RemoveGrain ($LAST_ASSET)"
+    note_licence "  RemoveGrainVS      GPL-2.0-or-later (VapourSynth rgvs plugin, used by QTGMC)
+                     Source: https://github.com/vapoursynth/vs-removegrain"
+  else
+    missing+=("rgvs")
+  fi
+  ASSET_RELEASE_TAG=""
+
+  VS_PLUGIN_DLL='MiscFilters.dll'
+  ASSET_RELEASE_TAG="$MISCFILTERS_TAG"
+  if try_assets "${MISCFILTERS_REPO:-vapoursynth/vs-miscfilters-obsolete}" 'miscfilters.*\.(7z|zip)$' '\.(7z|zip)$' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: MiscFilters ($LAST_ASSET)"
+    note_licence "  MiscFilters        GPL-2.0-or-later (VapourSynth misc plugin; TemporalSoften2 needs it)
+                     Source: https://github.com/vapoursynth/vs-miscfilters-obsolete"
+  else
+    missing+=("misc")
+  fi
+
+  VS_PLUGIN_DLL='libtemporalsoften2.dll'
+  ASSET_RELEASE_TAG="$TEMPORALSOFTEN2_TAG"
+  if try_assets "${TEMPORALSOFTEN2_REPO:-dubhater/vapoursynth-temporalsoften2}" 'win64.*\.(7z|zip)$' '' install_vs_plugin; then
+    got=$((got + 1)); note_ok "vapoursynth plugin: TemporalSoften2 ($LAST_ASSET)"
+    note_licence "  TemporalSoften2    GPL-2.0-or-later (VapourSynth focus2 plugin, used by QTGMC)
+                     Source: https://github.com/dubhater/vapoursynth-temporalsoften2"
+  else
+    missing+=("focus2")
+  fi
+  ASSET_RELEASE_TAG=""
+
+  # The scripts themselves. havsfunc imports mvsfunc at module level even though QTGMC never
+  # calls it, so it has to be there or nothing imports at all; mvsfunc has no PyPI release, so it
+  # comes off its repository at a pinned tag.
+  if install_wheel_module havsfunc "$HAVSFUNC_VERSION" "havsfunc-${HAVSFUNC_VERSION}-py3-none-any.whl"; then
+    got=$((got + 1)); note_ok "havsfunc $HAVSFUNC_VERSION (the QTGMC function itself)"
+    note_licence "  HAvsFunc           Unlicense (public domain; provides QTGMC)
+                     Source: https://github.com/HomeOfVapourSynthEvolution/havsfunc"
+  else
+    missing+=("havsfunc")
+  fi
+
+  if install_wheel_module vsutil "$VSUTIL_VERSION" "vsutil-${VSUTIL_VERSION}-py3-none-any.whl"; then
+    got=$((got + 1)); note_ok "vsutil $VSUTIL_VERSION (havsfunc dependency)"
+    note_licence "  vsutil             MIT (VapourSynth helper functions, havsfunc dependency)
+                     Source: https://github.com/Irrational-Encoding-Wizardry/vs-util"
+  else
+    missing+=("vsutil")
+  fi
+
+  if fetch "https://raw.githubusercontent.com/HomeOfVapourSynthEvolution/mvsfunc/${MVSFUNC_TAG}/mvsfunc.py" "$WORK/mvsfunc.py" \
+     && mkdir -p "$VSYNTH_DIR/lib/site-packages" && cp "$WORK/mvsfunc.py" "$VSYNTH_DIR/lib/site-packages/"; then
+    got=$((got + 1)); note_ok "mvsfunc $MVSFUNC_TAG (havsfunc dependency)"
+    note_licence "  mvsfunc            MIT (VapourSynth helper functions, havsfunc dependency)
+                     Source: https://github.com/HomeOfVapourSynthEvolution/mvsfunc"
+  else
+    missing+=("mvsfunc")
+  fi
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    note_skip "QTGMC" "incomplete - missing ${missing[*]} - the app will deinterlace with bwdif instead"
   fi
 }
 

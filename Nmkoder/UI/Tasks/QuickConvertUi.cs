@@ -25,6 +25,21 @@ namespace Nmkoder.UI.Tasks
         public static CropConfig CurrentCrop;
         public static TrimSettings CurrentTrim;
 
+        /// <summary>
+        /// The deinterlacing settled for the run whose arguments are being built. Resolved once in
+        /// <see cref="QuickConvert.Run"/> rather than asked for again here: working it out can mean
+        /// decoding a few hundred frames to see whether the source is interlaced at all, and the
+        /// filter arguments are built several times over the course of one run.
+        /// </summary>
+        public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
+
+        /// <summary>
+        /// Where the VapourSynth pipe sits among the '-i' arguments, or -1 when this run has none.
+        /// QTGMC hands ffmpeg its frames on stdin, so the first video track is mapped from that input
+        /// instead of from the file the rest of the tracks come out of.
+        /// </summary>
+        public static int DeinterlacePipeInput = -1;
+
         public static new void Init()
         {
             // Load video codecs
@@ -535,19 +550,31 @@ namespace Nmkoder.UI.Tasks
             MediaFile currFile = TrackList.current.File;
             List<string> filters = new List<string>();
 
-            if (codecArgs != null && codecArgs.ForcedFilters != null)
-                filters.AddRange(codecArgs.ForcedFilters);
-
             if (currFile.VideoStreams.Count < 1 || (vCodec != null && vCodec.DoesNotEncode))
                 return "";
 
+            // Deinterlacing comes before everything else, because everything else is measured against
+            // a whole frame: a crop rectangle, a scale, a burnt-in subtitle. QTGMC contributes nothing
+            // here - it runs in VapourSynth ahead of ffmpeg and its frames arrive already deinterlaced.
+            string deinterlace = CurrentDeinterlace.GetFfmpegFilter();
+
+            if (deinterlace.IsNotEmpty())
+                filters.Add(deinterlace);
+
+            if (codecArgs != null && codecArgs.ForcedFilters != null)
+                filters.AddRange(codecArgs.ForcedFilters);
+
             VideoStream vs = currFile.VideoStreams.First();
             Fraction fps = GetUiFps();
+            // What the frames actually arrive at, which a bob has already doubled. Compared against
+            // the file's own rate instead, asking for 29.97 out of a bobbed 29.97i source would match
+            // and add no filter at all, leaving the output at 59.94.
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
             if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.FrameNumbers) // Check Filter: Frame Number Trim
                 filters.Add(CurrentTrim.StartArg);
 
-            if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
+            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
                 filters.Add($"fps=fps={fps}");
 
             int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In

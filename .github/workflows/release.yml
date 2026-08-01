@@ -185,9 +185,13 @@ jobs:
 
             - Windows carries the most: ffmpeg/ffprobe, MKVToolNix, and what is available
               of the AV1AN tab's toolchain in `bin/av1an/` - VapourSynth with an embedded
-              Python and its source plugins in `vsynth/`, encoders in `enc/`.
+              Python and its source plugins in `vsynth/`, encoders in `enc/`. The QTGMC
+              deinterlacer's plugins and scripts go in there too, which is what lets
+              Quick Convert deinterlace a tape capture with it.
             - Linux includes ffmpeg/ffprobe; install VapourSynth and the encoders from
-              your package manager.
+              your package manager. QTGMC additionally wants the mvtools, znedi3, eedi3m,
+              fmtconv, rgvs, misc and focus2 plugins plus the havsfunc, vsutil and mvsfunc
+              scripts; without them Nmkoder deinterlaces with ffmpeg's bwdif and says so.
             - macOS ships none of them; install with
               `brew install ffmpeg mkvtoolnix av1an aom libvpx x265`.
 

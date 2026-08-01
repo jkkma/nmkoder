@@ -91,6 +91,9 @@ namespace Nmkoder.UI.Tasks
             }
 
             Program.MainWin.SetWorking(true);
+            // Replaced below when the arguments come from the UI. A replayed command carries whatever
+            // filters it was saved with, so nothing here may leak into it from an earlier run.
+            Av1anUi.CurrentDeinterlace = new DeinterlacePlan();
             string args = "";
             string inPath = "";
             // The file the user loaded, which a trim replaces inPath with a cut copy of. Kept apart
@@ -262,6 +265,14 @@ namespace Nmkoder.UI.Tasks
                     videoArgs["q"] = ((int)quality).ToString();
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
+
+                    // Settled before the filters are built, and once: in Automatic mode working out
+                    // whether the source is interlaced can mean decoding a few hundred frames of it.
+                    Av1anUi.CurrentDeinterlace = await Deinterlace.ResolveAsync(TrackList.current.File, DeinterlaceUi.GetAv1anRequest());
+
+                    if (Av1anUi.CurrentDeinterlace.Runs)
+                        Logger.Log($"Deinterlacing '{TrackList.current.File.Name.Trunc(40)}' with {Av1anUi.CurrentDeinterlace.Describe()}.");
+
                     string vf = await GetVideoFilterArgs(codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every

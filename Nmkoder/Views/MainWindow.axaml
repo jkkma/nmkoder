@@ -202,7 +202,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -261,6 +261,14 @@
                       <Button x:Name="Av1anTrimConfBtn" Content="Configure…" MaxWidth="247" Click="Av1anTrimConf_Click" />
                       <Button x:Name="Av1anTrimClearBtn" Content="Clear" IsVisible="False" Click="Av1anTrimClear_Click"
                               ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="6" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
+                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <ComboBox x:Name="Av1anDeintModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="Av1anDeintMode_SelectionChanged"
+                                ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is not offered here - av1an filters each chunk with ffmpeg, which cannot run a VapourSynth script." />
+                      <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
                   </Grid>
                 </ScrollViewer>
@@ -391,7 +399,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -442,6 +450,21 @@
                       <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="247" Click="EncTrimConf_Click" />
                       <Button x:Name="EncTrimClearBtn" Content="Clear" IsVisible="False" Click="EncTrimClear_Click"
                               ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Spans into the filler column, as the AV1AN tab's Resize row does: the readout
+                         under it is rewritten on every file load and must not wrap. -->
+                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <ComboBox x:Name="EncDeintModeBox" Width="200" SelectionChanged="EncDeintMode_SelectionChanged"
+                                  ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />
+                        <ComboBox x:Name="EncDeintPresetBox" Width="125" SelectionChanged="EncDeintPreset_SelectionChanged"
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                        <CheckBox x:Name="EncDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="EncDeintRate_Changed"
+                                  ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
+                      </StackPanel>
+                      <TextBlock x:Name="EncDeintInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
                   </Grid>
                 </ScrollViewer>
