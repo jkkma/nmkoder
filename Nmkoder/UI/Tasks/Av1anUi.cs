@@ -475,6 +475,21 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
+            // Said here as well as on the tab, because this is where the file gets written. With the
+            // correction off nothing in the chain restores the display size, and there is nowhere else
+            // for the shape to live: av1an hands its encoders bare frames and muxes without an aspect
+            // flag. Worth spelling out rather than silently obeying, since the commonest way to reach it
+            // is a target the source already meets, where no filter runs at all and the tab would
+            // otherwise have said the frames were being left alone.
+            if (frame.Resizing && !CurrentResize.CorrectAspect && AspectRatio.IsAnamorphic(frame.Sar))
+            {
+                Size display = AspectRatio.GetDisplaySize(frame.Source, frame.Sar);
+                Logger.Log($"Warning: this resize has anamorphic correction switched off, so the {frame.Sar.Width}:{frame.Sar.Height} " +
+                    $"pixel shape is not baked in - and av1an's encoders cannot record it. The output will be " +
+                    $"{frame.Encoded.Width}x{frame.Encoded.Height} playing as {AspectRatio.Describe(frame.Encoded.Width, frame.Encoded.Height)} " +
+                    $"rather than {AspectRatio.Describe(display.Width, display.Height)}. Switch it back on in the resize dialog to keep the shape.");
+            }
+
             filters.AddRange(GetCustomFilters());
 
             filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
