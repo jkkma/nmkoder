@@ -79,6 +79,8 @@ namespace Nmkoder.Views
             QuickConvert.Init();
             Av1an.Init();
             DeinterlaceUi.Init(); // Before the saved settings below, which are restored by index into these lists
+            UtilDeinterlace.LoadSettings(); // Its own, kept apart from the tabs' - see UtilDeinterlace.Settings
+            UpdateDeinterlaceBtnText();
             LoadUiConfig();
 
             // The SelectionChanged handlers bail out until _initialized is set, so the initial

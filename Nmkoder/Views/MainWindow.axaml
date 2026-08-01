@@ -267,7 +267,7 @@
                     <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
                     <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
                       <ComboBox x:Name="Av1anDeintModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="Av1anDeintMode_SelectionChanged"
-                                ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is not offered here - av1an filters each chunk with ffmpeg, which cannot run a VapourSynth script." />
+                                ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is not offered here - av1an filters each chunk with ffmpeg, which cannot run a VapourSynth script. To get QTGMC onto this tab, run the Deinterlace For Encoding utility first and encode the file it writes." />
                       <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" Text="" />
                     </StackPanel>
                   </Grid>
@@ -610,9 +610,10 @@
                         ToolTip.Tip="Do this before encoding a tape capture on the AV1AN tab. av1an would otherwise re-run the deinterlacer for scene detection, for every chunk, and for every target-quality probe - and it drops the audio when it reads a VapourSynth script.">
                   <StackPanel>
                     <Grid ColumnDefinitions="*,Auto" MinHeight="30">
-                      <TextBlock Text="Deinterlace For Encoding" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="0" Text="Deinterlace For Encoding" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsDeinterlaceConfBtn" Content="Configure…" Click="UtilsDeinterlaceConf_Click" />
                     </Grid>
-                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Runs the Quick Convert tab's deinterlacer - QTGMC where it can - once over the whole file, into a near-lossless MKV with the audio copied across." />
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Runs QTGMC once over the whole file, into a near-lossless MKV with the audio copied across. Has its own settings - it does not read the Quick Convert tab." />
                   </StackPanel>
                 </Border>
 
