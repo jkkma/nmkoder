@@ -72,16 +72,39 @@ namespace Nmkoder.Main
         }
 
         /// <summary>
-        /// Marks the running task as having failed on its own, and says why. Distinct from
-        /// <see cref="Cancel"/>: nothing is killed and no error box is raised, because the caller has
-        /// already decided there is nothing to run. In a batch the reason lands on the file's row and
-        /// in the end-of-queue summary.
+        /// Marks the running task as having failed on its own, and says why - in the log, and in an
+        /// error box. Distinct from <see cref="Cancel"/> in that nothing is killed: the caller has
+        /// already established there is nothing left running. It is not distinct in whether the user
+        /// is told, and used to be: a run that stopped on a bad output path, an argument av1an would
+        /// not take, or an encoder that crashed put one line in the log, brought the Run button back,
+        /// and left the user to notice. Whether the task is over and did not do what was asked is the
+        /// question a dialog answers, and both of these answer it the same way.
+        /// <para/>
+        /// In a batch the reason goes on the file's row and into the end-of-queue summary instead -
+        /// twelve modals, each blocking the queue until it is clicked, is not surfacing anything.
+        /// The completion notification is left to <see cref="NotifyTaskEnd"/>, which already sends
+        /// one for a failed task and would otherwise send a second.
         /// </summary>
         public static void Fail(string reason)
         {
+            Logger.LogErr(reason);
+
+            // A cancellation has already been reported by whoever made it, and the user pressing Stop
+            // does not need to be told their own encode did not finish.
+            if (canceled)
+                return;
+
+            // Every failure is logged, but only the first raises a box and only the first is the one
+            // reported: a task that fails three times over - all three metrics, say - has one root
+            // cause and does not need three modals stacked on top of each other to say so.
+            if (failed)
+                return;
+
             failed = true;
             lastFailReason = reason;
-            Logger.Log(reason);
+
+            if (!runningBatch)
+                UiUtils.ShowMessageBoxAsync($"{GetTaskName(Program.MainWin?.RunningTask ?? TaskType.None)} could not finish:\n\n{reason}", UiUtils.MessageType.Error);
         }
 
         /// <summary>
@@ -119,9 +142,10 @@ namespace Nmkoder.Main
         }
 
         /// <summary>
-        /// Whether a task actually wrote what it said it would. An encoder that died has no other way
-        /// of saying so here - ffmpeg's exit code is not carried back - and a run that wrote nothing
-        /// counted as finished, which in a batch meant the tally said twelve of twelve.
+        /// Whether a task actually wrote what it said it would. The exit code is the first authority
+        /// on that now; this is the second, for the runs that end cleanly having produced nothing.
+        /// A run that wrote nothing used to count as finished, which in a batch meant the tally said
+        /// twelve of twelve.
         /// </summary>
         public static bool OutputExists(string outPath)
         {
@@ -198,8 +222,11 @@ namespace Nmkoder.Main
 
         public static void Cancel(string reason = "", bool noMsgBox = false)
         {
+            bool alreadyReported = failed;
             canceled = true;
-            lastFailReason = reason;
+
+            if (!alreadyReported)
+                lastFailReason = reason;
 
             // Stop is the one cancellation a batch does not survive, and it has to outlive the task
             // state that is about to be cleared for the next file.
@@ -220,12 +247,14 @@ namespace Nmkoder.Main
 
             // A task stopping itself is news; the user pressing Stop is not. Neither is worth a
             // notification per file - the batch sends one of its own when the queue ends.
-            if (!canceledManually && !runningBatch)
+            if (!canceledManually && !runningBatch && !alreadyReported)
                 Notifications.ShowIfInBackground($"{GetTaskName(Program.MainWin.RunningTask)} canceled", reason.IsEmpty() ? "The log has the details." : reason.Trunc(200));
 
             // Likewise the error box: twelve files that all fail the same settings check would mean
-            // twelve of them, each one waiting on a click before the queue could go on.
-            if (!string.IsNullOrWhiteSpace(reason) && !noMsgBox && !runningBatch)
+            // twelve of them, each one waiting on a click before the queue could go on. A failure
+            // already reported is another: a fatal line arriving after the run was marked failed
+            // would otherwise put a second box on top of the first.
+            if (!string.IsNullOrWhiteSpace(reason) && !noMsgBox && !runningBatch && !alreadyReported)
                 UiUtils.ShowMessageBoxAsync($"Canceled:\n\n{reason}", UiUtils.MessageType.Error);
         }
 
@@ -312,15 +341,29 @@ namespace Nmkoder.Main
 
             Program.MainWin.RunningTask = task;
             ReportProgress($"Running: {GetTaskName(task)}..."); // Overwritten as soon as a parser has real numbers
-            if (task == TaskType.Convert) await QuickConvert.Run();
-            else if (task == TaskType.Av1an) await Av1an.Run();
-            else if (task == TaskType.UtilReadBitrates) await UtilReadBitrates.Run();
-            else if (task == TaskType.UtilGetMetrics) await UtilGetMetrics.Run();
-            else if (task == TaskType.UtilOcr) await UtilOcr.Run();
-            else if (task == TaskType.UtilColorData) await UtilColorData.Run();
-            else if (task == TaskType.UtilConcat) await UtilConcat.Run();
-            else if (task == TaskType.UtilCut) await UtilCut.Run();
-            else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
+
+            // Guarded because Run is started as `_ = RunTask.Start()` with nothing observing the
+            // task: an exception getting past a task's own handling used to be swallowed by the
+            // runtime, leaving no log line, no dialog, no status change and the window stuck in its
+            // working state - the one failure mode that says nothing at all.
+            try
+            {
+                if (task == TaskType.Convert) await QuickConvert.Run();
+                else if (task == TaskType.Av1an) await Av1an.Run();
+                else if (task == TaskType.UtilReadBitrates) await UtilReadBitrates.Run();
+                else if (task == TaskType.UtilGetMetrics) await UtilGetMetrics.Run();
+                else if (task == TaskType.UtilOcr) await UtilOcr.Run();
+                else if (task == TaskType.UtilColorData) await UtilColorData.Run();
+                else if (task == TaskType.UtilConcat) await UtilConcat.Run();
+                else if (task == TaskType.UtilCut) await UtilCut.Run();
+                else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
+            }
+            catch (Exception e)
+            {
+                Fail($"{GetTaskName(task)} stopped on an unexpected error: {e.Message}");
+                Logger.Log($"{e}", true, level: Logger.Level.Debug);
+            }
+
             Program.MainWin.RunningTask = TaskType.None;
 
             Logger.Log(canceled || failed ? $"Stopped after {sw}." : $"Done - Finished task in {sw}.");
@@ -353,8 +396,29 @@ namespace Nmkoder.Main
                 Notifications.ShowIfInBackground($"{GetTaskName(task)} finished", lastOutputSummary.IsEmpty() ? $"Completed after {sw}." : $"{lastOutputSummary} - completed after {sw}.");
         }
 
-        /// <summary> How a task announces itself in a notification title. </summary>
-        private static string GetTaskName(TaskType task)
+        /// <summary>
+        /// Whether a task means anything run once per file. Two of the three read the whole file list
+        /// at once, so there is nothing for a queue to hand them one at a time; the third does work
+        /// per file but ends in a window, which a queue would raise once per file with nobody there.
+        /// </summary>
+        public static bool SupportsBatch(TaskType task)
+        {
+            return task != TaskType.UtilConcat && task != TaskType.UtilGetMetrics && task != TaskType.PlotBitrate;
+        }
+
+        private static string WhyNoBatch(TaskType task)
+        {
+            switch (task)
+            {
+                case TaskType.UtilConcat: return "It joins the whole file list into one output, which is the opposite of running per file.";
+                case TaskType.UtilGetMetrics: return "It compares two loaded files against each other, so a single file means nothing to it.";
+                case TaskType.PlotBitrate: return "It opens a chart window for the file it analysed, and a queue would raise one per file.";
+                default: return "";
+            }
+        }
+
+        /// <summary> How a task names itself - in a notification title, and on the Run button. </summary>
+        public static string GetTaskName(TaskType task)
         {
             switch (task)
             {
@@ -386,6 +450,17 @@ namespace Nmkoder.Main
             {
                 await UiUtils.ShowMessageBox("No input files in file list! Please add one or more files first.");
                 Program.MainWin.SelectedMainTab = 0;
+                return;
+            }
+
+            // Asked before the queue starts rather than inside every file's run. These utilities read
+            // the whole file list at once, so a batch cannot do them per file at all - and each of
+            // them used to say so in the log and then let the file be counted as finished, so a
+            // twelve-file queue reported "12/12 finished" having done nothing whatsoever.
+            if (!SupportsBatch(batchTask))
+            {
+                await UiUtils.ShowMessageBox($"{GetTaskName(batchTask)} cannot be run per file.\n\n{WhyNoBatch(batchTask)}\n\n" +
+                    $"Switch the File List tab to Muxing Mode to use it.", UiUtils.MessageType.Warning);
                 return;
             }
 

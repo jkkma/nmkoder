@@ -15,8 +15,13 @@
 
     <!-- ══════════════ Header ══════════════ -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
-      <TextBlock Grid.Column="0" Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
-                 Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="NMKODER" FontSize="20" FontWeight="Bold" LetterSpacing="1"
+                   Foreground="{DynamicResource NmkoderHeaderText}" VerticalAlignment="Center" />
+        <!-- Filled in from the assembly - the header is where a version is looked for, and it was
+             not anywhere in the app before. -->
+        <TextBlock x:Name="VersionLabel" Classes="dim" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+      </StackPanel>
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
         <Button Classes="subtle" Content="Discord" Click="Discord_Click" />
         <Button Classes="subtle" Content="Patreon" Click="Patreon_Click" />
@@ -657,10 +662,42 @@
 
     <!-- ══════════════ Log ══════════════ -->
     <Grid Grid.Row="3" x:Name="LogPanel" RowDefinitions="Auto,*">
-      <TextBlock Grid.Row="0" Classes="h" Text="LOG" Margin="0,0,0,2" />
-      <TextBox Grid.Row="1" x:Name="LogBox" Classes="log" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
-               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-               FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" FontSize="11" />
+      <!-- The controls share the header row rather than taking one of their own: the log's minimum
+           height is 60px and a second row would spend most of it. -->
+      <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,2">
+        <TextBlock Grid.Column="0" Classes="h" Text="LOG" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" x:Name="LogPausedLabel" Classes="hint" IsVisible="False" Margin="10,0,0,0"
+                   VerticalAlignment="Center" Text="Scrolled up - new lines are not being followed. Scroll to the bottom to resume." />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+          <Button x:Name="LogCopyBtn" Classes="logbtn" Content="Copy" Click="LogCopy_Click"
+                  ToolTip.Tip="Copy the whole log to the clipboard." />
+          <Button x:Name="LogSaveBtn" Classes="logbtn" Content="Save…" Click="LogSave_Click"
+                  ToolTip.Tip="Write the log to a text file." />
+          <Button x:Name="LogFolderBtn" Classes="logbtn" Content="Log Folder" Click="LogFolder_Click"
+                  ToolTip.Tip="Open this session's log folder, which also holds the per-tool logs (ffmpeg, av1an, mkvmerge)." />
+          <Button x:Name="LogClearBtn" Classes="logbtn" Content="Clear" Click="LogClear_Click"
+                  ToolTip.Tip="Empty the box. The session log on disk keeps everything." />
+        </StackPanel>
+      </Grid>
+
+      <!-- A virtualizing list rather than one text control: severity needs per-line colour, and a
+           TextBlock relays out every line it holds whenever one of them changes - at ten thousand
+           lines that is seconds per scroll step, against milliseconds here.
+           What virtualization costs is dragging a text selection ACROSS lines: each row owns its own
+           SelectableTextBlock and Avalonia has no cross-control selection. Selecting whole rows is
+           not a way out either - SelectableTextBlock takes the pointer press for its own drag, so the
+           row underneath never gets it. So: dragging within a line selects text and Ctrl+C copies it,
+           both handled by SelectableTextBlock itself, and the Copy button takes the whole log. That
+           covers picking one path out of a line and grabbing the lot; nothing in between. -->
+      <ListBox Grid.Row="1" x:Name="LogBox" Classes="log"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <SelectableTextBlock Classes="logline" Classes.err="{Binding IsError}" Classes.warn="{Binding IsWarning}"
+                                 Classes.dim="{Binding IsDim}" Text="{Binding Display}" TextWrapping="NoWrap" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
     </Grid>
 
     <!-- ══════════════ Footer: progress + run controls ══════════════ -->

@@ -22,7 +22,7 @@ namespace Nmkoder.Media
             Size res = await GetMediaResolutionCached.GetSizeAsync(inputFile);
             string vf = res.Height > maxH ? $"-vf scale=-1:{maxH.RoundMod(2)}" : "";
             string args = $"-i {inputFile.Wrap()} -vf \"select=eq(n\\,{frameNum})\" -vframes 1 {pixFmt} {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 
@@ -36,7 +36,7 @@ namespace Nmkoder.Media
             string vf = res.Height > maxH ? $"-vf scale=-1:{maxH.RoundMod(2)}" : "";
             string noKeyArg = noKey ? "-skip_frame nokey" : "";
             string args = $"{noKeyArg} -ss {skipSeconds} -i {inputFile.Wrap()} -map 0:v -vframes 1 {pixFmt} {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 
@@ -51,7 +51,7 @@ namespace Nmkoder.Media
             string vf = res.Height > maxH ? $"-vf scale=-2:{maxH.RoundMod(2)}" : "";
             string time = (Math.Max(0, ms) / 1000d).ToString("0.###", CultureInfo.InvariantCulture);
             string args = $"-ss {time} -i {inputFile.Wrap()} -map 0:v:0 -frames:v 1 -update 1 -pix_fmt yuvj420p -q:v 2 {vf} {outputPath.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, ProcessType = OS.NmkoderProcess.ProcessType.Background };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, CanCancelTask = false, ProcessType = OS.NmkoderProcess.ProcessType.Background };
             await RunFfmpeg(settings);
         }
 
@@ -85,7 +85,7 @@ namespace Nmkoder.Media
         {
             string idx = index < 0 ? ":t" : $":{index}";
             string args = $"-dump_attachment{idx} \"\" -i {inputFile.Wrap()}";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, WorkingDir = outputDir, LogLevel = "error", LoggingMode = LogMode.Hidden };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, WorkingDir = outputDir, LogLevel = "error", LoggingMode = LogMode.Hidden, CanCancelTask = false };
             await RunFfmpeg(settings);
         }
 

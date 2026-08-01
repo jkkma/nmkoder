@@ -63,6 +63,14 @@ namespace Nmkoder.UI.Tasks
                 await Run(true, overrideTempDir, overrideArgs);
                 RunTask.NotifyTaskEnd(RunTask.TaskType.Av1an, sw);
             }
+            catch (Exception e)
+            {
+                // Resuming does not go through RunTask.Start, so it does not get Start's guard either -
+                // and this is started as a fire-and-forget task, where an escaping exception is
+                // swallowed by the runtime and reports nothing at all.
+                RunTask.Fail($"The encode could not be resumed: {e.Message}");
+                Logger.Log($"{e}", true, level: Logger.Level.Debug);
+            }
             finally
             {
                 Program.MainWin.RunningTask = RunTask.TaskType.None;
@@ -435,6 +443,10 @@ namespace Nmkoder.UI.Tasks
 
                 if (string.IsNullOrWhiteSpace(edited))
                 {
+                    // Backing out of the edit window is the user's decision, so no error box - but it
+                    // is not a finished encode either, and returning silently had a batch mark the
+                    // file Done with nothing written.
+                    RunTask.Cancel("The command was cleared in the edit window, so nothing was run.", noMsgBox: true);
                     DiscardUnusedTempFolder(tempDir, resume);
                     Program.MainWin.SetWorking(false);
                     return;
@@ -582,7 +594,9 @@ namespace Nmkoder.UI.Tasks
             if (await UtilCut.CopySection(inPath, outPath, start, end))
                 return outPath;
 
-            if (!RunTask.canceled)
+            // Nothing to add if the run has already been reported - which the trim's own ffmpeg call
+            // can do if it fails on its way out.
+            if (!RunTask.canceled && !RunTask.failed)
                 RunTask.Cancel($"Could not cut the section to encode out of '{file.Name}'. The log has the details.");
 
             return "";

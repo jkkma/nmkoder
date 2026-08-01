@@ -75,8 +75,9 @@ namespace Nmkoder.Views
                 TrackList.ClearCurrentFile(true);
 
             RunTask.currentFileListMode = newMode;
-            Title = $"NMKODER [{(newMode == RunTask.FileListMode.Mux ? "Mux" : "Batch")}]";
+            Title = $"NMKODER{(Program.Version.IsEmpty() ? "" : $" {Program.Version}")} [{(newMode == RunTask.FileListMode.Mux ? "Mux" : "Batch")}]";
             BatchNamingPanel.IsVisible = newMode == RunTask.FileListMode.Batch;
+            UpdateRunButtonState(); // Run says "Run Batch: …" in one mode and "Run: …" in the other
 
             SaveUiConfig();
             await RefreshFileListUi();

@@ -27,7 +27,7 @@ namespace Nmkoder.UI.Tasks
         {
             if(RunTask.currentFileListMode == RunTask.FileListMode.Batch)
             {
-                Logger.Log($"Metrics Utility: Didn't run because this util only works in Muxing Mode!");
+                RunTask.Fail("The Metrics utility only works in Muxing Mode - it compares two loaded files against each other, which is not something a batch can do per file.");
                 return;
             }
 
@@ -55,7 +55,10 @@ namespace Nmkoder.UI.Tasks
 
                     if (vmafLines.Count < 1)
                     {
-                        Logger.Log($"Failed to get VMAF!", false, ReplaceLastLine());
+                        // Not with ReplaceLastLine: the failure line would sit where the next
+                        // write lands and be erased by it, which is how a metrics run that scored
+                        // nothing still looked like one that had.
+                        RunTask.Fail("VMAF could not be calculated. The log has FFmpeg's output.");
                     }
                     else
                     {
@@ -75,7 +78,10 @@ namespace Nmkoder.UI.Tasks
 
                     if (ssimLines.Count < 1)
                     {
-                        Logger.Log($"Failed to get SSIM!", false, ReplaceLastLine());
+                        // Not with ReplaceLastLine: the failure line would sit where the next
+                        // write lands and be erased by it, which is how a metrics run that scored
+                        // nothing still looked like one that had.
+                        RunTask.Fail("SSIM could not be calculated. The log has FFmpeg's output.");
                     }
                     else
                     {
@@ -95,7 +101,10 @@ namespace Nmkoder.UI.Tasks
 
                     if (psnrLines.Count < 1)
                     {
-                        Logger.Log($"Failed to get PSNR!", false, ReplaceLastLine());
+                        // Not with ReplaceLastLine: the failure line would sit where the next
+                        // write lands and be erased by it, which is how a metrics run that scored
+                        // nothing still looked like one that had.
+                        RunTask.Fail("PSNR could not be calculated. The log has FFmpeg's output.");
                     }
                     else
                     {
@@ -106,7 +115,8 @@ namespace Nmkoder.UI.Tasks
             }
             catch(Exception e)
             {
-                Logger.Log($"Error trying to get metrics: {e.Message}\n{e.StackTrace}");
+                RunTask.Fail($"The metrics could not be calculated: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
 
             FfmpegOutputHandler.overrideTargetDurationMs = -1;

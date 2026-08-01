@@ -62,12 +62,24 @@ namespace Nmkoder.UI.Tasks
 
                 Logger.Log($"Cutting {FormatDuration(start)} to {FormatDuration(end)} ({FormatDuration(end - start)}) out of {file.Name} without re-encoding.");
 
-                if (await CopySection(file.ImportPath, outPath, start, end) && !RunTask.canceled)
+                // The else branch is the point: a cut that wrote nothing used to produce no message
+                // of any kind, and the task then reported itself finished. The cancel guard has to
+                // stay on the success branch too - a stopped cut leaves a partial file behind, and
+                // reporting its size would announce "4.0 GB -> 480 MB (-88%)" over a truncated clip.
+                bool wrote = await CopySection(file.ImportPath, outPath, start, end);
+
+                if (RunTask.canceled)
+                    return;
+
+                if (wrote)
                     RunTask.ReportOutput(new[] { file.SourcePath }, outPath);
+                else if (!RunTask.failed)
+                    RunTask.Fail($"Nothing was written to '{Path.GetFileName(outPath)}'. The log has FFmpeg's output.");
             }
             catch (Exception e)
             {
-                Logger.Log($"{e.Message}\n{e.StackTrace}");
+                RunTask.Fail($"The cut could not be made: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
 
             Program.MainWin.SetWorking(false);
@@ -113,6 +125,9 @@ namespace Nmkoder.UI.Tasks
                 $"-map 0 -c copy -avoid_negative_ts make_zero -ignore_unknown {outPath.Wrap()}";
 
             FfmpegOutputHandler.overrideTargetDurationMs = durationMs; // Progress is against the cut, not the source
+            // Deliberately not ReportFailure: this is shared with the AV1AN tab, whose trim runs it
+            // as a preparatory step and reports the failure itself. Reporting here as well produced
+            // two error boxes, and the second, vaguer reason overwrote the first.
             await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true });
             FfmpegOutputHandler.overrideTargetDurationMs = -1; // Whatever runs next is not this cut
 

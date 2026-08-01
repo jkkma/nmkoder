@@ -108,6 +108,7 @@ namespace Nmkoder.UI.Tasks
 
                 if (string.IsNullOrWhiteSpace(edited))
                 {
+                    RunTask.Cancel("The command was cleared in the edit window, so nothing was run.", noMsgBox: true);
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -119,18 +120,24 @@ namespace Nmkoder.UI.Tasks
 
             Logger.Log($"Running:\nffmpeg {args}", true, false, "ffmpeg");
 
-            AvProcess.FfmpegSettings settings = new AvProcess.FfmpegSettings() { Args = args, LoggingMode = AvProcess.LogMode.OnlyLastLine, ProgressBar = true };
+            AvProcess.FfmpegSettings settings = new AvProcess.FfmpegSettings()
+            {
+                Args = args,
+                LoggingMode = AvProcess.LogMode.OnlyLastLine,
+                ProgressBar = true,
+                ReportFailure = true, // The exit code decides, and RunFfmpeg reports it
+            };
+
             await AvProcess.RunFfmpeg(settings);
 
-            if (!RunTask.canceled && outPath.IsNotEmpty())
+            if (!RunTask.canceled && !RunTask.failed && outPath.IsNotEmpty())
             {
-                // ffmpeg's exit code does not come back through RunFfmpeg, so the output file is what
-                // says whether this worked. Without it a run that wrote nothing - a codec the muxer
-                // refused, a full disk - was indistinguishable from a finished one, and a batch
-                // counted it among its finished tasks.
+                // Belt and braces behind the exit code: a run that somehow ends cleanly having
+                // written nothing is still not a finished encode, and a batch used to count it
+                // among its finished tasks.
                 if (!RunTask.OutputExists(outPath))
                 {
-                    RunTask.Fail($"ffmpeg did not finish - '{Path.GetFileName(outPath)}' was not written.");
+                    RunTask.Fail($"FFmpeg reported no error, but '{Path.GetFileName(outPath)}' was not written.");
                     return;
                 }
 
