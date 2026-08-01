@@ -444,6 +444,18 @@
       <Setter Property="Padding" Value="10" />
     </Style>
 
+    <!-- The Utilities cards, which wrap into columns. The width is what decides how many fit -
+         three at the default window size, two at the minimum. It is deliberately a little under
+         a third of the available width rather than exactly it: dragging the log panel taller
+         shrinks the tab, and a card sized to the last pixel would drop to two columns the moment
+         a scrollbar appeared. The minimum height keeps a one-line card from sitting noticeably
+         shorter than the ones beside it. -->
+    <Style Selector="Border.card.util">
+      <Setter Property="Width" Value="420" />
+      <Setter Property="MinHeight" Value="84" />
+      <Setter Property="Margin" Value="0,0,10,10" />
+    </Style>
+
     <Style Selector="Border.card:pointerover">
       <Setter Property="Background" Value="{DynamicResource NmkoderHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource NmkoderBorder}" />
