@@ -25,8 +25,9 @@ namespace Nmkoder.UI.Tasks
         private static MainWindow Form { get { return Program.MainWin; } }
 
         /// <summary> Modes in dropdown order. Saved by index per box, so entries may be appended but
-        /// not reordered. </summary>
-        private static readonly DeinterlaceMode[] AllModes =
+        /// not reordered. Shared with the Deinterlace For Encoding utility's own dialog, which offers
+        /// the same five for the same reason - it runs the same pipe Quick Convert does. </summary>
+        public static readonly DeinterlaceMode[] AllModes =
             { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Qtgmc, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
 
         /// <summary> The AV1AN tab's subset. QTGMC is left out rather than offered and quietly
@@ -41,7 +42,7 @@ namespace Nmkoder.UI.Tasks
         /// that costs more than the encoder does would be paid for several times over.
         /// </summary>
         public const string Av1anQtgmcProblem = "av1an applies video filters with ffmpeg, once per chunk, " +
-            "so a VapourSynth script cannot sit in front of them - the Quick Convert tab runs QTGMC";
+            "so a VapourSynth script cannot sit in front of them - the Deinterlace For Encoding utility runs QTGMC first";
 
         /// <summary> Set once a background availability check has been started, so hovering over a
         /// file list does not queue one per file. </summary>
@@ -54,7 +55,7 @@ namespace Nmkoder.UI.Tasks
             Form.EncDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), Array.IndexOf(Qtgmc.Presets, Qtgmc.DefaultPreset));
         }
 
-        private static string GetLabel(DeinterlaceMode mode)
+        public static string GetLabel(DeinterlaceMode mode)
         {
             switch (mode)
             {

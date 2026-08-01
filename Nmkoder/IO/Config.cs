@@ -414,6 +414,9 @@ namespace Nmkoder.IO
             RecentFiles,
             ResetSettingsList,
             UseZeroIndexedStreams,
+            UtilDeinterlaceDoubleRate,
+            UtilDeinterlaceMode,
+            UtilDeinterlacePreset,
             WindowGeometry
         }
     }

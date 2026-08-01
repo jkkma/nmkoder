@@ -57,7 +57,9 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
 - Read Bitrates: Calculates stream size and average bitrate for each stream
 - Deinterlace For Encoding: Runs **QTGMC** once over a capture into a near-lossless MKV, ready to be encoded on the
-  AV1AN tab - av1an would otherwise re-run the deinterlacer for scene detection, every chunk and every quality probe
+  AV1AN tab - av1an would otherwise re-run the deinterlacer for scene detection, every chunk and every quality probe.
+  Has its own Deinterlace settings, under Configure on its card, so using it does not mean setting anything up on a tab
+  you are not encoding from
 - Get Metrics: Calculate quality metrics like **VMAF**, SSIM, PSNR
 - Transfer Color Metadata: Copy color properties and HDR metadata from one file to another (e.g. from Bluray Remux to an encode)
 - Concatenate Into Single MKV: Merge any amount of any compatible video format into a single MKV (e.g. for chunked encoding)

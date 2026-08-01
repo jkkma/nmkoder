@@ -26,6 +26,24 @@ namespace Nmkoder.Views
         private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
         private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
 
+        private async void UtilsDeinterlaceConf_Click(object sender, RoutedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilDeinterlace);
+
+            // No file check: unlike Cut or Metrics, nothing here is measured against the loaded file -
+            // the setting is the mode and the preset, which are just as configurable with an empty
+            // list. The dialog says as much where the source line would otherwise be.
+            await DeinterlaceWindow.ShowAsync();
+            UpdateDeinterlaceBtnText();
+        }
+
+        /// <summary> The Deinterlace utility's button doubles as the readout of what is configured, as
+        /// the Cut utility's does. </summary>
+        public void UpdateDeinterlaceBtnText()
+        {
+            UtilsDeinterlaceConfBtn.Content = UtilDeinterlace.DescribeSettings();
+        }
+
         private async void SelectGetMetrics(object sender, TappedEventArgs e)
         {
             if (TapWasTheCardsButton(e))

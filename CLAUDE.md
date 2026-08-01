@@ -369,11 +369,20 @@ source frame rate: av1an works out the output's frame rate from the source and h
 encoder a fixed number of frames per chunk, so one frame per field would write twice the
 frames under the source's own rate, and the file would play at half speed.
 
-**Deinterlace For Encoding is the answer to that second one.** The utility runs the same plan
-the Quick Convert tab would - it reads that tab's own Deinterlace controls, so the mode and
-the QTGMC preset are set in one place - into a near-lossless x264 MKV, audio and subtitles
+**Deinterlace For Encoding is the answer to that second one.** The utility runs the same
+VapourSynth pipe Quick Convert would, into a near-lossless x264 MKV, audio and subtitles
 copied, and then loads the result. QTGMC is paid for exactly once, sequentially, and av1an
 gets a progressive file with nothing in front of the encoder.
+
+**Its settings are its own** - `UtilDeinterlace.Settings`, a `Configure…` dialog off its card,
+persisted under three `Config.Key` entries, defaulting to QTGMC outright where the tabs default
+to Automatic. It read the Quick Convert tab's Deinterlace row until 2.8.6, on the reasoning that
+the mode and the preset should be set in one place. That only holds for someone who uses both
+tabs, and this utility exists *because* the AV1AN tab cannot run QTGMC - so the person reaching
+for it is by definition encoding somewhere else, and was being sent to a tab they do not use to
+change a setting that also changes what that tab does. Automatic is likewise right on a tab that
+encodes whatever it is given and wrong here, where doing nothing means re-encoding the source
+into a copy for no reason.
 
 Feeding av1an a `.vpy` directly is possible and is the wrong trade. Measured rather than
 assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come
