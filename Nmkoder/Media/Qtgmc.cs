@@ -218,7 +218,7 @@ namespace Nmkoder.Media
             if (output.Contains("QTGMC_MISSING_PLUGINS"))
             {
                 string names = output.Split("QTGMC_MISSING_PLUGINS").Last().SplitIntoLines().First().Trim();
-                string rejected = DescribeRejectedPlugins(output);
+                string rejected = DescribeRejectedPlugins(output, names);
 
                 // "Missing" on its own is what sent 2.8.3 and 2.8.4 out the door believing the bundle
                 // was complete: the file was there, correctly named and correctly built, and the core
@@ -232,10 +232,17 @@ namespace Nmkoder.Media
             return last.IsEmpty() ? "the VapourSynth check failed" : $"VapourSynth said: {last.Trunc(200)}";
         }
 
-        /// <summary> What the probe found when it loaded the unregistered plugin files by hand, in a
-        /// clause, or "" when every one of them was simply absent. Only the first is quoted: they
-        /// share a cause far more often than not, and the log carries the rest in full. </summary>
-        private static string DescribeRejectedPlugins(string output)
+        /// <summary>
+        /// What the probe found when it loaded the unregistered plugin files by hand, in a clause, or
+        /// "" when every one of them was simply absent.
+        /// <para/>
+        /// One is quoted, not all: they share a cause far more often than not, and the full list is in
+        /// the log either way. The one picked is a file named after a namespace that went missing -
+        /// eedi3m out of EEDI3m.dll - because the folder holds plugins nothing here asked for, and a
+        /// Vship staged for a GPU this machine does not have would otherwise be the line quoted at
+        /// someone whose actual problem is somewhere else entirely.
+        /// </summary>
+        private static string DescribeRejectedPlugins(string output, string missingNames)
         {
             string[] lines = output.SplitIntoLines()
                 .Where(x => x.Contains("QTGMC_PLUGIN_REJECTED"))
@@ -245,9 +252,12 @@ namespace Nmkoder.Media
             if (lines.Length < 1)
                 return "";
 
+            string[] names = missingNames.Split(',').Select(x => x.Trim()).Where(x => x.IsNotEmpty()).ToArray();
+            string best = lines.FirstOrDefault(line => names.Any(n => line.Split(':').First().Contains(n, StringComparison.OrdinalIgnoreCase))) ?? lines[0];
+
             int rest = lines.Length - 1;
             string more = rest < 1 ? "" : rest == 1 ? " (and one other plugin file)" : $" (and {rest} other plugin files)";
-            return $"{lines[0].Trunc(220)}{more}";
+            return $"{best.Trunc(220)}{more}";
         }
 
         private static string BuildProbeScript()
