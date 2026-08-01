@@ -684,12 +684,12 @@
            TextBlock relays out every line it holds whenever one of them changes - at ten thousand
            lines that is seconds per scroll step, against milliseconds here.
            What virtualization costs is dragging a text selection ACROSS lines: each row owns its own
-           SelectableTextBlock and Avalonia has no cross-control selection. Selecting whole rows is
-           not a way out either - SelectableTextBlock takes the pointer press for its own drag, so the
-           row underneath never gets it. So: dragging within a line selects text and Ctrl+C copies it,
-           both handled by SelectableTextBlock itself, and the Copy button takes the whole log. That
-           covers picking one path out of a line and grabbing the lot; nothing in between. -->
-      <ListBox Grid.Row="1" x:Name="LogBox" Classes="log"
+           SelectableTextBlock and Avalonia has no cross-control selection. Whole rows are selectable
+           instead, which covers the same ground - but SelectableTextBlock takes the pointer press and
+           the keys for its own use, so both are claimed on the tunnelling route in MainWindow.Log.cs
+           before it sees them, and deliberately not marked handled, so dragging still selects text
+           within a line. -->
+      <ListBox Grid.Row="1" x:Name="LogBox" Classes="log" SelectionMode="Multiple"
                ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
         <ListBox.ItemTemplate>
           <DataTemplate>

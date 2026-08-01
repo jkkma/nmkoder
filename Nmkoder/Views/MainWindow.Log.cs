@@ -1,15 +1,18 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Nmkoder.Data;
+using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.OS;
 using Nmkoder.UI;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
@@ -48,6 +51,82 @@ namespace Nmkoder.Views
 
             Logger.Rows.CollectionChanged += LogRows_CollectionChanged;
             Logger.Cleared += OnLogCleared;
+
+            // Both claimed on the tunnelling route. Each row's SelectableTextBlock takes the pointer
+            // press for its own drag and marks Ctrl+A/Ctrl+C handled, so a bubbling handler here
+            // never ran and no row could be selected at all. Neither of these marks the event
+            // handled in turn, so dragging still selects text inside a line.
+            LogBox.AddHandler(PointerPressedEvent, LogBox_PointerPressed, RoutingStrategies.Tunnel);
+            LogBox.AddHandler(KeyDownEvent, LogBox_KeyDown, RoutingStrategies.Tunnel);
+        }
+
+        /// <summary>
+        /// Selects the row that was clicked, since the SelectableTextBlock inside it would otherwise
+        /// swallow the press. Ctrl and Shift do what they do in any list.
+        /// </summary>
+        private void LogBox_PointerPressed(object sender, PointerPressedEventArgs e)
+        {
+            if (!e.GetCurrentPoint(LogBox).Properties.IsLeftButtonPressed)
+                return;
+
+            var row = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
+
+            if (row?.DataContext is not LogRow item)
+                return;
+
+            bool ctrl = e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control);
+            bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+            if (ctrl)
+            {
+                if (LogBox.SelectedItems.Contains(item))
+                    LogBox.SelectedItems.Remove(item);
+                else
+                    LogBox.SelectedItems.Add(item);
+            }
+            else if (shift && LogBox.SelectedItems.Count > 0)
+            {
+                // Anchored on whatever was picked first, the way a list does it.
+                int from = Logger.Rows.IndexOf(LogBox.SelectedItems[0] as LogRow);
+                int to = Logger.Rows.IndexOf(item);
+
+                if (from >= 0 && to >= 0)
+                {
+                    LogBox.SelectedItems.Clear();
+
+                    for (int i = Math.Min(from, to); i <= Math.Max(from, to); i++)
+                        LogBox.SelectedItems.Add(Logger.Rows[i]);
+                }
+            }
+            else
+            {
+                LogBox.SelectedItems.Clear();
+                LogBox.SelectedItems.Add(item);
+            }
+        }
+
+        private async void LogBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (!e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control))
+                return;
+
+            if (e.Key == Key.A)
+            {
+                LogBox.SelectAll();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key != Key.C)
+                return;
+
+            // A text selection inside one line wins: the user picked out a path or a command, and
+            // SelectableTextBlock copies exactly that if this leaves the event alone.
+            if ((e.Source as SelectableTextBlock)?.SelectedText.IsNotEmpty() == true)
+                return;
+
+            await CopyLog();
+            e.Handled = true;
         }
 
         /// <summary>
@@ -142,16 +221,20 @@ namespace Nmkoder.Views
         private async void LogCopy_Click(object sender, RoutedEventArgs e) => await CopyLog();
 
         /// <summary>
-        /// Copies the whole log. Built from the row model rather than by driving the control's own
-        /// selection, which measures a thousand times slower over a few thousand lines - and which
-        /// could not be driven across rows anyway, since each row selects independently. Selecting
-        /// part of one line and pressing Ctrl+C is handled by the row's own SelectableTextBlock.
+        /// Copies the selected rows, or the whole log when none are selected. Built from the row
+        /// model rather than by driving the control's own text selection, which measures a thousand
+        /// times slower over a few thousand lines.
         /// </summary>
         private async Task CopyLog()
         {
             try
             {
-                string text = Logger.GetBoxText();
+                // Snapshotted before the first await: the log keeps arriving, and trimming drops
+                // rows out of SelectedItems underneath, so the count reported at the end would
+                // otherwise not be the number of lines that went to the clipboard.
+                var rows = LogBox.SelectedItems?.Cast<LogRow>().ToList() ?? new List<LogRow>();
+                string text = rows.Count > 0 ? string.Join(Environment.NewLine, rows.Select(x => x.Display)) : Logger.GetBoxText();
+                int count = rows.Count > 0 ? rows.Count : Logger.Rows.Count;
 
                 if (text.IsEmpty())
                     return;
@@ -165,7 +248,7 @@ namespace Nmkoder.Views
                 }
 
                 await clipboard.SetTextAsync(text);
-                SetStatus($"Copied {Logger.Rows.Count} log lines to the clipboard.", silent: true);
+                SetStatus($"Copied {count} log line{(count == 1 ? "" : "s")} to the clipboard.", silent: true);
             }
             catch (Exception ex)
             {
