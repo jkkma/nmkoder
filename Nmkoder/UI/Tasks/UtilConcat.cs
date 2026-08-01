@@ -18,7 +18,7 @@ namespace Nmkoder.UI.Tasks
         {
             if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
             {
-                Logger.Log($"Concat Utility: Didn't run because this util only works in Muxing Mode!");
+                RunTask.Fail("The Concatenate utility only works in Muxing Mode - it joins the whole file list into one output, which is not something a batch can do per file.");
                 return;
             }
 
@@ -35,7 +35,8 @@ namespace Nmkoder.UI.Tasks
             }
             catch (Exception e)
             {
-                Logger.Log($"{e.Message}\n{e.StackTrace}");
+                RunTask.Fail($"The files could not be concatenated: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
 
             Program.MainWin.SetWorking(false);

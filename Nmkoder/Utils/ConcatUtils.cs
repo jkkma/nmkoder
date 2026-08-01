@@ -1,6 +1,7 @@
 using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.Main;
 using Nmkoder.Media;
 using System;
 using System.Collections.Generic;
@@ -94,7 +95,7 @@ namespace Nmkoder.Utils
 
             if (args.Length > 8000)
             {
-                Logger.Log($"Error: Merge command is too long! Try moving Nmkoder to a directory with a shorter path.");
+                RunTask.Fail("The merge command is too long for the OS to accept. Move Nmkoder - or the input files - to a folder with a shorter path, or concatenate fewer files at a time.");
                 return;
             }
 
@@ -104,7 +105,7 @@ namespace Nmkoder.Utils
             await AvProcess.RunMkvMerge(args, OS.NmkoderProcess.ProcessType.Secondary, false);
 
             if (!File.Exists(outPath))
-                Logger.Log($"Failed to merge (output file does not exist). Check the mkvmerge.txt log for details.");
+                RunTask.Fail($"The files were not merged - '{Path.GetFileName(outPath)}' was not written. mkvmerge's own output is in mkvmerge.txt, in the log folder.");
             else
                 Logger.Log($"Saved concatenated file to {outPath}.");
         }

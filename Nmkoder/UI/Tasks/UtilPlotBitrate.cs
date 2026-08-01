@@ -19,7 +19,7 @@ namespace Nmkoder.UI.Tasks
         {
             if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
             {
-                Logger.Log($"Bitrate Plot Utility: Didn't run because this util only works in Muxing Mode!");
+                RunTask.Fail("The Bitrate Chart utility opens a chart window for the file it analysed, so it only runs in Muxing Mode - a queue would raise one window per file.");
                 return;
             }
 
@@ -35,7 +35,8 @@ namespace Nmkoder.UI.Tasks
             }
             catch (Exception e)
             {
-                Logger.Log($"{e.Message}\n{e.StackTrace}");
+                RunTask.Fail($"The bitrate chart could not be produced: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
         }
     }

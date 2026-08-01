@@ -1,6 +1,7 @@
 ﻿using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.Main;
 using Nmkoder.Media;
 using System;
 using System.Collections.Generic;
@@ -172,7 +173,7 @@ namespace Nmkoder.Utils
 
                 if (!File.Exists(tmpPath))
                 {
-                    Logger.Log($"Error: Muxing failed.");
+                    RunTask.Fail("Muxing the color data in failed - mkvmerge wrote nothing. Its own output is in mkvmerge.txt, in the log folder.");
                     return;
                 }
 

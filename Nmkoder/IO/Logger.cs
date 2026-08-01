@@ -1,26 +1,52 @@
-using Avalonia.Controls;
 using Avalonia.Threading;
 using Nmkoder.Data;
+using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using DT = System.DateTime;
 
 namespace Nmkoder.IO
 {
-    class Logger
+    public class Logger
     {
-        /// <summary> Log output box in the main window. Written to on the UI thread only. </summary>
-        public static TextBox textbox;
+        /// <summary>
+        /// How loud a line is. Set explicitly by whoever logs it rather than guessed from the text -
+        /// guessing from substrings is precisely the mistake the ffmpeg error handling used to make.
+        /// <see cref="Level.Debug"/> is what hidden lines get: they only reach the file.
+        /// </summary>
+        public enum Level { Debug, Info, Warning, Error }
+
+        /// <summary>
+        /// The lines in the log box. Bound to a virtualizing list rather than concatenated into a
+        /// TextBox: the old box reassigned its entire text on every line, and split-and-rejoined all
+        /// of it again for every ffmpeg progress line, which is the hottest path in the app.
+        /// </summary>
+        public static ObservableCollection<LogRow> Rows { get; } = new ObservableCollection<LogRow>();
+
+        /// <summary> Lines kept in the box. The list virtualizes, so this is about memory rather
+        /// than render cost; the session log on disk keeps everything either way. </summary>
+        private const int MaxRows = 5000;
+
+        /// <summary> The cap that applies even to a log the user has paused. </summary>
+        private const int HardMaxRows = 40000;
+
+        /// <summary> Set by the window while the user has scrolled away from the bottom. Trimming
+        /// waits for them, since it moves the content under whatever they are reading. </summary>
+        public static bool FollowingSuspended;
+
+        /// <summary> Raised after the box has been emptied, so the window can drop its "scrolled up"
+        /// state - clearing produces no scroll event to infer it from. </summary>
+        public static event Action Cleared;
 
         static string file;
         public const string defaultLogName = "sessionlog";
         public static long id;
 
-        private static Dictionary<string, string> sessionLogs = new Dictionary<string, string>();
         private static string _lastUi = "";
         public static string LastUiLine { get { return _lastUi; } }
         private static string _lastLog = "";
@@ -32,23 +58,30 @@ namespace Nmkoder.IO
             public bool hidden;
             public bool replaceLastLine;
             public string filename;
+            public Level level;
 
-            public LogEntry(string logMessageArg, bool hiddenArg = false, bool replaceLastLineArg = false, string filenameArg = "")
+            public LogEntry(string logMessageArg, bool hiddenArg = false, bool replaceLastLineArg = false, string filenameArg = "", Level levelArg = Level.Info)
             {
                 logMessage = logMessageArg;
                 hidden = hiddenArg;
                 replaceLastLine = replaceLastLineArg;
                 filename = filenameArg;
+                level = levelArg;
             }
         }
 
         private static ConcurrentQueue<LogEntry> logQueue = new ConcurrentQueue<LogEntry>();
 
-        public static void Log(string msg, bool hidden = false, bool replaceLastLine = false, string filename = "")
+        public static void Log(string msg, bool hidden = false, bool replaceLastLine = false, string filename = "", Level level = Level.Info)
         {
-            logQueue.Enqueue(new LogEntry(msg, hidden, replaceLastLine, filename));
+            logQueue.Enqueue(new LogEntry(msg, hidden, replaceLastLine, filename, level));
             ShowNext();
         }
+
+        /// <summary> Shorthand for the many call sites that only want to say "this one is bad". </summary>
+        public static void LogErr(string msg, string filename = "") => Log(msg, false, false, filename, Level.Error);
+
+        public static void LogWarn(string msg, string filename = "") => Log(msg, false, false, filename, Level.Warning);
 
         public static void ShowNext()
         {
@@ -62,9 +95,9 @@ namespace Nmkoder.IO
                 return;
 
             string msg = entry.logMessage;
-
-            if (msg == LastUiLine)
-                entry.hidden = true; // Never show the same line twice in UI, but log it to file
+            // A line identical to the one before it is counted rather than repeated - and counted
+            // visibly, where it used to be dropped without trace, so forty of them read as one.
+            bool repeat = msg == LastUiLine && !entry.replaceLastLine;
 
             _lastLog = msg;
 
@@ -74,7 +107,7 @@ namespace Nmkoder.IO
             Console.WriteLine(msg);
 
             if (!entry.hidden)
-                AppendToUi(msg.Replace("\n", Environment.NewLine), entry.replaceLastLine);
+                AppendToUi(msg.Replace("\n", Environment.NewLine), entry.replaceLastLine, repeat, entry.level);
 
             msg = msg.Replace("\n", Environment.NewLine);
 
@@ -91,31 +124,48 @@ namespace Nmkoder.IO
         /// Appends to the log box. Log calls arrive from ffmpeg/av1an reader threads, so the actual
         /// mutation is always marshalled onto the UI thread.
         /// </summary>
-        private static void AppendToUi(string msg, bool replaceLastLine)
+        private static void AppendToUi(string msg, bool replaceLastLine, bool repeat, Level level)
         {
-            TextBox box = textbox;
-
-            if (box == null)
-                return;
-
             void Append()
             {
                 try
                 {
-                    string current = box.Text ?? "";
+                    LogRow last = Rows.Count > 0 ? Rows[Rows.Count - 1] : null;
 
-                    if (replaceLastLine && current.Length > 0)
+                    if (repeat && last != null && last.Text == msg)
                     {
-                        string[] lines = current.SplitIntoLines();
-                        current = string.Join(Environment.NewLine, lines.Take(lines.Length - 1));
+                        last.AddRepeat();
+                        return;
                     }
 
-                    box.Text = current.Length > 0 ? current + Environment.NewLine + msg : msg;
+                    // An error neither replaces nor is replaced. LogMode.OnlyLastLine - which every
+                    // encode uses - rewrites the last row on each progress update, so a failure line
+                    // arriving in that mode overwrote the progress line and was then overwritten by
+                    // the next one a fraction of a second later. Colouring it red bought nothing if
+                    // it was gone before anyone looked. Warnings stay replaceable: a damaged source
+                    // prints scores of them per encode and pinning each one would bury the log.
+                    if (replaceLastLine && last != null && last.Level != Level.Error && level != Level.Error)
+                    {
+                        last.Replace(msg, level);
+                        return;
+                    }
 
-                    // Parking the caret at the start of the last line scrolls the box down to it without
-                    // also scrolling it to the right, which would hide the start of every line.
-                    int lastBreak = box.Text.LastIndexOf('\n');
-                    box.CaretIndex = lastBreak < 0 ? 0 : lastBreak + 1;
+                    Rows.Add(new LogRow(msg, level));
+
+                    // Trimmed a block at a time rather than a row at a time, so a long session does
+                    // not pay a collection notification per line forever.
+                    //
+                    // Held off entirely while the user has scrolled up to read something: the scroll
+                    // offset is in pixels, so dropping rows off the top slides the content out from
+                    // under them - and what they scrolled up to read is almost always the error they
+                    // are trying to read. HardMaxRows is the backstop for a log left paused all day.
+                    int limit = FollowingSuspended ? HardMaxRows : MaxRows;
+
+                    if (Rows.Count > limit + 250)
+                    {
+                        for (int i = 0; i < 250; i++)
+                            Rows.RemoveAt(0);
+                    }
                 }
                 catch { }
             }
@@ -124,6 +174,13 @@ namespace Nmkoder.IO
                 Append();
             else
                 Dispatcher.UIThread.Post(Append, DispatcherPriority.Background);
+        }
+
+        /// <summary> The whole log box as text, for Copy and Save. Built from the rows rather than
+        /// by driving the control's selection, which measures a thousand times slower. </summary>
+        public static string GetBoxText()
+        {
+            return string.Join(Environment.NewLine, Rows.Select(x => x.Display));
         }
 
         public static void LogToFile(string logStr, bool noLineBreak, string filename)
@@ -144,11 +201,6 @@ namespace Nmkoder.IO
                 file = Path.Combine(Paths.GetLogPath(), filename);
                 string appendStr = noLineBreak ? $" {logStr}" : $"{Environment.NewLine}[{id.ToString().PadLeft(8, '0')}] [{time}]: {logStr}";
 
-                lock (sessionLogs)
-                {
-                    sessionLogs[filename] = (sessionLogs.ContainsKey(filename) ? sessionLogs[filename] : "") + appendStr;
-                }
-
                 File.AppendAllText(file, appendStr);
                 id++;
             }
@@ -156,24 +208,6 @@ namespace Nmkoder.IO
             {
                 // this if fine, i forgot why
             }
-        }
-
-        public static string GetSessionLog(string filename)
-        {
-            if (!filename.Contains(".txt"))
-                filename = Path.ChangeExtension(filename, "txt");
-
-            lock (sessionLogs)
-            {
-                return sessionLogs.ContainsKey(filename) ? sessionLogs[filename] : "";
-            }
-        }
-
-        public static List<string> GetSessionLogLastLines(string filename, int linesCount = 5)
-        {
-            string log = GetSessionLog(filename);
-            string[] lines = log.SplitIntoLines();
-            return lines.Reverse().Take(linesCount).Reverse().ToList();
         }
 
         public static void LogIfLastLineDoesNotContainMsg(string s, bool hidden = false, bool replaceLastLine = false, string filename = "")
@@ -209,15 +243,16 @@ namespace Nmkoder.IO
 
         public static void ClearLogBox()
         {
-            TextBox box = textbox;
+            void Clear()
+            {
+                Rows.Clear();
+                _lastUi = ""; // Or the first line after a clear would be counted as a repeat of one nobody can see
+                Cleared?.Invoke();
+            }
 
-            if (box == null)
-                return;
-
-            if (Dispatcher.UIThread.CheckAccess())
-                box.Text = "";
-            else
-                Dispatcher.UIThread.Post(() => box.Text = "");
+            // Posted at the same priority as the appends rather than run inline, so lines already
+            // queued from a reader thread land *before* the clear instead of surviving it.
+            Dispatcher.UIThread.Post(Clear, DispatcherPriority.Background);
         }
 
         public static string GetLastLine(bool includeHidden = false)

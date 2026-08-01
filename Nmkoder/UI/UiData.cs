@@ -10,11 +10,14 @@ namespace Nmkoder.UI
         /// <summary>
         /// Where to offer to save a newly loaded file, without an extension - the container adds that.
         /// The source's own name, in the folder set as the default destination, or beside the source
-        /// when no default is set.
+        /// when no default is set. While a batch runs the name comes from its output name template
+        /// instead, which is the only say the user has over it - see <see cref="BatchNaming"/>.
         /// </summary>
         public static string GetDefaultOutPath(string sourcePath)
         {
-            string besideSource = Path.ChangeExtension(sourcePath, null);
+            string name = BatchNaming.ResolveName(sourcePath);
+            string sourceDir = Path.GetDirectoryName(sourcePath) ?? "";
+            string besideSource = sourceDir.IsEmpty() ? name : Path.Combine(sourceDir, name);
             string dir = Config.Get(Config.Key.DefaultOutputDir, "").Trim().Trim('"');
 
             if (dir.IsEmpty())
@@ -30,7 +33,7 @@ namespace Nmkoder.UI
 
             try
             {
-                return Path.Combine(dir, Path.GetFileName(besideSource));
+                return Path.Combine(dir, name);
             }
             catch (Exception e)
             {

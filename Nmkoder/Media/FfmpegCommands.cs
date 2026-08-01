@@ -188,7 +188,7 @@ namespace Nmkoder.Media
             if (tryFfmpeg)
             {
                 string a = $"{path.GetConcStr()} -i {path.Wrap()} -map 0:v:0 -c copy -f null - ";
-                FfmpegSettings settings = new FfmpegSettings() { Args = a, LoggingMode = LogMode.Hidden, SetBusy = true, LogLevel = "panic", ReliableOutput = true, ProcessType = processType };
+                FfmpegSettings settings = new FfmpegSettings() { Args = a, LoggingMode = LogMode.Hidden, SetBusy = true, LogLevel = "panic", ReliableOutput = true, CanCancelTask = false, ProcessType = processType };
                 string[] lines = (await RunFfmpeg(settings)).SplitIntoLines();
 
                 try
@@ -208,7 +208,7 @@ namespace Nmkoder.Media
         {
             Logger.Log($"IsEncoderCompatible('{enc}')", true, false, "ffmpeg");
             string args = $"-loglevel error -f lavfi -i color=black:s=540x540 -vframes 1 -an -c:v {enc} -f null -";
-            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, LogLevel = "error", ReliableOutput = true };
+            FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.Hidden, LogLevel = "error", ReliableOutput = true, CanCancelTask = false };
             string output = await RunFfmpeg(settings);
             return !output.ToLower().Contains("error");
         }

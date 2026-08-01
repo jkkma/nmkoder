@@ -29,7 +29,7 @@ namespace Nmkoder.UI.Tasks
 
                 if (file == null)
                 {
-                    Logger.Log($"No input file loaded!");
+                    RunTask.Fail("No input file loaded! Please load one first (File List).");
                     return;
                 }
 
@@ -46,7 +46,7 @@ namespace Nmkoder.UI.Tasks
 
                 if (!Directory.Exists(OcrProcess.GetDir()) || IoUtils.GetAmountOfFiles(OcrProcess.GetDir(), true, "*.exe") < 1)
                 {
-                    Logger.Log($"OCR binaries not found! Did you download a build without OCR?");
+                    RunTask.Fail("The OCR binaries are not there. They ship with the Windows build only - this build cannot run OCR.");
                     return;
                 }
 
@@ -56,7 +56,9 @@ namespace Nmkoder.UI.Tasks
 
                 if (streamsBitmap.Count < 1)
                 {
-                    Logger.Log($"No bitmap subtitles found to convert!");
+                    // A failure rather than a quiet no-op: the user picked this utility and ticked
+                    // tracks, and "finished" over having done nothing is the wrong answer.
+                    RunTask.Fail("None of the selected subtitle tracks are image-based, so there is nothing to run OCR on. Tick a bitmap track (PGS, VobSub) in the Track List.");
                     return;
                 }
 
@@ -65,7 +67,14 @@ namespace Nmkoder.UI.Tasks
 
                 Logger.Log($"Preparing to run OCR on subtitle streams {string.Join(", ", streamsBitmap.Select(x => $"#{x.Index + 1}"))}.");
 
-                await OcrUtils.RunOcrOnStreams(file, streamsBitmap, outDir);
+                // The return value used to be discarded, so the one hard failure OcrUtils reports -
+                // the tracks not coming out of the file at all - could not reach RunTask, and the
+                // task ended "Done".
+                if (!await OcrUtils.RunOcrOnStreams(file, streamsBitmap, outDir))
+                {
+                    RunTask.Fail($"OCR could not be run on '{file.Name}'. The log has the details.");
+                    return;
+                }
 
                 if (streamsText.Count > 0)
                     Logger.Log($"Won't run OCR on subtitle stream{(streamsText.Count == 1 ? "" : "s")} {string.Join(", ", streamsText.Select(x => $"#{x.Index + 1}"))} as they are text-based.");

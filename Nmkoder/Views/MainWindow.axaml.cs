@@ -47,7 +47,7 @@ namespace Nmkoder.Views
         private void SetupUi()
         {
 
-            Logger.textbox = LogBox;
+            VersionLabel.Text = Program.Version.IsNotEmpty() ? $"v{Program.Version}" : "";
 
             FileListBox.ItemsSource = FileList.Items;
             StreamListBox.ItemsSource = TrackList.Items;
@@ -61,6 +61,7 @@ namespace Nmkoder.Views
             ListEntryBase.CheckedChanged += (s, e) => OnStreamCheckedChanged();
 
             SetUpDragDrop();
+            SetUpLogBox();
             SetUpModifierTracking();
             RestoreLayout();
 
@@ -184,6 +185,7 @@ namespace Nmkoder.Views
             using (Config.Batch())
             {
                 ConfigParser.LoadComboxIndex(FileListModeBox);
+                ConfigParser.LoadGuiElement(BatchNameTemplateBox);
                 // Quick Convert
                 ConfigParser.LoadGuiElement(FfmpegContainerBox);
                 ConfigParser.LoadComboxIndex(EncVidCodecsBox);
@@ -205,6 +207,7 @@ namespace Nmkoder.Views
             using (Config.Batch())
             {
                 ConfigParser.SaveComboxIndex(FileListModeBox);
+                ConfigParser.SaveGuiElement(BatchNameTemplateBox);
                 // Quick Convert
                 ConfigParser.SaveGuiElement(FfmpegContainerBox);
                 ConfigParser.SaveComboxIndex(EncVidCodecsBox);
@@ -260,6 +263,15 @@ namespace Nmkoder.Views
             StreamDetailsBox.Text = details;
             StreamDetailsBox.IsVisible = !string.IsNullOrWhiteSpace(details);
         }
+
+        /// <summary>
+        /// The task of the last tab that carried one. The File List tab carries none, so
+        /// <see cref="SelectedTask"/> reads None while it is open - and that is exactly where the
+        /// batch naming box sits, which has to show what {codec} and {crf} would come out as. It
+        /// starts on AV1AN because a session that has not opened a task tab yet cannot have run a
+        /// batch either, so the only thing riding on the initial value is that preview.
+        /// </summary>
+        public RunTask.TaskType LastTaskTab { get; private set; } = RunTask.TaskType.Av1an;
 
         public RunTask.TaskType SelectedTask
         {
@@ -485,11 +497,30 @@ namespace Nmkoder.Views
 
         #region Tab switching
 
-        /// <summary> Run only has something to start on the tabs that carry a task. </summary>
-        private void UpdateRunButtonState()
+        /// <summary>
+        /// Run says what it will run, and is only enabled when there is something to run.
+        /// <para/>
+        /// The Utilities tab carries seven utilities and starts with none of them picked, so being on
+        /// that tab is not the same as having a task: enabling Run there bought the user a click that
+        /// could only produce an error box. It goes by the selected task instead, which is None until
+        /// a card is picked. Naming the task matters most in batch mode, where the button is about to
+        /// do the same thing to every file in the list.
+        /// </summary>
+        public void UpdateRunButtonState()
         {
-            MainTab tab = (MainTab)MainTabs.SelectedIndex;
-            RunBtn.IsEnabled = tab is MainTab.Av1an or MainTab.QuickConvert or MainTab.Utilities;
+            RunTask.TaskType task = SelectedTask;
+            bool batch = RunTask.currentFileListMode == RunTask.FileListMode.Batch;
+
+            RunBtn.IsEnabled = task != RunTask.TaskType.None;
+            RunBtn.Content = task == RunTask.TaskType.None ? "Run" : $"{(batch ? "Run Batch" : "Run")}: {RunTask.GetTaskName(task)}";
+
+            ToolTip.SetTip(RunBtn, task == RunTask.TaskType.None
+                ? (MainTab)MainTabs.SelectedIndex == MainTab.Utilities
+                    ? "Pick a utility first."
+                    : "Open the AV1AN, Quick Convert or Utilities tab to start a task."
+                : batch
+                    ? $"Run {RunTask.GetTaskName(task)} on each file in the list, one after another."
+                    : $"Run {RunTask.GetTaskName(task)}.");
         }
 
         private async void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -509,6 +540,9 @@ namespace Nmkoder.Views
         {
             MainTab tab = (MainTab)MainTabs.SelectedIndex;
             UpdateRunButtonState();
+
+            if (SelectedTask != RunTask.TaskType.None)
+                LastTaskTab = SelectedTask;
 
             if (tab == MainTab.FileList)
                 await RefreshFileListUi();

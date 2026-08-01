@@ -64,6 +64,7 @@ namespace Nmkoder.Views
         {
             _currentUtilTask = task;
             UpdatePanels();
+            UpdateRunButtonState(); // Which utility is picked is what Run reads, and what it now says
         }
 
         private async void UtilsMetricsConf_Click(object sender, RoutedEventArgs e)
