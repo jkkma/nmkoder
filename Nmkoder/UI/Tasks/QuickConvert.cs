@@ -31,6 +31,10 @@ namespace Nmkoder.UI.Tasks
             SuspendResume.SetPauseButtonStyle(false);
             string args = "";
             string outPath = "";
+            // Set while the arguments are built and read again after the run, so a VapourSynth script
+            // that died two thirds of the way through is not mistaken for a finished encode.
+            string vsLogPath = "";
+            int vsRuns = 0;
 
             try
             {
@@ -58,6 +62,14 @@ namespace Nmkoder.UI.Tasks
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
 
+                // Decided once, before anything reads it: the filter arguments and the stream maps are
+                // each built more than once per run, and in Automatic mode answering the question can
+                // mean decoding a few hundred frames of the source.
+                await PrepareDeinterlacing(anyVideoStreams && !vCodec.DoesNotEncode, twoPass);
+                string pipeIn = GetPipeInputArgs();
+                vsLogPath = QuickConvertUi.CurrentDeinterlace.UsesPipe ? GetVsLogPath() : "";
+                vsRuns = vsLogPath.IsEmpty() ? 0 : (twoPass ? 2 : 1);
+
                 string inFiles = TrackList.GetInputFilesString();
                 // Has to happen here rather than when the file was loaded: the check reads the output
                 // path through UiData.GetOutPath, which only resolves once RunningTask is set, so every
@@ -84,8 +96,13 @@ namespace Nmkoder.UI.Tasks
                     string v2 = codecArgsPass2.Arguments;
                     string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2);
 
-                    args = $"{miscIn} {custIn} {inFiles} {map} {v1} {vf1} {miscOut} {custOut} -an -sn -dn -f null - && ffmpeg -y -loglevel warning -stats " +
-                           $"{miscIn} {custIn} {inFiles} {map} {v2} {vf2} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
+                    // Each pass needs its own VapourSynth process - a pipe feeds one reader - and each
+                    // appends to the same log, which is why the check afterwards expects two finished
+                    // runs rather than one.
+                    string secondPipe = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath, append: true);
+
+                    args = $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v1} {vf1} {miscOut} {custOut} -an -sn -dn -f null - && {secondPipe}ffmpeg -y -loglevel warning -stats " +
+                           $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v2} {vf2} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
                 }
                 else
                 {
@@ -93,7 +110,7 @@ namespace Nmkoder.UI.Tasks
                     string v = anyVideoStreams ? codecArgs.Arguments : "";
                     string vf = anyVideoStreams && !vCodec.DoesNotEncode ? await GetVideoFilterArgs(vCodec, codecArgs) : "";
 
-                    args = $"{miscIn} {custIn} {inFiles} {map} {v} {vf} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
+                    args = $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
                 }
             }
             catch (Exception e)
@@ -125,10 +142,35 @@ namespace Nmkoder.UI.Tasks
                 Args = args,
                 LoggingMode = AvProcess.LogMode.OnlyLastLine,
                 ProgressBar = true,
-                ReportFailure = true, // The exit code decides, and RunFfmpeg reports it
+                // The exit code decides, and RunFfmpeg reports it - except where VapourSynth is
+                // feeding it, since ffmpeg sees a script that died as an input that ended and its
+                // words for that describe the symptom. Those runs are judged below instead.
+                ReportFailure = vsRuns < 1,
+                PipeFrom = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath),
+                ExtraPathDirs = vsLogPath.IsEmpty() ? new string[0] : Qtgmc.GetPathDirs(),
             };
 
             await AvProcess.RunFfmpeg(settings);
+
+            if (vsRuns > 0 && !RunTask.canceled)
+            {
+                // VapourSynth's complaint outranks ffmpeg's, and is often the only one there is: a
+                // script that stops two thirds of the way through leaves ffmpeg finishing normally
+                // and exiting 0 over a file that is missing the rest of the video.
+                string vsProblem = Qtgmc.ReadRunProblem(vsLogPath, vsRuns);
+
+                if (vsProblem.IsNotEmpty())
+                {
+                    RunTask.Fail($"The deinterlaced video was cut short.\n\n{vsProblem}");
+                    return;
+                }
+
+                if (settings.Problem.IsNotEmpty())
+                {
+                    RunTask.Fail(settings.Problem);
+                    return;
+                }
+            }
 
             if (!RunTask.canceled && !RunTask.failed && outPath.IsNotEmpty())
             {
@@ -150,6 +192,91 @@ namespace Nmkoder.UI.Tasks
                 RunTask.ReportOutput(inPaths, outPath);
             }
         }
+
+        #region Deinterlacing
+
+        /// <summary>
+        /// Settles what will deinterlace this run's video, and - when that turns out to be QTGMC -
+        /// writes the VapourSynth script whose frames ffmpeg will read. Called once, before anything
+        /// reads <see cref="QuickConvertUi.CurrentDeinterlace"/>, because both the filter chain and the
+        /// stream maps are built several times over one run and the question behind Automatic is not a
+        /// cheap one to ask twice.
+        /// </summary>
+        private static async Task PrepareDeinterlacing(bool encodingVideo, bool twoPass)
+        {
+            QuickConvertUi.CurrentDeinterlace = new DeinterlacePlan();
+            QuickConvertUi.DeinterlacePipeInput = -1;
+
+            if (!encodingVideo)
+                return;
+
+            MediaFile file = GetDeinterlaceSourceFile();
+
+            if (file == null)
+                return;
+
+            DeinterlaceRequest req = DeinterlaceUi.GetQuickConvertRequest();
+
+            // A trim and QTGMC cannot both apply to the same encode. The trim is ffmpeg's - an input
+            // seek, an output duration, or a frame-number filter - and none of the three reaches the
+            // VapourSynth script that reads the source, so the video would arrive whole while the
+            // audio arrived cut. Cutting first is the way to have both, and the Cut utility does
+            // exactly that without re-encoding anything.
+            if (QuickConvertUi.CurrentTrim != null && !QuickConvertUi.CurrentTrim.IsUnset)
+                req.QtgmcUnavailableHere = "the trim is applied by ffmpeg and cannot reach the VapourSynth script " +
+                    "that reads the source - cut the section out first with the Cut utility to run QTGMC on it";
+
+            DeinterlacePlan plan = await Deinterlace.ResolveAsync(file, req);
+            QuickConvertUi.CurrentDeinterlace = plan;
+
+            if (!plan.Runs)
+                return;
+
+            Logger.Log($"Deinterlacing '{file.Name.Trunc(40)}' with {plan.Describe()}.");
+
+            if (!plan.UsesPipe)
+                return;
+
+            // The pipe is added as the last '-i', so every input already on the command line keeps the
+            // number the stream maps were built against.
+            QuickConvertUi.DeinterlacePipeInput = RunTask.currentFileListMode == RunTask.FileListMode.Batch ? 1 : FileList.Items.Count;
+            Qtgmc.WriteScript(plan, file.ImportPath, GetVsScriptPath());
+            IoUtils.TryDeleteIfExists(GetVsLogPath()); // The check afterwards counts finished runs in it
+
+            if (twoPass)
+                Logger.Log("Note: this is a two-pass encode, so QTGMC runs once per pass - it is the slowest part of both.");
+        }
+
+        /// <summary>
+        /// The file QTGMC should read. The first ticked video track's, not necessarily the loaded one:
+        /// in muxing mode the video can come from any file in the list, and reading the wrong one would
+        /// deinterlace a different video than the encode is about.
+        /// </summary>
+        private static MediaFile GetDeinterlaceSourceFile()
+        {
+            return TrackList.CheckedItems.FirstOrDefault(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video)?.MediaFile
+                ?? TrackList.current?.File;
+        }
+
+        /// <summary> The extra '-i' that reads VSPipe's output, or "" when nothing is being piped.
+        /// The queue size is raised because the producer is a QTGMC graph: it delivers frames in
+        /// bursts, and the default queue is shallow enough for ffmpeg to complain about it. </summary>
+        private static string GetPipeInputArgs()
+        {
+            return QuickConvertUi.DeinterlacePipeInput < 0 ? "" : "-f yuv4mpegpipe -thread_queue_size 1024 -i -";
+        }
+
+        private static string GetVsScriptPath()
+        {
+            return Path.Combine(Paths.GetSessionDataPath(), "qtgmc.vpy");
+        }
+
+        private static string GetVsLogPath()
+        {
+            return Path.Combine(Paths.GetSessionDataPath(), "qtgmc.log");
+        }
+
+        #endregion
 
         /// <summary>
         /// The subtitle codec to actually encode with. MP4 and MOV store no text subtitle format other

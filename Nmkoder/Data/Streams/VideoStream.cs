@@ -11,7 +11,12 @@ namespace Nmkoder.Data.Streams
         public Size Dar { get; }
         public Fraction Rate { get; }
 
-        public VideoStream(string language, string title, string codec, string codecLong, string pixFmt, int kbits, Size resolution, Size sar, Size dar, Fraction rate)
+        /// <summary> What the container says about the stream's scan type. A flag rather than a
+        /// measurement: plenty of interlaced files carry none, which is what <see cref="FieldOrder.Unknown"/>
+        /// means and why <see cref="Media.InterlaceDetect"/> exists to settle those cases. </summary>
+        public FieldOrder FieldOrder { get; }
+
+        public VideoStream(string language, string title, string codec, string codecLong, string pixFmt, int kbits, Size resolution, Size sar, Size dar, Fraction rate, FieldOrder fieldOrder = FieldOrder.Unknown)
         {
             base.Type = StreamType.Video;
             Codec = codec;
@@ -22,6 +27,7 @@ namespace Nmkoder.Data.Streams
             Sar = sar;
             Dar = dar;
             Rate = rate;
+            FieldOrder = fieldOrder;
             Language = language;
             Title = title;
         }

@@ -78,6 +78,7 @@ namespace Nmkoder.Views
 
             QuickConvert.Init();
             Av1an.Init();
+            DeinterlaceUi.Init(); // Before the saved settings below, which are restored by index into these lists
             LoadUiConfig();
 
             // The SelectionChanged handlers bail out until _initialized is set, so the initial
@@ -104,6 +105,7 @@ namespace Nmkoder.Views
                 Logger.Log($"Warning: Nmkoder's installation path is very long ({Nmkoder.Data.Paths.GetExe().Length} characters) - This can lead to problems. It is recommended to move it to a higher directory to reduce the path length.");
 
             UpdateResetSettingsText();
+            DeinterlaceUi.RefreshInfo(); // The readouts describe the restored setting, not the XAML's
             QuickConvertUi.InitFile();
             Av1anUi.RefreshResumeButton(logIfAny: true); // An encode interrupted before a restart is otherwise never mentioned again
 

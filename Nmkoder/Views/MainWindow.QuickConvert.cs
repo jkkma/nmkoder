@@ -112,6 +112,9 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
             ConfigParser.RestoreIfSaved(EncScaleBoxW);
             ConfigParser.RestoreIfSaved(EncScaleBoxH);
+            ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
+            ConfigParser.RestoreIfSaved(EncDeintPresetBox);
+            ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
             ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(EncAudChannelsBox);
             ConfigParser.RestoreIfSaved(EncCustomArgsIn);
@@ -139,6 +142,9 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncVidFpsBox);
                 ConfigParser.SaveGuiElement(EncScaleBoxW);
                 ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveComboxIndex(EncDeintModeBox);
+                ConfigParser.SaveGuiElement(EncDeintPresetBox);
+                ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
                 ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(EncAudChannelsBox);
                 ConfigParser.SaveGuiElement(EncCustomArgsIn);
@@ -151,6 +157,21 @@ namespace Nmkoder.Views
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             EncCropConfBtn.IsVisible = EncCropModeBox.GetText().ToLower().Contains("manual");
+        }
+
+        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private void EncDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private void EncDeintRate_Changed(object sender, RoutedEventArgs e) => DeinterlaceSetting_Changed();
+
+        /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
+        /// whenever any part of the setting moves - not only on the dropdown itself. </summary>
+        private void DeinterlaceSetting_Changed()
+        {
+            if (!_initialized)
+                return;
+
+            DeinterlaceUi.RefreshInfo();
+            SaveQuickConvertSettings();
         }
 
         private async void EncCropConf_Click(object sender, RoutedEventArgs e)
