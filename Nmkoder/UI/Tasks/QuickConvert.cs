@@ -243,6 +243,12 @@ namespace Nmkoder.UI.Tasks
             Qtgmc.WriteScript(plan, file.ImportPath, GetVsScriptPath());
             IoUtils.TryDeleteIfExists(GetVsLogPath()); // The check afterwards counts finished runs in it
 
+            // What VapourSynth will hand over, which is what the bar has to be measured against - the
+            // file's own duration is a claim, and the sources QTGMC runs on are the ones that get it
+            // wrong. A trim would be the other candidate for the target, and cannot be set here: it
+            // rules QTGMC out a few lines above.
+            await Qtgmc.SetProgressTargetAsync(GetVsScriptPath(), file);
+
             if (twoPass)
                 Logger.Log("Note: this is a two-pass encode, so QTGMC runs once per pass - it is the slowest part of both.");
         }

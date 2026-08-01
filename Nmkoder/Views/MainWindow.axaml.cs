@@ -295,12 +295,19 @@ namespace Nmkoder.Views
 
         #region Progress / busy state
 
+        /// <summary> A percentage, or <see cref="Media.FfmpegOutputHandler.Unknown"/> for a run that is
+        /// going but cannot say how far - which the bar shows by animating rather than by filling to
+        /// some number, because every number it could pick there would be a claim it cannot make. </summary>
         public void SetProgress(int percent, bool ignoreIfNotBusy = true)
         {
             if (ignoreIfNotBusy && !Program.busy)
                 return;
 
-            RunOnUi(() => ProgBar.Value = percent.Clamp(0, 100));
+            RunOnUi(() =>
+            {
+                ProgBar.IsIndeterminate = percent < 0;
+                ProgBar.Value = percent.Clamp(0, 100);
+            });
         }
 
         /// <summary> silent skips the log: live progress lines arrive several times a second and
