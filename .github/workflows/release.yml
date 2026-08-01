@@ -113,6 +113,62 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f bundle.log
 
+      - name: Verify the QTGMC toolchain actually loads
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          # Presence is not the test. eedi3m shipped in 2.8.3 and 2.8.4 as a perfectly valid,
+          # correctly named, correctly exporting DLL that VapourSynth then refused to load, so
+          # every QTGMC deinterlace on those builds quietly fell back to bwdif. Autoload failures
+          # are silent by design, which is why this asks the bundled VapourSynth to build a real
+          # QTGMC graph and render a frame of it - the same thing Nmkoder.Media.Qtgmc does per
+          # session - and loads each plugin by hand when that fails, because LoadPlugin reports the
+          # reason autoload swallows.
+          VS="publish/Nmkoder/bin/av1an/vsynth"
+
+          if [ ! -f "$VS/python.exe" ]; then
+            echo "::error::VapourSynth was not bundled, so QTGMC cannot work in this build"
+            exit 1
+          fi
+
+          cat > "$VS/qtgmc-check.py" <<'CHECK'
+          import glob, os, sys
+          import vapoursynth as vs
+
+          core = vs.core
+          here = os.path.dirname(os.path.abspath(sys.argv[0]))
+          needed = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m']
+
+          print('autoloaded namespaces:', ', '.join(sorted(p.namespace for p in core.plugins())))
+          missing = [n for n in needed if not hasattr(core, n)]
+
+          if missing:
+              print('MISSING NAMESPACES:', ', '.join(missing))
+              print('loading every plugin by hand, for the reason autoload does not give:')
+              for dll in sorted(glob.glob(os.path.join(here, 'vs-plugins', '*.dll'))):
+                  try:
+                      core.std.LoadPlugin(path=dll)
+                      print('   loaded  ', os.path.basename(dll))
+                  except Exception as e:
+                      print('   FAILED  ', os.path.basename(dll), '->', e)
+              sys.exit(1)
+
+          import havsfunc
+          clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4,
+                                    fpsnum=30000, fpsden=1001, color=[128, 128, 128])
+          clip = core.std.SetFieldBased(clip, 2)
+          clip = havsfunc.QTGMC(clip, Preset='Very Fast', TFF=True, FPSDivisor=1, opencl=False)
+          clip.get_frame(0)
+          print('QTGMC built a graph and rendered a frame - the toolchain is complete.')
+          CHECK
+
+          ( cd "$VS" && ./python.exe qtgmc-check.py ) || {
+            echo "::error::The bundled QTGMC toolchain does not work - see the plugin list above"
+            rm -f "$VS/qtgmc-check.py"
+            exit 1
+          }
+          rm -f "$VS/qtgmc-check.py"
+
       - name: Stage docs
         shell: bash
         run: cp README.md LICENSE publish/Nmkoder/

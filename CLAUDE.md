@@ -324,6 +324,35 @@ encode would use - so a missing plugin, a Python that cannot import havsfunc, or
 whose weights file did not travel with it all come out as a fallback to bwdif naming what is
 wrong, rather than as ffmpeg complaining about invalid data on stdin ten minutes in.
 
+**Every plugin here also has to satisfy the core's API version, and that is a separate
+question from whether it downloaded.** A plugin hands `configPlugin` the API it was built
+against, and a core older than that refuses to register it - with no message, because
+autoload reports nothing either way. VapourSynth is pinned to R72 (av1an needs VSScript API3,
+dropped in R73), R72 speaks API 4.0 and 4.1, and **API 4.2 arrived in R74**. So a plugin built
+against 4.2 is simply absent at runtime however perfect the file is.
+
+That is what shipped in 2.8.3 and 2.8.4. `vapoursynth-eedi3` is built against 4.2 in *every*
+wheel it has ever published - 9.0, 9.1 and 10.0 alike - so `eedi3m` never registered and every
+QTGMC deinterlace on those builds fell back to bwdif. eedi3m now comes from the `r8` GitHub
+release asset instead, the last Windows binary upstream attached to one and still API 4.0,
+pinned to its published SHA256 because that tag will not move again. It carries no `EEDI3CL`,
+which nothing asks for unless QTGMC is called with `opencl=True`.
+
+**Packaging metadata is not the signal - the binary is.** `vapoursynth-fmtconv` also declares
+`vapoursynth>=74` and its DLL is API 4.0, so it loads fine; the wheels' `requires_dist` says
+nothing about what the binary needs. Read the constant out of the first bytes of the plugin's
+`VapourSynthPluginInit2` (`0x00040001` little-endian for 4.1) - find the export's RVA in the
+PE export directory, which is data-directory entry **0**; entry 1 is the imports.
+
+**Presence is not loadability, and checking presence is what let this ship.** The published
+zip was inspected for 2.8.4 - the DLL was there, valid PE, right architecture, right export,
+right namespace strings - and every one of those checks passed on a plugin that never loaded.
+Two things guard it now. The release workflow's win-x64 job runs the bundled VapourSynth
+against a real QTGMC graph and fails the build if it cannot render a frame; and when the
+probe finds a namespace missing it now calls `LoadPlugin` on the unregistered files by hand,
+purely to collect the reason autoload swallows, so the app says "VapourSynth refused a plugin
+QTGMC needs (eedi3m) - … requires API R4.2" rather than the flatly misleading "missing".
+
 **Two things QTGMC deliberately does not cover.**
 
 A trim, because the trim is ffmpeg's - an input seek, an output duration, or a frame-number
