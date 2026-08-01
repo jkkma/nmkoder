@@ -354,6 +354,12 @@ namespace Nmkoder.UI.Tasks
             frame.Source = frame.ScaleInput = frame.Encoded = vs.Resolution;
             frame.Sar = vs.Sar;
 
+            Fraction fps = GetUiFps();
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
+
+            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Framerate Resampling
+                frame.FpsFilter = $"fps=fps={fps}";
+
             // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
             // settled here: this runs per file, after the crop above the scale filter has been decided,
             // which is what lets one setting mean the right thing for a batch of differently shaped files
@@ -443,12 +449,8 @@ namespace Nmkoder.UI.Tasks
             if (codecArgs != null && codecArgs.ForcedFilters != null)
                 filters.AddRange(codecArgs.ForcedFilters);
 
-            VideoStream vs = TrackList.current.File.VideoStreams.First();
-            Fraction fps = GetUiFps();
-            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
-
-            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
-                filters.Add($"fps=fps={fps}");
+            if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
+                filters.Add(frame.FpsFilter);
 
             if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));

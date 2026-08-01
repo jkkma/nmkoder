@@ -61,6 +61,13 @@ namespace Nmkoder.UI.Tasks
                 bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
+                // What the scale boxes come out to, where that can be said - the tile count below is a
+                // property of the frame being encoded rather than of the file it came from. Absent, the
+                // encoders fall back on the source's own size, which is where they always looked.
+                Size encodedFrame = vCodec.DoesNotEncode ? Size.Empty : GetEncodedFrameSize();
+
+                if (!encodedFrame.IsEmpty)
+                    videoArgs[CodecUtils.FrameSizeKey] = $"{encodedFrame.Width}x{encodedFrame.Height}";
 
                 // Decided once, before anything reads it: the filter arguments and the stream maps are
                 // each built more than once per run, and in Automatic mode answering the question can

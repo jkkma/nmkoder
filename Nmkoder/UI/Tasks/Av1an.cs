@@ -335,6 +335,30 @@ namespace Nmkoder.UI.Tasks
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
                         $"-o {outPath.Wrap()}";
 
+                    // av1an counts the frames every finished chunk holds and compares them with the
+                    // number it expects, failing the chunk when they differ - and then retrying it,
+                    // three times over, before shutting the worker down and with it the run. A frame
+                    // rate change is that mismatch by construction, on every chunk: writing a
+                    // different number of frames than came in is the entire point of the filter. So
+                    // the Frame Rate box killed any encode it was used on, hours in and after each
+                    // doomed chunk had been encoded four times. --ignore-frame-mismatch is av1an's
+                    // own answer to exactly this - its concat step reads the flag as "an FPS changing
+                    // filter might have been applied" and stops forcing the source's rate onto the
+                    // output, which is the other half of what a resampled encode needs.
+                    if (frame.ResamplesFrameRate)
+                    {
+                        // Old enough that an av1an without it would fail on half this tab's command
+                        // anyway; checked all the same, because one unrecognised flag is refused as a
+                        // whole command. A help text that could not be read says nothing, so the flag
+                        // goes out and an av1an that really is too old refuses it at startup.
+                        if (!await AvProcess.Av1anHelpKnown() || await AvProcess.Av1anSupportsFlag("--ignore-frame-mismatch"))
+                            args += " --ignore-frame-mismatch";
+                        else
+                            Logger.Log("Warning: this av1an has no --ignore-frame-mismatch, and the frame rate is being " +
+                                "changed. av1an checks every chunk's frame count against the source's and will fail the " +
+                                "encode over the difference. Leave the Frame Rate box empty, or update av1an.");
+                    }
+
                     if (qualMode != QualityMode.Crf)
                     {
                         if (vf.Length > 3)

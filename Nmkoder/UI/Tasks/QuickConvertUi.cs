@@ -545,6 +545,68 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", args);
         }
 
+        /// <summary>
+        /// The frame the encoder will be handed, as far as the scale boxes can be read without asking
+        /// ffmpeg - or <see cref="Size.Empty"/> where they cannot be read at all, which leaves whoever
+        /// asked to fall back on the source's own size.
+        /// <para/>
+        /// It exists for the tile count, which belongs to the frame being encoded and not to the file
+        /// it came from: four tile columns are right for a 4K source and wrong for the 1080p it is
+        /// being scaled to. The AV1AN tab settles this exactly, because its resize is held as an
+        /// intent; here the boxes are free text handed to ffmpeg, so only what can be worked out with
+        /// certainty is worked out. A plain pair of numbers is exact, and a lone number derives the
+        /// other side by ffmpeg's own '-2' arithmetic - av_rescale, which rounds to nearest and ties
+        /// away from zero - so the answer is the size ffmpeg will reach, not an approximation of it.
+        /// A percentage or an expression is left to the caller's fallback rather than guessed at,
+        /// since a tile count worked out from the wrong size is what this is here to stop.
+        /// <para/>
+        /// The crop is deliberately not applied. Resolving an automatic one means ten ffmpeg probes
+        /// and a visible progress bar, and this is asked once per pass ahead of the filter chain that
+        /// will run them again - where the AV1AN tab could put that behind a single resolve pass and
+        /// this cannot. The scale is what moves a frame across a tile threshold in any case.
+        /// </summary>
+        public static Size GetEncodedFrameSize()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return Size.Empty;
+
+            string w = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
+            string h = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
+
+            if (w.IsEmpty() && h.IsEmpty())
+                return Size.Empty; // No scale, so only the crop could have moved it - see above
+
+            bool plainW = w.Length > 0 && w.All(char.IsDigit) && w.GetInt() > 0;
+            bool plainH = h.Length > 0 && h.All(char.IsDigit) && h.GetInt() > 0;
+
+            if (plainW && plainH)
+                return new Size(w.GetInt(), h.GetInt());
+
+            // What the scale filter is handed, which for an anamorphic source is the de-squeezed
+            // frame - the same correction GetVideoFilterArgs puts in front of the scale, so the
+            // derived side is worked out against the shape ffmpeg will actually be scaling.
+            Size input = AspectRatio.IsAnamorphic(vs.Sar) ? ResizeConfig.DesqueezeOnly().Compute(vs.Resolution, vs.Sar) : vs.Resolution;
+
+            if (input.IsEmpty || input.Width < 1 || input.Height < 1)
+                return Size.Empty;
+
+            if (plainW && h.IsEmpty())
+                return new Size(w.GetInt(), (int)DivideRounded(w.GetInt() * (long)input.Height, input.Width * 2L) * 2);
+
+            if (plainH && w.IsEmpty())
+                return new Size((int)DivideRounded(h.GetInt() * (long)input.Width, input.Height * 2L) * 2, h.GetInt());
+
+            return Size.Empty; // A percentage or an ffmpeg expression - not something to guess at
+        }
+
+        /// <summary> ffmpeg's av_rescale: rounded to nearest, ties away from zero. </summary>
+        private static long DivideRounded(long value, long divisor)
+        {
+            return divisor == 0 ? 0 : (value + divisor / 2) / divisor;
+        }
+
         public static async Task<string> GetVideoFilterArgs(IEncoder vCodec, CodecArgs codecArgs = null, bool quiet = false)
         {
             MediaFile currFile = TrackList.current.File;

@@ -291,8 +291,26 @@ then the resize or the de-squeeze - before the encoder's arguments are built, be
 count is a property of the frame being encoded: four tile columns are right for a 4K source and
 wrong for the 720p it is being scaled to. It resolves the automatic crop too, which is ten ffmpeg
 probes and a line in the log, which is why the answer is carried in an `Av1anFrame` rather than
-worked out again wherever it is wanted. The Quick Convert tab still tiles off the source's own
-size; its scale boxes hold ffmpeg expressions, so there is no size to resolve there.
+worked out again wherever it is wanted.
+
+Quick Convert has the same tile count and no such pass to hang it on: its scale boxes are free
+text handed to ffmpeg, and it builds its codec arguments per pass, right beside the filter chain.
+`QuickConvertUi.GetEncodedFrameSize` therefore resolves only what can be stated with certainty -
+a plain pair of numbers, or a lone number with the other side derived by ffmpeg's own `-2`
+arithmetic - and returns `Size.Empty` for a percentage or an expression, which leaves the encoder
+on the source's size exactly where it always was. It does not apply the crop either: resolving an
+automatic one costs those ten probes, and there is nowhere here to spend them once. A tile count
+worked out from a size that is not the real one is the thing being fixed, so guessing is worse
+than abstaining.
+
+**av1an fails a chunk whose frame count is not the one it expected**, retries it to `--max-tries`,
+then shuts the worker down and with it the run. A frame rate change is that mismatch by
+construction and on every chunk - writing a different number of frames than came in is the whole
+point of the filter - so the Frame Rate box killed any av1an encode it was used on, hours in, each
+doomed chunk having been encoded four times first. `--ignore-frame-mismatch` is av1an's own answer:
+its concat step reads the flag as "an FPS changing filter might have been applied" and stops
+forcing the source's rate onto the output, which is the other half of what a resampled encode
+needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual help-text check.
 
 ## Deinterlacing
 

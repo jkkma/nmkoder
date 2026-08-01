@@ -40,6 +40,18 @@ namespace Nmkoder.Data
         /// <summary> Whether the mod-2 pad runs, which is the one other thing in the chain that moves the size. </summary>
         public bool Padding;
 
+        /// <summary>
+        /// The frame rate filter the chain carries, or "" where the encode keeps the source's rate.
+        /// <para/>
+        /// Not geometry, but settled in the same pass and for the same reason: av1an has to be told
+        /// about it before the command is built, because a filter that writes a different number of
+        /// frames than it read is the one thing av1an refuses outright. See where this is read.
+        /// </summary>
+        public string FpsFilter = "";
+
+        /// <summary> Whether the encode writes a different number of frames than the source has. </summary>
+        public bool ResamplesFrameRate { get { return FpsFilter.Length > 0; } }
+
         /// <summary> Whether anything in front of the encoder changes the frame's size. </summary>
         public bool ChangesSize { get { return !Source.IsEmpty && !Encoded.IsEmpty && Encoded != Source; } }
     }
