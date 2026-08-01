@@ -171,5 +171,22 @@ namespace Nmkoder.Data
         {
             return sar.Width > 0 && sar.Height > 0 && sar.Width != sar.Height;
         }
+
+        /// <summary>
+        /// Whether two streams' pixels are the same shape - compared as a ratio, because 32:27 and
+        /// 64:54 are one shape written two ways, and a SAR ffprobe did not know is taken as square
+        /// like everywhere else here.
+        /// </summary>
+        public static bool SameShape(Size a, Size b)
+        {
+            (int aw, int ah) = OrSquare(a);
+            (int bw, int bh) = OrSquare(b);
+            return (long)aw * bh == (long)ah * bw;
+        }
+
+        private static (int Width, int Height) OrSquare(Size sar)
+        {
+            return sar.Width > 0 && sar.Height > 0 ? (sar.Width, sar.Height) : (1, 1);
+        }
     }
 }

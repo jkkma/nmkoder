@@ -308,6 +308,21 @@ namespace Nmkoder.Media
             return $"crop={chosen}";
         }
 
+        /// <summary> The frame size out of a "crop=w:h:x:y" filter, or <paramref name="fallback"/> if it is not one. </summary>
+        public static Size ParseCropSize(string cropFilter, Size fallback)
+        {
+            try
+            {
+                string[] parts = cropFilter.Split('=').Last().Split(':');
+                Size size = new Size(parts[0].GetInt(), parts[1].GetInt());
+                return size.Width > 0 && size.Height > 0 ? size : fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
         public struct StreamSizeInfo { public float Kbps; public long Bytes; }
 
         public static async Task<StreamSizeInfo> GetStreamSizeBytes(string path, int streamIndex = 0)

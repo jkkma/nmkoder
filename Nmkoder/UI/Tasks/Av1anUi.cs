@@ -379,7 +379,7 @@ namespace Nmkoder.UI.Tasks
             {
                 string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false);
                 filters.Add(autoCrop);
-                scaleInput = ParseCropSize(autoCrop, scaleInput);
+                scaleInput = FfmpegUtils.ParseCropSize(autoCrop, scaleInput);
             }
 
             if (resizing && !CurrentResize.IsNoOp(scaleInput, vs.Sar)) // Check Filter: Scale
@@ -414,21 +414,6 @@ namespace Nmkoder.UI.Tasks
         private static List<string> GetCustomFilters()
         {
             return Form.Av1anFilterRows.Select(x => x.Filter).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
-        }
-
-        /// <summary> The frame size out of a "crop=w:h:x:y" filter, or <paramref name="fallback"/> if it is not one. </summary>
-        public static Size ParseCropSize(string cropFilter, Size fallback)
-        {
-            try
-            {
-                string[] parts = cropFilter.Split('=').Last().Split(':');
-                Size size = new Size(parts[0].GetInt(), parts[1].GetInt());
-                return size.Width > 0 && size.Height > 0 ? size : fallback;
-            }
-            catch
-            {
-                return fallback;
-            }
         }
 
         /// <summary> Said out loud at encode time, because with an automatic crop this is the first moment

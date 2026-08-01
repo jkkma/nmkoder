@@ -599,7 +599,7 @@ namespace Nmkoder.UI.Tasks
             {
                 string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(currFile.ImportPath, quiet);
                 filters.Add(autoCrop);
-                scaleInput = Av1anUi.ParseCropSize(autoCrop, scaleInput);
+                scaleInput = FfmpegUtils.ParseCropSize(autoCrop, scaleInput);
             }
 
             if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
@@ -653,7 +653,13 @@ namespace Nmkoder.UI.Tasks
                 filterChain += $"[vf]{(last ? "" : ";")}";
             }
 
-            return $"-filter_complex {filterChain}";
+            // Quoted, because a chain of two or more filters is joined by semicolons and this command
+            // line is handed to a shell: sh reads an unquoted ';' as the end of the command, so the
+            // graph reached ffmpeg cut off at the first one - with a dangling [vf] label it then
+            // refused - and the rest was run as a command of its own. Any two filters at once did it,
+            // a crop with a scale among them. cmd does not split on ';', so this only ever showed on
+            // Linux and macOS.
+            return $"-filter_complex \"{filterChain}\"";
         }
 
         private static List<string> GetCustomFilters()
