@@ -63,7 +63,8 @@ namespace Nmkoder.Data
         /// <summary> The swscale flag, or "" for ffmpeg's own default (bicubic). </summary>
         public string Resampler { get; set; } = "";
 
-        /// <summary> Which dropdown entry produced this, so the box can be put back on it next session. "" means it was configured by hand. </summary>
+        /// <summary> Which dropdown entry produced this, so the box can be put back on it after the list is
+        /// refilled. "" means it was configured by hand. </summary>
         public string PresetKey { get; set; } = "";
 
         /// <summary>

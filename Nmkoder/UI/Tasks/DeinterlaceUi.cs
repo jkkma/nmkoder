@@ -28,8 +28,9 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary> Modes in dropdown order, the same list everywhere the setting appears: both encode
         /// tabs and the Deinterlace utility's own dialog. The Quick Convert box saves its index, so
-        /// entries may be appended but not reordered; the AV1AN box saves the mode's name instead, for
-        /// the reason <see cref="RestoreAv1anMode"/> gives. </summary>
+        /// entries may be appended but not reordered. The AV1AN box saves nothing at all - its whole
+        /// tab starts each session at its defaults - which is what retired the name-versus-index
+        /// migration this list used to need there. </summary>
         public static readonly DeinterlaceMode[] AllModes =
             { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Qtgmc, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
 
@@ -62,45 +63,6 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Restores the AV1AN tab's mode, which is saved by name where every other fixed dropdown in
-        /// the app saves its index.
-        /// <para/>
-        /// It has to be, because this list has just been reordered. QTGMC used to be missing from it,
-        /// and appending it would have left the tab's own dropdown listing the engines in a different
-        /// order from the identical one two tabs over; putting it where it belongs moves Bwdif and
-        /// Yadif down a place, so every index saved by an older build now names the engine below the
-        /// one that was picked - and one of those wrong answers starts an hours-long QTGMC pass over a
-        /// setting the user thought said Bwdif. A name cannot go stale that way. The old index is read
-        /// once, against the list as it stood, so nobody's setting is lost in the move.
-        /// </summary>
-        public static void RestoreAv1anMode()
-        {
-            string key = Form.Av1anDeintModeBox.Name;
-
-            // Asked before reading, as ConfigParser's own Restore helpers do: the Get helpers write a
-            // default for any key that is missing, so reading first would create the entry either way.
-            if (!Config.cachedValues.ContainsKey(key))
-                return;
-
-            string saved = (Config.Get(key) ?? "").Trim();
-
-            if (saved.IsEmpty())
-                return;
-
-            // Written by 2.8.9 and earlier: an index into { Automatic, Disabled, Bwdif, Yadif }.
-            DeinterlaceMode[] oldOrder = { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
-            bool wasIndex = int.TryParse(saved, out int index);
-            DeinterlaceMode mode = wasIndex
-                ? oldOrder[index.Clamp(0, oldOrder.Length - 1)]
-                : AllModes.FirstOrDefault(m => GetLabel(m) == saved);
-
-            int at = Array.IndexOf(AllModes, mode);
-
-            if (at >= 0)
-                Form.Av1anDeintModeBox.SelectedIndex = at;
-        }
-
-        /// <summary>
         /// Both tabs' modes back to Automatic, for Reset On New File.
         /// <para/>
         /// Only the mode. The preset and the field doubling say *how* to deinterlace, which is a
@@ -109,8 +71,8 @@ namespace Nmkoder.UI.Tasks
         /// while the mode is Automatic on this tab anyway.
         /// <para/>
         /// The index is looked up rather than written as 0 because this list has been reordered once
-        /// already - see <see cref="RestoreAv1anMode"/> - and a literal here would have moved with it
-        /// in silence, resetting to whatever ended up first.
+        /// already - QTGMC went into the middle of it - and a literal here would have moved with it in
+        /// silence, resetting to whatever ended up first.
         /// </summary>
         public static void ResetModes()
         {

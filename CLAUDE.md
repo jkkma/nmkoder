@@ -317,13 +317,29 @@ clause sits above the upscale one - so before this the readout stated the shape 
 about the cost. Nothing else in that list pairs up: every other clause answers "what is happening to
 the frame", where being enlarged is a price.
 
-**A saved preset is restored from its key, not from its saved fields.** The whole `ResizeConfig` is
-serialised, so `ResizePresets.Restore` rebuilds any entry the list still has and only lets a
-hand-configured one through field by field. Without it a preset means whatever it meant on the day it
-was picked: the upscaling above would have reached nobody who already had 2160p selected, which is
-the same shape of bug as a default that only applies on a first run. It is safe because a preset's
-fields are not editable - the Configure… button appears only for Custom, and the dialog stamps the
-custom key on whatever comes out of it - so there is nothing of the user's to overwrite.
+**Nothing on the AV1AN Video tab is saved.** The encoder, the container, the quality mode and its
+value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim
+and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
+selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` restores none of them. It
+is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid; `LoadConfigAv1an`
+keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a
+preference, and every way they go wrong is expensive and quiet: a QTGMC left armed spends hours and
+tens of gigabytes on a progressive source, a resize left on 720p halves a 4K encode nobody meant to
+shrink, a CRF picked for a grainy film is the wrong number for line art. Reset On New File already
+made that argument for Trim, Crop and Deinterlace; this carries it to the whole tab and to the
+boundary that is even easier to lose track of, which is a session that ended days ago.
+
+The encoder had to move rather than merely stop being restored, and this is the part to be careful
+with: what made SVT-AV1 the default was `Config`'s default *for the saved value*, so dropping the
+restore on its own would have opened every session on the first entry of the enum, which is aomenc -
+and dragged the whole tab with it, since the quality scale, the preset list, the colour formats and
+the Advanced tab's rows are all rebuilt per encoder. `Av1anUi.Init` names SVT-AV1 where the box is
+filled instead, and that is now the only statement anywhere of what the tab opens as.
+
+Not writing them matters as much as not reading them: a value saved and never restored is one the
+next person to touch that method will restore, reasonably enough, and the setting then comes back
+from whatever session last happened to write it. Keys from before this are still sitting in existing
+config files - do not wire one back up on the strength of finding it there.
 
 **The resize dialog's anamorphic switch is warned about rather than overridden.** Off, the targets
 measure the stored pixels and nothing bakes the display shape in - and there is nowhere else for it
@@ -377,7 +393,7 @@ left alone.
 was picked for.** Forcing is the point of naming one - `Deinterlace.ResolveAsync` consults the
 scan verdict only for Automatic - and it is the only way past a container flag that lies about its
 own scan type, which is exactly what the section below declines to check for. What made that a
-trap was that the mode was sticky and nothing cleared it: it is saved per tab and restored at
+trap was that the mode was sticky and nothing cleared it: it was saved per tab and restored at
 startup, so a QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a
 full pass over the video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that
 - a progressive 1080p WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields,
@@ -389,6 +405,11 @@ encode. `DeinterlaceUi.ResetModes` puts both tabs back to Automatic and touches 
 nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
 loaded the file: a batch clears each one with `resetSettings: false`, so a stack of tapes keeps the
 engine picked for it.
+
+The startup half of that trap is closed at the other end now - the AV1AN tab restores nothing across
+sessions at all, so its mode is Automatic on every launch whatever was picked last time. Quick
+Convert's is still saved, and still relies on this reset, because deinterlacing there is one filter
+in a chain rather than a pass of its own.
 
 A default added to that list has to reach the configs that already exist, and defaulting on a first
 run does not - a setting added after a list was written is missing from that list in exactly the way
@@ -588,11 +609,12 @@ hours-long pass and a tens-of-gigabytes intermediate is not that. The expensive 
 one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said, through the
 same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
 
-Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order. The AV1AN box therefore saves
-the mode's **name** where every other fixed dropdown saves its index: adding QTGMC in its proper
-place moved Bwdif and Yadif down one, and a saved index of 2 would have started an unwanted
-QTGMC pass for someone who had picked Bwdif. `DeinterlaceUi.RestoreAv1anMode` reads a saved
-integer once, against the list as it stood in 2.8.9, and writes a name back.
+Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order, and the Quick Convert box saves
+its index - so entries may be appended to that list but not reordered. The AV1AN box saved the
+mode's **name** for a while, because adding QTGMC in its proper place moved Bwdif and Yadif down
+one and a saved index of 2 would have started an unwanted QTGMC pass for someone who had picked
+Bwdif. That box now saves nothing at all, its whole tab starting each session at the defaults, so
+the migration that read the old integer is gone with it.
 
 Feeding av1an a `.vpy` directly is possible and is still the wrong trade. Measured rather than
 assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come

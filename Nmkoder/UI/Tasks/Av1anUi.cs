@@ -35,9 +35,12 @@ namespace Nmkoder.UI.Tasks
 
         public static void Init()
         {
-            // Load video codecs
-            Form.Av1anCodecBox.SetItems(Enum.GetValues<CodecUtils.Av1anCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
-            ConfigParser.LoadComboxIndex(Form.Av1anCodecBox);
+            // Load video codecs. SVT-AV1 rather than the first entry, and stated here rather than left
+            // to a saved value: the Video tab restores nothing between sessions, so this is the only
+            // place the default encoder is named. Every other control on that tab is filled from
+            // whichever one this picks.
+            Form.Av1anCodecBox.SetItems(Enum.GetValues<CodecUtils.Av1anCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                (int)CodecUtils.Av1anCodec.SvtAv1);
 
             // Load quality modes
             Form.Av1anQualModeBox.SetItems(Enum.GetValues<Av1an.QualityMode>()
@@ -613,8 +616,7 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// Acts on the user picking an entry - and only on the user: refilling the list raises the same
-        /// event, and acting on that would read the freshly selected entry back over what is being shown,
-        /// as well as committing an unrelated save on every file load.
+        /// event, and acting on that would read the freshly selected entry back over what is being shown.
         /// </summary>
         public static void ResizePresetSelected(int index)
         {
@@ -642,7 +644,6 @@ namespace Nmkoder.UI.Tasks
             }
 
             UpdateResizeReadout();
-            Form.SaveAv1anEncodeSettings();
         }
 
         /// <summary> The line under the dropdown: the size, the ratio it works out to, and whichever caveat applies. </summary>
@@ -687,117 +688,6 @@ namespace Nmkoder.UI.Tasks
                 text += " · before autocrop; the final size is measured when the encode starts";
 
             return text;
-        }
-
-        #endregion
-
-        #region Resize Persistence
-
-        public static void SaveResizeConfig()
-        {
-            Config.Set(Config.Key.Av1anResize, JsonConvert.SerializeObject(CurrentResize));
-        }
-
-        /// <summary>
-        /// Restores the saved resize, or - for a config written before this tab had one - translates
-        /// whatever the two scale text boxes it replaced were holding.
-        /// </summary>
-        public static void LoadResizeConfig()
-        {
-            string json = Config.Get(Config.Key.Av1anResize);
-
-            if (json.IsEmpty())
-            {
-                CurrentResize = MigrateOldScaleBoxes();
-                // Written back straight away rather than left to the next save, so the translation - and
-                // the log line that goes with the cases it cannot translate - happens exactly once.
-                SaveResizeConfig();
-                return;
-            }
-
-            try
-            {
-                // Through Restore rather than straight out of the JSON: a saved preset is restored from
-                // its key, so it means what this build says it means rather than what it meant when it
-                // was picked. See ResizePresets.Restore.
-                CurrentResize = ResizePresets.Restore(JsonConvert.DeserializeObject<ResizeConfig>(json));
-            }
-            catch (Exception e)
-            {
-                Logger.Log($"Failed to read the saved resize settings: {e.Message}", true);
-                CurrentResize = new ResizeConfig();
-            }
-        }
-
-        /// <summary>
-        /// The old UI was two free-text boxes fed straight to an ffmpeg scale filter, so a saved value can
-        /// be a number, a percentage, or an expression like "iw/2". The first two have an exact equivalent
-        /// here and are carried over; an expression has none, and rather than approximate it the setting is
-        /// dropped with a line saying where the same thing can still be written by hand.
-        /// </summary>
-        private static ResizeConfig MigrateOldScaleBoxes()
-        {
-            // Asked of the cache rather than of Config.Get, which writes a default for any key it does not
-            // find - so a fresh install would be given two dead scale entries by the act of looking.
-            string w = ReadOldScaleBox("Av1anScaleBoxW");
-            string h = ReadOldScaleBox("Av1anScaleBoxH");
-
-            if (w.IsEmpty() && h.IsEmpty())
-                return new ResizeConfig();
-
-            ResizeConfig migrated = TranslateOldScaleBoxes(w, h);
-
-            if (migrated == null)
-            {
-                Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
-                    $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
-                return new ResizeConfig();
-            }
-
-            // Custom rather than a preset: the old boxes held a size, and no size is one of the targets in
-            // the list. Left keyless it would select "No resizing" while a resize was in force.
-            migrated.PresetKey = ResizePresets.CustomKey;
-            return migrated;
-        }
-
-        /// <summary> The pair of old values as a resize, or null where there is no equivalent. </summary>
-        private static ResizeConfig TranslateOldScaleBoxes(string w, string h)
-        {
-            if (w.EndsWith("%") || h.EndsWith("%"))
-            {
-                // Read as a float and rounded: GetInt strips the dot rather than the fraction, so "12.5%"
-                // came out as 125% - an upscale, off a value that asked to shrink the picture eightfold.
-                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetFloat().RoundToInt();
-                return percent > 0 ? new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent } : null;
-            }
-
-            if (IsPlainNumber(w) && IsPlainNumber(h))
-                return new ResizeConfig { Mode = ResizeMode.Exact, Fill = ResizeFill.Stretch, TargetWidth = w.GetInt(), TargetHeight = h.GetInt() };
-
-            if (IsPlainNumber(h) && IsAutoOrEmpty(w))
-                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
-
-            if (IsPlainNumber(w) && IsAutoOrEmpty(h))
-                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
-
-            return null;
-        }
-
-        private static string ReadOldScaleBox(string key)
-        {
-            return Config.cachedValues.TryGetValue(key, out string value) ? (value ?? "").Trim().ToLower() : "";
-        }
-
-        private static bool IsPlainNumber(string s)
-        {
-            return s.Length > 0 && s.All(char.IsDigit) && s.GetInt() > 0;
-        }
-
-        /// <summary> Blank, or one of the negative values ffmpeg reads as "work this one out from the other" -
-        /// which is exactly what the Width and Height modes do. </summary>
-        private static bool IsAutoOrEmpty(string s)
-        {
-            return s.IsEmpty() || s == "-1" || s == "-2";
         }
 
         #endregion

@@ -6,7 +6,8 @@ namespace Nmkoder.Data
     /// <summary> One entry of the resize dropdown: a name, and the resize it stands for. </summary>
     public class ResizePreset
     {
-        /// <summary> Stable across releases and across reorderings of the list, because it is what gets saved. </summary>
+        /// <summary> Stable across releases and across reorderings of the list: it is what a configured
+        /// resize is matched back to when the dropdown has to show which entry produced it. </summary>
         public string Key { get; }
         public string Name { get; }
 
@@ -84,10 +85,10 @@ namespace Nmkoder.Data
         }
 
         /// <summary>
-        /// The entry to select for a configuration. A resize with no preset behind it - one migrated from
-        /// the old scale boxes, or written by a build whose preset list has since changed - is a custom
-        /// one rather than none at all: falling back to "No resizing" would show a resize being off while
-        /// it was on, which is the one thing the readout must never say.
+        /// The entry to select for a configuration. A resize with no preset behind it - one built in the
+        /// dialog, or carrying a key this build's list no longer has - is a custom one rather than none
+        /// at all: falling back to "No resizing" would show a resize being off while it was on, which is
+        /// the one thing the readout must never say.
         /// </summary>
         public static int IndexFor(ResizeConfig cfg)
         {
@@ -101,35 +102,6 @@ namespace Nmkoder.Data
         public static ResizePreset Get(int index)
         {
             return index >= 0 && index < All.Count ? All[index] : All.First();
-        }
-
-        /// <summary>
-        /// A saved resize as this build defines it: an entry from the list is rebuilt from its key, and
-        /// only a hand-configured one is restored field by field.
-        /// <para/>
-        /// The whole config is serialised, so without this a preset means whatever it meant on the day it
-        /// was picked. That is the same shape of bug as a default that only applies on a first run: the
-        /// upscaling the box entries now do would have reached nobody who already had one selected, and
-        /// their 2160p would have gone on quietly handing back a 1080p source - the exact behaviour the
-        /// change is undoing - with nothing on screen to say why it differed from a new install's.
-        /// <para/>
-        /// Safe because a preset's fields are not editable: the Configure… button only appears for the
-        /// Custom entry, and the dialog stamps <see cref="CustomKey"/> on whatever comes out of it. So
-        /// there is nothing of the user's to overwrite here, and the definition in this file is the only
-        /// place a box target is stated.
-        /// </summary>
-        public static ResizeConfig Restore(ResizeConfig saved)
-        {
-            if (saved == null)
-                return new ResizeConfig();
-
-            string key = saved.PresetKey ?? "";
-
-            if (key == CustomKey || key.Length < 1)
-                return saved;
-
-            ResizePreset preset = All.FirstOrDefault(p => p.Key == key);
-            return preset == null ? saved : preset.Build();
         }
 
         /// <summary>

@@ -33,8 +33,8 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
+            // Not saved: the encoder is a Video tab setting, and that tab opens at its defaults
             Av1anUi.VidEncoderSelected(Av1anCodecBox.SelectedIndex);
-            SaveConfigAv1an();
         }
 
         private void Av1anQualityMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -42,16 +42,17 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            ApplyAv1anQualityMode(useModeDefault: true);
+            ApplyAv1anQualityMode();
         }
 
         /// <summary>
-        /// The range, step size and formatting the quality spinner takes from the selected mode.
-        /// The mode's own default value comes with them when the user picks a mode, but not when a
-        /// saved mode is being restored at startup: there the saved value follows immediately
-        /// behind, and would only be overwritten on its way in.
+        /// The range, step size, formatting and default value the quality spinner takes from the
+        /// selected mode. It used to take the default conditionally, because a mode restored at
+        /// startup had a saved value coming in behind it that the default would have overwritten;
+        /// the tab restores nothing now, so picking a mode is the only thing that gets here and it
+        /// always wants the mode's own number.
         /// </summary>
-        private void ApplyAv1anQualityMode(bool useModeDefault)
+        private void ApplyAv1anQualityMode()
         {
             Av1an.QualityMode mode = Av1anUi.GetCurrentQualityMode();
 
@@ -62,9 +63,7 @@ namespace Nmkoder.Views
             if (mode == Av1an.QualityMode.TargetVmaf)
             {
                 Av1anQualityUpDown.SetRange(10, 99);
-
-                if (useModeDefault)
-                    Av1anQualityUpDown.Value = 95;
+                Av1anQualityUpDown.Value = 95;
             }
             else if (mode == Av1an.QualityMode.TargetSsimu2)
             {
@@ -72,9 +71,7 @@ namespace Nmkoder.Views
                 // imperceptible side-by-side, 90 visually lossless - so 80 is the
                 // counterpart of the VMAF default of 95 above.
                 Av1anQualityUpDown.SetRange(30, 99);
-
-                if (useModeDefault)
-                    Av1anQualityUpDown.Value = 80;
+                Av1anQualityUpDown.Value = 80;
             }
             else if (mode == Av1an.QualityMode.TargetButteraugli)
             {
@@ -87,9 +84,7 @@ namespace Nmkoder.Views
                 Av1anQualityUpDown.Increment = 0.1m;
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(0.5m, 10);
-
-                if (useModeDefault)
-                    Av1anQualityUpDown.Value = 4.0m;
+                Av1anQualityUpDown.Value = 4.0m;
             }
             else if (mode == Av1an.QualityMode.TargetXpsnr)
             {
@@ -101,17 +96,13 @@ namespace Nmkoder.Views
                 Av1anQualityUpDown.Increment = 0.5m;
                 Av1anQualityUpDown.FormatString = "0.0##";
                 Av1anQualityUpDown.SetRange(20, 60);
-
-                if (useModeDefault)
-                    Av1anQualityUpDown.Value = 40m;
+                Av1anQualityUpDown.Value = 40m;
             }
             else
             {
                 IEncoder enc = CodecUtils.GetCodec((CodecUtils.Av1anCodec)Math.Max(0, Av1anCodecBox.SelectedIndex));
                 Av1anQualityUpDown.SetRange(enc.QMin, enc.QMax);
-
-                if (useModeDefault)
-                    Av1anQualityUpDown.SetValueClamped(enc.QDefault);
+                Av1anQualityUpDown.SetValueClamped(enc.QDefault);
             }
         }
 
@@ -120,8 +111,7 @@ namespace Nmkoder.Views
             if (!_initialized)
                 return;
 
-            SaveConfigAv1an();
-            Av1anUi.ValidateContainer();
+            Av1anUi.ValidateContainer(); // Not saved either - same tab, same reason
         }
 
         private void Av1anAudCodec_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -162,19 +152,19 @@ namespace Nmkoder.Views
         private void Av1anDeintRate_Changed(object sender, RoutedEventArgs e) => Av1anDeinterlaceSetting_Changed();
 
         /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
-        /// whenever any part of the setting moves - not only on the dropdown itself. </summary>
+        /// whenever any part of the setting moves - not only on the dropdown itself. Nothing is saved:
+        /// the Video tab's settings last as long as the session. </summary>
         private void Av1anDeinterlaceSetting_Changed()
         {
             if (!_initialized)
                 return;
 
             DeinterlaceUi.RefreshInfo();
-            SaveAv1anEncodeSettings();
         }
 
         private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Saving is left to the handler: refilling the list raises this too, and that is not a change
+            // The handler tells a pick apart from a refill, which raises this event too
             Av1anUi.ResizePresetSelected(Av1anResizeBox.SelectedIndex);
         }
 
@@ -186,7 +176,6 @@ namespace Nmkoder.Views
             {
                 resize.PresetKey = ResizePresets.CustomKey;
                 Av1anUi.CurrentResize = resize;
-                SaveAv1anEncodeSettings();
             }
 
             Av1anUi.UpdateResizeReadout();
@@ -216,10 +205,11 @@ namespace Nmkoder.Views
             Av1anTrimClearBtn.IsVisible = Av1anUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 
+        /// <summary> The av1an options that outlive a session. The Video tab's encoder and container are
+        /// not among them - see <see cref="LoadAv1anEncodeSettings"/> - and the audio codec below is,
+        /// because it lives on the Audio &amp; Tracks tab. </summary>
         public void LoadConfigAv1an()
         {
-            ConfigParser.LoadComboxIndex(Av1anContainerBox);
-            ConfigParser.LoadComboxIndex(Av1anCodecBox);
             ConfigParser.LoadComboxIndex(Av1anAudCodecBox);
             ConfigParser.LoadComboxIndex(Av1anOptsChunkModeBox);
             ConfigParser.LoadComboxIndex(Av1anOptsSplitModeBox);
@@ -236,8 +226,6 @@ namespace Nmkoder.Views
 
             using (Config.Batch())
             {
-                ConfigParser.SaveComboxIndex(Av1anContainerBox);
-                ConfigParser.SaveComboxIndex(Av1anCodecBox);
                 ConfigParser.SaveComboxIndex(Av1anAudCodecBox);
                 ConfigParser.SaveComboxIndex(Av1anOptsChunkModeBox);
                 ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
@@ -249,26 +237,36 @@ namespace Nmkoder.Views
         }
 
         /// <summary>
-        /// The AV1AN encode settings, restored on top of the defaults the selected encoder has just
-        /// written into these controls - which is why this cannot run any earlier than it does.
-        /// Crop is left out on purpose: it is per-file by design, being one of the settings Reset
-        /// On New File clears, and its rectangle is not saved either, so a restored "Manual" would
-        /// be a mode with nothing behind it.
+        /// The AV1AN settings that outlive a session, restored on top of the defaults the selected
+        /// encoder has just written into these controls - which is why this cannot run any earlier
+        /// than it does.
+        /// <para/>
+        /// Nothing on the Video tab is among them. The encoder, the container, the quality mode and its
+        /// value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop,
+        /// the trim and the deinterlace all start every session at their defaults - SVT-AV1 into MKV,
+        /// and then whatever selecting that encoder writes into the rest. Those settings describe a job
+        /// rather than a preference: they are picked for the file in front of the user and read wrong
+        /// against the next one, and the ways that goes wrong are expensive and quiet. A QTGMC left
+        /// armed spends hours and tens of gigabytes on a progressive source; a resize left on 720p
+        /// halves a 4K encode nobody meant to shrink; a CRF picked for a grainy film is the wrong
+        /// number for line art. Reset On New File already made this argument for Trim, Crop and
+        /// Deinterlace - this is the same argument, carried to the whole tab and to the boundary that
+        /// is even easier to lose track of than a new file, which is a session that ended days ago.
+        /// <para/>
+        /// The encoder is the one that had to move rather than simply stop being restored: the default
+        /// was the saved value's, written by <see cref="Config"/> as SVT-AV1 for a config that had none
+        /// yet, so dropping the restore alone would have started every session on the first entry of
+        /// the enum, which is aomenc. <see cref="Av1anUi.Init"/> now names SVT-AV1 where the box is
+        /// filled, which is the only place left that says what the tab opens as.
+        /// <para/>
+        /// Crop was already left out before any of this, for the same reason arrived at one setting at
+        /// a time: it is per-file by design, and its rectangle is not saved either, so a restored
+        /// "Manual" would be a mode with nothing behind it.
         /// </summary>
         public void LoadAv1anEncodeSettings()
         {
-            ConfigParser.RestoreIndexIfSaved(Av1anQualModeBox);
-            ApplyAv1anQualityMode(useModeDefault: false); // The restored mode decides the range the value below is clamped into
-            ConfigParser.RestoreIfSaved(Av1anQualityUpDown);
-            ConfigParser.RestoreIfSaved(Av1anPresetBox);
-            ConfigParser.RestoreIfSaved(Av1anColorSpaceBox);
-            ConfigParser.RestoreIfSaved(Av1anGrainSynthStrengthUpDown, allowFloat: false);
-            ConfigParser.RestoreIfSaved(Av1anGrainSynthDenoiseBox);
-            ConfigParser.RestoreIfSaved(Av1anFpsBox);
-            DeinterlaceUi.RestoreAv1anMode(); // By name rather than by index - see the method
-            ConfigParser.RestoreIfSaved(Av1anDeintPresetBox);
-            ConfigParser.RestoreIfSaved(Av1anDeintDoubleRateBox);
-            Av1anUi.LoadResizeConfig();
+            // Not a restore: the entries name what each target works out to for the loaded file, so
+            // the list has to be filled whether or not anything was saved. The resize itself is off.
             Av1anUi.RefreshResizeBox();
             ConfigParser.RestoreIfSaved(Av1anAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(Av1anAudChannelsBox);
@@ -290,19 +288,12 @@ namespace Nmkoder.Views
             // that happens - the same reason SaveAv1anAdvancedArgs commits its own grids first.
             Av1anAdvancedFiltersGrid.CommitEdit();
 
+            // The Video tab is not written either, and that is the half of it that matters: a value
+            // that is saved and not restored is one the next person to touch this file will restore,
+            // reasonably enough, and the setting comes back from whatever session last happened to
+            // write it. Nothing on that tab is stored at all - see LoadAv1anEncodeSettings.
             using (Config.Batch())
             {
-                ConfigParser.SaveComboxIndex(Av1anQualModeBox);
-                ConfigParser.SaveGuiElement(Av1anQualityUpDown);
-                ConfigParser.SaveGuiElement(Av1anPresetBox);
-                ConfigParser.SaveGuiElement(Av1anColorSpaceBox);
-                ConfigParser.SaveGuiElement(Av1anGrainSynthStrengthUpDown, ConfigParser.StringMode.Int);
-                ConfigParser.SaveGuiElement(Av1anGrainSynthDenoiseBox);
-                ConfigParser.SaveGuiElement(Av1anFpsBox);
-                ConfigParser.SaveGuiElement(Av1anDeintModeBox); // The mode's name, not its index - see RestoreAv1anMode
-                ConfigParser.SaveGuiElement(Av1anDeintPresetBox);
-                ConfigParser.SaveGuiElement(Av1anDeintDoubleRateBox);
-                Av1anUi.SaveResizeConfig();
                 ConfigParser.SaveGuiElement(Av1anAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(Av1anAudChannelsBox);
                 ConfigParser.SaveGuiElement(CheckAv1anCopySubs);
