@@ -74,6 +74,16 @@ namespace Nmkoder.Data.Codecs
                     // Extra references for base-layer frames, which pay off unusually well where the
                     // same cel is held across several frames. From psy-ex's own anime command line.
                     { "enable-overlays", "1" },
+                    // Mode decision at full 10-bit precision. Flat cel fills and long gradients are
+                    // exactly where an 8-bit search rounds away differences the 10-bit coding pass
+                    // could have kept, which is the banding this preset is otherwise spending
+                    // luminance-qp-bias and chroma-qm-min on. The default of 0 is not this value: it
+                    // hands the choice to the encoder preset, which runs 10-bit through preset 5 and
+                    // tapers off above, so this only changes the encode from preset 6 upward - and
+                    // pins it for anyone who moves the preset slider to get through a season.
+                    // Needs a 10-bit Color Format, which is what the tab defaults to; on an 8-bit one
+                    // SVT ignores it and Av1anUi.GetHbdModeDecisionProblem says so.
+                    { "hbd-mds", "1" },
                 }),
 
             new EncoderArgPreset("Game Capture / Gameplay",
@@ -103,6 +113,11 @@ namespace Nmkoder.Data.Codecs
                     { "chroma-qm-min", "10" },
                     // Puts back detail that temporal filtering takes out, which shows more at 60fps
                     { "enable-overlays", "1" },
+                    // As above, and for the same banding: synthetic skies, fog and volumetrics are
+                    // smooth gradients an 8-bit search cannot tell apart. This content is also the
+                    // likeliest to be encoded at a fast preset - hours of 60fps capture - which is
+                    // precisely where the default of 0 stops running mode decision at 10-bit.
+                    { "hbd-mds", "1" },
                 }),
         };
     }
