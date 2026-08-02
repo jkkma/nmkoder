@@ -5,6 +5,7 @@ using Nmkoder.Main;
 using Nmkoder.Media;
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Nmkoder.UI.Tasks
@@ -93,8 +94,11 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static string ResolveSection(TrimSettings section, MediaFile file, out long startMs, out long endMs)
         {
-            startMs = Math.Max(0, section.StartTime);
-            endMs = file.DurationMs > 0 ? Math.Min(section.EndTime, file.DurationMs) : section.EndTime;
+            // Through the ms accessors rather than off the fields: in frame mode those hold frame
+            // numbers, and comparing a frame count against a duration in milliseconds compares nothing.
+            Fraction rate = file.VideoStreams.FirstOrDefault()?.Rate ?? Fraction.Zero;
+            startMs = Math.Max(0, section.GetStartMs(rate));
+            endMs = file.DurationMs > 0 ? Math.Min(section.GetEndMs(rate), file.DurationMs) : section.GetEndMs(rate);
 
             return endMs > startMs ? ""
                 : $"'{file.Name}' is {FormatDuration(file.DurationMs)} long, which is entirely before the configured start point ({FormatDuration(startMs)}).";

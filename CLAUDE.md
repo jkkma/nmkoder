@@ -660,11 +660,35 @@ purely to collect the reason autoload swallows, so the app says "VapourSynth ref
 QTGMC needs (eedi3m) - … requires API R4.2" rather than the flatly misleading "missing".
 
 **A trim is the one thing QTGMC does not cover on the Quick Convert tab**, because that trim is
-ffmpeg's - an input seek, an output duration, or a frame-number filter - and none of the three
-reaches the script that reads the source, so the video would arrive whole while the audio
-arrived cut. Both together means cutting first; the Cut utility does that without re-encoding,
-and the log says so. The AV1AN tab's trim is not ffmpeg's - it cuts a copy before av1an starts -
-so there the two compose, and `Av1an.Run` runs the cut first and QTGMC over what it produced.
+ffmpeg's - a seek and a duration on the command line - and neither reaches the script that reads the
+source, so the video would arrive whole while the audio arrived cut. Both together means cutting
+first; the Cut utility does that without re-encoding, and the log says so. The AV1AN tab's trim is
+not ffmpeg's - it cuts a copy before av1an starts - so there the two compose, and `Av1an.Run` runs
+the cut first and QTGMC over what it produced.
+
+**All three trim modes are a seek and a duration, and the modes differ only in what the user types
+and how exact the start is.** The keyframe mode seeks the input, which is instant and lands on the
+keyframe before the point; the other two seek the output, which decodes and discards its way there
+and so stops where it was asked to. `TrimSettings.GetInputArgs` and `GetOutputArgs` are the only
+place that mapping lives.
+
+Frame mode was the exception and was wrong three ways for being one. It emitted a
+`select=gte(n,X)` video filter plus `-vframes N`, so the kept frames carried their original
+timestamps and the output opened on however many seconds the trim had skipped; the audio was cut at
+neither end, since both of those touch video only; and the frames being counted were the ones coming
+*out* of the chain, so a rate-doubling deinterlacer above the select halved the point it landed on.
+It converts to a time now - the same conversion the dialog does to display it - and the seek goes
+half a frame early, because a seek keeps what is at or after its timestamp and `X/rate` is a place
+floating point can land either side of. `-frames:v` still goes out to pin the count the duration
+only implies.
+
+**A trim is checked against the file before the encode starts**, through `UtilCut.ResolveSection`,
+which all three of the Cut utility, the AV1AN tab and Quick Convert now ask. A trim outlives the file
+it was set for and a batch does not clear it, so one section runs against every file in the queue;
+where it starts past the end of a shorter one, ffmpeg seeks past everything there is and writes an
+empty file without complaining. `ResolveSection` reads the section through the millisecond accessors
+rather than off the fields, because in frame mode those hold frame numbers and comparing a frame
+count against a duration compares nothing.
 
 **QTGMC cannot run inside av1an, so the AV1AN tab renders it in front.** av1an applies video
 filters with ffmpeg once per chunk and there is nowhere in that to put a script; and it

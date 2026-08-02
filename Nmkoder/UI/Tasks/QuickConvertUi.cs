@@ -520,14 +520,22 @@ namespace Nmkoder.UI.Tasks
             return CurrentTrim.StartTime / 1000f;
         }
 
+        /// <summary> The source's frame rate, which the frame-number trim mode is stated in and has to
+        /// be converted out of. Zero where there is no video to ask, which leaves that mode emitting
+        /// nothing rather than guessing at a rate. </summary>
+        private static Fraction GetSourceRate()
+        {
+            return TrackList.current?.File.VideoStreams.FirstOrDefault()?.Rate ?? Fraction.Zero;
+        }
+
         public static string GetMiscInputArgs()
         {
             List<string> args = new List<string>();
 
-            if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.TimeKeyframe)
-                args.Add(CurrentTrim.StartArg);
+            if (CurrentTrim != null && !CurrentTrim.IsUnset)
+                args.Add(CurrentTrim.GetInputArgs(GetSourceRate()));
 
-            return string.Join(" ", args);
+            return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
         public static string GetMiscOutputArgs()
@@ -535,14 +543,9 @@ namespace Nmkoder.UI.Tasks
             List<string> args = new List<string>();
 
             if (CurrentTrim != null && !CurrentTrim.IsUnset)
-            {
-                if (CurrentTrim.TrimMode == TrimSettings.Mode.TimeExact)
-                    args.Add(CurrentTrim.StartArg);
+                args.Add(CurrentTrim.GetOutputArgs(GetSourceRate()));
 
-                args.Add(CurrentTrim.DurationArg);
-            }
-
-            return string.Join(" ", args);
+            return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
         /// <summary>
@@ -647,8 +650,10 @@ namespace Nmkoder.UI.Tasks
             // and add no filter at all, leaving the output at 59.94.
             Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
-            if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.FrameNumbers) // Check Filter: Frame Number Trim
-                filters.Add(CurrentTrim.StartArg);
+            // No trim filter of any kind. The frame-number mode used to put a "select" here, which cut
+            // the video and nothing else, counted frames coming out of the deinterlacer above rather
+            // than frames of the source, and left the kept ones carrying their original timestamps.
+            // It is a seek and a duration now, like the other two modes - see TrimSettings.
 
             // Compared with a tolerance rather than exactly - see MiscUtils.FrameRateTolerance, which is
             // there because "23.976" and 24000/1001 are the same rate written two ways and this used to

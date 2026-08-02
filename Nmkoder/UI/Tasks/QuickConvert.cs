@@ -72,6 +72,21 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // The same question the AV1AN tab and the Cut utility have always asked, and for the
+                // same reason: a trim outlives the file it was set for, so a batch runs one section
+                // against every file in it. Where the section starts past the end of a shorter one,
+                // ffmpeg seeks past everything there is and writes an empty file without complaining.
+                if (QuickConvertUi.CurrentTrim != null && !QuickConvertUi.CurrentTrim.IsUnset)
+                {
+                    string trimProblem = UtilCut.ResolveSection(QuickConvertUi.CurrentTrim, TrackList.current.File, out long _, out long _);
+
+                    if (trimProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel($"{trimProblem}\n\nChange the trim, or clear it for this file.");
+                        return;
+                    }
+                }
+
                 bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
