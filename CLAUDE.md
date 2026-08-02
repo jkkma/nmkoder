@@ -382,6 +382,24 @@ its concat step reads the flag as "an FPS changing filter might have been applie
 forcing the source's rate onto the output, which is the other half of what a resampled encode
 needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual help-text check.
 
+**Whether the box asks for a different rate at all is decided with a tolerance, and must stay that
+way.** `MiscUtils.IsSameFrameRate` calls two rates the same within 0.01%, because the app shows a rate
+two ways - the Track List reads `24000/1001 (~23.976 FPS)` - and typing the readable one back was an
+exact-comparison mismatch that built a filter. The retiming that produced was nothing, one frame in a
+million; what it cost was everything a non-empty chain costs on this tab, which is
+`--ignore-frame-mismatch`, the pixel format conversion coming off VapourSynth, and every
+target-quality probe measuring an unfiltered source. The same trap sat one level along, where `59.94`
+did not match the 60000/1001 a bobbed 29.97i source arrives at. 0.01% is ten times finer than the gap
+it must never close - a rate and its NTSC form are 0.1% apart, 24 against 23.976 and 30 against 29.97
+- so pulldown rates stay distinct while a rounded decimal of the same rate does not.
+
+Both tabs also log the resample per file, naming the source rate in both forms and saying so when that
+source rate is the doubled one a bob produces. That box has no readout of its own - the resize and the
+deinterlace both have one - so before this a rate left over from another file, or typed with a digit
+out of place, reached the end of an encode without ever being mentioned. Quick Convert's second pass
+builds the same chain as the first and is asked for it with `quiet: true`, so this and the de-squeeze
+line land in the log once rather than twice.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the

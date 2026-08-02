@@ -636,8 +636,21 @@ namespace Nmkoder.UI.Tasks
             if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.FrameNumbers) // Check Filter: Frame Number Trim
                 filters.Add(CurrentTrim.StartArg);
 
-            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
+            // Compared with a tolerance rather than exactly - see MiscUtils.FrameRateTolerance, which is
+            // there because "23.976" and 24000/1001 are the same rate written two ways and this used to
+            // build a filter between them.
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps)) // Check Filter: Framerate Resampling
+            {
                 filters.Add($"fps=fps={fps}");
+
+                // Said out loud because nothing else says it: this box has no readout of its own, so a
+                // rate left over from another file, or typed with a digit out of place, used to reach
+                // the end of an encode without ever being mentioned.
+                Logger.Log($"Resampling the frame rate from {MiscUtils.DescribeFrameRate(sourceRate)} to " +
+                    $"{MiscUtils.DescribeFrameRate(fps)}" +
+                    $"{(CurrentDeinterlace != null && CurrentDeinterlace.DoublesFrameRate ? " - the source rate here is the doubled one, from one frame per field" : "")}. " +
+                    $"Frames are duplicated or dropped to fit; the running time stays the same.", quiet);
+            }
 
             int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In
 

@@ -361,8 +361,21 @@ namespace Nmkoder.UI.Tasks
             Fraction fps = GetUiFps();
             Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
-            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Framerate Resampling
+            // Compared with a tolerance rather than exactly - see MiscUtils.FrameRateTolerance, which is
+            // there because "23.976" and 24000/1001 are the same rate written two ways and this used to
+            // build a filter between them.
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps)) // Framerate Resampling
+            {
                 frame.FpsFilter = $"fps=fps={fps}";
+
+                // Said out loud because nothing else says it. The resize has a readout and a per-file
+                // log line; this box has neither, so a rate typed for one file - or typed with a digit
+                // out of place - reached the end of an encode without ever being mentioned.
+                Logger.Log($"Resampling the frame rate from {MiscUtils.DescribeFrameRate(sourceRate)} to " +
+                    $"{MiscUtils.DescribeFrameRate(fps)}" +
+                    $"{(CurrentDeinterlace != null && CurrentDeinterlace.DoublesFrameRate ? " - the source rate here is the doubled one, from one frame per field" : "")}. " +
+                    $"Frames are duplicated or dropped to fit and the running time stays the same; av1an is told to ignore the chunk frame counts it changes.");
+            }
 
             // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
             // settled here: this runs per file, after the crop above the scale filter has been decided,

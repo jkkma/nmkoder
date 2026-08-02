@@ -101,7 +101,10 @@ namespace Nmkoder.UI.Tasks
                     string vf1 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass1);
                     CodecArgs codecArgsPass2 = vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.TwoOfTwo);
                     string v2 = codecArgsPass2.Arguments;
-                    string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2);
+                    // Quiet: the second pass builds the same chain as the first and has nothing new to
+                    // say about it, so the lines that come with it - the resample, the de-squeeze -
+                    // belong in the log once rather than twice.
+                    string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2, quiet: true);
 
                     // Each pass needs its own VapourSynth process - a pipe feeds one reader - and each
                     // appends to the same log, which is why the check afterwards expects two finished
