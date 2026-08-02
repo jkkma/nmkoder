@@ -394,19 +394,21 @@ namespace Nmkoder.UI.Tasks
             frame.Desqueezing = !frame.Resizing && AspectRatio.IsAnamorphic(vs.Sar)
                 && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
 
-            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
-            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
-            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
-            // was measured against the unpadded frame.
-            frame.Padding = !frame.Resizing && !frame.Desqueezing
-                && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0));
-
             string cropMode = Form.Av1anCropBox.GetText().ToLower();
 
-            if (cropMode.Contains("manual") && CurrentCrop != null) // Manual Crop
+            if (cropMode.Contains("manual") && CurrentCrop != null && CurrentCrop.IsSet) // Manual Crop
             {
-                frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
-                frame.ScaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+                // Carried rather than acted on, so the run can refuse with a sentence naming the file
+                // instead of av1an discovering "Invalid too big or non positive size" one chunk at a
+                // time. Reachable without anyone typing anything strange: the four edges outlive the
+                // file they were set for, and a batch does not clear them between files.
+                frame.CropProblem = CurrentCrop.GetProblem(vs.Resolution);
+
+                if (frame.CropProblem.IsEmpty())
+                {
+                    frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                    frame.ScaleInput = CurrentCrop.GetCroppedSize(vs.Resolution);
+                }
             }
 
             if (cropMode.Contains("auto")) // Autocrop - the sampling run this method exists to do only once
@@ -420,15 +422,21 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
+            // Padding an odd frame to mod 2 is what stops it reaching an encoder that will not take one,
+            // and it is measured against what the crop leaves rather than against the source: the pad now
+            // runs *after* the crop, because a rectangle taken out of a padded picture is a rectangle
+            // measured against the wrong frame. A resize makes it redundant either way - every size that
+            // one computes is already even.
+            frame.Padding = !frame.Resizing && !frame.Desqueezing
+                && ((frame.ScaleInput.Width % 2 != 0) || (frame.ScaleInput.Height % 2 != 0));
+
             frame.Encoded = frame.ScaleInput;
 
             if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar))
                 frame.Encoded = OrKeep(CurrentResize.Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
             else if (frame.Desqueezing)
                 frame.Encoded = OrKeep(ResizeConfig.DesqueezeOnly().Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
-            else if (frame.Padding && frame.CropFilters.Count < 1)
-                // The pad runs ahead of the crop, so it only decides the frame's size when there is no
-                // crop behind it to take a rectangle of its own out of the padded picture.
+            else if (frame.Padding)
                 frame.Encoded = new Size(RoundUpToEven(frame.ScaleInput.Width), RoundUpToEven(frame.ScaleInput.Height));
 
             return frame;
@@ -469,10 +477,14 @@ namespace Nmkoder.UI.Tasks
             if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
                 filters.Add(frame.FpsFilter);
 
+            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
+
+            // After the crop, not before it. A crop rectangle is measured against the frame the file
+            // actually has, so padding first moved the picture out from under it - and padding an odd
+            // source only to crop an odd rectangle out of the result left the encoder with the odd
+            // frame the pad existed to prevent.
             if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
-
-            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
 
             if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, frame.Sar)) // Check Filter: Scale
             {

@@ -295,6 +295,17 @@ namespace Nmkoder.UI.Tasks
                     // it can be said clearly. ffmpeg refuses a frame this large from inside av1an, one
                     // chunk at a time, as "Picture size WxH is invalid" - which names neither the resize
                     // that asked for it nor the box to change.
+                    // Same reasoning as the frame limit below, one step earlier in the chain: a crop
+                    // that does not fit the file in front of it produces "crop=-80:1080:1000:0", which
+                    // av1an meets as an ffmpeg error per chunk. The commonest way in is a batch, where
+                    // the crop set for the first file is still set for a smaller one later.
+                    if (frame.CropProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot be cropped as configured - " +
+                            $"{frame.CropProblem}.\n\nChange the crop, or switch it off for this file.");
+                        return;
+                    }
+
                     if (ResizeConfig.ExceedsFrameLimit(frame.Encoded))
                     {
                         RunTask.Cancel($"The resize asks for {frame.Encoded.Width}x{frame.Encoded.Height}, which is " +

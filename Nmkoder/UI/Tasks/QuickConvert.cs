@@ -58,6 +58,20 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // Before anything is built, because a crop that does not fit the frame in front of it
+                // becomes "crop=-80:1080:1000:0" and ffmpeg refuses that with an error naming neither
+                // the setting nor the file. The way in is rarely a typo: the four edges outlive the file
+                // they were set for, and a batch does not clear them between files, so the crop measured
+                // on a 1080p source is still 140 lines off a 480p one.
+                string cropProblem = QuickConvertUi.GetCropProblem();
+
+                if (cropProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot be cropped as configured - " +
+                        $"{cropProblem}.\n\nChange the crop, or switch it off for this file.");
+                    return;
+                }
+
                 bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);

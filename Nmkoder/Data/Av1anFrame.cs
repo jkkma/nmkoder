@@ -31,6 +31,11 @@ namespace Nmkoder.Data
         /// <summary> The crop filters, already resolved, in the order they belong in the chain. </summary>
         public List<string> CropFilters = new List<string>();
 
+        /// <summary> Why the configured crop cannot be applied to this file, or "" when it can. Carried
+        /// rather than thrown so the run refuses with a sentence naming the file and the numbers, where
+        /// a crop bigger than the frame otherwise reaches av1an and fails one chunk at a time. </summary>
+        public string CropProblem = "";
+
         /// <summary> Whether a scale filter runs for the configured resize. </summary>
         public bool Resizing;
 

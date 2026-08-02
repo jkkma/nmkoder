@@ -303,6 +303,39 @@ automatic one costs those ten probes, and there is nowhere here to spend them on
 worked out from a size that is not the real one is the thing being fixed, so guessing is worse
 than abstaining.
 
+Those ten probes are now answered from `FfmpegUtils`' own cache, keyed by the file's path, length and
+last write, so asking twice costs one detection. Quick Convert asks more than twice: it builds its
+filter chain once for the stream maps - `GetMapArgs` needs to know whether there *is* a chain, to map
+`[vf]` - then again for the command, and again for a second pass, each through a call that knows
+nothing of the others. That was thirty seeks and a hundred and eighty decoded frames for one two-pass
+encode. The cache is keyed rather than cleared so a file replaced on disk under the same name still
+gets looked at again.
+
+**A crop is four edges, and the rectangle they come to is worked out in one place.** `CropConfig` is
+that place, so the dialog's readout, the frame the resize is measured against and the filter that runs
+cannot disagree. It enforces two things that used to reach ffmpeg exactly as typed:
+
+The result stays inside the frame. Every box was clamped against the *whole* dimension on its own, so
+Left 1000 and Right 1000 on a 1920 frame was something the dialog would let you confirm, and it came
+out as `crop=-80:1080:1000:0`. The way in is rarely a typo - the four edges outlive the file they were
+set for, and `RunTask` clears each file with `resetSettings: false`, so a batch carries a 140-line
+letterbox crop from a 1080p file onto a 480p one. Both tabs now refuse the encode through
+`CropConfig.GetProblem`, naming the file and the numbers, rather than letting av1an meet it one chunk
+at a time; the dialog holds each *pair* of opposing edges instead of each edge, and shrinks a crop
+that arrives too big for the file proportionally, so a symmetric one stays symmetric.
+
+The result is even on both axes. 4:2:0 has one chroma sample per 2x2 block, so an odd width or height
+is refused by x264, x265 and SVT-AV1 alike, and an odd offset is silently moved by ffmpeg's own crop
+filter - which puts the file a pixel away from what the dialog drew. The dialog steps in twos but a
+typed 3 got through. The offset rounds up and the size rounds down, so alignment never re-exposes a
+sliver of the bar being removed.
+
+**The mod-2 pad runs after the crop**, on both tabs, and is decided from what the crop leaves rather
+than from the source. Before, an odd source with a crop padded to 720x406 and then took an odd
+rectangle out of it - odd again, and measured against a frame the pad had already moved. With the
+crop's own rounding above, a cropped frame is even before the pad is asked, which leaves the pad doing
+what it was written for: an odd source with no crop on it.
+
 **The dropdown's box presets enlarge a source smaller than their target**, so "2160p (4K)" means
 3840x2160 for a 1080p file rather than handing the file back unchanged. `ResizePresets.Box` is where
 that is set, on the `AllowUpscale` flag a hand-built `ResizeConfig` still defaults to off. What it
