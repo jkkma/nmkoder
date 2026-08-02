@@ -291,6 +291,18 @@ namespace Nmkoder.UI.Tasks
                     // handed the answer instead of going and asking for it a second time.
                     Av1anFrame frame = await ResolveFrameAsync();
 
+                    // Said here as well as on the tab's readout, because this is the last point at which
+                    // it can be said clearly. ffmpeg refuses a frame this large from inside av1an, one
+                    // chunk at a time, as "Picture size WxH is invalid" - which names neither the resize
+                    // that asked for it nor the box to change.
+                    if (ResizeConfig.ExceedsFrameLimit(frame.Encoded))
+                    {
+                        RunTask.Cancel($"The resize asks for {frame.Encoded.Width}x{frame.Encoded.Height}, which is " +
+                            $"{(double)frame.Encoded.Width * frame.Encoded.Height / 1_000_000d:0.#} megapixels - more than FFmpeg " +
+                            $"will scale to, so no frame would be written.\n\nPick a smaller target in the resize dialog.");
+                        return;
+                    }
+
                     if (!frame.Encoded.IsEmpty)
                         videoArgs[CodecUtils.FrameSizeKey] = $"{frame.Encoded.Width}x{frame.Encoded.Height}";
 

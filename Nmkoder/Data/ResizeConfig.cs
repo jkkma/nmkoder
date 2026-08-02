@@ -62,6 +62,29 @@ namespace Nmkoder.Data
         /// <summary> Which dropdown entry produced this, so the box can be put back on it next session. "" means it was configured by hand. </summary>
         public string PresetKey { get; set; } = "";
 
+        /// <summary>
+        /// The most pixels a frame may hold before ffmpeg refuses to scale to it at all - "Picture size
+        /// WxH is invalid", from the scale filter, before any encoder is reached.
+        /// <para/>
+        /// Measured rather than read off a constant, because ffmpeg's own boundary is not a clean one:
+        /// 4096x64000 is refused at 262.1 MP while 16384x16128 is accepted at 264.2 MP, so where it
+        /// falls depends on the frame's shape as well as its area. This sits under the whole of that
+        /// overlap. Everything below it scaled cleanly in testing - 16K at 133 MP, 4096x40000 at 163
+        /// MP, 18000x13000 at 234 MP - and nothing legitimate comes close: 8K UHD is 33 MP and
+        /// SVT-AV1 stops at 16384x8704, which is 142.
+        /// <para/>
+        /// Being under this is therefore not a promise the size will encode, only that ffmpeg will
+        /// produce it. The encoders have their own, much lower ceilings, and they report their own
+        /// refusals clearly; this one is worth catching here because it does not.
+        /// </summary>
+        public const long MaxFramePixels = 260_000_000;
+
+        /// <summary> Whether a frame this size is one ffmpeg will not produce, whatever asked for it. </summary>
+        public static bool ExceedsFrameLimit(Size size)
+        {
+            return (long)size.Width * size.Height > MaxFramePixels;
+        }
+
         public ResizeConfig() { }
 
         public static ResizeConfig FitBox(int w, int h, string presetKey)
@@ -404,6 +427,15 @@ namespace Nmkoder.Data
 
             Size src = GetSourceSize(storage, sar);
             bool desqueezed = CorrectAspect && AspectRatio.IsAnamorphic(sar);
+
+            // First of all, because a run that cannot start has no shape to be wrong about. Reachable
+            // from the dialog without going anywhere strange: both target boxes at their own maximum
+            // is 16384x16384, and 800% - also the box's maximum - of a 4K source is 30720x17280. The
+            // readout used to state either of those as calmly as any other size, and the failure then
+            // arrived from inside av1an as ffmpeg complaining about an invalid picture size.
+            if (ExceedsFrameLimit(result))
+                return $"too large to encode - FFmpeg will not produce a frame of " +
+                    $"{(double)result.Width * result.Height / 1_000_000d:0.#} megapixels, so nothing would be written";
 
             // Ahead of every other clause, because it is the only one describing a file whose *shape* is
             // wrong rather than a size nobody asked for. What makes 720x480 mean 16:9 is a flag, not the
