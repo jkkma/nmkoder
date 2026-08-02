@@ -348,6 +348,45 @@ clips scored 202/0 and 0/202. The second condition is a volume bar, and it is de
 low: idet cannot see combing in a frame that does not move, so a tape with quiet stretches
 scores well under half.
 
+**Counting combed frames cannot settle it on its own, and a third condition is what makes the
+answer trustworthy.** A vertical pan over fine horizontal detail shifts the picture by a
+fraction of a line per frame, which frame by frame is indistinguishable from two woven fields -
+and unlike the fine detail the three-quarters rule catches, a pan holds one direction, so the
+false comb comes out *consistently one way round*, which is the very thing that rule reads as
+proof. Both count-based clauses fall for it: measured here, a 720x480 pan scored BFF 167 /
+progressive 283 (through the volume bar) and another BFF 120 / progressive 73 (through
+"more combed than progressive"). Every deinterlacer this app can reach was being started on
+progressive video.
+
+`InterlaceDetect.MeasureFieldGaps` asks the one question a pan answers differently. Split every
+frame into its two fields and measure each field against the field before it: in interlaced
+video every one of those gaps is half a frame of time and they all come out the same size,
+while in progressive video the two fields of a frame are the *same* instant - they differ only
+by the one line of vertical offset - and the next pair straddles a frame boundary carrying all
+of the motion, so the gaps alternate small, large, small, large. Combing is deliberately not
+what is measured; that is the point, since nothing about fine detail changes when the two
+fields turn out to have been shot at the same moment.
+
+The numbers, all measured rather than picked: genuinely interlaced 1.00-1.02 at 720x480, 1080i
+and 192x144 alike, a tape whose first 25 seconds are a still caption 1.03, 3:2 pulldown 1.02, a
+file weaved one way for half its length and the other way for the rest 1.27-1.88, and a genuine
+source measured at the *wrong* parity 2.41. Progressive sources that idet calls combed sit at
+6.9 and up. The threshold is 4, near the midpoint of what is left, and it leans towards keeping
+whatever the frame counts decided because the two errors are not symmetric - overturning a real
+tape leaves the combing in, where letting a false positive through only softens a progressive
+file.
+
+Three things it must keep doing. It is asked **only** where the counts already said interlaced,
+and it can only ever overturn that, so a file it cannot measure keeps the count-based answer.
+It is given **the parity idet just reported**, because `separatefields` hands over the fields in
+the order the frame claims and the wrong one pairs each field with the neighbour on the wrong
+side - that is where the 2.41 comes from, and it is why the threshold sits above it. And it
+gives up rather than guessing when there is no motion to measure (`MinFieldMotion`): a still
+sample is one zero divided by another, which is exactly the quiet tape the volume bar exists
+for. The pass is narrowed to 256 pixels wide first, horizontally only, so every line the fields
+are made of survives untouched - it is both cheaper and cleaner that way, since averaging across
+the width takes horizontal noise out of the difference.
+
 **QTGMC runs in VapourSynth, so ffmpeg cannot call it.** `Qtgmc` writes a `.vpy` and the
 command becomes `vspipe … | ffmpeg …`, with the pipe added as the *last* `-i` so that every
 input already on the command line keeps the number the stream maps were built against; only
