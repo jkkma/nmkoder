@@ -112,6 +112,9 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
             ConfigParser.RestoreIfSaved(EncScaleBoxW);
             ConfigParser.RestoreIfSaved(EncScaleBoxH);
+            ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
+            ConfigParser.RestoreIfSaved(EncDeintPresetBox);
+            ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
             ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(EncAudChannelsBox);
             ConfigParser.RestoreIfSaved(EncCustomArgsIn);
@@ -139,6 +142,9 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncVidFpsBox);
                 ConfigParser.SaveGuiElement(EncScaleBoxW);
                 ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveComboxIndex(EncDeintModeBox);
+                ConfigParser.SaveGuiElement(EncDeintPresetBox);
+                ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
                 ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(EncAudChannelsBox);
                 ConfigParser.SaveGuiElement(EncCustomArgsIn);
@@ -151,6 +157,21 @@ namespace Nmkoder.Views
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             EncCropConfBtn.IsVisible = EncCropModeBox.GetText().ToLower().Contains("manual");
+        }
+
+        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private void EncDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private void EncDeintRate_Changed(object sender, RoutedEventArgs e) => DeinterlaceSetting_Changed();
+
+        /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
+        /// whenever any part of the setting moves - not only on the dropdown itself. </summary>
+        private void DeinterlaceSetting_Changed()
+        {
+            if (!_initialized)
+                return;
+
+            DeinterlaceUi.RefreshInfo();
+            SaveQuickConvertSettings();
         }
 
         private async void EncCropConf_Click(object sender, RoutedEventArgs e)
@@ -172,9 +193,22 @@ namespace Nmkoder.Views
             UpdateTrimBtnText();
         }
 
+        /// <summary> Drops the configured trim, so the whole video is encoded again. The dialog cannot
+        /// say this: dismissing it keeps whatever was configured, and confirming it always writes a
+        /// range, so a trim picked once could not be taken back. </summary>
+        private void EncTrimClear_Click(object sender, RoutedEventArgs e)
+        {
+            QuickConvertUi.CurrentTrim = null;
+            UpdateTrimBtnText();
+        }
+
+        /// <summary> The Trim button doubles as the readout of what is configured. A range is wider
+        /// than the column, so the end of one is only ever read off the tooltip. </summary>
         public void UpdateTrimBtnText()
         {
             EncTrimConfBtn.Content = QuickConvertUi.CurrentTrim == null ? "Configure…" : QuickConvertUi.CurrentTrim.ToString();
+            ToolTip.SetTip(EncTrimConfBtn, QuickConvertUi.CurrentTrim?.ToString());
+            EncTrimClearBtn.IsVisible = QuickConvertUi.CurrentTrim != null; // Nothing set is nothing to remove
         }
 
         private async void EncAudConfigure_Click(object sender, RoutedEventArgs e)

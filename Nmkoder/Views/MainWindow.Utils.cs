@@ -1,6 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.UI;
@@ -18,23 +20,70 @@ namespace Nmkoder.Views
             return _currentUtilTask;
         }
 
-        private void SelectReadBitrates(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilReadBitrates);
-        private void SelectConcat(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilConcat);
-        private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.PlotBitrate);
-        private void SelectOcr(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilOcr);
+        private void SelectReadBitrates(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilReadBitrates);
+        private void SelectConcat(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilConcat);
+        private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.PlotBitrate);
+        private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
+        private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
+
+        private async void UtilsDeinterlaceConf_Click(object sender, RoutedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilDeinterlace);
+
+            // No file check: unlike Cut or Metrics, nothing here is measured against the loaded file -
+            // the setting is the mode and the preset, which are just as configurable with an empty
+            // list. The dialog says as much where the source line would otherwise be.
+            await DeinterlaceWindow.ShowAsync();
+            UpdateDeinterlaceBtnText();
+        }
+
+        /// <summary> The Deinterlace utility's button doubles as the readout of what is configured, as
+        /// the Cut utility's does. </summary>
+        public void UpdateDeinterlaceBtnText()
+        {
+            UtilsDeinterlaceConfBtn.Content = UtilDeinterlace.DescribeSettings();
+        }
 
         private async void SelectGetMetrics(object sender, TappedEventArgs e)
         {
+            if (TapWasTheCardsButton(e))
+                return;
+
             SelectUtil(RunTask.TaskType.UtilGetMetrics);
             await ShowMetricsConfig();
         }
 
-        private void SelectColorData(object sender, TappedEventArgs e) => SelectUtil(RunTask.TaskType.UtilColorData);
+        private void SelectColorData(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilColorData);
+
+        /// <summary> Selects the utility a card stands for, when the card itself was tapped. </summary>
+        private void SelectUtilCard(TappedEventArgs e, RunTask.TaskType task)
+        {
+            if (TapWasTheCardsButton(e))
+                return;
+
+            SelectUtil(task);
+        }
+
+        /// <summary>
+        /// Whether a card's Tapped came from the Configure button sitting inside it. Avalonia
+        /// recognises the tap gesture from the pointer release whether or not the button handled it,
+        /// so a click on Configure raises the button's Click and then the card's Tapped, and both
+        /// handlers used to do the same work. On the two cards whose Configure opens a dialog that
+        /// meant two dialogs on top of each other: the user filled in the one in front, dismissed
+        /// the one behind, and the dismissal - being the last to return - wrote its own untouched
+        /// value over what they had just configured. The button selects the card's utility itself,
+        /// so there is nothing here the click has not already done.
+        /// </summary>
+        private static bool TapWasTheCardsButton(TappedEventArgs e)
+        {
+            return (e.Source as Visual)?.FindAncestorOfType<Button>(includeSelf: true) != null;
+        }
 
         private void SelectUtil(RunTask.TaskType task)
         {
             _currentUtilTask = task;
             UpdatePanels();
+            UpdateRunButtonState(); // Which utility is picked is what Run reads, and what it now says
         }
 
         private async void UtilsMetricsConf_Click(object sender, RoutedEventArgs e)
@@ -56,6 +105,9 @@ namespace Nmkoder.Views
 
         private async void SelectCut(object sender, TappedEventArgs e)
         {
+            if (TapWasTheCardsButton(e))
+                return;
+
             SelectUtil(RunTask.TaskType.UtilCut);
 
             if (UtilCut.Cut == null) // Nothing to run yet, so go straight to picking the section
@@ -111,6 +163,7 @@ namespace Nmkoder.Views
                 { UtilsConcatPanel, RunTask.TaskType.UtilConcat },
                 { UtilsBitratePlotPanel, RunTask.TaskType.PlotBitrate },
                 { UtilsOcrPanel, RunTask.TaskType.UtilOcr },
+                { UtilsDeinterlacePanel, RunTask.TaskType.UtilDeinterlace },
             };
 
             foreach (var pair in panels)

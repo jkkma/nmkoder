@@ -26,10 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rid: win-x64,   os: windows-latest, archive: zip }
-          - { rid: linux-x64, os: ubuntu-latest,  archive: tar }
-          - { rid: osx-x64,   os: macos-latest,   archive: tar }
-          - { rid: osx-arm64, os: macos-latest,   archive: tar }
+          # Windows builds the Windows-flavoured framework, which is the one carrying the Windows
+          # App SDK and therefore real desktop notifications. It only exists on a Windows host, so
+          # every other RID stays on plain net10.0 - see the csproj for why.
+          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0 }
+          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0 }
+          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0 }
+          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0 }
 
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +61,7 @@ jobs:
           # Trimming stays off: Avalonia resolves XAML types by reflection at runtime.
           dotnet publish Nmkoder/Nmkoder.csproj \
             -c Release \
+            -f ${{ matrix.tfm }} \
             -r ${{ matrix.rid }} \
             --self-contained \
             -p:PublishSingleFile=true \
@@ -66,6 +70,31 @@ jobs:
             -p:DebugType=none \
             -p:Version=${{ steps.ver.outputs.version }} \
             -o publish/Nmkoder
+
+      - name: Verify the data files survived publish
+        shell: bash
+        run: |
+          # BinFiles/** has to land as loose files under bin/, because that is where the app reads
+          # them back from. The Windows publish dropped them silently for three releases - the only
+          # symptom is an empty argument grid on the AV1AN tab - so a build missing them fails here
+          # instead of shipping.
+          missing=0
+          for f in bin/iso639.csv \
+                   bin/av1an/encoderArgs/AomAv1.json \
+                   bin/av1an/encoderArgs/SvtAv1.json \
+                   bin/av1an/encoderArgs/Vpx.json \
+                   bin/av1an/encoderArgs/X264.json \
+                   bin/av1an/encoderArgs/X265.json; do
+            if [ ! -s "publish/Nmkoder/$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" != "0" ]; then
+            echo "::error::Data files from BinFiles are missing from the ${{ matrix.rid }} publish output"
+            exit 1
+          fi
+          echo "All BinFiles data present in the ${{ matrix.rid }} publish output."
 
       - name: Bundle external tools
         shell: bash
@@ -83,6 +112,77 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f bundle.log
+
+      - name: Verify the QTGMC toolchain actually loads
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          # Presence is not the test. eedi3m shipped in 2.8.3 and 2.8.4 as a perfectly valid,
+          # correctly named, correctly exporting DLL that VapourSynth then refused to load, so
+          # every QTGMC deinterlace on those builds quietly fell back to bwdif. Autoload failures
+          # are silent by design, which is why this asks the bundled VapourSynth to build a real
+          # QTGMC graph and render a frame of it - the same thing Nmkoder.Media.Qtgmc does per
+          # session - and loads each plugin by hand when that fails, because LoadPlugin reports the
+          # reason autoload swallows.
+          #
+          # And one preset is not the test either. havsfunc turns QTGMC's noise processing on for
+          # Placebo and Very Slow and no other preset, which pulls in a denoiser plugin the rest of
+          # them never touch - so a check that renders only a fast preset passes on a bundle that
+          # has no fft3dfilter in it. That is exactly what 2.8.6 shipped. Every preset whose plugin
+          # set differs gets rendered here; the clip is 160x120 and four frames, so the slow ones
+          # cost seconds rather than the hours their names suggest.
+          VS="publish/Nmkoder/bin/av1an/vsynth"
+
+          if [ ! -f "$VS/python.exe" ]; then
+            echo "::error::VapourSynth was not bundled, so QTGMC cannot work in this build"
+            exit 1
+          fi
+
+          cat > "$VS/qtgmc-check.py" <<'CHECK'
+          import glob, os, sys
+          import vapoursynth as vs
+
+          core = vs.core
+          here = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+          # Keep in step with Nmkoder.Media.Qtgmc: the base set, plus the denoiser for the two
+          # presets that process noise.
+          BASE = ['mv', 'rgvs', 'fmtc', 'focus2', 'misc', 'znedi3', 'eedi3m']
+          CASES = [('Very Fast', BASE), ('Very Slow', BASE + ['fft3dfilter'])]
+
+          print('autoloaded namespaces:', ', '.join(sorted(p.namespace for p in core.plugins())))
+          missing = sorted({n for _, need in CASES for n in need if not hasattr(core, n)})
+
+          if missing:
+              print('MISSING NAMESPACES:', ', '.join(missing))
+              print('loading every plugin by hand, for the reason autoload does not give:')
+              for dll in sorted(glob.glob(os.path.join(here, 'vs-plugins', '*.dll'))):
+                  try:
+                      core.std.LoadPlugin(path=dll)
+                      print('   loaded  ', os.path.basename(dll))
+                  except Exception as e:
+                      print('   FAILED  ', os.path.basename(dll), '->', e)
+              sys.exit(1)
+
+          import havsfunc
+
+          for preset, _ in CASES:
+              clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=4,
+                                        fpsnum=30000, fpsden=1001, color=[128, 128, 128])
+              clip = core.std.SetFieldBased(clip, 2)
+              clip = havsfunc.QTGMC(clip, Preset=preset, TFF=True, FPSDivisor=1, opencl=False)
+              clip.get_frame(0)
+              print(f'QTGMC rendered a frame at {preset}.')
+
+          print('QTGMC works at every preset shape - the toolchain is complete.')
+          CHECK
+
+          ( cd "$VS" && ./python.exe qtgmc-check.py ) || {
+            echo "::error::The bundled QTGMC toolchain does not work - see the plugin list above"
+            rm -f "$VS/qtgmc-check.py"
+            exit 1
+          }
+          rm -f "$VS/qtgmc-check.py"
 
       - name: Stage docs
         shell: bash
@@ -156,9 +256,15 @@ jobs:
 
             - Windows carries the most: ffmpeg/ffprobe, MKVToolNix, and what is available
               of the AV1AN tab's toolchain in `bin/av1an/` - VapourSynth with an embedded
-              Python and its source plugins in `vsynth/`, encoders in `enc/`.
+              Python and its source plugins in `vsynth/`, encoders in `enc/`. The QTGMC
+              deinterlacer's plugins and scripts go in there too, which is what lets
+              Quick Convert deinterlace a tape capture with it.
             - Linux includes ffmpeg/ffprobe; install VapourSynth and the encoders from
-              your package manager.
+              your package manager. QTGMC additionally wants the mvtools, znedi3, eedi3m,
+              fmtconv, rgvs, misc and focus2 plugins plus the havsfunc, vsutil and mvsfunc
+              scripts - and fft3dfilter on top of those for the Placebo and Very Slow presets,
+              the only two that denoise; without them Nmkoder deinterlaces with ffmpeg's bwdif
+              and says so.
             - macOS ships none of them; install with
               `brew install ffmpeg mkvtoolnix av1an aom libvpx x265`.
 

@@ -60,6 +60,11 @@
     <!-- The log is the stated exception: a terminal, so it keeps white on black. -->
     <SolidColorBrush x:Key="NmkoderLogBackground" Color="#000000" />
     <SolidColorBrush x:Key="NmkoderLogForeground" Color="#FFFFFF" />
+    <!-- Severity on the log's black. NmkoderDanger (#DA373C) is tuned for the window's grey and
+         goes muddy here, so the log carries its own brighter red. -->
+    <SolidColorBrush x:Key="NmkoderLogError" Color="#FF6B6E" />
+    <SolidColorBrush x:Key="NmkoderLogWarning" Color="#E8B84B" />
+    <SolidColorBrush x:Key="NmkoderLogDim" Color="#8A9199" />
 
     <CornerRadius x:Key="ControlCornerRadius">4</CornerRadius>
     <CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
@@ -439,6 +444,18 @@
       <Setter Property="Padding" Value="10" />
     </Style>
 
+    <!-- The Utilities cards, which wrap into columns. The width is what decides how many fit -
+         three at the default window size, two at the minimum. It is deliberately a little under
+         a third of the available width rather than exactly it: dragging the log panel taller
+         shrinks the tab, and a card sized to the last pixel would drop to two columns the moment
+         a scrollbar appeared. The minimum height keeps a one-line card from sitting noticeably
+         shorter than the ones beside it. -->
+    <Style Selector="Border.card.util">
+      <Setter Property="Width" Value="420" />
+      <Setter Property="MinHeight" Value="84" />
+      <Setter Property="Margin" Value="0,0,10,10" />
+    </Style>
+
     <Style Selector="Border.card:pointerover">
       <Setter Property="Background" Value="{DynamicResource NmkoderHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource NmkoderBorder}" />
@@ -488,21 +505,59 @@
     </Style>
 
     <!-- The log is the exception the rest of the palette makes room for: a terminal, so it
-         keeps the hard white-on-black contrast that makes a wall of output scannable. -->
-    <Style Selector="TextBox.log">
+         keeps the hard white-on-black contrast that makes a wall of output scannable. Severity
+         is the one thing that departs from plain white, and only for the lines that earn it. -->
+    <Style Selector="ListBox.log">
       <Setter Property="Background" Value="{DynamicResource NmkoderLogBackground}" />
       <Setter Property="Foreground" Value="{DynamicResource NmkoderLogForeground}" />
-      <Setter Property="CaretBrush" Value="{DynamicResource NmkoderLogForeground}" />
       <Setter Property="BorderBrush" Value="{DynamicResource NmkoderBorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="2" />
     </Style>
 
-    <Style Selector="TextBox.log:pointerover /template/ Border#PART_BorderElement">
-      <Setter Property="Background" Value="{DynamicResource NmkoderLogBackground}" />
+    <!-- Fluent gives a list item 34px of height, which would show a third of the lines the old
+         text box did in the same space. A log line is a line of text and nothing else. -->
+    <Style Selector="ListBox.log ListBoxItem">
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="2" />
     </Style>
 
-    <Style Selector="TextBox.log:focus /template/ Border#PART_BorderElement">
-      <Setter Property="Background" Value="{DynamicResource NmkoderLogBackground}" />
+    <Style Selector="ListBox.log ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#2A2A2A" />
+    </Style>
+
+    <Style Selector="ListBox.log ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#181818" />
+    </Style>
+
+    <Style Selector="SelectableTextBlock.logline">
+      <Setter Property="FontFamily" Value="Consolas,Menlo,DejaVu Sans Mono,monospace" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderLogForeground}" />
+      <Setter Property="SelectionBrush" Value="{DynamicResource NmkoderAccentSoft}" />
+    </Style>
+
+    <Style Selector="SelectableTextBlock.logline.err">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderLogError}" />
+    </Style>
+
+    <Style Selector="SelectableTextBlock.logline.warn">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderLogWarning}" />
+    </Style>
+
+    <Style Selector="SelectableTextBlock.logline.dim">
+      <Setter Property="Foreground" Value="{DynamicResource NmkoderLogDim}" />
+    </Style>
+
+    <!-- Small enough to share the log's header row without eating its 60px minimum height -->
+    <Style Selector="Button.logbtn">
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="9,0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="MinWidth" Value="0" />
     </Style>
 
     <!-- Read-only monospace panes (track details, command preview) -->

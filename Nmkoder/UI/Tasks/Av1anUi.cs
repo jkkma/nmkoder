@@ -24,6 +24,15 @@ namespace Nmkoder.UI.Tasks
 
         public static CropConfig CurrentCrop;
 
+        /// <summary> The section to encode, or null for the whole video. Picked in the cut dialog. </summary>
+        public static TrimSettings CurrentTrim;
+
+        /// <summary> The deinterlacing settled for the encode being built, resolved once in
+        /// <see cref="Av1an.Run"/>. Either an ffmpeg filter that goes into av1an's '-f' chain, or -
+        /// where it is QTGMC - a pass that runs before av1an and replaces its input, since a
+        /// VapourSynth script cannot sit inside av1an's per-chunk filtering. </summary>
+        public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
+
         public static void Init()
         {
             // Load video codecs
@@ -58,7 +67,13 @@ namespace Nmkoder.UI.Tasks
                     Form.Av1anOutputPathBox.Text = UiData.GetDefaultOutPath(path);
 
                 if (!RunTask.runningBatch) // Don't load new values into UI in batch mode since we apply the same for all files
+                {
                     InitAudioChannels(TrackList.current?.File.AudioStreams.FirstOrDefault()?.Channels);
+                    // The resize targets are named for what they produce for *this* file, so the list is
+                    // rewritten whenever the file behind it changes - but not while a batch is stepping
+                    // through files of its own accord, which is not the user loading one.
+                    RefreshResizeBox();
+                }
 
                 ValidateContainer();
             }
@@ -317,37 +332,164 @@ namespace Nmkoder.UI.Tasks
 
         #region Get Args
 
-        public static async Task<string> GetVideoFilterArgs(CodecArgs codecArgs = null)
+        /// <summary>
+        /// Works out what this encode's frames will be: the source, less whatever crop is set, then
+        /// the resize - or the anamorphic de-squeeze that runs in its place, or the mod-2 pad that
+        /// runs when neither does.
+        /// <para/>
+        /// Split off from <see cref="GetVideoFilterArgs"/> and run ahead of the encoder's own
+        /// arguments, because those need the size: the tile count belongs to the frame being encoded
+        /// rather than to the file it came from. The crop is resolved here rather than there because
+        /// an automatic one has to be measured by sampling the video, which is the whole reason this
+        /// is the async half of the pair - and the reason its answer is carried rather than asked for
+        /// twice. See <see cref="Av1anFrame"/>.
+        /// </summary>
+        public static async Task<Av1anFrame> ResolveFrameAsync()
+        {
+            Av1anFrame frame = new Av1anFrame();
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return frame;
+
+            frame.Source = frame.ScaleInput = frame.Encoded = vs.Resolution;
+            frame.Sar = vs.Sar;
+
+            Fraction fps = GetUiFps();
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
+
+            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Framerate Resampling
+                frame.FpsFilter = $"fps=fps={fps}";
+
+            // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
+            // settled here: this runs per file, after the crop above the scale filter has been decided,
+            // which is what lets one setting mean the right thing for a batch of differently shaped files
+            // and for the frame a crop leaves behind rather than the one the file started with.
+            frame.Resizing = CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled
+                && !CurrentResize.Compute(vs.Resolution, vs.Sar).IsEmpty;
+
+            // With no resize configured, an anamorphic source still needs its shape restored here:
+            // av1an hands its encoders bare frames and muxes without an aspect flag, so a SAR left
+            // to "carry through" arrives nowhere, and a 16:9 DVD would come out playing as a
+            // squashed 3:2. De-squeezing to the display size is the only way the shape survives
+            // this pipeline - which is what the resize dialog's anamorphic switch says in as many
+            // words. A custom filter that sets a SAR or DAR itself is the user taking this over,
+            // and is left in charge.
+            frame.Desqueezing = !frame.Resizing && AspectRatio.IsAnamorphic(vs.Sar)
+                && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
+
+            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
+            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
+            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
+            // was measured against the unpadded frame.
+            frame.Padding = !frame.Resizing && !frame.Desqueezing
+                && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0));
+
+            string cropMode = Form.Av1anCropBox.GetText().ToLower();
+
+            if (cropMode.Contains("manual") && CurrentCrop != null) // Manual Crop
+            {
+                frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                frame.ScaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+            }
+
+            if (cropMode.Contains("auto")) // Autocrop - the sampling run this method exists to do only once
+            {
+                string autoCrop = await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false);
+
+                if (autoCrop.IsNotEmpty())
+                {
+                    frame.CropFilters.Add(autoCrop);
+                    frame.ScaleInput = FfmpegUtils.ParseCropSize(autoCrop, frame.ScaleInput);
+                }
+            }
+
+            frame.Encoded = frame.ScaleInput;
+
+            if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar))
+                frame.Encoded = OrKeep(CurrentResize.Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
+            else if (frame.Desqueezing)
+                frame.Encoded = OrKeep(ResizeConfig.DesqueezeOnly().Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
+            else if (frame.Padding && frame.CropFilters.Count < 1)
+                // The pad runs ahead of the crop, so it only decides the frame's size when there is no
+                // crop behind it to take a rectangle of its own out of the padded picture.
+                frame.Encoded = new Size(RoundUpToEven(frame.ScaleInput.Width), RoundUpToEven(frame.ScaleInput.Height));
+
+            return frame;
+        }
+
+        /// <summary> <paramref name="computed"/>, or the frame it was computed from where there was nothing to compute. </summary>
+        private static Size OrKeep(Size computed, Size fallback)
+        {
+            return computed.IsEmpty ? fallback : computed;
+        }
+
+        private static int RoundUpToEven(int value)
+        {
+            return value % 2 == 0 ? value : value + 1;
+        }
+
+        /// <summary>
+        /// The '-vf' argument for the encode, built from the geometry <see cref="ResolveFrameAsync"/>
+        /// has already settled. Nothing here has to be measured, which is what lets it be synchronous.
+        /// </summary>
+        public static string GetVideoFilterArgs(Av1anFrame frame, CodecArgs codecArgs = null)
         {
             List<string> filters = new List<string>();
+
+            if (frame == null || frame.Source.IsEmpty || TrackList.current.File.VideoStreams.Count < 1)
+                return "";
+
+            // First in the chain, because the crop and the resize below it are both measured against a
+            // whole frame rather than against a pair of fields.
+            string deinterlace = CurrentDeinterlace.GetFfmpegFilter();
+
+            if (deinterlace.IsNotEmpty())
+                filters.Add(deinterlace);
 
             if (codecArgs != null && codecArgs.ForcedFilters != null)
                 filters.AddRange(codecArgs.ForcedFilters);
 
-            if (TrackList.current.File.VideoStreams.Count < 1)
-                return "";
+            if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
+                filters.Add(frame.FpsFilter);
 
-            VideoStream vs = TrackList.current.File.VideoStreams.First();
-            Fraction fps = GetUiFps();
-
-            if (fps.GetFloat() > 0.01f && vs.Rate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
-                filters.Add($"fps=fps={fps}");
-
-            if ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0)) // Check Filter: Pad for mod2
+            if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
 
-            string scaleW = (Form.Av1anScaleBoxW.Text ?? "").Trim().ToLower();
-            string scaleH = (Form.Av1anScaleBoxH.Text ?? "").Trim().ToLower();
-            string cropMode = Form.Av1anCropBox.GetText().ToLower();
+            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
 
-            if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
-                filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+            if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, frame.Sar)) // Check Filter: Scale
+            {
+                filters.Add(CurrentResize.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                LogResize(frame);
+            }
+            else if (frame.Desqueezing) // Check Filter: De-squeeze, when no resize will run
+            {
+                ResizeConfig desqueeze = ResizeConfig.DesqueezeOnly();
 
-            if (cropMode.Contains("auto")) // Check Filter: Autocrop
-                filters.Add(await FfmpegUtils.GetCurrentAutoCrop(TrackList.current.File.ImportPath, false));
+                if (!desqueeze.Compute(frame.ScaleInput, frame.Sar).IsEmpty)
+                {
+                    filters.Add(desqueeze.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                    Logger.Log($"De-squeezing {frame.ScaleInput.Width}x{frame.ScaleInput.Height} ({frame.Sar.Width}:{frame.Sar.Height} pixels) to " +
+                        $"{frame.Encoded.Width}x{frame.Encoded.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
+                        $"has to be baked into the pixels to survive. Configure a resize to control the size.");
+                }
+            }
 
-            if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
-                filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
+            // Said here as well as on the tab, because this is where the file gets written. With the
+            // correction off nothing in the chain restores the display size, and there is nowhere else
+            // for the shape to live: av1an hands its encoders bare frames and muxes without an aspect
+            // flag. Worth spelling out rather than silently obeying, since the commonest way to reach it
+            // is a target the source already meets, where no filter runs at all and the tab would
+            // otherwise have said the frames were being left alone.
+            if (frame.Resizing && !CurrentResize.CorrectAspect && AspectRatio.IsAnamorphic(frame.Sar))
+            {
+                Size display = AspectRatio.GetDisplaySize(frame.Source, frame.Sar);
+                Logger.Log($"Warning: this resize has anamorphic correction switched off, so the {frame.Sar.Width}:{frame.Sar.Height} " +
+                    $"pixel shape is not baked in - and av1an's encoders cannot record it. The output will be " +
+                    $"{frame.Encoded.Width}x{frame.Encoded.Height} playing as {AspectRatio.Describe(frame.Encoded.Width, frame.Encoded.Height)} " +
+                    $"rather than {AspectRatio.Describe(display.Width, display.Height)}. Switch it back on in the resize dialog to keep the shape.");
+            }
 
             filters.AddRange(GetCustomFilters());
 
@@ -363,6 +505,293 @@ namespace Nmkoder.UI.Tasks
         {
             return Form.Av1anFilterRows.Select(x => x.Filter).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
         }
+
+        /// <summary> Said out loud at encode time, because with an automatic crop this is the first moment
+        /// the numbers exist at all, and in a batch it is different for every file. </summary>
+        private static void LogResize(Av1anFrame frame)
+        {
+            Size result = frame.Encoded;
+            string source = AspectRatio.IsAnamorphic(frame.Sar) && CurrentResize.CorrectAspect
+                ? $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height} at {frame.Sar.Width}:{frame.Sar.Height} pixels"
+                : $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height}";
+
+            Logger.Log($"Resizing {source} to {result.Width}x{result.Height} ({AspectRatio.Describe(result.Width, result.Height)}).");
+
+            // Not clamped to, only mentioned: silently growing a frame to something the user did not ask
+            // for is worse than an encoder saying no. SVT-AV1 refuses anything under 64 in either
+            // direction, x265 anything under 16; the other encoders take whatever they are given.
+            if (result.Width < 64 || result.Height < 64)
+                Logger.Log($"Warning: {result.Width}x{result.Height} is very small - SVT-AV1 will not encode a frame under 64 pixels on either side.");
+        }
+
+        #endregion
+
+        #region Resize
+
+        /// <summary> The resize to apply, held as intent rather than as pixels. Never null. </summary>
+        public static ResizeConfig CurrentResize = new ResizeConfig();
+
+        /// <summary> Set while the dropdown is being refilled, because doing that raises the very
+        /// SelectionChanged that would then read the new selection back over what is being shown. </summary>
+        private static bool _loadingResizeBox;
+
+        /// <summary>
+        /// The frame the resize will be measured against, as far as this can be known without running
+        /// anything: the source, less a manual crop. An automatic crop is measured by sampling the video
+        /// with ffmpeg, which is far too slow to do while filling a dropdown, so its bars are still in
+        /// this number - and the readout says so rather than showing a size that will not be the one.
+        /// </summary>
+        public static Size GetResizeSourceSize()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null)
+                return Size.Empty;
+
+            if (Form.Av1anCropBox.GetText().ToLower().Contains("manual") && CurrentCrop != null)
+                return new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+
+            return vs.Resolution;
+        }
+
+        public static Size GetResizeSar()
+        {
+            return TrackList.current?.File.VideoStreams.FirstOrDefault()?.Sar ?? Size.Empty;
+        }
+
+        /// <summary>
+        /// Refills the dropdown, whose entries name what each target produces *for the loaded file* -
+        /// "1080p (Full HD) — 1920x804" against a 2.39:1 film - so the list answers the question rather
+        /// than restating it. Called whenever the frame those targets are measured against moves, which
+        /// is a file being loaded or a crop being set, and pointedly not the user picking an entry:
+        /// clearing a dropdown's own items from inside its SelectionChanged throws.
+        /// </summary>
+        public static void RefreshResizeBox()
+        {
+            Size storage = GetResizeSourceSize();
+            Size sar = GetResizeSar();
+
+            try
+            {
+                _loadingResizeBox = true;
+                Form.Av1anResizeBox.SetItems(ResizePresets.All.Select(p => (object)ResizePresets.GetLabel(p, storage, sar)),
+                    ResizePresets.IndexFor(CurrentResize));
+            }
+            finally
+            {
+                // In a finally because this is the guard that keeps a refill from being read back as a
+                // choice - left stuck on, every subsequent pick would be ignored and the dropdown dead.
+                _loadingResizeBox = false;
+            }
+
+            UpdateResizeReadout();
+        }
+
+        /// <summary>
+        /// The parts that change when the selection does: the button beside the box, and the line under
+        /// it. Touches no collection, so it is safe to call from a SelectionChanged.
+        /// <para/>
+        /// Deliberately not skipped during a batch, and neither is <see cref="RefreshResizeBox"/>: the
+        /// caller that has to stand back for one is the per-file loop, and that is where the check lives.
+        /// Anything that moves <see cref="CurrentResize"/> - Reset On New File among them, which the
+        /// Settings tab can fire mid-batch - has to move the control with it, or the tab is left naming a
+        /// resize that is no longer set and the next queue runs unresized underneath it.
+        /// </summary>
+        public static void UpdateResizeReadout()
+        {
+            Form.Av1anResizeConfBtn.IsVisible = ResizePresets.Get(ResizePresets.IndexFor(CurrentResize)).Key == ResizePresets.CustomKey;
+            Form.Av1anResizeInfoLabel.Text = GetResizeInfoText(GetResizeSourceSize(), GetResizeSar());
+        }
+
+        /// <summary>
+        /// Acts on the user picking an entry - and only on the user: refilling the list raises the same
+        /// event, and acting on that would read the freshly selected entry back over what is being shown,
+        /// as well as committing an unrelated save on every file load.
+        /// </summary>
+        public static void ResizePresetSelected(int index)
+        {
+            if (_loadingResizeBox || index < 0)
+                return;
+
+            ResizePreset preset = ResizePresets.Get(index);
+
+            if (preset.Key == ResizePresets.CustomKey)
+            {
+                // Custom names no target of its own, so picking it changes nothing but where the settings
+                // are edited: whatever was selected stays in force and becomes the dialog's starting
+                // point. Building a target here instead would silently apply a 1920x1080 nobody asked
+                // for, and would throw away a resize configured by hand on a trip through the dropdown.
+                CurrentResize = CurrentResize?.Clone() ?? new ResizeConfig();
+
+                if (CurrentResize.Mode == ResizeMode.Disabled)
+                    CurrentResize = preset.Build();
+
+                CurrentResize.PresetKey = ResizePresets.CustomKey;
+            }
+            else
+            {
+                CurrentResize = preset.Build();
+            }
+
+            UpdateResizeReadout();
+            Form.SaveAv1anEncodeSettings();
+        }
+
+        /// <summary> The line under the dropdown: the size, the ratio it works out to, and whichever caveat applies. </summary>
+        private static string GetResizeInfoText(Size storage, Size sar)
+        {
+            if (CurrentResize == null || CurrentResize.Mode == ResizeMode.Disabled)
+            {
+                // The one thing that still runs without a resize: an anamorphic source is de-squeezed,
+                // because the encoders cannot keep its aspect flag - saying "its own resolution" here
+                // would promise dimensions the output will not have.
+                if (!storage.IsEmpty && AspectRatio.IsAnamorphic(sar))
+                {
+                    Size desqueezed = ResizeConfig.DesqueezeOnly().Compute(storage, sar);
+
+                    if (!desqueezed.IsEmpty)
+                        return $"{desqueezed.Width}x{desqueezed.Height} · {AspectRatio.Describe(desqueezed.Width, desqueezed.Height)} · " +
+                            $"de-squeezed from {storage.Width}x{storage.Height}, whose pixels are {sar.Width}:{sar.Height} - " +
+                            "the encoder cannot keep the anamorphic flag";
+                }
+
+                return "The source is encoded at its own resolution.";
+            }
+
+            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count < 1)
+                return "No video track - the resize will be skipped.";
+
+            if (storage.IsEmpty)
+                return $"{CurrentResize.DescribeTarget()} - the size is worked out per file when the encode starts.";
+
+            Size result = CurrentResize.Compute(storage, sar);
+
+            if (result.IsEmpty)
+                return "Nothing configured yet - press Configure… to set a target.";
+
+            string text = $"{result.Width}x{result.Height} · {AspectRatio.Describe(result.Width, result.Height)}";
+            string note = CurrentResize.GetNote(storage, sar);
+
+            if (note.Length > 0)
+                text += $" · {note}";
+
+            if (Form.Av1anCropBox.GetText().ToLower().Contains("auto"))
+                text += " · before autocrop; the final size is measured when the encode starts";
+
+            return text;
+        }
+
+        #endregion
+
+        #region Resize Persistence
+
+        public static void SaveResizeConfig()
+        {
+            Config.Set(Config.Key.Av1anResize, JsonConvert.SerializeObject(CurrentResize));
+        }
+
+        /// <summary>
+        /// Restores the saved resize, or - for a config written before this tab had one - translates
+        /// whatever the two scale text boxes it replaced were holding.
+        /// </summary>
+        public static void LoadResizeConfig()
+        {
+            string json = Config.Get(Config.Key.Av1anResize);
+
+            if (json.IsEmpty())
+            {
+                CurrentResize = MigrateOldScaleBoxes();
+                // Written back straight away rather than left to the next save, so the translation - and
+                // the log line that goes with the cases it cannot translate - happens exactly once.
+                SaveResizeConfig();
+                return;
+            }
+
+            try
+            {
+                CurrentResize = JsonConvert.DeserializeObject<ResizeConfig>(json) ?? new ResizeConfig();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to read the saved resize settings: {e.Message}", true);
+                CurrentResize = new ResizeConfig();
+            }
+        }
+
+        /// <summary>
+        /// The old UI was two free-text boxes fed straight to an ffmpeg scale filter, so a saved value can
+        /// be a number, a percentage, or an expression like "iw/2". The first two have an exact equivalent
+        /// here and are carried over; an expression has none, and rather than approximate it the setting is
+        /// dropped with a line saying where the same thing can still be written by hand.
+        /// </summary>
+        private static ResizeConfig MigrateOldScaleBoxes()
+        {
+            // Asked of the cache rather than of Config.Get, which writes a default for any key it does not
+            // find - so a fresh install would be given two dead scale entries by the act of looking.
+            string w = ReadOldScaleBox("Av1anScaleBoxW");
+            string h = ReadOldScaleBox("Av1anScaleBoxH");
+
+            if (w.IsEmpty() && h.IsEmpty())
+                return new ResizeConfig();
+
+            ResizeConfig migrated = TranslateOldScaleBoxes(w, h);
+
+            if (migrated == null)
+            {
+                Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
+                    $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
+                return new ResizeConfig();
+            }
+
+            // Custom rather than a preset: the old boxes held a size, and no size is one of the targets in
+            // the list. Left keyless it would select "No resizing" while a resize was in force.
+            migrated.PresetKey = ResizePresets.CustomKey;
+            return migrated;
+        }
+
+        /// <summary> The pair of old values as a resize, or null where there is no equivalent. </summary>
+        private static ResizeConfig TranslateOldScaleBoxes(string w, string h)
+        {
+            if (w.EndsWith("%") || h.EndsWith("%"))
+            {
+                // Read as a float and rounded: GetInt strips the dot rather than the fraction, so "12.5%"
+                // came out as 125% - an upscale, off a value that asked to shrink the picture eightfold.
+                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetFloat().RoundToInt();
+                return percent > 0 ? new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent } : null;
+            }
+
+            if (IsPlainNumber(w) && IsPlainNumber(h))
+                return new ResizeConfig { Mode = ResizeMode.Exact, Fill = ResizeFill.Stretch, TargetWidth = w.GetInt(), TargetHeight = h.GetInt() };
+
+            if (IsPlainNumber(h) && IsAutoOrEmpty(w))
+                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
+
+            if (IsPlainNumber(w) && IsAutoOrEmpty(h))
+                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
+
+            return null;
+        }
+
+        private static string ReadOldScaleBox(string key)
+        {
+            return Config.cachedValues.TryGetValue(key, out string value) ? (value ?? "").Trim().ToLower() : "";
+        }
+
+        private static bool IsPlainNumber(string s)
+        {
+            return s.Length > 0 && s.All(char.IsDigit) && s.GetInt() > 0;
+        }
+
+        /// <summary> Blank, or one of the negative values ffmpeg reads as "work this one out from the other" -
+        /// which is exactly what the Width and Height modes do. </summary>
+        private static bool IsAutoOrEmpty(string s)
+        {
+            return s.IsEmpty() || s == "-1" || s == "-2";
+        }
+
+        #endregion
+
+        #region Get Args
 
         public static string GetSplittingMethodArgs()
         {
@@ -742,6 +1171,10 @@ namespace Nmkoder.UI.Tasks
         /// canceled" for success threw away every finished chunk whenever av1an died on its own - a
         /// crashed encoder, a full disk, a parameter it would not take - which is exactly when
         /// resuming is worth the most.
+        /// <para/>
+        /// A run that stopped before av1an wrote anything is the other end of that, and is deleted:
+        /// there is nothing in the folder to carry on from, so keeping it only puts an entry in the
+        /// Resume list offering to continue an encode that never started.
         /// </summary>
         public static async Task HandleTempFolder(string dir, bool succeeded, bool canceledByUser)
         {
@@ -754,18 +1187,30 @@ namespace Nmkoder.UI.Tasks
                 return;
             }
 
+            // av1an refusing the command, or not being there to run it, leaves the folder exactly as
+            // this run created it. Resuming from that repeats every step from the first, so the offer
+            // is worth nothing and the count on the Resume button is worth less than nothing - a batch
+            // of twelve that failed the same way used to leave twelve of these, and take a trimmed
+            // copy of each input with them.
+            if (!HasAnyContent(dir))
+            {
+                Logger.Log($"Nothing was written to '{Path.GetFileName(dir)}', so there is nothing to resume from - removing it.", true);
+                DeleteTempFolder(dir);
+                return;
+            }
+
             // Stopped by a bad setting or an error rather than by the user. Not their decision to make,
             // and they may well want to fix whatever it was and carry on from the chunks already done.
             if (!canceledByUser)
             {
-                Logger.Log($"Keeping the temp folder so this encode can be resumed ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))} in '{Path.GetFileName(dir)}').");
+                Logger.Log(DescribeKeptFolder(dir));
                 return;
             }
 
             // Stopping an encode is not the same as abandoning it, and only the user knows which they
             // meant. The chunks are worth however long they took, so this one is worth asking about.
             string size = FormatUtils.Bytes(IoUtils.GetDirSize(dir, true));
-            int chunks = IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Where(x => x.Length >= 1024).Count();
+            int chunks = CountEncodedChunks(dir);
             string msg = $"This encode has been canceled.\n\nKeep its temporary files so it can be resumed later? " +
                 $"They are {size} and hold {chunks} encoded video chunk{(chunks == 1 ? "" : "s")}.\n\n" +
                 $"Choosing No deletes them, and the encode would have to start over from the beginning.";
@@ -774,22 +1219,108 @@ namespace Nmkoder.UI.Tasks
 
             if (result == UiUtils.DialogResult.Yes)
             {
-                Logger.Log($"Keeping the temp folder so this encode can be resumed ({size} in '{Path.GetFileName(dir)}').");
+                Logger.Log(DescribeKeptFolder(dir));
                 return;
             }
 
             DeleteTempFolder(dir);
         }
 
-        /// <summary> Removes a temp folder along with the resume arguments saved beside it. </summary>
+        /// <summary>
+        /// Whether av1an put anything in the folder at all. Directories count as much as files: an
+        /// empty 'encode' is av1an having got as far as laying out its temp folder, and everything
+        /// from that point on - the scene detection, the audio - is work this cannot see but a resume
+        /// would still skip. Only the case where av1an wrote literally nothing is called nothing.
+        /// </summary>
+        private static bool HasAnyContent(string dir)
+        {
+            try
+            {
+                return Directory.EnumerateFileSystemEntries(dir, "*", SearchOption.AllDirectories).Any();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not inspect the temp folder '{Path.GetFileName(dir)}': {e.Message}", true);
+                return true; // Not being able to tell is not a reason to delete an encode's chunks
+            }
+        }
+
+        /// <summary> Encoded video chunks in a temp folder. Sub-kilobyte files in there are av1an's
+        /// own bookkeeping rather than video. </summary>
+        private static int CountEncodedChunks(string dir)
+        {
+            return IoUtils.GetFileInfosSorted(Path.Combine(dir, "encode"), false, "*.*").Count(x => x.Length >= 1024);
+        }
+
+        /// <summary>
+        /// What a kept folder is actually worth, since "so this encode can be resumed" over a folder
+        /// with no finished chunks promises more than resuming it delivers.
+        /// </summary>
+        private static string DescribeKeptFolder(string dir)
+        {
+            string size = FormatUtils.Bytes(IoUtils.GetDirSize(dir, true));
+            int chunks = CountEncodedChunks(dir);
+
+            if (chunks < 1)
+                return $"Keeping the temp folder '{Path.GetFileName(dir)}' ({size}) - no video chunks were finished, " +
+                    $"so resuming it would repeat most of the work.";
+
+            return $"Keeping the temp folder so this encode can be resumed ({chunks} chunk{(chunks == 1 ? "" : "s")}, {size} in '{Path.GetFileName(dir)}').";
+        }
+
+        /// <summary> Removes a temp folder along with the resume arguments, and any prepared input,
+        /// saved beside it. </summary>
         public static void DeleteTempFolder(string dir)
         {
-            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            if (string.IsNullOrWhiteSpace(dir))
                 return;
 
-            Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
-            IoUtils.TryDeleteIfExists(dir);
+            if (Directory.Exists(dir))
+            {
+                Logger.Log($"Deleting temp folder '{Path.GetFileName(dir)}' ({FormatUtils.Bytes(IoUtils.GetDirSize(dir, true))}).", true);
+                IoUtils.TryDeleteIfExists(dir);
+            }
+
             IoUtils.DeleteIfExists(dir + ".json");
+
+            foreach (string path in GetPreparedInputs(dir))
+                IoUtils.DeleteIfExists(path);
+        }
+
+        /// <summary>
+        /// Where a run keeps the copy of its input that av1an is actually given - a trimmed one, a
+        /// deinterlaced one, or a trimmed one that was then deinterlaced: beside the temp folder, the
+        /// way the resume arguments are, rather than inside it. av1an empties its own temp folder at
+        /// startup whenever it is not resuming, so the one file its command has to be able to read is
+        /// the one file that cannot live in there.
+        /// </summary>
+        public static string GetTrimmedInputPath(string tempDir, string ext)
+        {
+            return $"{tempDir}.trim{ext}";
+        }
+
+        /// <summary> Where the QTGMC pass writes the progressive file av1an is given. Always Matroska:
+        /// it holds one frame per field at any rate, and every track the pass copies over. </summary>
+        public static string GetDeinterlacedInputPath(string tempDir)
+        {
+            return $"{tempDir}.deint.mkv";
+        }
+
+        /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
+        /// Both suffixes, because a trimmed *and* deinterlaced run leaves one of each. </summary>
+        private static IEnumerable<string> GetPreparedInputs(string tempDir)
+        {
+            try
+            {
+                string name = Path.GetFileName(tempDir);
+                return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
+                    .Where(f => Path.GetFileName(f).StartsWith($"{name}.trim.") || Path.GetFileName(f).StartsWith($"{name}.deint.")).ToList();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not look for a prepared input beside '{Path.GetFileName(tempDir)}': {e.Message}", true);
+                return Enumerable.Empty<string>();
+            }
         }
 
         /// <summary> The selected quality mode. The dropdown is filled from the enum, so index is value. </summary>

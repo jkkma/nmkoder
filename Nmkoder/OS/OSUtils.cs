@@ -327,17 +327,24 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
-        /// OS-level attention ping for when the in-window toast cannot be seen. Linux and macOS
-        /// have one-shot desktop notification commands; Windows has no equivalent for unpackaged
-        /// apps (toasts want an AppUserModelID and a Start Menu shortcut), so the taskbar button
-        /// is flashed instead, which is just as visible and needs nothing installed.
+        /// The end-of-run notification, and the only one there is - it fires when the window is
+        /// buried or minimized, which is the one case an in-app toast could never have covered.
+        /// Each platform has a one-shot desktop notification: Windows through the Windows
+        /// App SDK, macOS through osascript, everything else through notify-send.
+        ///
+        /// Windows keeps the taskbar flash as its fallback. It used to be all Windows got, on the
+        /// grounds that an unpackaged app could not raise a notification at all; that stopped being
+        /// true, but the flash is still the right answer when the App SDK cannot come up.
         /// </summary>
         public static void ShowSystemNotification(string title, string text)
         {
             try
             {
                 if (OperatingSystem.IsWindows())
-                    FlashTaskbarIcon();
+                {
+                    if (!WindowsToast.TryShow(title, text))
+                        FlashTaskbarIcon();
+                }
                 else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                     StartDetached("osascript", "-e", $"display notification \"{EscapeAppleScript(text)}\" with title \"{EscapeAppleScript(title)}\"");
                 else
@@ -345,7 +352,9 @@ namespace Nmkoder.OS
             }
             catch (Exception e)
             {
-                Logger.Log($"System notification failed: {e.Message}", true); // e.g. no notify-send installed - the in-window toast still showed
+                // e.g. no notify-send installed. Nothing else announces the run now, so the log line
+                // is the whole record of it - the run's own result is in there either way.
+                Logger.Log($"System notification failed: {e.Message}", true);
             }
         }
 

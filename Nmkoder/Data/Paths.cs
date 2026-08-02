@@ -27,9 +27,21 @@ namespace Nmkoder.Data
             return Environment.ProcessPath ?? System.Reflection.Assembly.GetEntryAssembly()?.Location ?? AppContext.BaseDirectory;
         }
 
+        /// <summary>
+        /// The folder the exe actually sits in. Deliberately not AppContext.BaseDirectory: under
+        /// IncludeAllContentForSelfExtract - which the Windows build has to set, because the App
+        /// SDK's single-file validation refuses to build without it - that points at the bundle's
+        /// extraction folder under temp rather than at the exe. Everything hanging off this would
+        /// follow it there: bin/ (so no bundled ffmpeg, and every file scans as having no streams),
+        /// plus settings and logs. The process path is the exe under every bundling mode.
+        /// </summary>
         public static string GetExeDir()
         {
-            return AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            // Not GetExe(), whose last fallback is already a directory - taking the directory name
+            // of that would climb a level.
+            string exe = Environment.ProcessPath ?? System.Reflection.Assembly.GetEntryAssembly()?.Location;
+            string dir = exe.IsEmpty() ? AppContext.BaseDirectory : Path.GetDirectoryName(exe);
+            return (dir.IsEmpty() ? AppContext.BaseDirectory : dir).TrimEnd(Path.DirectorySeparatorChar);
         }
 
         public static string GetWorkingDir()

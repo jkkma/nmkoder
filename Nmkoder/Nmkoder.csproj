@@ -2,7 +2,13 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- The Windows-flavoured target framework exists only on a Windows host. It is what pulls in
+         the Windows App SDK, whose build runs MSIX tooling (MakePri.exe and friends) - Windows
+         binaries, so a Linux or macOS `dotnet build` cannot evaluate that TFM at all, not even to
+         compile. Conditioning it keeps plain `dotnet build Nmkoder/Nmkoder.csproj` working
+         everywhere; the release workflow picks the framework per RID. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
     <RootNamespace>Nmkoder</RootNamespace>
     <AssemblyName>Nmkoder</AssemblyName>
     <Nullable>disable</Nullable>
@@ -17,10 +23,29 @@
     <Product>Nmkoder</Product>
     <Company>NMKD</Company>
     <Copyright>Copyright © NMKD</Copyright>
-    <Version>2.7.0</Version>
+    <Version>2.8.12</Version>
     <!-- The UI code deliberately fires async event handlers without awaiting them. -->
     <NoWarn>$(NoWarn);CS1998;CS4014</NoWarn>
   </PropertyGroup>
+
+  <!-- Unpackaged, self-contained Windows App SDK, which is what lets a plain Win32 app raise a real
+       Windows notification: AppNotificationManager.Register() does the COM registration itself, so
+       no MSIX package, no AppUserModelID and no Start Menu shortcut are needed. Self-contained is
+       not optional here - framework-dependent would need every user to install the App SDK runtime
+       first, and a portable zip cannot ask that, so the runtime ships inside the build. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Required by the App SDK's own single-file validation, which errors out without it. It
+         sweeps Content into the exe as well, which is why BinFiles below opts back out. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260710003" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
@@ -39,8 +64,28 @@
 
   <ItemGroup>
     <!-- Data files the app reads back from Paths.GetBinPath() at runtime, so they are
-         copied into bin rather than embedded the way Assets/ is. -->
-    <Content Include="BinFiles/**" Link="bin/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+         copied into bin rather than embedded the way Assets/ is. ExcludeFromSingleFile keeps them
+         loose next to the exe under IncludeAllContentForSelfExtract, which would otherwise pack
+         them into the bundle - and GetBinPath() resolves against the exe's own directory, so they
+         would simply be missing, taking the AV1AN tab's per-encoder arguments with them. -->
+    <Content Include="BinFiles/**" Link="bin/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
+
+  <!-- The Content item above is enough on every publish except the Windows one, where the files
+       reach neither the bundle nor the output directory and simply vanish: 2.7.2 through 2.7.4 all
+       shipped a win-x64 zip with no bin/iso639.csv and no bin/av1an/encoderArgs, which is what
+       leaves the AV1AN tab's Advanced grid empty. ExcludeFromSingleFile was meant to cover this and
+       does not - the App SDK build drops the items rather than bundling them - so they are copied
+       again once publish has laid everything else out, independent of whatever the single-file and
+       MSIX machinery decided. A no-op on the platforms that already got it right, since the files
+       are already there and identical. -->
+  <Target Name="CopyBinFilesToPublishDir" AfterTargets="Publish">
+    <ItemGroup>
+      <BinFilesToPublish Include="$(MSBuildProjectDirectory)/BinFiles/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BinFilesToPublish)"
+          DestinationFiles="@(BinFilesToPublish->'$(PublishDir)bin/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

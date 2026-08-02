@@ -31,6 +31,9 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 - Encoder Options: Set quality and speed/effort aka preset, set color format
 - Quality Modes: Either use a **constant quality**, target **bitrate**, or target **filesize**
 - Video Options: Resample frame rate, **resize** either using absolute or relative numbers, manually or **automatically crop** black bars
+- **Deinterlacing**, on by default and applied only to sources that really are interlaced - a tape, DVD or
+  camcorder capture. Uses **QTGMC** through VapourSynth where it can (bundled on Windows), otherwise ffmpeg's
+  bwdif, and outputs one frame per field so none of the motion is thrown away
 - Audio Options: Set quality and channels/layout
 - Subtitle Options: Optionally **burn in** a subtitle track
 
@@ -43,6 +46,10 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
   XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
   bundle ships and enables per machine - see below)
 - Same audio and video options as FFmpeg encoding
+- **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with ffmpeg, which has
+  nowhere to run a VapourSynth script, so picking QTGMC renders the video through it once beforehand - into a
+  near-lossless intermediate that av1an then encodes, optionally at one frame per field. Automatic and the ffmpeg
+  deinterlacers run inside av1an as before, at the source frame rate
 - Set AV1 film **grain synthesis** (disabled for H265/VP9 as this is exclusive to AV1)
 - Av1an Options: Change splitting method, chunk creation method, amount of workers, and more
 - Encodes can be paused and resumed live, or stopped entirely and picked up again later from the finished chunks
@@ -51,6 +58,10 @@ Video encoding, muxing, and analysis GUI built with [Avalonia UI](https://avalon
 
 - Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
 - Read Bitrates: Calculates stream size and average bitrate for each stream
+- Deinterlace Video: Exports a deinterlaced copy - **QTGMC** over the whole file into a near-lossless MKV, with the
+  audio and subtitles copied across. That file is all it produces; nothing is loaded back into the file list, and you
+  do not need it in order to encode an interlaced source, since both encode tabs deinterlace on their way through.
+  Has its own Deinterlace settings, under Configure on its card, separate from either tab's
 - Get Metrics: Calculate quality metrics like **VMAF**, SSIM, PSNR
 - Transfer Color Metadata: Copy color properties and HDR metadata from one file to another (e.g. from Bluray Remux to an encode)
 - Concatenate Into Single MKV: Merge any amount of any compatible video format into a single MKV (e.g. for chunked encoding)
@@ -115,8 +126,11 @@ The AV1AN tab's toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
-                             vszip, which scores Target SSIMULACRA2 probes, and julek, staged
-                             for Butteraugli until av1an can call it (see the caveat above)
+                             vszip, which scores Target SSIMULACRA2 probes, julek, staged
+                             for Butteraugli until av1an can call it (see the caveat above),
+                             and mvtools, znedi3, EEDI3, fmtconv, RemoveGrain, MiscFilters,
+                             TemporalSoften2 and FFT3DFilter, which are what QTGMC deinterlacing
+                             is made of (FFT3DFilter only for its two denoising presets)
 bin/av1an/vsynth/vship/      Vship's NVIDIA + AMD builds, parked; the app stages the one this
                              machine's GPU passes into vs-plugins, and unstages both when none does
 bin/av1an/enc/               SvtAv1EncApp, aomenc and x265

@@ -63,6 +63,14 @@ namespace Nmkoder.UI.Tasks
                 await Run(true, overrideTempDir, overrideArgs);
                 RunTask.NotifyTaskEnd(RunTask.TaskType.Av1an, sw);
             }
+            catch (Exception e)
+            {
+                // Resuming does not go through RunTask.Start, so it does not get Start's guard either -
+                // and this is started as a fire-and-forget task, where an escaping exception is
+                // swallowed by the runtime and reports nothing at all.
+                RunTask.Fail($"The encode could not be resumed: {e.Message}");
+                Logger.Log($"{e}", true, level: Logger.Level.Debug);
+            }
             finally
             {
                 Program.MainWin.RunningTask = RunTask.TaskType.None;
@@ -71,7 +79,7 @@ namespace Nmkoder.UI.Tasks
             }
 
             // After the finally: the countdown aborts itself while the app still counts as busy
-            _ = RunTask.ShutdownWhenDoneCountdown();
+            _ = RunTask.ShutdownWhenDoneCountdown(RunTask.canceled);
         }
 
         public static async Task Run(bool resume = false, string overrideTempDir = "", string overrideArgs = "")
@@ -83,8 +91,15 @@ namespace Nmkoder.UI.Tasks
             }
 
             Program.MainWin.SetWorking(true);
+            // Replaced below when the arguments come from the UI. A replayed command carries whatever
+            // filters it was saved with, so nothing here may leak into it from an earlier run.
+            Av1anUi.CurrentDeinterlace = new DeinterlacePlan();
             string args = "";
             string inPath = "";
+            // The file the user loaded, which a trim replaces inPath with a cut copy of. Kept apart
+            // because resuming with new settings reloads whatever the saved info names, and that has
+            // to be the source: re-cutting from the source is right where re-cutting a cut is not.
+            string sourcePath = "";
             string outPath = "";
             string tempDir = "";
             string tempDirName = "";
@@ -237,7 +252,7 @@ namespace Nmkoder.UI.Tasks
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
                         Logger.Log("Note: VP9 in MP4 has to be concatenated by ffmpeg, which av1an warns can give the file a wrong frame rate. MKV avoids this.");
 
-                    inPath = TrackList.current.File.ImportPath;
+                    inPath = sourcePath = TrackList.current.File.ImportPath;
                     ValidatePath();
                     outPath = UiData.GetOutPath();
                     TrackList.current.File.ColorData = await ColorDataUtils.GetColorData(TrackList.current.File.SourcePath);
@@ -249,8 +264,50 @@ namespace Nmkoder.UI.Tasks
                     videoArgs["qMode"] = ((int)qualMode).ToString();
                     videoArgs["q"] = ((int)quality).ToString();
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
+
+                    // Settled before the filters are built, and once: in Automatic mode working out
+                    // whether the source is interlaced can mean decoding a few hundred frames of it.
+                    // What comes back decides which of two shapes the deinterlacing takes - a filter
+                    // in av1an's own '-f' chain, or the separate pass RenderDeinterlacedInput runs -
+                    // so it has to be settled before either is built.
+                    Av1anUi.CurrentDeinterlace = await Deinterlace.ResolveAsync(TrackList.current.File, DeinterlaceUi.GetAv1anRequest());
+
+                    // One frame per field is asked for with QTGMC and is only safe with QTGMC, because
+                    // that pass runs *before* av1an: the doubled rate is simply the rate of the file
+                    // av1an then opens. A QTGMC that fell back to bwdif - no VapourSynth, an RGB
+                    // source - would otherwise carry the setting into av1an's own per-chunk filter
+                    // chain, where it writes twice the frames the chunking expects under the source's
+                    // own rate, and the encode comes out playing at half speed.
+                    if (!Av1anUi.CurrentDeinterlace.UsesPipe)
+                        Av1anUi.CurrentDeinterlace.DoubleRate = false;
+
+                    if (Av1anUi.CurrentDeinterlace.Runs && !Av1anUi.CurrentDeinterlace.UsesPipe)
+                        Logger.Log($"Deinterlacing '{TrackList.current.File.Name.Trunc(40)}' with {Av1anUi.CurrentDeinterlace.Describe()}.");
+
+                    // The frame the encoder will actually be handed, worked out before its arguments
+                    // rather than after them: the tile count is a property of that frame and not of the
+                    // file it came from, and a crop or a resize makes the two different sizes. This is
+                    // also where an automatic crop gets measured, which is why the filters below are
+                    // handed the answer instead of going and asking for it a second time.
+                    Av1anFrame frame = await ResolveFrameAsync();
+
+                    // Said here as well as on the tab's readout, because this is the last point at which
+                    // it can be said clearly. ffmpeg refuses a frame this large from inside av1an, one
+                    // chunk at a time, as "Picture size WxH is invalid" - which names neither the resize
+                    // that asked for it nor the box to change.
+                    if (ResizeConfig.ExceedsFrameLimit(frame.Encoded))
+                    {
+                        RunTask.Cancel($"The resize asks for {frame.Encoded.Width}x{frame.Encoded.Height}, which is " +
+                            $"{(double)frame.Encoded.Width * frame.Encoded.Height / 1_000_000d:0.#} megapixels - more than FFmpeg " +
+                            $"will scale to, so no frame would be written.\n\nPick a smaller target in the resize dialog.");
+                        return;
+                    }
+
+                    if (!frame.Encoded.IsEmpty)
+                        videoArgs[CodecUtils.FrameSizeKey] = $"{frame.Encoded.Width}x{frame.Encoded.Height}";
+
                     CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
-                    string vf = await GetVideoFilterArgs(codecArgs);
+                    string vf = GetVideoFilterArgs(frame, codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
                     // audio track, and this tab has one bitrate and one channel count for all of them.
@@ -284,7 +341,10 @@ namespace Nmkoder.UI.Tasks
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
                     string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty(), chunkMethod);
 
-                    args = $"-i {inPath.Wrap()} -y --verbose --keep " +
+                    // The input is not named here. A trim has to cut its section out first, and where
+                    // that copy goes is only settled once this run's temp folder is, so the '-i' is
+                    // put in front of all of this below, after the cut has run.
+                    args = $"-y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
                         $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
@@ -299,22 +359,37 @@ namespace Nmkoder.UI.Tasks
                         $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
                         $"-o {outPath.Wrap()}";
 
+                    // av1an counts the frames every finished chunk holds and compares them with the
+                    // number it expects, failing the chunk when they differ - and then retrying it,
+                    // three times over, before shutting the worker down and with it the run. A frame
+                    // rate change is that mismatch by construction, on every chunk: writing a
+                    // different number of frames than came in is the entire point of the filter. So
+                    // the Frame Rate box killed any encode it was used on, hours in and after each
+                    // doomed chunk had been encoded four times. --ignore-frame-mismatch is av1an's
+                    // own answer to exactly this - its concat step reads the flag as "an FPS changing
+                    // filter might have been applied" and stops forcing the source's rate onto the
+                    // output, which is the other half of what a resampled encode needs.
+                    if (frame.ResamplesFrameRate)
+                    {
+                        // Old enough that an av1an without it would fail on half this tab's command
+                        // anyway; checked all the same, because one unrecognised flag is refused as a
+                        // whole command. A help text that could not be read says nothing, so the flag
+                        // goes out and an av1an that really is too old refuses it at startup.
+                        if (!await AvProcess.Av1anHelpKnown() || await AvProcess.Av1anSupportsFlag("--ignore-frame-mismatch"))
+                            args += " --ignore-frame-mismatch";
+                        else
+                            Logger.Log("Warning: this av1an has no --ignore-frame-mismatch, and the frame rate is being " +
+                                "changed. av1an checks every chunk's frame count against the source's and will fail the " +
+                                "encode over the difference. Leave the Frame Rate box empty, or update av1an.");
+                    }
+
                     if (qualMode != QualityMode.Crf)
                     {
+                        if (vf.Length > 3)
+                            Logger.Log(GetFilteredTargetQualityNote(frame));
+
                         if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr)
                         {
-                            // These metrics are scored outside libvmaf - SSIMULACRA2 and Butteraugli
-                            // through VapourSynth (vszip, the julek plugin or vship), XPSNR by
-                            // ffmpeg's xpsnr filter - so none of the --vmaf-* flags apply, including
-                            // --vmaf-filter, which is how the VMAF branch shows the probes its
-                            // filtered frames. There is no equivalent here: probes are compared
-                            // against the unfiltered source, so any filter that visibly alters the
-                            // frames skews the search.
-                            if (vf.Length > 3)
-                                Logger.Log("Note: video filters are not applied when scoring " +
-                                    $"{GetTargetMetricName(qualMode)} probes, " +
-                                    "so any filter that visibly changes the frames will skew the target quality search.");
-
                             // The INF norm rather than the 3-norm, because av1an only scores the
                             // 3-norm through the GPU plugin (Vship), while INF is also meant to work
                             // on the bundled CPU plugin (julek) - meant to, because av1an's releases
@@ -335,8 +410,19 @@ namespace Nmkoder.UI.Tasks
                         }
                         else
                         {
-                            string filters = vf.Length > 3 ? $"--vmaf-filter \" {vf.Split("-vf ").LastOrDefault()} \"" : "";
-                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} {filters} --vmaf-threads 2";
+                            // No --vmaf-filter, deliberately. It filters the *reference* VMAF scores
+                            // against, while the probe it is compared with comes off the unfiltered
+                            // source - so handing it this tab's chain measures a filtered reference
+                            // against an unfiltered encode. With a resize that is a sharp probe against
+                            // a softened downscale-and-back-up reference, which scores far under the
+                            // truth and drags the quantizer down with it; and where the chain also
+                            // changes the aspect ratio - an anamorphic de-squeeze, a crop, an exact size
+                            // that pads - the two frames come out different sizes after av1an's own
+                            // scale to --vmaf-res and libvmaf refuses them outright ("input width must
+                            // match"), minutes into a run. Both sides unfiltered is at least like for
+                            // like; that the search then runs at the source's size is what the note
+                            // above says out loud.
+                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} --vmaf-threads 2";
                         }
                     }
                 }
@@ -346,10 +432,15 @@ namespace Nmkoder.UI.Tasks
                     outPath = ParseQuotedArg(overrideArgs, "-o");
                     args = overrideArgs;
 
+                    // The replayed command's '-i' may be a trimmed copy rather than the file the user
+                    // loaded, and the saved info already names that file - so it is read back rather
+                    // than rewritten from the command being replayed.
+                    Dictionary<string, string> savedInfo = LoadJson(overrideTempDir);
+                    sourcePath = savedInfo.ContainsKey("filePath") ? savedInfo["filePath"] : inPath;
+
                     if (inPath.IsEmpty() || outPath.IsEmpty())
                     {
-                        Logger.Log($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
-                        RunTask.failed = true;
+                        RunTask.Fail($"Cannot resume - the saved command names no {(inPath.IsEmpty() ? "input" : "output")} file.");
                         Program.MainWin.SetWorking(false);
                         return;
                     }
@@ -372,16 +463,14 @@ namespace Nmkoder.UI.Tasks
 
                 if (outPath == inPath)
                 {
-                    Logger.Log($"Output path can't be the same as the input path!");
-                    RunTask.failed = true;
+                    RunTask.Fail($"Output path can't be the same as the input path!");
                     Program.MainWin.SetWorking(false);
                     return;
                 }
 
                 if (Path.GetExtension(outPath).IsEmpty()) // GetExtension returns an empty string, never null
                 {
-                    Logger.Log($"Output path must have a valid file extension!");
-                    RunTask.failed = true;
+                    RunTask.Fail($"Output path must have a valid file extension!");
                     Program.MainWin.SetWorking(false);
                     return;
                 }
@@ -390,13 +479,48 @@ namespace Nmkoder.UI.Tasks
                 tempDir = Directory.CreateDirectory(Path.Combine(Paths.GetAv1anTempPath(), tempDirName)).FullName;
                 AvProcess.lastTempDirAv1an = tempDir;
 
+                if (overrideArgs.IsEmpty()) // A replayed command already names the input it wants
+                {
+                    string trimmed = await CutTrimmedInput(inPath, tempDir);
+
+                    if (RunTask.canceled)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (trimmed.IsNotEmpty())
+                        inPath = trimmed;
+
+                    // After the cut rather than before it, which is the cheap ordering and the only
+                    // correct one: the cut is a stream copy of the section being encoded, so putting
+                    // it first means QTGMC renders that section instead of the whole tape - and the
+                    // Quick Convert tab's reason for refusing the pairing outright (its trim is
+                    // ffmpeg's, and cannot reach the script that reads the source) does not apply
+                    // here, because this trim has already produced a file.
+                    string deinterlaced = await RenderDeinterlacedInput(inPath, tempDir, trimmed.IsNotEmpty(), resume);
+
+                    if (RunTask.canceled || RunTask.failed)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (deinterlaced.IsNotEmpty())
+                        inPath = deinterlaced;
+
+                    args = $"-i {inPath.Wrap()} {args}";
+                }
+
                 args = $"{(resume ? "-r" : "")} --temp {tempDir.Wrap()} {args}";
                 creationTimestamp = (resume ? (LoadJson(overrideTempDir).ContainsKey("creationTimestamp") ? LoadJson(overrideTempDir)["creationTimestamp"] : "-1") : timestamp);
             }
             catch (Exception e)
             {
-                Logger.Log($"Error creating av1an command: {e.Message}\n{e.StackTrace}");
-                RunTask.failed = true;
+                RunTask.Fail($"Error creating av1an command: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true);
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -408,6 +532,10 @@ namespace Nmkoder.UI.Tasks
 
                 if (string.IsNullOrWhiteSpace(edited))
                 {
+                    // Backing out of the edit window is the user's decision, so no error box - but it
+                    // is not a finished encode either, and returning silently had a batch mark the
+                    // file Done with nothing written.
+                    RunTask.Cancel("The command was cleared in the edit window, so nothing was run.", noMsgBox: true);
                     DiscardUnusedTempFolder(tempDir, resume);
                     Program.MainWin.SetWorking(false);
                     return;
@@ -418,7 +546,7 @@ namespace Nmkoder.UI.Tasks
 
             // Written only now, so that what a resume replays is the command that actually ran. Saving
             // it before the edit window meant holding Shift to fix a command left the broken one on disk.
-            SaveJson(inPath, tempDirName, args, creationTimestamp, timestamp);
+            SaveJson(sourcePath, tempDirName, args, creationTimestamp, timestamp);
 
             try
             {
@@ -426,8 +554,7 @@ namespace Nmkoder.UI.Tasks
             }
             catch (Exception e)
             {
-                Logger.Log($"Failed to create output folder: {e.Message}");
-                RunTask.failed = true;
+                RunTask.Fail($"Failed to create output folder: {e.Message}");
                 DiscardUnusedTempFolder(tempDir, resume);
                 Program.MainWin.SetWorking(false);
                 return;
@@ -452,8 +579,7 @@ namespace Nmkoder.UI.Tasks
 
             if (!succeeded && !RunTask.canceled)
             {
-                RunTask.failed = true;
-                Logger.Log($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+                RunTask.Fail($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
             }
 
             if (succeeded)
@@ -514,12 +640,145 @@ namespace Nmkoder.UI.Tasks
                 "Pick Target SSIMULACRA2 or Target XPSNR instead, or try again in a moment.";
         }
 
+        /// <summary>
+        /// What to say about running a target quality mode over a filtered source.
+        /// <para/>
+        /// av1an encodes its probes from the source rather than from the filtered frames - probe_cmd
+        /// composes the probe's ffmpeg pipe with nothing in it but the probing-rate select filter, and
+        /// the chunk's own source command carries no filters either - so nothing set on this tab is
+        /// visible to the quality search, whichever metric it steers by.
+        /// <para/>
+        /// The size clause is the part with teeth, which is why it names both numbers: a resize changes
+        /// how many pixels the quantizer is being spread across, so a search settled at the source's
+        /// size lands somewhere else entirely at the one being written. Filters that leave the size
+        /// alone skew it too - a denoise makes frames cheaper to encode - but by how much is not
+        /// something that can be said from here.
+        /// </summary>
+        private static string GetFilteredTargetQualityNote(Av1anFrame frame)
+        {
+            string note = "Note: av1an encodes its target quality probes from the source, not from the filtered " +
+                "frames, so the video filters set on this tab are invisible to the quality search.";
+
+            if (frame != null && frame.ChangesSize)
+                note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
+                    $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
+                    "the target at the source's size rather than at the size being written. Encoding at the source's " +
+                    "size, or using CRF, is the only way to be sure of the target.";
+
+            return note;
+        }
+
         /// <summary> The metric a target quality mode steers by, as it is named in messages. </summary>
         private static string GetTargetMetricName(QualityMode mode)
         {
             return mode == QualityMode.TargetSsimu2 ? "SSIMULACRA2"
                 : mode == QualityMode.TargetButteraugli ? "Butteraugli"
                 : mode == QualityMode.TargetXpsnr ? "XPSNR" : "VMAF";
+        }
+
+        /// <summary>
+        /// Cuts the configured section out of the input and returns the copy av1an should be given,
+        /// or "" when the tab has no trim configured and the whole file is to be encoded.
+        /// <para/>
+        /// av1an has no trim of its own, and the ffmpeg arguments it does take are no substitute: it
+        /// applies them to each chunk it cuts rather than to the source once, so a '-ss' handed to it
+        /// would be applied as many times as there are chunks. Encoding part of a video therefore
+        /// means giving av1an a file that is only that part. The copy is a stream copy - seconds of
+        /// work and the section's own size on disk - and, being a copy, it can only begin at a
+        /// keyframe, which is why the cut dialog puts the start point on one before handing it over.
+        /// </summary>
+        private static async Task<string> CutTrimmedInput(string inPath, string tempDir)
+        {
+            TrimSettings trim = Av1anUi.CurrentTrim;
+            MediaFile file = TrackList.current?.File;
+
+            if (trim == null || trim.IsUnset || file == null)
+                return "";
+
+            string problem = UtilCut.ResolveSection(trim, file, out long start, out long end);
+
+            if (problem.IsNotEmpty())
+            {
+                RunTask.Cancel(problem);
+                return "";
+            }
+
+            string outPath = Av1anUi.GetTrimmedInputPath(tempDir, Path.GetExtension(inPath));
+
+            Logger.Log($"Cutting {UtilCut.FormatDuration(start)} to {UtilCut.FormatDuration(end)} ({UtilCut.FormatDuration(end - start)}) out of " +
+                $"{file.Name} first - av1an has no trim of its own, so it is given a copy of just that section to encode.");
+
+            if (await UtilCut.CopySection(inPath, outPath, start, end))
+                return outPath;
+
+            // Nothing to add if the run has already been reported - which the trim's own ffmpeg call
+            // can do if it fails on its way out.
+            if (!RunTask.canceled && !RunTask.failed)
+                RunTask.Cancel($"Could not cut the section to encode out of '{file.Name}'. The log has the details.");
+
+            return "";
+        }
+
+        /// <summary>
+        /// Renders the QTGMC pass and returns the progressive file av1an should be given, or "" where
+        /// there is no such pass - which is every mode but QTGMC, the ffmpeg deinterlacers going into
+        /// av1an's own filter chain instead.
+        /// <para/>
+        /// QTGMC cannot run inside av1an at all. av1an applies video filters by composing an ffmpeg
+        /// command per chunk, and there is nowhere in one to evaluate a VapourSynth script; and even
+        /// if there were, av1an reads its input for scene detection, again for every chunk, and again
+        /// for every probe a target-quality mode runs, so the most expensive filter in the app would
+        /// be paid for several times over. Rendering it once, in front, costs one pass and one
+        /// temporary file, and hands av1an a progressive, seekable, frame-accurate input.
+        /// <para/>
+        /// The file goes beside the temp folder, where the trimmed input goes and for the same reason:
+        /// av1an empties its own temp folder at startup. It is deleted with that folder - on success,
+        /// or when a canceled encode's chunks are thrown away - so it lives exactly as long as the
+        /// encode it belongs to.
+        /// </summary>
+        private static async Task<string> RenderDeinterlacedInput(string inPath, string tempDir, bool trimmed, bool resume)
+        {
+            DeinterlacePlan plan = Av1anUi.CurrentDeinterlace;
+
+            if (!plan.UsesPipe)
+                return "";
+
+            string outPath = Av1anUi.GetDeinterlacedInputPath(tempDir);
+            MediaFile file = TrackList.current?.File;
+
+            // Resuming with new settings rebuilds the whole command, and re-rendering QTGMC over an
+            // hour of tape to change a CRF would cost more than the encode being resumed. Only ever a
+            // file this same encode wrote: a fresh run mints a temp folder from the clock, so there is
+            // never one of these sitting next to it already.
+            if (resume && IoUtils.GetFilesize(outPath) > 0)
+            {
+                Logger.Log($"Reusing the deinterlaced file this encode was started from ('{Path.GetFileName(outPath)}'). " +
+                    $"The pass is not run again and the Deinterlace setting is not re-read - delete that file to redo it.");
+                return outPath;
+            }
+
+            Logger.Log($"Deinterlacing {(trimmed ? "the section to encode" : $"'{file?.Name.Trunc(40)}'")} with {plan.Describe()}, " +
+                $"into {DeinterlacePass.DescribeOutput()} that av1an will then encode. QTGMC cannot run inside av1an, so it " +
+                $"runs once here instead; this is a full pass over the video and its output is a temporary file the size of one.");
+
+            // The loaded file either way - the cut copy carries its track layout - but only the
+            // whole of it when nothing was cut, since a section's length is not the length that file
+            // reports and the progress target would be measured against the wrong number.
+            string problem = await DeinterlacePass.RunAsync(plan, inPath, outPath, "qtgmc-av1an", file, wholeSource: !trimmed);
+
+            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            {
+                // Whatever is on disk stops partway through the video, and the reuse above would take
+                // it for a finished pass on the next resume - so a stopped pass leaves nothing behind.
+                IoUtils.TryDeleteIfExists(outPath);
+
+                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                    RunTask.Fail($"The deinterlace pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
+
+                return "";
+            }
+
+            return outPath;
         }
 
         /// <summary>

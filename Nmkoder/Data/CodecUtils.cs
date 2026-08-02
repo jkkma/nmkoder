@@ -172,8 +172,38 @@ namespace Nmkoder.Data
             return string.Join(" ", args);
         }
 
+        /// <summary> The key <see cref="GetEncodedFrameSize"/> reads a frame size out of, written "WIDTHxHEIGHT". </summary>
+        public const string FrameSizeKey = "frameSize";
+
+        /// <summary>
+        /// The frame the encoder will actually be handed, which is the file's own size only when
+        /// nothing in front of it changes the picture. A resize or a crop makes those two different
+        /// things, and the arguments built from this - the tile count - belong to the frame being
+        /// encoded rather than to the file it came from: four tile columns are right for a 4K source
+        /// and wrong for the 720p it is being scaled down to, whatever the file says.
+        /// <para/>
+        /// The AV1AN tab settles its filter chain before it builds these arguments and puts the
+        /// result under <see cref="FrameSizeKey"/>. Everywhere else the key is absent and the
+        /// source's own size is used, as it always was.
+        /// </summary>
+        public static Size GetEncodedFrameSize(Dictionary<string, string> encArgs, MediaFile mediaFile)
+        {
+            if (encArgs != null && encArgs.TryGetValue(FrameSizeKey, out string value))
+            {
+                string[] parts = (value ?? "").Split('x');
+
+                if (parts.Length == 2 && parts[0].GetInt() > 0 && parts[1].GetInt() > 0)
+                    return new Size(parts[0].GetInt(), parts[1].GetInt());
+            }
+
+            return mediaFile != null && mediaFile.VideoStreams.Count > 0 ? mediaFile.VideoStreams.First().Resolution : Size.Empty;
+        }
+
         public static string GetTilingArgs(Size resolution, string rowArg, string colArg)
         {
+            if (resolution.Width < 1 || resolution.Height < 1)
+                return ""; // Nothing to work a tile count out from
+
             int cols = 0;
             if (resolution.Width >= 1920) cols = 1;
             if (resolution.Width >= 3840) cols = 2;

@@ -1,0 +1,97 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.ResizeWindow"
+        Title="Configure Resize"
+        Width="580" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="6">
+
+    <Border x:Name="NoVidPanel" Classes="card" IsVisible="False">
+      <TextBlock TextWrapping="Wrap"
+                 Text="No video track is loaded, so the resulting size can't be previewed. The target below is still applied, and is worked out against whichever file is encoded." />
+    </Border>
+
+    <TextBlock Classes="h" Text="SOURCE" />
+    <TextBlock x:Name="SourceLabel" Classes="dim" Text="-" />
+
+    <TextBlock Classes="h" Text="TARGET" />
+
+    <Grid ColumnDefinitions="150,*">
+      <TextBlock Grid.Column="0" Classes="field" Text="Mode" />
+      <ComboBox Grid.Column="1" x:Name="ModeBox" SelectionChanged="Mode_SelectionChanged" />
+    </Grid>
+
+    <Grid x:Name="SizeRow" ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" x:Name="SizeRowLabel" Classes="field" Text="Fit inside" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+        <NumericUpDown x:Name="TargetW" Classes="num" Minimum="16" Maximum="16384" Increment="2" Value="1920" ValueChanged="Target_ValueChanged" />
+        <TextBlock Text="x" VerticalAlignment="Center" />
+        <NumericUpDown x:Name="TargetH" Classes="num" Minimum="16" Maximum="16384" Increment="2" Value="1080" ValueChanged="Target_ValueChanged" />
+      </StackPanel>
+    </Grid>
+
+    <Grid x:Name="SingleRow" ColumnDefinitions="150,*" Margin="0,6,0,0" IsVisible="False">
+      <TextBlock Grid.Column="0" x:Name="SingleRowLabel" Classes="field" Text="Height" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <NumericUpDown x:Name="TargetSingle" Classes="num" Minimum="16" Maximum="16384" Increment="2" Value="1080" ValueChanged="Target_ValueChanged" />
+        <TextBlock x:Name="SingleRowHint" Classes="hint" Text="pixels" />
+      </StackPanel>
+    </Grid>
+
+    <Grid x:Name="PercentRow" ColumnDefinitions="150,*" Margin="0,6,0,0" IsVisible="False">
+      <TextBlock Grid.Column="0" Classes="field" Text="Scale to" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <NumericUpDown x:Name="TargetPercent" Classes="num" Minimum="1" Maximum="800" Increment="5" Value="50" ValueChanged="Target_ValueChanged" />
+        <TextBlock Classes="hint" Text="% of the source" />
+      </StackPanel>
+    </Grid>
+
+    <Grid x:Name="FillRow" ColumnDefinitions="150,*" Margin="0,6,0,0" IsVisible="False">
+      <TextBlock Grid.Column="0" Classes="field" Text="If it doesn't fit" />
+      <ComboBox Grid.Column="1" x:Name="FillBox" SelectionChanged="Fill_SelectionChanged">
+        <ComboBoxItem Content="Letterbox with black bars" />
+        <ComboBoxItem Content="Crop off the overflow" />
+        <ComboBoxItem Content="Stretch to fit" />
+      </ComboBox>
+    </Grid>
+
+    <TextBlock Classes="h" Text="OPTIONS" />
+
+    <Grid ColumnDefinitions="150,*">
+      <TextBlock Grid.Column="0" Classes="field" Text="Round sizes to" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <ComboBox x:Name="ModulusBox" Classes="short" SelectionChanged="Modulus_SelectionChanged"
+                  ToolTip.Tip="Two is a requirement rather than a preference: 4:2:0 video stores one colour sample per 2x2 block of pixels, so an odd size has half a sample at the edge and encoders refuse it. Larger values line up with encoder block sizes, at the cost of a little accuracy in the aspect ratio.">
+          <ComboBoxItem Content="2 (default)" />
+          <ComboBoxItem Content="4" />
+          <ComboBoxItem Content="8" />
+          <ComboBoxItem Content="16" />
+        </ComboBox>
+        <TextBlock Classes="hint" Text="Encoders cannot take odd sizes." />
+      </StackPanel>
+    </Grid>
+
+    <Grid ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" Classes="field" Text="Resampler" />
+      <ComboBox Grid.Column="1" x:Name="ResamplerBox" HorizontalAlignment="Left" Width="220" SelectionChanged="Resampler_SelectionChanged" />
+    </Grid>
+
+    <StackPanel Margin="150,10,0,0" Spacing="8">
+      <CheckBox x:Name="UpscaleBox" Content="Allow upscaling past the source's own size" IsCheckedChanged="Option_Changed" />
+      <CheckBox x:Name="AnamorphicBox" Content="Correct non-square pixels" IsChecked="True" IsCheckedChanged="Option_Changed"
+                ToolTip.Tip="Sources like DVDs store a frame that is meant to be shown wider or taller than it is stored. The output is always square-pixel, so the shape has to be restored here or it is lost." />
+    </StackPanel>
+
+    <TextBlock Classes="h" Text="RESULT" />
+    <TextBlock x:Name="ResultLabel" Classes="dim" Text="-" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>
