@@ -35,10 +35,14 @@ namespace Nmkoder.Media
     class Qtgmc
     {
         /// <summary> havsfunc's own preset names, slowest first. Its documented default is "Slower";
-        /// this app defaults to "Medium" because the sources this runs on are usually hour-long tape
-        /// captures, where the difference between the two is hours of wall clock. </summary>
+        /// see <see cref="DefaultPreset"/> for what this app opens on and why. </summary>
         public static readonly string[] Presets = { "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast" };
-        public const string DefaultPreset = "Medium";
+        /// <summary> The preset every QTGMC setting in the app opens on. Very Slow is one step under
+        /// Placebo and is the point at which QTGMC turns its noise processing on - see
+        /// <see cref="NeedsNoisePlugins"/>, which is why this value decides which plugins have to be
+        /// there. Slow by any measure: this is a deinterlacer that is already the expensive option, and
+        /// the preset says how much of that to spend. </summary>
+        public const string DefaultPreset = "Very Slow";
 
         /// <summary>
         /// The presets that turn QTGMC's noise processing on, which needs a plugin none of the others

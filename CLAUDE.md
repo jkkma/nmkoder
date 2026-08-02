@@ -384,32 +384,54 @@ needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual he
 
 ## Deinterlacing
 
-Both encode tabs carry a Deinterlace setting, defaulting to Automatic, which does nothing at
-all unless the source really is interlaced. That default is the point: a Hi8 or VHS capture
-comes out deinterlaced without anyone having had to know to ask, and a modern download is
-left alone.
+**Both encode tabs hide the Deinterlace row until the loaded file is known to be interlaced**, and
+the setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore arrives with
+the best deinterlacer there is already selected, and nothing else ever shows the control at all -
+`DeinterlaceUi.IsRowRelevant` is the one question both halves of that are asked, and it is false for
+no file, for a progressive one, and for a file whose scan type has not been measured yet.
+`AnalyzeInBackground` calls `RefreshInfo` when the verdict lands, so the row appears a moment after
+loading on the files that need it.
 
-**An engine picked by name deinterlaces whatever it is handed, and must not outlive the file it
-was picked for.** Forcing is the point of naming one - `Deinterlace.ResolveAsync` consults the
-scan verdict only for Automatic - and it is the only way past a container flag that lies about its
-own scan type, which is exactly what the section below declines to check for. What made that a
-trap was that the mode was sticky and nothing cleared it: it was saved per tab and restored at
-startup, so a QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a
-full pass over the video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that
-- a progressive 1080p WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields,
-with nothing wrong anywhere in the detection, which had read it correctly and said so on screen.
+**Those two changes are only safe together, and `ModeInEffect` is the join.** An engine picked by
+name deinterlaces whatever it is handed - `Deinterlace.ResolveAsync` consults the scan verdict only
+for Automatic - so a default of QTGMC behind a hidden row would have put an hours-long pass on every
+progressive file with nothing on screen to explain it. So while the row is hidden both tabs report
+**Automatic** whatever their box says, and Automatic is the one mode that is safe without knowing
+anything: it asks the verdict, does nothing to progressive video, and still cleans up a file whose
+scan type had not been measured when the encode started, because `ResolveAsync` waits for that
+answer itself.
 
-`ResetSettingsOnNewFile.ResetDeinterlace` is the fix, on by default beside Trim and Crop - the
+What it costs is the way past a container that lies about its own scan type. A file flagged
+progressive is believed rather than scanned - see below - and forcing an engine by name was how that
+was overruled, which cannot be done through a row that is not there. The Deinterlace Video utility
+takes no notice of any of this and deinterlaces what it is given, so that is where a mis-flagged
+file goes.
+
+**An engine picked by name must not outlive the file it was picked for.** What made that a trap was
+that the mode was sticky and nothing cleared it: it was saved per tab and restored at startup, so a
+QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a full pass over the
+video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that - a progressive 1080p
+WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields, with nothing wrong anywhere
+in the detection, which had read it correctly and said so on screen. Hiding the row is what closes
+that case for good; the resets below still matter for the file the row *is* shown for.
+
+`ResetSettingsOnNewFile.ResetDeinterlace` is the other half, on by default beside Trim and Crop - the
 three whose value describes the file that was just replaced rather than how the user likes to
-encode. `DeinterlaceUi.ResetModes` puts both tabs back to Automatic and touches neither the preset
+encode. `DeinterlaceUi.ResetModes` puts both tabs back to `DefaultMode` and touches neither the preset
 nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
 loaded the file: a batch clears each one with `resetSettings: false`, so a stack of tapes keeps the
 engine picked for it.
 
 The startup half of that trap is closed at the other end now - the AV1AN tab restores nothing across
-sessions at all, so its mode is Automatic on every launch whatever was picked last time. Quick
+sessions at all, so its mode is the default on every launch whatever was picked last time. Quick
 Convert's is still saved, and still relies on this reset, because deinterlacing there is one filter
 in a chain rather than a pass of its own.
+
+The default is stated in exactly two places and nowhere else: `DeinterlaceUi.DefaultMode` for the
+engine, `Qtgmc.DefaultPreset` for the preset. The second is not only a default - it is also the
+fallback for an empty preset box and, through `Qtgmc.NeedsNoisePlugins`, the thing that decides which
+plugin set has to be present, since Very Slow is one of the two presets that turn QTGMC's noise
+processing on and pull in `fft3dfilter`. Moving it moves what the probe and the release check verify.
 
 A default added to that list has to reach the configs that already exist, and defaulting on a first
 run does not - a setting added after a list was written is missing from that list in exactly the way
@@ -608,6 +630,11 @@ QTGMC. Automatic's whole job is to be the setting nobody thinks about, and start
 hours-long pass and a tens-of-gigabytes intermediate is not that. The expensive engine is the
 one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said, through the
 same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
+
+That is a statement about Automatic, not about what the tab opens on, and the two have come apart:
+the default is QTGMC now, so an interlaced file loaded on the AV1AN tab gets the expensive pass
+unless someone changes the row. Automatic is still the mode a hidden row reports, which is what
+keeps a progressive file clear of it - and still bwdif when a person picks it deliberately.
 
 Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order, and the Quick Convert box saves
 its index - so entries may be appended to that list but not reordered. The AV1AN box saved the
