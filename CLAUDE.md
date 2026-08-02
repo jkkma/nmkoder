@@ -314,6 +314,27 @@ encode logs it too. The case that made this worth doing is a target the source a
 resize is a no-op, no filter runs at all, and the readout used to answer "already this size, so it
 is left alone", which is true of the pixels and wrong about the picture.
 
+That clause is no longer quite first. **A frame ffmpeg will not scale to at all comes before it**,
+because a run that cannot start has no shape to be wrong about. `ResizeConfig.MaxFramePixels` is
+where the line sits and `ExceedsFrameLimit` is what asks; the note leads with it and `Av1an.Run`
+refuses the encode rather than letting av1an discover it one chunk at a time as "Picture size WxH
+is invalid", which names neither the resize that asked for it nor the box to change. Two settings
+reach it from the dialog without going anywhere strange: both target boxes at their own maximum is
+16384x16384, and 800% - also that box's maximum - of a 4K source is 30720x17280.
+
+The limit is measured, and ffmpeg's own boundary is not a clean one: 4096x64000 is refused at
+262.1 MP while 16384x16128 is accepted at 264.2 MP, so where it falls depends on the frame's shape
+as well as its area. 260 MP sits under the whole overlap. Nothing legitimate is near it - 8K UHD is
+33 MP, 16K is 133, and SVT-AV1 stops at 16384x8704 - so being under the line is not a promise the
+size will encode, only that ffmpeg will produce it. The encoders have their own much lower ceilings
+and say so clearly when they are hit; this one is caught here because it does not.
+
+The geometry either side of that was checked by running it rather than by reading it: 31 source
+shapes, 8 of them anamorphic, against 36 resize settings, with each case's predicted size compared
+against what ffmpeg actually made of the same filter chain. 1049 chains, no mismatches - and the
+same again through `ResolveFrameAsync` on real files carrying real SAR flags, which is the path
+that also covers the de-squeeze with no resize configured and the mod-2 pad on an odd source.
+
 **av1an fails a chunk whose frame count is not the one it expected**, retries it to `--max-tries`,
 then shuts the worker down and with it the run. A frame rate change is that mismatch by
 construction and on every chunk - writing a different number of frames than came in is the whole
