@@ -384,28 +384,34 @@ needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual he
 
 ## Deinterlacing
 
-**Both encode tabs hide the Deinterlace row until the loaded file is known to be interlaced**, and
-the setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore arrives with
-the best deinterlacer there is already selected, and nothing else ever shows the control at all -
-`DeinterlaceUi.IsRowRelevant` is the one question both halves of that are asked, and it is false for
-no file, for a progressive one, and for a file whose scan type has not been measured yet.
-`AnalyzeInBackground` calls `RefreshInfo` when the verdict lands, so the row appears a moment after
-loading on the files that need it.
+**Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the
+setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore arrives with the
+best deinterlacer there is already selected, and a modern download never shows the control at all.
 
-**Those two changes are only safe together, and `ModeInEffect` is the join.** An engine picked by
-name deinterlaces whatever it is handed - `Deinterlace.ResolveAsync` consults the scan verdict only
-for Automatic - so a default of QTGMC behind a hidden row would have put an hours-long pass on every
-progressive file with nothing on screen to explain it. So while the row is hidden both tabs report
-**Automatic** whatever their box says, and Automatic is the one mode that is safe without knowing
-anything: it asks the verdict, does nothing to progressive video, and still cleans up a file whose
-scan type had not been measured when the encode started, because `ResolveAsync` waits for that
-answer itself.
+`DeinterlaceUi.IsRowRelevant` decides which a file is, and it is true for two different reasons. One
+is the obvious one: the verdict says interlaced. The other is that the file's fields were actually
+**measured** - `Scanned`, which `InterlaceDetect` only sets for a file whose container says nothing
+about its scan type - and there the row appears whatever the measurement concluded. That second
+clause is the escape hatch: the counters are the part of the verdict that can be wrong, and a capture
+that scored just under the line is exactly where a person can see combing that the scan missed. It
+does **not** cover a container that lies outright, because a file flagged progressive is believed
+rather than measured and never reaches the scan - that one still goes to the Deinterlace Video
+utility, which deinterlaces whatever it is given.
 
-What it costs is the way past a container that lies about its own scan type. A file flagged
-progressive is believed rather than scanned - see below - and forcing an engine by name was how that
-was overruled, which cannot be done through a row that is not there. The Deinterlace Video utility
-takes no notice of any of this and deinterlaces what it is given, so that is where a mis-flagged
-file goes.
+**Showing the row is not arming it, and two separate things see to that.** An engine picked by name
+deinterlaces whatever it is handed - `Deinterlace.ResolveAsync` consults the verdict only for
+Automatic - so a QTGMC default reaching a progressive file would start an hours-long pass on it.
+`ApplyScanVerdict` puts the mode on Automatic for anything not called interlaced, so a row that
+appears over progressive video appears switched off, reading "this file is progressive, so nothing
+will be deinterlaced" until somebody picks an engine in it. And `ModeInEffect` reports Automatic
+whenever the row is off screen entirely, whatever the box behind it says - which covers the gap
+between a file being loaded and its scan landing, since Automatic is the one mode that is safe
+without knowing anything: `ResolveAsync` waits for the verdict itself.
+
+`ApplyScanVerdict` runs where the verdict is *measured* rather than every time a file is looked at.
+That is deliberate - it is the same moment the row first appears, so there is no selection of the
+user's to overwrite, and re-selecting an already-scanned file in the list therefore keeps an engine
+picked by hand.
 
 **An engine picked by name must not outlive the file it was picked for.** What made that a trap was
 that the mode was sticky and nothing cleared it: it was saved per tab and restored at startup, so a
@@ -632,9 +638,10 @@ one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said
 same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
 
 That is a statement about Automatic, not about what the tab opens on, and the two have come apart:
-the default is QTGMC now, so an interlaced file loaded on the AV1AN tab gets the expensive pass
-unless someone changes the row. Automatic is still the mode a hidden row reports, which is what
-keeps a progressive file clear of it - and still bwdif when a person picks it deliberately.
+the default is QTGMC now, so a file *measured as interlaced* on the AV1AN tab gets the expensive pass
+unless someone changes the row. Nothing weaker than that selects it - a scan that says progressive
+lands on Automatic, and so does a hidden row - and Automatic is still bwdif when a person picks it
+deliberately.
 
 Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order, and the Quick Convert box saves
 its index - so entries may be appended to that list but not reordered. The AV1AN box saved the

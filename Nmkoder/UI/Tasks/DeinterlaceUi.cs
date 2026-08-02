@@ -15,21 +15,24 @@ namespace Nmkoder.UI.Tasks
     /// <summary>
     /// The Deinterlace controls, which both encode tabs carry.
     /// <para/>
-    /// The row is hidden until the loaded file is known to be interlaced, and the setting defaults to
-    /// QTGMC at Very Slow - so a tape capture gets the best deinterlacer there is without anyone having
-    /// had to know to ask, and everything else never sees the control at all. Those two go together and
-    /// neither is safe alone: a default of QTGMC is an engine picked *by name*, which
-    /// <see cref="Media.Deinterlace.ResolveAsync"/> runs over whatever it is handed without consulting
-    /// the scan verdict, so behind a hidden row it would have put an hours-long pass on every
-    /// progressive file with no control on screen to explain it. <see cref="IsRowRelevant"/> is what
-    /// stops that: while the row is hidden both tabs report Automatic, whatever the box behind it says,
-    /// and Automatic is the mode that does nothing to progressive video.
+    /// The row is hidden for a file with no fields worth discussing, and the setting behind it defaults
+    /// to QTGMC at Very Slow - so a tape capture gets the best deinterlacer there is without anyone
+    /// having had to know to ask, and a file that plainly says it is progressive never shows the
+    /// control at all. <see cref="IsRowRelevant"/> decides which of those a file is, and it shows the
+    /// row for anything whose fields were actually measured as well as for anything called interlaced,
+    /// so a verdict a person can see is wrong is one they can still act on.
     /// <para/>
-    /// What it costs is the way past a container that lies about its own scan type. A file flagged
-    /// progressive is believed rather than scanned, and forcing an engine by name was how that was
-    /// overruled - which cannot be done through a row that is not there. The Deinterlace Video utility
-    /// takes no notice of any of this and deinterlaces what it is given, so that is where a
-    /// mis-flagged file goes.
+    /// Two things keep that from arming an expensive filter on video that does not need it, because a
+    /// default of QTGMC is an engine picked *by name* and <see cref="Media.Deinterlace.ResolveAsync"/>
+    /// runs one of those over whatever it is handed without consulting the verdict.
+    /// <see cref="ApplyScanVerdict"/> puts the mode on Automatic for any file not called interlaced, so
+    /// a row that appears over progressive video appears switched off; and <see cref="ModeInEffect"/>
+    /// reports Automatic whenever the row is not on screen at all, whatever the box behind it says.
+    /// <para/>
+    /// What none of it covers is a container that lies outright. A file flagged progressive is believed
+    /// rather than scanned, so it never reaches the measurement that would show the row, and forcing an
+    /// engine by name was how that used to be overruled. The Deinterlace Video utility takes no notice
+    /// of any of this and deinterlaces what it is given, so that is where such a file goes.
     /// <para/>
     /// Both tabs offer the same five engines, and they get there differently. Quick Convert runs QTGMC
     /// inline, ffmpeg reading its frames from a VapourSynth pipe; the AV1AN tab cannot do that - av1an
@@ -69,11 +72,12 @@ namespace Nmkoder.UI.Tasks
         /// with different requirements still gets asked about. </summary>
         private static readonly HashSet<string> probed = new HashSet<string>();
 
-        /// <summary> The engine both tabs open on, and go back to whenever the file changes. QTGMC
-        /// because the row is only ever shown for a file that really is interlaced, and on one of those
-        /// the motion-compensated deinterlacer is the right answer often enough to be the one nobody
-        /// has to go and pick. It is not the cheap answer: on the AV1AN tab it is a whole extra pass
-        /// into a near-lossless intermediate before av1an starts. </summary>
+        /// <summary> The engine both tabs take for a file that is interlaced - what they open on, what
+        /// Reset On New File goes back to, and what <see cref="ApplyScanVerdict"/> selects. QTGMC
+        /// because on a genuinely interlaced source the motion-compensated deinterlacer is the right
+        /// answer often enough to be the one nobody has to go and pick. It is not the cheap answer: on
+        /// the AV1AN tab it is a whole extra pass into a near-lossless intermediate before av1an
+        /// starts, which is why nothing but a measured "interlaced" selects it. </summary>
         public const DeinterlaceMode DefaultMode = DeinterlaceMode.Qtgmc;
 
         public static void Init()
@@ -108,15 +112,56 @@ namespace Nmkoder.UI.Tasks
         /// Whether the loaded file is one the Deinterlace row has anything to say about - which is the
         /// question behind both the row's visibility and what the two tabs report while it is hidden.
         /// <para/>
-        /// False for no file, for a progressive one, and for a file whose scan type is not settled yet:
-        /// the container flag is free but a file carrying none has to have a few hundred frames decoded
-        /// before anything is known, and until that lands there is nothing to show a control for.
-        /// <see cref="AnalyzeInBackground"/> calls <see cref="RefreshInfo"/> when the answer arrives, so
-        /// the row appears a moment later on the files that turn out to need it.
+        /// Two things make it true, and the second is there to leave a way to disagree. A file the
+        /// verdict calls interlaced obviously needs the row. A file whose fields were actually
+        /// *measured* gets it too, whatever the measurement said, because that measurement is the part
+        /// of the verdict that can be wrong: <see cref="InterlaceDetect"/> only decodes frames for a
+        /// file whose container says nothing about its scan type, and a capture that scored just under
+        /// the line is exactly the case where a person can see combing the counters missed.
+        /// <para/>
+        /// The row being *there* is not the row being armed - see <see cref="ApplyScanVerdict"/>, which
+        /// puts the mode on Automatic for anything not called interlaced, so a scanned-progressive file
+        /// shows a control that is doing nothing until somebody picks an engine in it.
+        /// <para/>
+        /// False for no file, for a file whose scan type is not settled yet - until that lands there is
+        /// nothing to show a control for, and <see cref="AnalyzeInBackground"/> calls
+        /// <see cref="RefreshInfo"/> when it does - and for a container that states progressive, which
+        /// is believed rather than measured and so never reaches the scan at all. That last one is the
+        /// case this does not cover: a container that lies outright still has to go to the Deinterlace
+        /// Video utility, which deinterlaces whatever it is given.
         /// </summary>
         public static bool IsRowRelevant(MediaFile file)
         {
-            return file != null && file.VideoStreams.Count > 0 && file.Interlacing != null && file.Interlacing.Interlaced;
+            if (file == null || file.VideoStreams.Count < 1 || file.Interlacing == null)
+                return false;
+
+            return file.Interlacing.Interlaced || file.Interlacing.Scanned;
+        }
+
+        /// <summary>
+        /// Points both tabs at the engine a freshly measured file wants: <see cref="DefaultMode"/> when
+        /// it is interlaced, Automatic when it is not.
+        /// <para/>
+        /// This is what keeps the widened row above from arming QTGMC on progressive video. A scan runs
+        /// on any file whose container says nothing, most of which are progressive, and the row appears
+        /// for all of them - so if the box still read QTGMC there, every one of those would get a
+        /// forced deinterlace, which is the thing hiding the row was supposed to prevent.
+        /// <para/>
+        /// Called only where the verdict was just measured, which is also the moment the row first
+        /// appears, so there is no selection of the user's to overwrite: they could not have touched a
+        /// control that was not on screen. Re-selecting a file already scanned does not come back
+        /// through here, so a mode picked by hand survives a trip round the file list.
+        /// </summary>
+        public static void ApplyScanVerdict(MediaFile file)
+        {
+            int mode = Array.IndexOf(AllModes, IsInterlaced(file) ? DefaultMode : DeinterlaceMode.Automatic);
+            Form.EncDeintModeBox.SelectedIndex = mode;
+            Form.Av1anDeintModeBox.SelectedIndex = mode;
+        }
+
+        private static bool IsInterlaced(MediaFile file)
+        {
+            return file?.Interlacing != null && file.Interlacing.Interlaced;
         }
 
         public static string GetLabel(DeinterlaceMode mode)
@@ -265,10 +310,14 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Works out whether the loaded file is interlaced and updates the readouts with the answer.
-        /// Off the UI thread because a file whose container says nothing about its scan type has to
-        /// have a few hundred frames decoded before anything is known, and loading a file should not
-        /// wait on that.
+        /// Works out whether the loaded file is interlaced, then points the row at the right engine and
+        /// updates the readouts with the answer. Off the UI thread because a file whose container says
+        /// nothing about its scan type has to have a few hundred frames decoded before anything is
+        /// known, and loading a file should not wait on that.
+        /// <para/>
+        /// A file that has been through this before takes the early exit and keeps whatever mode is
+        /// selected: the verdict is applied where it is *measured*, not every time a file is looked at,
+        /// which is what stops a trip round the file list undoing an engine picked by hand.
         /// </summary>
         public static void AnalyzeInBackground(MediaFile file)
         {
@@ -283,11 +332,15 @@ namespace Nmkoder.UI.Tasks
                 await InterlaceDetect.GetAsync(file);
 
                 // Only if it is still the file on screen: loading two files in quick succession would
-                // otherwise leave the first one's verdict describing the second.
+                // otherwise leave the first one's verdict describing the second - and would point the
+                // row at an engine chosen for a file nobody is looking at any more.
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (TrackList.current?.File == file)
-                        RefreshInfo();
+                    if (TrackList.current?.File != file)
+                        return;
+
+                    ApplyScanVerdict(file);
+                    RefreshInfo(); // Setting the mode raises this too; called plainly for the case where it does not change
                 });
             });
         }
