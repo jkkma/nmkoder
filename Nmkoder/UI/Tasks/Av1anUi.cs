@@ -517,6 +517,14 @@ namespace Nmkoder.UI.Tasks
 
             Logger.Log($"Resizing {source} to {result.Width}x{result.Height} ({AspectRatio.Describe(result.Width, result.Height)}).");
 
+            // The box presets enlarge a source smaller than their target, so this is reachable without
+            // anyone having opened the resize dialog - and in a batch of mixed resolutions it is the
+            // small files it happens to, one at a time, where the tab's readout only ever described the
+            // file that was loaded. Said rather than prevented: the size asked for is the size delivered.
+            if (CurrentResize.IsUpscale(frame.ScaleInput, frame.Sar))
+                Logger.Log($"Note: that is larger than the source, so this encode is upscaling. It invents no " +
+                    $"detail and the softness it produces costs bitrate - pick a smaller target if that was not the intent.");
+
             // Not clamped to, only mentioned: silently growing a frame to something the user did not ask
             // for is worse than an encoder saying no. SVT-AV1 refuses anything under 64 in either
             // direction, x265 anything under 16; the other encoders take whatever they are given.
@@ -709,7 +717,10 @@ namespace Nmkoder.UI.Tasks
 
             try
             {
-                CurrentResize = JsonConvert.DeserializeObject<ResizeConfig>(json) ?? new ResizeConfig();
+                // Through Restore rather than straight out of the JSON: a saved preset is restored from
+                // its key, so it means what this build says it means rather than what it meant when it
+                // was picked. See ResizePresets.Restore.
+                CurrentResize = ResizePresets.Restore(JsonConvert.DeserializeObject<ResizeConfig>(json));
             }
             catch (Exception e)
             {

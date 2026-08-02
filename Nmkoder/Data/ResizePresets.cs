@@ -36,22 +36,41 @@ namespace Nmkoder.Data
     /// entry rather than working out four different pairs of numbers. A user who really does want the
     /// height forced - scope content at a full 1080 lines, so 2582x1080 - says so in the dialog, which
     /// is the mode the box entries deliberately are not.
+    /// <para/>
+    /// The box entries enlarge a source smaller than the target rather than clamping at its own size, so
+    /// "2160p (4K)" means 3840x2160 for a 1080p file. Naming a target and being handed the source back is
+    /// the more surprising of the two behaviours, and the readout and the encode log both say when a
+    /// picture is being grown - what upscaling costs is worth stating, not worth refusing on someone's
+    /// behalf. The cost is real: enlarging invents no detail and spends bitrate keeping the softness it
+    /// produces, and the usual good reason to do it anyway is a platform whose bitrate ladder pays more
+    /// for a larger frame. It also means a preset left set across a batch of mixed-resolution files
+    /// enlarges the small ones, which is what the per-file log line is there to make visible.
+    /// <para/>
+    /// The percentage entries below take no part in this - they are proportions of whatever the source
+    /// is, and all three shrink it. A percentage over 100 is somebody asking for an upscale outright,
+    /// which ResizeConfig honours without consulting the flag at all.
     /// </summary>
     public class ResizePresets
     {
         public const string CustomKey = "custom";
         public const string NoneKey = "none";
 
+        /// <summary> One "p" entry: a box to fit inside, which may enlarge the source. See the note on <see cref="All"/>. </summary>
+        private static ResizeConfig Box(int w, int h, string key)
+        {
+            return ResizeConfig.FitBox(w, h, key, allowUpscale: true);
+        }
+
         public static readonly List<ResizePreset> All = new List<ResizePreset>
         {
             new ResizePreset(NoneKey, "No resizing", () => new ResizeConfig()),
-            new ResizePreset("2160p", "2160p (4K)", () => ResizeConfig.FitBox(3840, 2160, "2160p")),
-            new ResizePreset("1440p", "1440p", () => ResizeConfig.FitBox(2560, 1440, "1440p")),
-            new ResizePreset("1080p", "1080p (Full HD)", () => ResizeConfig.FitBox(1920, 1080, "1080p")),
-            new ResizePreset("720p", "720p (HD)", () => ResizeConfig.FitBox(1280, 720, "720p")),
-            new ResizePreset("576p", "576p", () => ResizeConfig.FitBox(1024, 576, "576p")),
-            new ResizePreset("480p", "480p", () => ResizeConfig.FitBox(854, 480, "480p")),
-            new ResizePreset("360p", "360p", () => ResizeConfig.FitBox(640, 360, "360p")),
+            new ResizePreset("2160p", "2160p (4K)", () => Box(3840, 2160, "2160p")),
+            new ResizePreset("1440p", "1440p", () => Box(2560, 1440, "1440p")),
+            new ResizePreset("1080p", "1080p (Full HD)", () => Box(1920, 1080, "1080p")),
+            new ResizePreset("720p", "720p (HD)", () => Box(1280, 720, "720p")),
+            new ResizePreset("576p", "576p", () => Box(1024, 576, "576p")),
+            new ResizePreset("480p", "480p", () => Box(854, 480, "480p")),
+            new ResizePreset("360p", "360p", () => Box(640, 360, "360p")),
             new ResizePreset("75pc", "75% of the source", () => ResizeConfig.Proportion(75, "75pc")),
             new ResizePreset("50pc", "50% of the source", () => ResizeConfig.Proportion(50, "50pc")),
             new ResizePreset("25pc", "25% of the source", () => ResizeConfig.Proportion(25, "25pc")),
@@ -82,6 +101,35 @@ namespace Nmkoder.Data
         public static ResizePreset Get(int index)
         {
             return index >= 0 && index < All.Count ? All[index] : All.First();
+        }
+
+        /// <summary>
+        /// A saved resize as this build defines it: an entry from the list is rebuilt from its key, and
+        /// only a hand-configured one is restored field by field.
+        /// <para/>
+        /// The whole config is serialised, so without this a preset means whatever it meant on the day it
+        /// was picked. That is the same shape of bug as a default that only applies on a first run: the
+        /// upscaling the box entries now do would have reached nobody who already had one selected, and
+        /// their 2160p would have gone on quietly handing back a 1080p source - the exact behaviour the
+        /// change is undoing - with nothing on screen to say why it differed from a new install's.
+        /// <para/>
+        /// Safe because a preset's fields are not editable: the Configure… button only appears for the
+        /// Custom entry, and the dialog stamps <see cref="CustomKey"/> on whatever comes out of it. So
+        /// there is nothing of the user's to overwrite here, and the definition in this file is the only
+        /// place a box target is stated.
+        /// </summary>
+        public static ResizeConfig Restore(ResizeConfig saved)
+        {
+            if (saved == null)
+                return new ResizeConfig();
+
+            string key = saved.PresetKey ?? "";
+
+            if (key == CustomKey || key.Length < 1)
+                return saved;
+
+            ResizePreset preset = All.FirstOrDefault(p => p.Key == key);
+            return preset == null ? saved : preset.Build();
         }
 
         /// <summary>

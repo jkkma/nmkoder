@@ -303,6 +303,28 @@ automatic one costs those ten probes, and there is nowhere here to spend them on
 worked out from a size that is not the real one is the thing being fixed, so guessing is worse
 than abstaining.
 
+**The dropdown's box presets enlarge a source smaller than their target**, so "2160p (4K)" means
+3840x2160 for a 1080p file rather than handing the file back unchanged. `ResizePresets.Box` is where
+that is set, on the `AllowUpscale` flag a hand-built `ResizeConfig` still defaults to off. What it
+costs is said rather than refused: the readout carries the clause, and `Av1anUi.LogResize` repeats it
+per file, which is the only place a batch of mixed resolutions shows which files were grown. The
+percentage entries take no part in it - they are proportions, and a percentage over 100 was always an
+upscale asked for outright.
+
+That combination is what made `GetNote` return two clauses rather than one. A de-squeezed DVD scaled
+up to 1080p is being un-squashed *and* enlarged, with neither implying the other, and the de-squeeze
+clause sits above the upscale one - so before this the readout stated the shape and said nothing
+about the cost. Nothing else in that list pairs up: every other clause answers "what is happening to
+the frame", where being enlarged is a price.
+
+**A saved preset is restored from its key, not from its saved fields.** The whole `ResizeConfig` is
+serialised, so `ResizePresets.Restore` rebuilds any entry the list still has and only lets a
+hand-configured one through field by field. Without it a preset means whatever it meant on the day it
+was picked: the upscaling above would have reached nobody who already had 2160p selected, which is
+the same shape of bug as a default that only applies on a first run. It is safe because a preset's
+fields are not editable - the Configure… button appears only for Custom, and the dialog stamps the
+custom key on whatever comes out of it - so there is nothing of the user's to overwrite.
+
 **The resize dialog's anamorphic switch is warned about rather than overridden.** Off, the targets
 measure the stored pixels and nothing bakes the display shape in - and there is nowhere else for it
 to live, since av1an hands its encoders bare frames and a chain ending in `setsar=1:1` drops the
