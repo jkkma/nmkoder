@@ -11,6 +11,7 @@ namespace Nmkoder.UI
         public static bool ResetFpsResample { get; set; }
         public static bool ResetResize { get; set; }
         public static bool ResetCrop { get; set; }
+        public static bool ResetDeinterlace { get; set; }
         public static bool ResetCustomInArgs { get; set; }
         public static bool ResetCustomOutArgs { get; set; }
         public static bool ResetCustomFilters { get; set; }
@@ -24,6 +25,7 @@ namespace Nmkoder.UI
                 d.Add(nameof(ResetFpsResample), "Frame Rate");
                 d.Add(nameof(ResetResize), "Resize");
                 d.Add(nameof(ResetCrop), "Crop");
+                d.Add(nameof(ResetDeinterlace), "Deinterlace");
                 d.Add(nameof(ResetCustomInArgs), "Custom Input Args");
                 d.Add(nameof(ResetCustomOutArgs), "Custom Output Args");
                 d.Add(nameof(ResetCustomFilters), "Custom Filters");
@@ -37,6 +39,7 @@ namespace Nmkoder.UI
             ResetFpsResample = false;
             ResetResize = false;
             ResetCrop = false;
+            ResetDeinterlace = false;
             ResetCustomInArgs = false;
             ResetCustomOutArgs = false;
             ResetCustomFilters = false;
@@ -50,6 +53,7 @@ namespace Nmkoder.UI
             if (ResetFpsResample) list.Add(NiceNames[nameof(ResetFpsResample)]);
             if (ResetResize) list.Add(NiceNames[nameof(ResetResize)]);
             if (ResetCrop) list.Add(NiceNames[nameof(ResetCrop)]);
+            if (ResetDeinterlace) list.Add(NiceNames[nameof(ResetDeinterlace)]);
             if (ResetCustomInArgs) list.Add(NiceNames[nameof(ResetCustomInArgs)]);
             if (ResetCustomOutArgs) list.Add(NiceNames[nameof(ResetCustomOutArgs)]);
             if (ResetCustomFilters) list.Add(NiceNames[nameof(ResetCustomFilters)]);
@@ -80,35 +84,52 @@ namespace Nmkoder.UI
             Config.Set(Config.Key.ResetSettingsList, string.Join(",", list));
         }
 
+        /// <summary> The ones that start out on. Every other setting here starts off: these three are
+        /// the ones whose value is about the file that was just replaced rather than about how the
+        /// user likes to encode, so carrying them to the next file is always wrong. </summary>
+        private static readonly string[] onByDefault = { nameof(ResetTrim), nameof(ResetCrop), nameof(ResetDeinterlace) };
+
+        /// <summary>
+        /// Restores the list, defaulting anything it does not name.
+        /// <para/>
+        /// Which is a first run and an older list alike, and deliberately does not distinguish them: a
+        /// setting added after a list was written is missing from that list in exactly the way it is
+        /// missing on a first run, so defaulting only on a first run is how a new default reaches
+        /// nobody who already has the app - everyone it was written for included. A setting the user
+        /// turned off is saved as False, which names it, which is what keeps it off.
+        /// </summary>
         public static void Load()
         {
-            bool firstRun = !Config.cachedValues.ContainsKey(Config.Key.ResetSettingsList.ToString());
+            // Asked before reading, as ConfigParser's own Restore helpers do: the Get helpers write a
+            // default for any key that is missing, so reading first would create the entry either way.
+            string data = Config.cachedValues.ContainsKey(Config.Key.ResetSettingsList.ToString())
+                ? Config.Get(Config.Key.ResetSettingsList) : "";
+            HashSet<string> named = new HashSet<string>();
 
-            if (firstRun) // Set default values here if none are saved yet
-            {
-                ResetTrim = true;
-                ResetCrop = true;
-                Save();
-            }
-
-            string data = Config.Get(Config.Key.ResetSettingsList);
-
-            if (string.IsNullOrWhiteSpace(data))
-                return;
-
-            foreach (string prop in data.Split(','))
+            foreach (string prop in data.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
                 try
                 {
                     string propName = prop.Split('=')[0];
                     bool propVal = bool.Parse(prop.Split('=')[1]);
                     typeof(ResetSettingsOnNewFile).GetProperty(propName).SetValue(null, propVal);
+                    named.Add(propName);
                 }
                 catch (Exception ex)
                 {
                     Logger.Log($"Failed to set saved ResetSettingsOnNewFile property: {ex.Message}", true);
                 }
             }
+
+            string[] missing = onByDefault.Where(x => !named.Contains(x)).ToArray();
+
+            foreach (string propName in missing)
+                typeof(ResetSettingsOnNewFile).GetProperty(propName).SetValue(null, true);
+
+            // Written straight back, so the list on disk names every setting there is and this
+            // defaults each of them exactly once - turning one off again then sticks.
+            if (missing.Length > 0)
+                Save();
         }
     }
 }

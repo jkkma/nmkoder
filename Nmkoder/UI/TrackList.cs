@@ -81,6 +81,24 @@ namespace Nmkoder.UI
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetTrim)]);
             }
 
+            if (resetAll || ResetSettingsOnNewFile.ResetDeinterlace)
+            {
+                // An engine picked by name deinterlaces whatever it is handed, progressive or not.
+                // That is the point of picking one - it is the only way past a container flag that
+                // lies about its own scan type, which is a thing tape captures do and which nothing
+                // here checks for, because checking would put a frame scan in front of loading every
+                // modern video. What it must not do is outlive the file it was picked for: on the
+                // AV1AN tab QTGMC is a full pass over the video into a near-lossless intermediate
+                // before av1an starts, so a mode left over from a tape spends hours and tens of
+                // gigabytes on the next file loaded, and 47.952 fps of interpolated fields is what
+                // comes out. Automatic reads the source and leaves a progressive one alone.
+                //
+                // Only where a *user* loaded the file. A batch clears each file with
+                // resetSettings: false, so a stack of tapes keeps the engine picked for it.
+                DeinterlaceUi.ResetModes();
+                clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetDeinterlace)]);
+            }
+
             if (resetAll || ResetSettingsOnNewFile.ResetResize)
             {
                 f.EncScaleBoxW.Text = f.EncScaleBoxH.Text = "";

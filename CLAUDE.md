@@ -351,6 +351,30 @@ all unless the source really is interlaced. That default is the point: a Hi8 or 
 comes out deinterlaced without anyone having had to know to ask, and a modern download is
 left alone.
 
+**An engine picked by name deinterlaces whatever it is handed, and must not outlive the file it
+was picked for.** Forcing is the point of naming one - `Deinterlace.ResolveAsync` consults the
+scan verdict only for Automatic - and it is the only way past a container flag that lies about its
+own scan type, which is exactly what the section below declines to check for. What made that a
+trap was that the mode was sticky and nothing cleared it: it is saved per tab and restored at
+startup, so a QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a
+full pass over the video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that
+- a progressive 1080p WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields,
+with nothing wrong anywhere in the detection, which had read it correctly and said so on screen.
+
+`ResetSettingsOnNewFile.ResetDeinterlace` is the fix, on by default beside Trim and Crop - the
+three whose value describes the file that was just replaced rather than how the user likes to
+encode. `DeinterlaceUi.ResetModes` puts both tabs back to Automatic and touches neither the preset
+nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
+loaded the file: a batch clears each one with `resetSettings: false`, so a stack of tapes keeps the
+engine picked for it.
+
+A default added to that list has to reach the configs that already exist, and defaulting on a first
+run does not - a setting added after a list was written is missing from that list in exactly the way
+it is missing on a first run. `Load` therefore defaults **anything the saved list does not name**,
+which covers both, and a setting the user turned off is saved as `False`, which names it, which is
+what keeps it off. Adding one to `onByDefault` is the whole change; the old first-run-only branch
+would have shipped this fix to nobody who already had the app.
+
 **What decides "interlaced" is two things, in order.** The container's own field-order flag
 is free - ffprobe has already reported it by the time a file is loaded - and for the formats
 this matters most for it is not a guess: an MPEG-2 tape capture writes `tt` in its sequence

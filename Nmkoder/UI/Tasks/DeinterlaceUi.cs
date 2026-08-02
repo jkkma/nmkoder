@@ -100,6 +100,25 @@ namespace Nmkoder.UI.Tasks
                 Form.Av1anDeintModeBox.SelectedIndex = at;
         }
 
+        /// <summary>
+        /// Both tabs' modes back to Automatic, for Reset On New File.
+        /// <para/>
+        /// Only the mode. The preset and the field doubling say *how* to deinterlace, which is a
+        /// preference and survives the file it was set over; the mode says *whether* to, which is a
+        /// fact about a file that has just been replaced. Neither of the other two does anything
+        /// while the mode is Automatic on this tab anyway.
+        /// <para/>
+        /// The index is looked up rather than written as 0 because this list has been reordered once
+        /// already - see <see cref="RestoreAv1anMode"/> - and a literal here would have moved with it
+        /// in silence, resetting to whatever ended up first.
+        /// </summary>
+        public static void ResetModes()
+        {
+            int automatic = Array.IndexOf(AllModes, DeinterlaceMode.Automatic);
+            Form.EncDeintModeBox.SelectedIndex = automatic;
+            Form.Av1anDeintModeBox.SelectedIndex = automatic;
+        }
+
         public static string GetLabel(DeinterlaceMode mode)
         {
             switch (mode)
