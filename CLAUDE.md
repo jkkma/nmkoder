@@ -459,10 +459,26 @@ whenever the row is off screen entirely, whatever the box behind it says - which
 between a file being loaded and its scan landing, since Automatic is the one mode that is safe
 without knowing anything: `ResolveAsync` waits for the verdict itself.
 
-`ApplyScanVerdict` runs where the verdict is *measured* rather than every time a file is looked at.
-That is deliberate - it is the same moment the row first appears, so there is no selection of the
-user's to overwrite, and re-selecting an already-scanned file in the list therefore keeps an engine
-picked by hand.
+`ApplyScanVerdict` runs where the verdict is *measured* rather than every time a file is looked at,
+so re-selecting an already-scanned file in the list keeps an engine picked by hand.
+
+**Its two halves are not the same kind of thing, and 2.8.14 shipped them treated as one.** Demoting a
+file that is *not* interlaced to Automatic is a safety measure and happens whatever the settings say -
+Automatic does nothing to progressive video, so nothing is taken away by it. Selecting `DefaultMode`
+for a file that *is* interlaced is a preference, and it happens only where Reset On New File is set to
+clear the deinterlace mode. Treating that half as unconditional meant a user who had turned the reset
+off to keep bwdif for a queue of tapes had every file of it moved back to QTGMC - an hours-long pass
+each on the AV1AN tab, and the exact surprise the whole feature exists to prevent, arriving through a
+different door.
+
+**And the encode settles the verdict before it reads the box.** `AnalyzeInBackground` is
+fire-and-forget so that loading a file does not wait on a few hundred frames being decoded, but a
+batch starts each encode the moment its file is loaded - so in 2.8.14 the two raced, and which engine
+ran depended on who won: a file with a container flag answered fast enough for its verdict to land
+first, while one needing a real scan had its encode read the *previous* file's mode.
+`DeinterlaceUi.EnsureScanVerdictAsync` is what both `Av1an.Run` and `QuickConvert.Run` call first, and
+it costs one await of an answer they are about to wait for anyway - `Deinterlace.ResolveAsync` asks
+for the same verdict a moment later.
 
 **An engine picked by name must not outlive the file it was picked for.** What made that a trap was
 that the mode was sticky and nothing cleared it: it was saved per tab and restored at startup, so a
@@ -476,8 +492,11 @@ that case for good; the resets below still matter for the file the row *is* show
 three whose value describes the file that was just replaced rather than how the user likes to
 encode. `DeinterlaceUi.ResetModes` puts both tabs back to `DefaultMode` and touches neither the preset
 nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
-loaded the file: a batch clears each one with `resetSettings: false`, so a stack of tapes keeps the
-engine picked for it.
+loaded the file: a batch clears each one with `resetSettings: false`.
+
+That setting is also what `ApplyScanVerdict` reads before it selects an engine for an interlaced file,
+which is what makes turning it off mean something across a queue: a stack of tapes keeps the engine
+picked for it, where with it on each file gets the default the verdict asks for.
 
 The startup half of that trap is closed at the other end now - the AV1AN tab restores nothing across
 sessions at all, so its mode is the default on every launch whatever was picked last time. Quick

@@ -138,25 +138,62 @@ namespace Nmkoder.UI.Tasks
             return file.Interlacing.Interlaced || file.Interlacing.Scanned;
         }
 
+        /// <summary> The file both boxes were last pointed at by a verdict, so the same one is not
+        /// applied twice - the second time would be over a selection the user had made since. </summary>
+        private static MediaFile verdictAppliedTo;
+
         /// <summary>
-        /// Points both tabs at the engine a freshly measured file wants: <see cref="DefaultMode"/> when
-        /// it is interlaced, Automatic when it is not.
+        /// Points both tabs at the engine a freshly measured file wants, and does two different things
+        /// depending on which way the verdict went.
         /// <para/>
-        /// This is what keeps the widened row above from arming QTGMC on progressive video. A scan runs
-        /// on any file whose container says nothing, most of which are progressive, and the row appears
-        /// for all of them - so if the box still read QTGMC there, every one of those would get a
-        /// forced deinterlace, which is the thing hiding the row was supposed to prevent.
+        /// A file that is **not** interlaced goes to Automatic whatever the boxes said, and that half is
+        /// not optional. A scan runs on any file whose container says nothing, most of which are
+        /// progressive, and the row appears for all of them - so a box still reading QTGMC there would
+        /// force a deinterlace on progressive video, which is the thing hiding the row exists to
+        /// prevent. Automatic does nothing to it, so nothing is taken away by demoting to it.
         /// <para/>
-        /// Called only where the verdict was just measured, which is also the moment the row first
-        /// appears, so there is no selection of the user's to overwrite: they could not have touched a
-        /// control that was not on screen. Re-selecting a file already scanned does not come back
-        /// through here, so a mode picked by hand survives a trip round the file list.
+        /// A file that **is** interlaced gets <see cref="DefaultMode"/> only where Reset On New File is
+        /// set to clear the deinterlace mode - which is on by default. That half is a preference, not a
+        /// safety measure, and treating it as one is what shipped in 2.8.14: a user who had turned that
+        /// reset off to keep bwdif for a queue of tapes had every file of it moved back to QTGMC, which
+        /// on the AV1AN tab is an hours-long pass each. With the reset off, an engine picked by hand now
+        /// survives the next file, which is what turning it off means.
         /// </summary>
         public static void ApplyScanVerdict(MediaFile file)
         {
+            verdictAppliedTo = file;
+
+            // Nothing to say about a file with no verdict yet - EnsureScanVerdictAsync waits for one.
+            if (file?.Interlacing == null)
+                return;
+
+            if (IsInterlaced(file) && !ResetSettingsOnNewFile.ResetDeinterlace)
+                return;
+
             int mode = Array.IndexOf(AllModes, IsInterlaced(file) ? DefaultMode : DeinterlaceMode.Automatic);
             Form.EncDeintModeBox.SelectedIndex = mode;
             Form.Av1anDeintModeBox.SelectedIndex = mode;
+        }
+
+        /// <summary>
+        /// Settles the scan verdict and points the boxes at it, for a caller that is about to read them.
+        /// <para/>
+        /// <see cref="AnalyzeInBackground"/> is deliberately fire-and-forget, so that loading a file does
+        /// not wait on a few hundred frames being decoded - but a batch starts each encode the moment the
+        /// file is loaded, and 2.8.14 shipped the two racing. Whichever landed first decided the engine:
+        /// a file with a container flag answered fast enough for its verdict to win, while one needing a
+        /// real scan had its encode read the *previous* file's mode. Asking here costs one await of an
+        /// answer the run is about to wait for anyway, since <see cref="Media.Deinterlace.ResolveAsync"/>
+        /// waits for the same verdict a moment later.
+        /// </summary>
+        public static async Task EnsureScanVerdictAsync(MediaFile file)
+        {
+            if (file == null || file.VideoStreams.Count < 1 || verdictAppliedTo == file)
+                return;
+
+            await InterlaceDetect.GetAsync(file, quiet: true);
+            ApplyScanVerdict(file);
+            RefreshInfo();
         }
 
         private static bool IsInterlaced(MediaFile file)

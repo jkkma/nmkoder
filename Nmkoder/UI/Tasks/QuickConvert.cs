@@ -254,6 +254,10 @@ namespace Nmkoder.UI.Tasks
             if (file == null)
                 return;
 
+            // The verdict first, for the reason the AV1AN tab settles it here too: the request below is
+            // read out of the mode box, and the scan that points that box at this file runs in the
+            // background, so a batch would otherwise start the encode before it landed.
+            await DeinterlaceUi.EnsureScanVerdictAsync(file);
             DeinterlaceRequest req = DeinterlaceUi.GetQuickConvertRequest();
 
             // A trim and QTGMC cannot both apply to the same encode. The trim is ffmpeg's - an input

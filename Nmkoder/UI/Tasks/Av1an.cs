@@ -270,6 +270,11 @@ namespace Nmkoder.UI.Tasks
                     // What comes back decides which of two shapes the deinterlacing takes - a filter
                     // in av1an's own '-f' chain, or the separate pass RenderDeinterlacedInput runs -
                     // so it has to be settled before either is built.
+                    // The verdict first, because the request below is read out of the mode box and the
+                    // scan that points that box at this file runs in the background: a batch starts the
+                    // encode the moment the file is loaded, so without this the two race and a file
+                    // needing a real scan is encoded with the previous file's engine.
+                    await DeinterlaceUi.EnsureScanVerdictAsync(TrackList.current.File);
                     Av1anUi.CurrentDeinterlace = await Deinterlace.ResolveAsync(TrackList.current.File, DeinterlaceUi.GetAv1anRequest());
 
                     // One frame per field is asked for with QTGMC and is only safe with QTGMC, because

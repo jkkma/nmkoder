@@ -199,7 +199,12 @@ namespace Nmkoder.Views
         {
             _ready = false;
             CropLeft.Value = CropRight.Value = CropTop.Value = CropBot.Value = 0;
+            _reducedOnLoad = false;
             _ready = true;
+            // The maximums move with the values, or they stay where the cleared crop had pushed them:
+            // 1000 off the left caps the right at 918, and resetting left that cap in place over a
+            // frame with nothing cropped off it at all.
+            SetMaximums();
             UpdateResultLabel();
         }
 
