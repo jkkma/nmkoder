@@ -486,6 +486,17 @@ archives only - the binary comes from the rolling `latest` prerelease, which is 
 tag. Download that asset and read the strings out of it; the help text names the log default and
 `finished chunk` is right there beside it.
 
+**av1an's own log is put in the temp folder rather than left to that default.**
+`Av1an.GetLogFileArgs` names it, beside `--temp` and for the same reasons: the folder only exists once
+the run has one, and both flags sit ahead of the `-i` that `SaveJson` starts saving from, so a resume
+sets its own instead of writing into the previous attempt's. Left to av1an, the log went to
+`./logs/av1an.log` *relative to the working directory*, which is `bin/av1an` - so every encode dropped
+a dated file beside the binary, in a folder nothing here knew about and nothing ever cleared. In the
+temp folder it lives exactly as long as the run's other state: `HandleTempFolder` keeps that folder
+when the encode failed, which is when the log is worth reading. Nothing parses it, so the file name is
+not load-bearing - as well, since av1an appended its own `.log` to this value until 0.4.x and does not
+now.
+
 **Nothing under av1an's Scene Detection heading goes out for Split Method "None".** It is `-x` and
 nothing else there, so `--sc-downscale-height` named a resolution for a pass that never ran.
 `Av1anUi.SceneDetectionEnabled` is the one statement of which entry is which, and
