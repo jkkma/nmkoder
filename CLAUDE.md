@@ -504,6 +504,28 @@ nothing else there, so `--sc-downscale-height` named a resolution for a pass tha
 inert: av1an skips the downscale only when the height it is given is *above* the source's, so a zero
 reaches ffmpeg as `scale=-2:'min(0,ih)'` and is refused.
 
+**The Concat Method dropdown offers what the container box can actually produce, which is two
+entries.** av1an has a third, `ivf`, and it was on that list without ever being able to run: IVF is a
+bare video stream - no audio, no subtitles, and only VP8, VP9 or AV1 - while the container box offers
+MKV, WebM and MP4, so every pairing ended somewhere. MKV and WebM had `Av1an.Run` cancel the encode
+and name another method to pick; MP4 was the worse half, because `GetConcatMethodArgs` answers
+`-c ffmpeg` for it *before* it reads the dropdown at all, so IVF was quietly swapped out and nothing
+said so. Removed on the same grounds DGDecNV is absent from the chunk methods - an option that always
+failed. It was the last entry, so no saved index moved, and a config still carrying its 2 falls out of
+`LoadComboxIndex`'s range and lands on MKVMerge.
+
+That MP4 override says so now, the way the H.265 one already did: a setting picked and then overruled
+is one the log should name. And `GetConcatMethodName` falls back to the default for a box with nothing
+selected, where it used to hand back "" and put a bare `-c` on the command line - the chunk method and
+the chunk order both floor their index, and this was the one that did not.
+
+The other two settings on that tab were checked at the same time and are correct, which is worth
+recording so it is not re-derived: every entry of both was rendered headless and its argument compared
+against av1an's own `ChunkMethod` and `ChunkOrdering` names (the `strum` serializations in
+`av1an-core/src/lib.rs`, not the labels), and the saved index was confirmed to survive a restart. The
+chunk method box is filled from the enum, so its index *is* the value; both are carried into a resume,
+since all three sit after the `-i` that `SaveJson` starts saving from.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the

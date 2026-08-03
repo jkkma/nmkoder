@@ -966,13 +966,20 @@ namespace Nmkoder.UI.Tasks
 
         public static string GetConcatMethodArgs(CodecUtils.Av1anCodec vCodec)
         {
+            string chosen = GetConcatMethodName();
+
             // mkvmerge writes Matroska and nothing else. Pointed at an .mp4 it does not refuse - it
             // writes a Matroska file under that name - so MP4 goes out through ffmpeg whatever the
-            // dropdown says, rather than producing a file that lies about what it is.
+            // dropdown says, rather than producing a file that lies about what it is. Said out loud
+            // for the same reason the H.265 correction below is: a setting that was picked and then
+            // overruled is one the log should name, and this one used to happen in silence.
             if (IsMp4Output())
-                return "-c ffmpeg";
+            {
+                if (chosen != "ffmpeg")
+                    Logger.Log($"Note: MP4 can only be concatenated by ffmpeg, so that is being used rather than {chosen}.");
 
-            string chosen = GetConcatMethodName();
+                return "-c ffmpeg";
+            }
 
             // ffmpeg cannot join raw HEVC chunks back up, and av1an refuses the pairing outright rather
             // than discovering it at the end. Correcting the one setting beats failing the whole encode.
@@ -985,20 +992,16 @@ namespace Nmkoder.UI.Tasks
             return $"-c {chosen}";
         }
 
-        /// <summary> av1an's name for the selected concatenation method. </summary>
+        /// <summary>
+        /// av1an's name for the selected concatenation method, which the dropdown's entries are
+        /// spelled as. A box with nothing selected falls back to the default rather than to "":
+        /// the other two settings on this tab both floor their index, where an empty answer here
+        /// would put a bare '-c' on the command line and av1an refuses the whole command over it.
+        /// </summary>
         public static string GetConcatMethodName()
         {
-            return Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim();
-        }
-
-        /// <summary>
-        /// Whether the IVF concatenator is selected. IVF is a bare video stream - no audio, no
-        /// subtitles, and only VP8, VP9 or AV1 - so none of the containers on offer describes what it
-        /// would actually write.
-        /// </summary>
-        public static bool IsUsingIvfConcat()
-        {
-            return GetConcatMethodName() == "ivf";
+            string chosen = Form.Av1anOptsConcatModeBox.GetText().ToLower().Trim();
+            return chosen.IsEmpty() ? "mkvmerge" : chosen;
         }
 
         /// <summary> av1an's ChunkOrdering values, in the same order as the dropdown items. </summary>
