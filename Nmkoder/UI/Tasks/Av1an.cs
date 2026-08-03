@@ -301,9 +301,17 @@ namespace Nmkoder.UI.Tasks
 
                     if (ResizeConfig.ExceedsFrameLimit(frame.Encoded))
                     {
-                        RunTask.Cancel($"The resize asks for {frame.Encoded.Width}x{frame.Encoded.Height}, which is " +
+                        // Named by whichever setting asked for it. The bars are additive, so they can
+                        // be what carries a frame over on their own - a very tall source padded out to
+                        // an ultrawide ratio - and pointing at the resize dialog would then send the
+                        // user to a box that is not the one to change.
+                        string culprit = frame.Border.Runs
+                            ? "Pick a smaller resize target, or switch the borders off."
+                            : "Pick a smaller target in the resize dialog.";
+
+                        RunTask.Cancel($"The encode would be {frame.Encoded.Width}x{frame.Encoded.Height}, which is " +
                             $"{(double)frame.Encoded.Width * frame.Encoded.Height / 1_000_000d:0.#} megapixels - more than FFmpeg " +
-                            $"will scale to, so no frame would be written.\n\nPick a smaller target in the resize dialog.");
+                            $"will scale to, so no frame would be written.\n\n{culprit}");
                         return;
                     }
 

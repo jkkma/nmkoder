@@ -25,6 +25,10 @@ namespace Nmkoder.UI.Tasks
         public static CropConfig CurrentCrop;
         public static TrimSettings CurrentTrim;
 
+        /// <summary> The aspect ratio to pad out to with black bars, or an unset configuration for
+        /// none. Never null; the dropdown is the only thing that moves it. </summary>
+        public static BorderConfig CurrentBorders = new BorderConfig();
+
         /// <summary>
         /// The deinterlacing settled for the run whose arguments are being built. Resolved once in
         /// <see cref="QuickConvert.Run"/> rather than asked for again here: working it out can mean
@@ -62,6 +66,16 @@ namespace Nmkoder.UI.Tasks
             Form.FfmpegContainerBox.SetItems(Enum.GetNames<Containers.Container>().Select(c => (object)c.ToUpper()));
             ConfigParser.LoadComboxIndex(Form.FfmpegContainerBox);
 
+            // Filled once - the entries name a shape rather than a size, so a new file changes
+            // nothing in them; what this file comes out as is on the line underneath. The saved
+            // index is what is restored, so entries may be appended to BorderPresets.All but not
+            // reordered.
+            // Filled on "No borders" and left there. Anything saved is restored later, by
+            // LoadQuickConvertSettings with the rest of the persisted settings - through
+            // RestoreIndexIfSaved, which leaves this default standing for a config that predates the
+            // setting. Reading it here as well would create the key and defeat that.
+            Form.EncBordersBox.SetItems(BorderPresets.All.Select(p => (object)p.Name), 0);
+
             Form.EncAudConfModeBox.SelectedIndex = 0;
         }
 
@@ -83,10 +97,93 @@ namespace Nmkoder.UI.Tasks
             }
         }
 
+        /// <summary> Acts on the user picking an entry of the borders dropdown. </summary>
+        public static void BorderPresetSelected(int index)
+        {
+            if (index < 0)
+                return;
+
+            CurrentBorders = BorderPresets.Get(index).Build();
+            UpdateBordersReadout();
+        }
+
+        /// <summary>
+        /// The line under the borders dropdown: the frame the bars leave, the ratio that comes to,
+        /// and which bars they are. Rewritten whenever anything it describes moves - the file, the
+        /// crop, the resize boxes, the target itself - because every one of those changes the answer,
+        /// and the whole point of the line is that letterbox against pillarbox is visible before the
+        /// encode rather than after it.
+        /// </summary>
+        public static void UpdateBordersReadout()
+        {
+            Form.EncBordersInfoLabel.Text = GetBordersInfoText();
+        }
+
+        private static string GetBordersInfoText()
+        {
+            if (CurrentBorders == null || !CurrentBorders.IsSet)
+                return "The frame keeps whatever shape it has.";
+
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count < 1)
+                return "No video track - no bars will be added.";
+
+            if (vs == null)
+                return $"Padded out to {CurrentBorders.Label} - the bars are worked out per file when the encode starts.";
+
+            (Size scaled, Size sar) = ResolveScaledFrame(GetCroppedSourceSize(vs), vs.Sar);
+
+            if (scaled.IsEmpty)
+                return $"The Resize boxes are a percentage or an expression, so the frame the bars would go around " +
+                    $"is not known here - give them plain pixel sizes, or switch the borders off.";
+
+            BorderPad pad = CurrentBorders.Compute(scaled, sar);
+            string text;
+
+            if (!pad.Runs)
+            {
+                text = $"{scaled.Width}x{scaled.Height} · already {CurrentBorders.Label}, so no bars are added";
+            }
+            else if (ResizeConfig.ExceedsFrameLimit(pad.Frame))
+            {
+                return $"{pad.Frame.Width}x{pad.Frame.Height} · too large to encode - FFmpeg will not produce a frame of " +
+                    $"{(double)pad.Frame.Width * pad.Frame.Height / 1_000_000d:0.#} megapixels, so nothing would be written";
+            }
+            else
+            {
+                text = $"{pad.Frame.Width}x{pad.Frame.Height} · {AspectRatio.Describe(pad.Frame.Width, pad.Frame.Height)} · " +
+                    $"{pad.Describe()}, around an unscaled {scaled.Width}x{scaled.Height} picture";
+            }
+
+            // An automatic crop moves the ratio the bars are picked by, and measuring one means ten
+            // ffmpeg probes - far too slow for a line rewritten on every keystroke - so its bars are
+            // still in the frame above and this says so rather than naming a shape that will not be
+            // the one. A manual crop is applied, being four numbers already to hand.
+            if (Form.EncCropModeBox.GetText().ToLower().Contains("auto"))
+                text += " · before autocrop; the bars are measured when the encode starts";
+
+            return text;
+        }
+
+        /// <summary> The frame the scale filter is handed, as far as it can be known without running
+        /// anything: the source, less a manual crop. </summary>
+        private static Size GetCroppedSourceSize(VideoStream vs)
+        {
+            if (Form.EncCropModeBox.GetText().ToLower().Contains("manual") && CurrentCrop != null
+                && CurrentCrop.IsSet && CurrentCrop.FitsInside(vs.Resolution))
+            {
+                return CurrentCrop.GetCroppedSize(vs.Resolution);
+            }
+
+            return vs.Resolution;
+        }
+
         public static void RefreshFileListRelatedOptions()
         {
             RefreshSubtitleBurnInBox();
             RefreshMetadataAndChapterOptions();
+            UpdateBordersReadout();
             LoadMetadataGrid();
         }
 
@@ -106,6 +203,8 @@ namespace Nmkoder.UI.Tasks
             Form.EncVidFpsBox.IsEnabled = !enc.DoesNotEncode;
             Form.EncScaleBoxW.IsEnabled = Form.EncScaleBoxH.IsEnabled = !enc.DoesNotEncode;
             Form.EncCropModeBox.IsEnabled = !enc.DoesNotEncode;
+            // A stream copy builds no filter chain at all, so the bars would go nowhere
+            Form.EncBordersBox.IsEnabled = !enc.DoesNotEncode;
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
             LoadQualityLevel(enc);
@@ -588,10 +687,14 @@ namespace Nmkoder.UI.Tasks
         /// A percentage or an expression is left to the caller's fallback rather than guessed at,
         /// since a tile count worked out from the wrong size is what this is here to stop.
         /// <para/>
-        /// The crop is deliberately not applied. Resolving an automatic one means ten ffmpeg probes
-        /// and a visible progress bar, and this is asked once per pass ahead of the filter chain that
-        /// will run them again - where the AV1AN tab could put that behind a single resolve pass and
-        /// this cannot. The scale is what moves a frame across a tile threshold in any case.
+        /// An automatic crop is deliberately not applied. Resolving one means ten ffmpeg probes and a
+        /// visible progress bar, and this is asked once per pass ahead of the filter chain that will
+        /// run them again - where the AV1AN tab could put that behind a single resolve pass and this
+        /// cannot. The scale is what moves a frame across a tile threshold in any case.
+        /// <para/>
+        /// A manual crop is left out too where nothing but the scale is running, for the same last
+        /// reason - but not where border bars are, because there the crop decides which bars rather
+        /// than only how big the frame is. See below.
         /// </summary>
         public static Size GetEncodedFrameSize()
         {
@@ -600,33 +703,89 @@ namespace Nmkoder.UI.Tasks
             if (vs == null)
                 return Size.Empty;
 
+            if (!CurrentBorders.IsSet)
+            {
+                if (!HasScaleConfigured())
+                    return Size.Empty; // No scale, so only the crop could have moved it - see above
+
+                return ResolveScaledFrame(vs.Resolution, vs.Sar).Frame;
+            }
+
+            // With bars on, the crop is worth the four integers it costs to apply. It moves the
+            // *ratio*, which is what picks between a letterbox and a pillarbox, where for a scale
+            // target it only moves a number - so a pad measured over an uncropped frame can be the
+            // wrong bars entirely, on the wrong axis, rather than merely a size or two out. An
+            // automatic crop is still left alone, that one costing ten ffmpeg probes.
+            (Size scaled, Size sar) = ResolveScaledFrame(GetCroppedSourceSize(vs), vs.Sar);
+
+            // Both abstentions rather than guesses, and both leave the caller on the source's size
+            if (scaled.IsEmpty || Form.EncCropModeBox.GetText().ToLower().Contains("auto"))
+                return Size.Empty;
+
+            return CurrentBorders.Compute(scaled, sar).Frame;
+        }
+
+        /// <summary> Whether either scale box asks for anything. </summary>
+        private static bool HasScaleConfigured()
+        {
+            return !string.IsNullOrWhiteSpace(Form.EncScaleBoxW.Text) || !string.IsNullOrWhiteSpace(Form.EncScaleBoxH.Text);
+        }
+
+        /// <summary>
+        /// What the scale filter leaves when handed <paramref name="scaleInput"/>, and the shape that
+        /// frame's pixels then have - or <see cref="Size.Empty"/> where the boxes cannot be read.
+        /// <para/>
+        /// The boxes are free text handed to ffmpeg, so only what can be stated with certainty is:
+        /// a plain pair of numbers is exact, and a lone number derives the other side by ffmpeg's own
+        /// '-2' arithmetic (av_rescale, rounded to nearest with ties away from zero), so the answer is
+        /// the size ffmpeg will reach rather than an approximation of it. A percentage or an
+        /// expression is left unanswered. The AV1AN tab settles all of this exactly, its resize being
+        /// held as an intent rather than typed as a filter argument.
+        /// <para/>
+        /// The pixel shape is square wherever a scale runs, that filter ending in setsar=1:1, and the
+        /// source's own where none does - which is also why an anamorphic source is only de-squeezed
+        /// on the scale's own path here: with no scale filter nothing drops the flag, and ffmpeg
+        /// carries it through to the output.
+        /// </summary>
+        private static (Size Frame, Size Sar) ResolveScaledFrame(Size scaleInput, Size sar)
+        {
             string w = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
             string h = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
 
             if (w.IsEmpty() && h.IsEmpty())
-                return Size.Empty; // No scale, so only the crop could have moved it - see above
+                return (scaleInput, sar);
+
+            Size square = new Size(1, 1);
 
             bool plainW = w.Length > 0 && w.All(char.IsDigit) && w.GetInt() > 0;
             bool plainH = h.Length > 0 && h.All(char.IsDigit) && h.GetInt() > 0;
 
             if (plainW && plainH)
-                return new Size(w.GetInt(), h.GetInt());
+                return (new Size(w.GetInt(), h.GetInt()), square);
 
             // What the scale filter is handed, which for an anamorphic source is the de-squeezed
             // frame - the same correction GetVideoFilterArgs puts in front of the scale, so the
             // derived side is worked out against the shape ffmpeg will actually be scaling.
-            Size input = AspectRatio.IsAnamorphic(vs.Sar) ? ResizeConfig.DesqueezeOnly().Compute(vs.Resolution, vs.Sar) : vs.Resolution;
+            Size input = IsDesqueezingBeforeScale(sar) ? ResizeConfig.DesqueezeOnly().Compute(scaleInput, sar) : scaleInput;
 
             if (input.IsEmpty || input.Width < 1 || input.Height < 1)
-                return Size.Empty;
+                return (Size.Empty, square);
 
             if (plainW && h.IsEmpty())
-                return new Size(w.GetInt(), (int)DivideRounded(w.GetInt() * (long)input.Height, input.Width * 2L) * 2);
+                return (new Size(w.GetInt(), (int)DivideRounded(w.GetInt() * (long)input.Height, input.Width * 2L) * 2), square);
 
             if (plainH && w.IsEmpty())
-                return new Size((int)DivideRounded(h.GetInt() * (long)input.Width, input.Height * 2L) * 2, h.GetInt());
+                return (new Size((int)DivideRounded(h.GetInt() * (long)input.Width, input.Height * 2L) * 2, h.GetInt()), square);
 
-            return Size.Empty; // A percentage or an ffmpeg expression - not something to guess at
+            return (Size.Empty, square); // A percentage or an ffmpeg expression - not something to guess at
+        }
+
+        /// <summary> Whether the chain un-squeezes the source ahead of the scale. A custom filter that
+        /// sets a SAR or DAR itself is the user taking this over, and is left in charge. </summary>
+        private static bool IsDesqueezingBeforeScale(Size sar)
+        {
+            return AspectRatio.IsAnamorphic(sar)
+                && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
         }
 
         /// <summary> ffmpeg's av_rescale: rounded to nearest, ties away from zero. </summary>
@@ -647,6 +806,61 @@ namespace Nmkoder.UI.Tasks
                 return "";
 
             return CurrentCrop.GetProblem(vs.Resolution);
+        }
+
+        /// <summary>
+        /// Why the configured borders cannot run on the loaded file, or "" when they can - asked by
+        /// <see cref="QuickConvert.Run"/> before it builds anything, the way the crop is.
+        /// <para/>
+        /// Two things can go wrong, and neither is worth discovering from an ffmpeg error. The bars
+        /// are added around the frame the scale leaves, so scale boxes holding a percentage or an
+        /// expression leave nothing to measure them against - the alternative being to write the pad
+        /// as ffmpeg arithmetic and hope, where the AV1AN tab has an exact answer and this would not.
+        /// And the bars are additive, so an extreme source padded towards an extreme ratio can reach
+        /// a frame FFmpeg refuses to produce at all.
+        /// <para/>
+        /// Refused rather than silently skipped: dropping a setting the user picked, on a run they
+        /// started, is the failure this whole shape of check exists to avoid.
+        /// <para/>
+        /// A manual crop is applied first, an automatic one is not - measuring that means ten ffmpeg
+        /// probes, which is not a thing to spend before a run has started. The unreadable-scale half
+        /// does not depend on the crop at all, being about what is typed in the boxes; the frame
+        /// limit half is measured against the uncropped ratio, and is a limit nothing legitimate
+        /// comes within two orders of magnitude of.
+        /// </summary>
+        public static string GetBorderProblem()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null || CurrentBorders == null || !CurrentBorders.IsSet)
+                return "";
+
+            // A stream copy builds no filter chain, so there are no bars to be impossible - and the
+            // dropdown is disabled for one, which means a target left over from another codec is a
+            // setting the user cannot currently reach. Refusing a run over that would be a trap.
+            if (CodecUtils.GetCodec(GetCurrentCodecV()).DoesNotEncode)
+                return "";
+
+            (Size scaled, Size sar) = ResolveScaledFrame(GetCroppedSourceSize(vs), vs.Sar);
+
+            if (scaled.IsEmpty)
+            {
+                return $"the borders pad the frame out to {CurrentBorders.Label}, and that frame is whatever the " +
+                    $"Resize boxes leave - but they hold '{(Form.EncScaleBoxW.Text ?? "").Trim()}' x " +
+                    $"'{(Form.EncScaleBoxH.Text ?? "").Trim()}', which is a percentage or an expression rather than a " +
+                    $"size, so how much black to add is not known until FFmpeg is already running";
+            }
+
+            Size result = CurrentBorders.Compute(scaled, sar).Frame;
+
+            if (ResizeConfig.ExceedsFrameLimit(result))
+            {
+                return $"the borders bring the frame to {result.Width}x{result.Height}, which is " +
+                    $"{(double)result.Width * result.Height / 1_000_000d:0.#} megapixels - more than FFmpeg will " +
+                    $"produce, so no frame would be written";
+            }
+
+            return "";
         }
 
         public static async Task<string> GetVideoFilterArgs(IEncoder vCodec, CodecArgs codecArgs = null, bool quiet = false)
@@ -779,6 +993,27 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
+            }
+
+            // Last of the geometry, and measured against what the scale leaves: the bars go around
+            // the finished picture rather than being scaled along with it, since a scaler run over a
+            // hard black edge rings and the bars would come out neither black nor straight-edged.
+            // A frame the boxes above leave unreadable never gets here - GetBorderProblem refuses the
+            // run first - so reaching it with one means some other caller asking what the chain would
+            // be, which is a question rather than an encode.
+            if (CurrentBorders.IsSet) // Check Filter: Borders to a target aspect ratio
+            {
+                (Size scaled, Size scaledSar) = ResolveScaledFrame(scaleInput, vs.Sar);
+                BorderPad pad = scaled.IsEmpty ? BorderPad.None(scaled) : CurrentBorders.Compute(scaled, scaledSar);
+
+                if (pad.Runs)
+                {
+                    filters.Add(pad.GetFilterArgs());
+                    Logger.Log($"Adding {pad.Describe()} to {pad.Input.Width}x{pad.Input.Height} " +
+                        $"({AspectRatio.Describe(pad.Input.Width, pad.Input.Height)}), which brings the frame to " +
+                        $"{pad.Frame.Width}x{pad.Frame.Height} ({AspectRatio.Describe(pad.Frame.Width, pad.Frame.Height)}). " +
+                        $"The picture is not scaled - only the frame around it grows.", quiet);
+                }
             }
 
             filters.AddRange(GetCustomFilters());

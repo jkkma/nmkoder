@@ -106,6 +106,18 @@ namespace Nmkoder.UI
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetResize)]);
             }
 
+            if (resetAll || ResetSettingsOnNewFile.ResetBorders)
+            {
+                // Off by default, beside Resize rather than beside Crop: "everything I encode comes
+                // out 16:9" is a preference about output, where a crop rectangle describes the file
+                // that was just replaced. It is offered all the same, because a target shape picked
+                // for one source is the wrong one for the next often enough - bars added to a 4:3
+                // capture are bars added to the 16:9 download after it, if nobody moves the box.
+                // Setting the index is what moves the configuration behind it, through the handlers.
+                f.EncBordersBox.SelectedIndex = f.Av1anBordersBox.SelectedIndex = 0;
+                clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetBorders)]);
+            }
+
             if (resetAll || ResetSettingsOnNewFile.ResetFpsResample)
             {
                 f.EncVidFpsBox.Text = f.Av1anFpsBox.Text = "";
@@ -133,6 +145,9 @@ namespace Nmkoder.UI
 
             // Both the crop and the resize clauses above move what the resize dropdown's entries work out to
             Av1anUi.RefreshResizeBox();
+            // And all three move the frame the border bars are measured against, on the tab whose
+            // readout RefreshResizeBox does not reach
+            QuickConvertUi.UpdateBordersReadout();
 
             if (showMsgBox)
                 UiUtils.ShowMessageBoxAsync($"The following settings have been reset:\n{string.Join(", ", clearedSettings)}.", UiUtils.MessageType.Message);

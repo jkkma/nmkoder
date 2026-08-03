@@ -141,6 +141,14 @@ namespace Nmkoder.Views
             Av1anUi.RefreshResizeBox(); // A crop changes the frame the resize targets are measured against
         }
 
+        /// <summary> The target shape is a Video tab setting, so it is not saved: the tab opens on
+        /// "No borders" every session. The line under the box describes the loaded file, so picking
+        /// an entry has to rewrite it. </summary>
+        private void Av1anBorders_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            Av1anUi.BorderPresetSelected(Av1anBordersBox.SelectedIndex);
+        }
+
         private async void Av1anCropConf_Click(object sender, RoutedEventArgs e)
         {
             Size res = new Size();

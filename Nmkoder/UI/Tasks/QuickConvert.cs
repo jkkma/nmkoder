@@ -72,6 +72,19 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // The same shape of question, one step further along the chain: black bars are added
+                // around whatever the resize leaves, and there are two ways that cannot be worked out
+                // here. Refused rather than quietly left off, a setting picked and then dropped being
+                // worse than one that stops the run and says why.
+                string borderProblem = QuickConvertUi.GetBorderProblem();
+
+                if (borderProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot have borders added as configured - " +
+                        $"{borderProblem}.\n\nChange the resize, or switch the borders off.");
+                    return;
+                }
+
                 // The same question the AV1AN tab and the Cut utility have always asked, and for the
                 // same reason: a trim outlives the file it was set for, so a batch runs one section
                 // against every file in it. Where the section starts past the end of a shorter one,

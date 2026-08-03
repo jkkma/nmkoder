@@ -202,7 +202,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -253,8 +253,16 @@
                       <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
                     </StackPanel>
 
-                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Trim" />
-                    <StackPanel Grid.Row="5" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Borders" />
+                    <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
+                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <ComboBox x:Name="Av1anBordersBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Av1anBorders_SelectionChanged"
+                                ToolTip.Tip="Adds black bars around the picture until the frame is the shape you pick, without scaling anything. Which bars are needed is worked out per file: a 2.39:1 film is wider than 16:9 and gets them along the top and bottom, a 4:3 capture is narrower and gets them down the sides, and a source already that shape gets none. The bars go on after the crop and the resize, so they are added to the finished picture rather than scaled along with it." />
+                      <TextBlock x:Name="Av1anBordersInfoLabel" Classes="hint" Text="" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="6" Grid.Column="3" Classes="field" Text="Trim" />
+                    <StackPanel Grid.Row="6" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                       <!-- Capped so the button beside it stays inside this 320 wide column: a horizontal
                            StackPanel measures its children with no width limit, where the Grid cell the
                            button used to sit in directly imposed one. 320 - the Clear button (67) - the gap (6). -->
@@ -265,9 +273,9 @@
 
                     <!-- Both halves of the row are hidden together, and only shown once the loaded file
                          is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
-                    <TextBlock Grid.Row="6" Grid.Column="3" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
+                    <TextBlock Grid.Row="7" Grid.Column="3" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                     <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
-                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
+                    <StackPanel Grid.Row="7" Grid.Column="4" Grid.ColumnSpan="2" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
                       <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                         <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
                                   ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
@@ -407,7 +415,7 @@
 
               <TabItem Header="Video">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="130,320,40,130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -437,9 +445,11 @@
 
                     <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Resize (W x H)" />
                     <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6">
-                      <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" />
+                      <!-- TextChanged only feeds the Borders readout under the row below, which names
+                           the frame the bars go around; these boxes are still saved on close. -->
+                      <TextBox x:Name="EncScaleBoxW" Classes="num" PlaceholderText="Auto" TextChanged="EncScaleBox_TextChanged" />
                       <TextBlock Text="x" VerticalAlignment="Center" />
-                      <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" />
+                      <TextBox x:Name="EncScaleBoxH" Classes="num" PlaceholderText="Auto" TextChanged="EncScaleBox_TextChanged" />
                     </StackPanel>
 
                     <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Crop" />
@@ -452,8 +462,16 @@
                       <Button x:Name="EncCropConfBtn" Content="Configure…" IsVisible="False" Click="EncCropConf_Click" />
                     </StackPanel>
 
-                    <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Trim" />
-                    <StackPanel Grid.Row="4" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                    <TextBlock Grid.Row="4" Grid.Column="3" Classes="field" Text="Borders" />
+                    <!-- Spans into the filler column for the readout underneath, as the AV1AN tab's does. -->
+                    <StackPanel Grid.Row="4" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                      <ComboBox x:Name="EncBordersBox" Width="260" HorizontalAlignment="Left" SelectionChanged="EncBorders_SelectionChanged"
+                                ToolTip.Tip="Adds black bars around the picture until the frame is the shape you pick, without scaling anything. Which bars are needed is worked out per file: a 2.39:1 film is wider than 16:9 and gets them along the top and bottom, a 4:3 capture is narrower and gets them down the sides, and a source already that shape gets none. The bars go on after the crop and the resize, so they are added to the finished picture rather than scaled along with it." />
+                      <TextBlock x:Name="EncBordersInfoLabel" Classes="hint" Text="" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Trim" />
+                    <StackPanel Grid.Row="5" Grid.Column="4" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                       <!-- Capped to keep the button beside it inside this 320 wide column, as on the AV1AN tab -->
                       <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="247" Click="EncTrimConf_Click" />
                       <Button x:Name="EncTrimClearBtn" Content="Clear" IsVisible="False" Click="EncTrimClear_Click"
@@ -462,10 +480,10 @@
 
                     <!-- Both halves of the row are hidden together, and only shown once the loaded file
                          is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
-                    <TextBlock Grid.Row="5" Grid.Column="3" x:Name="EncDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
+                    <TextBlock Grid.Row="6" Grid.Column="3" x:Name="EncDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                     <!-- Spans into the filler column, as the AV1AN tab's Resize row does: the readout
                          under it is rewritten on every file load and must not wrap. -->
-                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
+                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
                       <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                         <ComboBox x:Name="EncDeintModeBox" Width="200" SelectionChanged="EncDeintMode_SelectionChanged"
                                   ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />

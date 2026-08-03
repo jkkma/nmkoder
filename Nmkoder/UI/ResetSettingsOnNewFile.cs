@@ -11,6 +11,7 @@ namespace Nmkoder.UI
         public static bool ResetFpsResample { get; set; }
         public static bool ResetResize { get; set; }
         public static bool ResetCrop { get; set; }
+        public static bool ResetBorders { get; set; }
         public static bool ResetDeinterlace { get; set; }
         public static bool ResetCustomInArgs { get; set; }
         public static bool ResetCustomOutArgs { get; set; }
@@ -25,6 +26,7 @@ namespace Nmkoder.UI
                 d.Add(nameof(ResetFpsResample), "Frame Rate");
                 d.Add(nameof(ResetResize), "Resize");
                 d.Add(nameof(ResetCrop), "Crop");
+                d.Add(nameof(ResetBorders), "Borders");
                 d.Add(nameof(ResetDeinterlace), "Deinterlace");
                 d.Add(nameof(ResetCustomInArgs), "Custom Input Args");
                 d.Add(nameof(ResetCustomOutArgs), "Custom Output Args");
@@ -39,6 +41,7 @@ namespace Nmkoder.UI
             ResetFpsResample = false;
             ResetResize = false;
             ResetCrop = false;
+            ResetBorders = false;
             ResetDeinterlace = false;
             ResetCustomInArgs = false;
             ResetCustomOutArgs = false;
@@ -53,6 +56,7 @@ namespace Nmkoder.UI
             if (ResetFpsResample) list.Add(NiceNames[nameof(ResetFpsResample)]);
             if (ResetResize) list.Add(NiceNames[nameof(ResetResize)]);
             if (ResetCrop) list.Add(NiceNames[nameof(ResetCrop)]);
+            if (ResetBorders) list.Add(NiceNames[nameof(ResetBorders)]);
             if (ResetDeinterlace) list.Add(NiceNames[nameof(ResetDeinterlace)]);
             if (ResetCustomInArgs) list.Add(NiceNames[nameof(ResetCustomInArgs)]);
             if (ResetCustomOutArgs) list.Add(NiceNames[nameof(ResetCustomOutArgs)]);

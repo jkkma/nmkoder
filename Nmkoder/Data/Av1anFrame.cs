@@ -25,7 +25,12 @@ namespace Nmkoder.Data
         /// <summary> What the scale filter is handed: the source, less whatever crop is set. </summary>
         public Size ScaleInput;
 
-        /// <summary> What the encoder is finally handed. </summary>
+        /// <summary> What the scale filter leaves - the resize, or the de-squeeze that runs in its
+        /// place, or the mod-2 pad, or none of them. This is the picture the border bars go around,
+        /// and so the size the resize is reported as having produced. </summary>
+        public Size Scaled;
+
+        /// <summary> What the encoder is finally handed: <see cref="Scaled"/> plus any border bars. </summary>
         public Size Encoded;
 
         /// <summary> The crop filters, already resolved, in the order they belong in the chain. </summary>
@@ -42,8 +47,20 @@ namespace Nmkoder.Data
         /// <summary> Whether an anamorphic source is de-squeezed because no resize will run. </summary>
         public bool Desqueezing;
 
-        /// <summary> Whether the mod-2 pad runs, which is the one other thing in the chain that moves the size. </summary>
+        /// <summary> Whether the mod-2 pad runs. Not to be confused with <see cref="Border"/>, the
+        /// other pad in the chain: this one sits *above* the scale and exists to stop an odd source
+        /// reaching an encoder that will not take one, where the bars go on last of all. </summary>
         public bool Padding;
+
+        /// <summary>
+        /// The black bars added to reach a target aspect ratio, already resolved against the frame
+        /// the resize leaves. Never null; <see cref="BorderPad.Runs"/> is false where none are added.
+        /// <para/>
+        /// Last of the geometry, so <see cref="Encoded"/> is its output rather than the resize's -
+        /// which is what the tile count is worked out from, a pillarboxed 4:3 capture being 1920
+        /// pixels across where the picture in it is 1440.
+        /// </summary>
+        public BorderPad Border = BorderPad.None(Size.Empty);
 
         /// <summary>
         /// The frame rate filter the chain carries, or "" where the encode keeps the source's rate.
