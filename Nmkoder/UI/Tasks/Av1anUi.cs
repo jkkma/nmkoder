@@ -137,8 +137,9 @@ namespace Nmkoder.UI.Tasks
         /// <summary>
         /// The worker count for an encoder that is not SVT-AV1 - the "n" the penalty is measured from,
         /// and the number that is saved. It starts each session at whatever was stored under
-        /// <see cref="Config.Key.Av1anOptsWorkerCountUpDown"/>, which on a first launch is
-        /// <see cref="Av1an.GetDefaultWorkerCount"/>.
+        /// <see cref="Config.Key.Av1anOptsWorkerCountUpDown"/>, which on a first launch is the Workers
+        /// half of <see cref="Av1an.GetDefaultThreadPlan"/> - the Threads half is settled in the same
+        /// call, so a change to either has to be read against the penalty below.
         /// </summary>
         static int workerBaseline;
 
