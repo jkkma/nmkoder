@@ -70,9 +70,11 @@ namespace Nmkoder.UI.Tasks
             // nothing in them; what this file comes out as is on the line underneath. The saved
             // index is what is restored, so entries may be appended to BorderPresets.All but not
             // reordered.
+            // Filled on "No borders" and left there. Anything saved is restored later, by
+            // LoadQuickConvertSettings with the rest of the persisted settings - through
+            // RestoreIndexIfSaved, which leaves this default standing for a config that predates the
+            // setting. Reading it here as well would create the key and defeat that.
             Form.EncBordersBox.SetItems(BorderPresets.All.Select(p => (object)p.Name), 0);
-            ConfigParser.LoadComboxIndex(Form.EncBordersBox);
-            CurrentBorders = BorderPresets.Get(Form.EncBordersBox.SelectedIndex).Build();
 
             Form.EncAudConfModeBox.SelectedIndex = 0;
         }
