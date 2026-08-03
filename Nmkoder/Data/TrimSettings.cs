@@ -111,10 +111,24 @@ namespace Nmkoder.Data
             TimeSpan start = TimeSpan.FromSeconds(Math.Max(0d, StartTime * frame - frame / 2d));
             TimeSpan duration = TimeSpan.FromSeconds(Duration * frame);
 
-            // -frames:v pins the count that the duration above only implies. It cannot add a frame the
-            // duration cut short, so it is a guard rather than the mechanism - but it is free, and an
-            // exact number of frames is what this mode was asked for.
-            return $"-ss {GetTimeString(start)} -t {GetTimeString(duration)} -frames:v {Duration}";
+            // The seek and the duration are the whole mechanism, and no "-frames:v" goes with them.
+            // Pinning the count looks free and is not: -frames:v counts frames *leaving the filter
+            // chain*, so anything that raises the count - a bob deinterlacer, which a trim forces by
+            // ruling QTGMC out, or a Frame Rate above the source's - hits the limit halfway and cuts
+            // the section short. Measured against the bundled ffmpeg on a 29.97 source: frames 240-480
+            // through bwdif=send_field came out as 240 frames covering 4.0s of an 8.0s section, with
+            // the audio ending there too, where without the count it is the 480 frames and full 8.0s
+            // that were asked for.
+            //
+            // What the seek and duration alone do NOT give is the last frame of a section that starts
+            // mid-file. Measured the same way, and frame-exact at the start - the first frame matches
+            // a select=gte(n,X) reference bit for bit - but N frames asked for come out as N-1 for any
+            // X greater than zero, because both ends of the window land on a frame boundary and
+            // ffmpeg's own rounding drops the one sitting on the far edge. Adding a quarter frame to
+            // the far end, measured from the seek actually used, fixes it for every section tried but
+            // one, which is not a good enough reason to put new arithmetic into a frame-exact path -
+            // so the shortfall stands, documented, rather than being traded for an unproven formula.
+            return $"-ss {GetTimeString(start)} -t {GetTimeString(duration)}";
         }
 
         /// <summary>

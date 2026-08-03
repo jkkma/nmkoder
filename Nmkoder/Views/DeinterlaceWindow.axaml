@@ -28,7 +28,7 @@
       <TextBlock Grid.Column="0" Classes="field" Text="QTGMC preset" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
         <ComboBox x:Name="PresetBox" Width="140" SelectionChanged="Preset_SelectionChanged"
-                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                  ToolTip.Tip="QTGMC&apos;s own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC&apos;s noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
         <TextBlock Classes="hint" VerticalAlignment="Center" Text="Slower presets look better and cost hours." />
       </StackPanel>
     </Grid>

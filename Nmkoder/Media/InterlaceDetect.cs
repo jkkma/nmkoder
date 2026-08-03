@@ -78,6 +78,13 @@ namespace Nmkoder.Media
         /// anywhere - a batch asks for it again per file, and the loaded file has usually been asked
         /// already by the time an encode starts.
         /// </summary>
+        /// <summary> Scans already running, by file, so two callers asking at once wait on one answer
+        /// rather than each starting their own. Both do ask at once: loading a file starts a scan in the
+        /// background, and an encode started before it lands asks again through
+        /// <see cref="UI.Tasks.DeinterlaceUi.EnsureScanVerdictAsync"/> - which without this decoded the
+        /// same few hundred frames a second time, concurrently, for the same verdict. </summary>
+        private static readonly Dictionary<MediaFile, Task<InterlaceInfo>> inFlight = new Dictionary<MediaFile, Task<InterlaceInfo>>();
+
         public static async Task<InterlaceInfo> GetAsync(MediaFile file, bool quiet = false)
         {
             if (file == null)
@@ -86,9 +93,30 @@ namespace Nmkoder.Media
             if (file.Interlacing != null)
                 return file.Interlacing;
 
-            InterlaceInfo info = await Analyze(file, quiet);
-            file.Interlacing = info;
-            return info;
+            Task<InterlaceInfo> running;
+
+            // Registered before the first await, so a second caller on the UI thread cannot slip in
+            // between the check above and the scan starting.
+            lock (inFlight)
+            {
+                if (!inFlight.TryGetValue(file, out running))
+                {
+                    running = Analyze(file, quiet);
+                    inFlight[file] = running;
+                }
+            }
+
+            try
+            {
+                InterlaceInfo info = await running;
+                file.Interlacing = info;
+                return info;
+            }
+            finally
+            {
+                lock (inFlight)
+                    inFlight.Remove(file);
+            }
         }
 
         private static async Task<InterlaceInfo> Analyze(MediaFile file, bool quiet)
