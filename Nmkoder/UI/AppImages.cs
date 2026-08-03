@@ -38,12 +38,5 @@ namespace Nmkoder.UI
 
         public static Bitmap Placeholder { get { return Get("baseline_image_white_48dp-4x-25pcAlphaPad.png"); } }
         public static Bitmap LoadingThumbs { get { return Get("loadingThumbsTextNew.png"); } }
-        public static Bitmap Play { get { return Get("baseline_play_arrow_white_48dp.png"); } }
-        public static Bitmap Pause { get { return Get("baseline_pause_white_48dp.png"); } }
-        public static Bitmap Stop { get { return Get("baseline_stop_white_48dp.png"); } }
-        public static Bitmap DragDrop { get { return Get("dragdrop2-white.png"); } }
-        public static Bitmap Discord { get { return Get("links_discordNew.png"); } }
-        public static Bitmap Patreon { get { return Get("links_patreon256pxColored.png"); } }
-        public static Bitmap PayPal { get { return Get("links_paypal256px.png"); } }
     }
 }
