@@ -334,7 +334,8 @@
                     </ComboBox>
 
                     <TextBlock Grid.Row="0" Grid.Column="3" Classes="field" Text="Workers" />
-                    <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anOption_ValueChanged" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="4" x:Name="Av1anOptsWorkerCountUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="4" ValueChanged="Av1anWorkerCount_ValueChanged"
+                                   ToolTip.Tip="How many chunks av1an encodes at the same time.&#10;&#10;SVT-AV1 runs two fewer than the other encoders: it works a core much harder than they do, so the count that keeps them busy oversubscribes the machine on it and every worker ends up slower. Selecting another encoder puts them back.&#10;&#10;Changing this sets the count for the encoder selected, and the gap is kept for the others." />
 
                     <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
                     <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />

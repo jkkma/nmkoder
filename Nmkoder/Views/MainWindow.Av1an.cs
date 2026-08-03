@@ -126,6 +126,15 @@ namespace Nmkoder.Views
         private void Av1anOption_SelectionChanged(object sender, SelectionChangedEventArgs e) => SaveConfigAv1an();
         private void Av1anOption_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e) => SaveConfigAv1an();
 
+        /// <summary> The Workers box is not the plain saved spinner the rest of the tab is: it shows the
+        /// count for the encoder selected, and what is saved is the count for an encoder that is not
+        /// SVT-AV1. An edit here states the first, so Av1anUi works the second back out of it. </summary>
+        private void Av1anWorkerCount_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e)
+        {
+            Av1anUi.WorkerCountEdited();
+            SaveConfigAv1an();
+        }
+
         private void Av1anCrop_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             Av1anCropConfBtn.IsVisible = Av1anCropBox.GetText().ToLower().Contains("manual");
@@ -216,6 +225,9 @@ namespace Nmkoder.Views
             ConfigParser.LoadComboxIndex(Av1anOptsConcatModeBox);
             ConfigParser.LoadComboxIndex(Av1anOptsChunkOrderBox);
             ConfigParser.LoadGuiElement(Av1anOptsWorkerCountUpDown, false);
+            // What was restored is the count for an encoder that is not SVT-AV1 - the baseline the
+            // penalty is measured from. VidEncoderSelected reduces the box from it a moment later.
+            Av1anUi.LoadWorkerBaseline();
             ConfigParser.LoadGuiElement(Av1anThreadsUpDown, false);
         }
 
@@ -231,7 +243,10 @@ namespace Nmkoder.Views
                 ConfigParser.SaveComboxIndex(Av1anOptsSplitModeBox);
                 ConfigParser.SaveComboxIndex(Av1anOptsConcatModeBox);
                 ConfigParser.SaveComboxIndex(Av1anOptsChunkOrderBox);
-                ConfigParser.SaveGuiElement(Av1anOptsWorkerCountUpDown, ConfigParser.StringMode.Int);
+                // The one control here not saved as it stands. The box holds the count for the encoder
+                // selected, which is two lower under SVT-AV1; storing that would have the next session
+                // take the reduced number for the baseline and reduce it again, and again after that.
+                Config.Set(Config.Key.Av1anOptsWorkerCountUpDown, Av1anUi.WorkerBaseline.ToString());
                 ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
             }
         }
