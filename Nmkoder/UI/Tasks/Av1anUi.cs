@@ -116,7 +116,103 @@ namespace Nmkoder.UI.Tasks
             LoadPresets(enc);
             LoadColorFormats(enc);
             LoadAdvancedArgsGrid(enc);
+            ApplyWorkerCount(c);
         }
+
+        #region Worker Count
+
+        /// <summary>
+        /// How many workers SVT-AV1 gives up against every other encoder av1an drives. It loads a core
+        /// far harder than they do, so the count that keeps them all busy oversubscribes the machine on
+        /// this one and every worker then runs slower than it would have with the machine to itself.
+        /// </summary>
+        public const int SvtAv1WorkerPenalty = 2;
+
+        /// <summary>
+        /// The worker count for an encoder that is not SVT-AV1 - the "n" the penalty is measured from,
+        /// and the number that is saved. It starts each session at whatever was stored under
+        /// <see cref="Config.Key.Av1anOptsWorkerCountUpDown"/>, which on a first launch is
+        /// <see cref="Av1an.GetDefaultWorkerCount"/>.
+        /// </summary>
+        static int workerBaseline;
+
+        /// <summary> Set while this class writes the worker box, so its own ValueChanged handler does
+        /// not read that write as a hand edit and move the baseline by the penalty each time. </summary>
+        static bool writingWorkerCount;
+
+        /// <summary> The last encoder <see cref="ApplyWorkerCount"/> ran for, so the count is only
+        /// announced for a switch the user made - the first call fills a box nobody has looked at yet. </summary>
+        static CodecUtils.Av1anCodec? lastWorkerCodec;
+
+        /// <summary> What <c>SaveConfigAv1an</c> writes for the worker box. Saving the box itself
+        /// would store the reduced count while SVT-AV1 is selected, and the next session would reduce
+        /// that again - two workers gone per launch, for as long as the app is opened. </summary>
+        public static int WorkerBaseline => workerBaseline;
+
+        /// <summary> Takes the restored worker count as the baseline. Called where the box is loaded,
+        /// rather than left to the ValueChanged below, because a saved value equal to the one the XAML
+        /// starts the box at raises no event at all. </summary>
+        public static void LoadWorkerBaseline()
+        {
+            workerBaseline = Form.Av1anOptsWorkerCountUpDown.Value.AsInt();
+        }
+
+        /// <summary> What the encoder gives up against the baseline, which is nothing at all for any
+        /// encoder but SVT-AV1. </summary>
+        static int WorkerPenaltyFor(CodecUtils.Av1anCodec codec)
+        {
+            return codec == CodecUtils.Av1anCodec.SvtAv1 ? SvtAv1WorkerPenalty : 0;
+        }
+
+        /// <summary>
+        /// Writes the worker count for the encoder now selected into the box, so what is on screen is
+        /// what the command line gets - <see cref="Av1an.Run"/> reads the box and nothing else.
+        /// </summary>
+        static void ApplyWorkerCount(CodecUtils.Av1anCodec codec)
+        {
+            var box = Form.Av1anOptsWorkerCountUpDown;
+            // A machine without two workers to give up keeps the one it can run. The default worker
+            // count bottoms out at 2, so a small enough machine meets this on its very first launch.
+            int effective = Math.Max((int)box.Minimum, workerBaseline - WorkerPenaltyFor(codec));
+            int before = box.Value.AsInt();
+
+            writingWorkerCount = true;
+            box.SetValueClamped(effective);
+            writingWorkerCount = false;
+
+            // A number that moved on its own is one to say out loud - but only for a switch, and only
+            // where it moved. Encoders other than SVT-AV1 all read the same count, so stepping between
+            // two of them says nothing, and the first call of the session is filling the box rather
+            // than changing it.
+            bool switched = lastWorkerCodec != null && lastWorkerCodec != codec;
+            lastWorkerCodec = codec;
+
+            if (!switched || effective == before)
+                return;
+
+            Logger.Log(codec == CodecUtils.Av1anCodec.SvtAv1
+                ? $"Dropped to {effective} worker{(effective == 1 ? "" : "s")} from {workerBaseline} - SVT-AV1 works a core " +
+                  $"much harder than the other encoders, so the count that suits them oversubscribes the machine on it."
+                : $"Back to {effective} worker{(effective == 1 ? "" : "s")} - the reduced count is SVT-AV1's alone.");
+        }
+
+        /// <summary>
+        /// The box was written to. A hand edit states the count for the encoder in front of the user,
+        /// so the baseline is worked back out of it: type 4 under SVT-AV1 and 4 is what comes back on
+        /// selecting it again and next session, with the other encoders keeping the two it is measured
+        /// against. Adding the penalty rather than the amount of it <see cref="ApplyWorkerCount"/> got
+        /// to apply is what makes that hold at the floor - a box showing 1 because the baseline had
+        /// only one worker to give up is still a box whose next number can afford both.
+        /// </summary>
+        public static void WorkerCountEdited()
+        {
+            if (writingWorkerCount)
+                return;
+
+            workerBaseline = Form.Av1anOptsWorkerCountUpDown.Value.AsInt() + WorkerPenaltyFor(GetCurrentCodecV());
+        }
+
+        #endregion
 
         public static void AudEncoderSelected(int index)
         {

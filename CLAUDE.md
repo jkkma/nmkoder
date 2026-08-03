@@ -401,6 +401,35 @@ next person to touch that method will restore, reasonably enough, and the settin
 from whatever session last happened to write it. Keys from before this are still sitting in existing
 config files - do not wire one back up on the strength of finding it there.
 
+**SVT-AV1 encodes with two workers fewer than the other encoders av1an drives.** It loads a core far
+harder than they do, so the count that keeps aomenc or x265 busy oversubscribes the machine on this
+one and every worker then runs slower than it would have with the machine to itself - which is only
+visible while an encode is running, since the box was set once at first launch and looked right ever
+after. `Av1anUi.ApplyWorkerCount` writes the reduced number into the Workers box on selecting SVT-AV1
+and puts the full number back on selecting anything else, so what is on screen is what runs -
+`Av1an.Run` reads that box and nothing else, and so does the progress bar's ETA, which parses `-w`
+back off the command.
+
+The number that gets **saved is the baseline** - `Av1anUi.WorkerBaseline`, the count for an encoder
+that is not SVT-AV1 - and that is the part to be careful with. The tab opens on SVT-AV1, so the box
+is almost always showing the reduced count; storing the box as it stands would have the next session
+take that for the baseline and reduce it again, two workers per launch until it hit the floor. That
+is why this one control does not go through `ConfigParser.SaveGuiElement` like every other row of
+`SaveConfigAv1an`.
+
+A hand edit states the count for the encoder in front of the user, so `WorkerCountEdited` adds the
+penalty back to get the baseline: type 4 under SVT-AV1 and 4 is what comes back on re-selecting it
+and next session, with the other encoders on 6. It adds the *penalty* rather than however much of it
+was applied, which is the difference at the floor - a baseline of 2 shows 1 because the box stops
+there, and the next number typed into it can afford both workers. That floor is not hypothetical:
+`Av1an.GetDefaultWorkerCount` bottoms out at 2, so a small enough machine meets it on its very first
+launch.
+
+`writingWorkerCount` is what keeps the two apart - the box's `ValueChanged` fires for this class's
+own writes too, and without the guard every encoder switch would read its own write as a hand edit
+and walk the baseline up by two. `lastWorkerCodec` is the other half of the same problem, holding the
+log line back for the startup call and for a step between two encoders that read the same count.
+
 **The resize dialog's anamorphic switch is warned about rather than overridden.** Off, the targets
 measure the stored pixels and nothing bakes the display shape in - and there is nowhere else for it
 to live, since av1an hands its encoders bare frames and a chain ending in `setsar=1:1` drops the
