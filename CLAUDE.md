@@ -460,6 +460,50 @@ out of place, reached the end of an encode without ever being mentioned. Quick C
 builds the same chain as the first and is asked for it with `quiet: true`, so this and the de-squeeze
 line land in the log once rather than twice.
 
+**The AV1AN progress bar is measured from av1an's temp folder, never from its output.** `scenes.json`
+gives the chunk count and `done.json` the finished one, both in the folder this app names itself with
+`--temp` - so `Av1anOutputHandler` parses no av1an log line at all, and that is the point.
+
+Everything it used to read had rotted away underneath it, silently, one release at a time.
+`--log-file` stopped defaulting to `{temp}/log.log` after 0.4.x and now defaults to `./logs/av1an.log`
+with the date appended, so the file the loop waited for was never created and it sat in that wait for
+the entire encode: no percentage, no chunk count, no "Scene detection…", nothing. Behind that sat two
+more, either of which would have done the same job on its own - "SC: Now at " and "Done: " are lines
+no av1an since 0.4.0 emits, a finished chunk having been `finished chunk 00001: …` for years. None of
+it was visible from here, because a progress bar that never moves looks exactly like an encode that
+has not got going yet.
+
+`scenes.json` holds **two** arrays, and the one to count is `split_scenes`. `scenes` is what detection
+found; `split_scenes` is that list after `-x` subdivides the long ones, and the chunk queue is built
+from it - identical when `-x` changes nothing, longer when it does, and av1an writes both. So counting
+every `"start_frame"` in the file, which is what this did, came to `scenes + split_scenes`: double the
+real count at best. `scenes` is still read as a fallback for a file written before av1an grew the
+second array, which a resume is where you meet.
+
+Checking any of this by reading av1an's source is checking the wrong av1an. `bundle-tools.sh` takes
+the newest release asset that matches, and av1an's own tagged releases (v0.5.1, v0.5.2) carry source
+archives only - the binary comes from the rolling `latest` prerelease, which is nowhere near either
+tag. Download that asset and read the strings out of it; the help text names the log default and
+`finished chunk` is right there beside it.
+
+**av1an's own log is put in the temp folder rather than left to that default.**
+`Av1an.GetLogFileArgs` names it, beside `--temp` and for the same reasons: the folder only exists once
+the run has one, and both flags sit ahead of the `-i` that `SaveJson` starts saving from, so a resume
+sets its own instead of writing into the previous attempt's. Left to av1an, the log went to
+`./logs/av1an.log` *relative to the working directory*, which is `bin/av1an` - so every encode dropped
+a dated file beside the binary, in a folder nothing here knew about and nothing ever cleared. In the
+temp folder it lives exactly as long as the run's other state: `HandleTempFolder` keeps that folder
+when the encode failed, which is when the log is worth reading. Nothing parses it, so the file name is
+not load-bearing - as well, since av1an appended its own `.log` to this value until 0.4.x and does not
+now.
+
+**Nothing under av1an's Scene Detection heading goes out for Split Method "None".** It is `-x` and
+nothing else there, so `--sc-downscale-height` named a resolution for a pass that never ran.
+`Av1anUi.SceneDetectionEnabled` is the one statement of which entry is which, and
+`Av1an.GetScDownscaleHeightArg` also drops the flag where the height works out to 0, since 0 is not
+inert: av1an skips the downscale only when the height it is given is *above* the source's, so a zero
+reaches ffmpeg as `scale=-2:'min(0,ih)'` and is refused.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the

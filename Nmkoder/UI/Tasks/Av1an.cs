@@ -365,7 +365,7 @@ namespace Nmkoder.UI.Tasks
                         $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
-                        $"--sc-downscale-height {GetScDownscaleHeight()} " +
+                        $"{GetScDownscaleHeightArg()} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
                         $"{pixFmtConverter} " +
@@ -530,7 +530,7 @@ namespace Nmkoder.UI.Tasks
                     args = $"-i {inPath.Wrap()} {args}";
                 }
 
-                args = $"{(resume ? "-r" : "")} --temp {tempDir.Wrap()} {args}";
+                args = $"{(resume ? "-r" : "")} --temp {tempDir.Wrap()} {await GetLogFileArgs(tempDir)}{args}";
                 creationTimestamp = (resume ? (LoadJson(overrideTempDir).ContainsKey("creationTimestamp") ? LoadJson(overrideTempDir)["creationTimestamp"] : "-1") : timestamp);
             }
             catch (Exception e)
@@ -888,9 +888,63 @@ namespace Nmkoder.UI.Tasks
             }
         }
 
+        /// <summary>
+        /// Puts av1an's own log in this run's temp folder, next to everything else the run leaves
+        /// behind. Emitted beside '--temp' rather than with the rest of the command, and for the same
+        /// reason: both name a folder that only exists once this run has one, and both sit ahead of the
+        /// '-i' that <see cref="SaveJson"/> starts saving from, so a resume sets them again for itself
+        /// instead of inheriting the previous attempt's.
+        /// <para/>
+        /// Named rather than left to av1an, whose default is './logs/av1an.log' with the date appended -
+        /// resolved against the working directory, which is 'bin/av1an' here. So every encode dropped a
+        /// dated log beside the binary, in a folder nothing in this app knew about and nothing ever
+        /// cleared. In the temp folder it lives exactly as long as the run's other state does, which is
+        /// the right lifetime: <see cref="HandleTempFolder"/> keeps that folder when the encode failed,
+        /// and a failed encode is when the log is worth reading.
+        /// <para/>
+        /// Nothing here parses it - the progress bar reads scenes.json and done.json, see
+        /// <see cref="Media.Av1anOutputHandler"/> - so the exact file name is not load-bearing. Which is
+        /// as well, because av1an appended its own ".log" to this value until 0.4.x and does not now.
+        /// <para/>
+        /// The flag is checked for all the same. It is old enough that nothing this app can drive should
+        /// be without it, but av1an refuses a whole command over one argument it does not know, and that
+        /// would be every encode rather than a missing log.
+        /// </summary>
+        private static async Task<string> GetLogFileArgs(string tempDir)
+        {
+            if (await AvProcess.Av1anHelpKnown() && !await AvProcess.Av1anSupportsFlag("--log-file"))
+            {
+                Logger.Log("Note: this av1an has no --log-file, so its own log stays wherever it puts it. " +
+                    "The encode is unaffected.", true);
+                return "";
+            }
+
+            return $"--log-file {Path.Combine(tempDir, "av1an.log").Wrap()} ";
+        }
+
+        /// <summary>
+        /// The height to run scene detection at, or "" where there is nothing for it to say.
+        /// <para/>
+        /// Split Method "None" is one of those: av1an detects no scenes for it, so the flag named a
+        /// resolution for a pass that never runs. The other is a file with no video track, where
+        /// <see cref="GetScDownscaleHeight"/> has no height to work from and answers 0 - and 0 is not
+        /// inert, since av1an only skips the downscale when the height it was given is *above* the
+        /// source's. A zero goes through as scale=-2:'min(0,ih)', which ffmpeg refuses.
+        /// </summary>
+        private static string GetScDownscaleHeightArg()
+        {
+            if (!Av1anUi.SceneDetectionEnabled)
+                return "";
+
+            int height = GetScDownscaleHeight();
+            return height > 0 ? $"--sc-downscale-height {height}" : "";
+        }
+
         private static int GetScDownscaleHeight()
         {
-            if (TrackList.current.File == null || TrackList.current.File.VideoStreams.Count < 1)
+            // current itself, not just its file - the rest of this class reads it the same way, and
+            // the branch below was written to answer "no height to work from" rather than to throw.
+            if (TrackList.current?.File == null || TrackList.current.File.VideoStreams.Count < 1)
                 return 0;
 
             int h = TrackList.current.File.VideoStreams[0].Resolution.Height;
