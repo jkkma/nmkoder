@@ -538,12 +538,37 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
+        /// <summary>
+        /// Whether the video chain hands on as many frames as it takes in, which decides whether the
+        /// frame-number trim may pin its count with -frames:v - that option counts frames coming *out*
+        /// of the chain, so anything multiplying them cuts the section short instead of ending it.
+        /// <para/>
+        /// Two things here do multiply: a deinterlacer emitting one frame per field, which a trim makes
+        /// likely by ruling QTGMC out and falling back to bwdif, and a frame rate resample. A resample
+        /// downwards divides rather than multiplies and could keep the count, but it is not worth the
+        /// distinction: the duration governs either way and an exact count means nothing once the
+        /// frames are not the source's own.
+        /// </summary>
+        private static bool ChainKeepsFrameCount()
+        {
+            if (CurrentDeinterlace != null && CurrentDeinterlace.DoublesFrameRate)
+                return false;
+
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+            Fraction fps = GetUiFps();
+
+            if (vs == null || fps.GetFloat() <= 0.01f)
+                return true;
+
+            return MiscUtils.IsSameFrameRate(Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace), fps);
+        }
+
         public static string GetMiscOutputArgs()
         {
             List<string> args = new List<string>();
 
             if (CurrentTrim != null && !CurrentTrim.IsUnset)
-                args.Add(CurrentTrim.GetOutputArgs(GetSourceRate()));
+                args.Add(CurrentTrim.GetOutputArgs(GetSourceRate(), ChainKeepsFrameCount()));
 
             return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }

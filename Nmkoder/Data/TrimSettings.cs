@@ -87,7 +87,7 @@ namespace Nmkoder.Data
         /// output-side seek decodes from the start and throws frames away until it arrives, which is
         /// what makes it land on the frame asked for rather than on a keyframe.
         /// </summary>
-        public string GetOutputArgs(Fraction rate)
+        public string GetOutputArgs(Fraction rate, bool chainKeepsFrameCount = true)
         {
             if (IsUnset)
                 return "";
@@ -106,29 +106,32 @@ namespace Nmkoder.Data
             // Half a frame back from where frame X sits, because a seek keeps what is at or after the
             // timestamp it is given and X/rate is a place floating point can land either side of. Half
             // a frame earlier is unambiguously past X-1 and short of X, so the first frame kept is the
-            // one that was asked for whichever way the arithmetic rounds. The duration then needs no
-            // such margin: it spans from inside the gap before X to inside the gap before X+N.
-            TimeSpan start = TimeSpan.FromSeconds(Math.Max(0d, StartTime * frame - frame / 2d));
-            TimeSpan duration = TimeSpan.FromSeconds(Duration * frame);
-
-            // The seek and the duration are the whole mechanism, and no "-frames:v" goes with them.
-            // Pinning the count looks free and is not: -frames:v counts frames *leaving the filter
-            // chain*, so anything that raises the count - a bob deinterlacer, which a trim forces by
-            // ruling QTGMC out, or a Frame Rate above the source's - hits the limit halfway and cuts
-            // the section short. Measured against the bundled ffmpeg on a 29.97 source: frames 240-480
-            // through bwdif=send_field came out as 240 frames covering 4.0s of an 8.0s section, with
-            // the audio ending there too, where without the count it is the 480 frames and full 8.0s
-            // that were asked for.
+            // one that was asked for whichever way the arithmetic rounds.
             //
-            // What the seek and duration alone do NOT give is the last frame of a section that starts
-            // mid-file. Measured the same way, and frame-exact at the start - the first frame matches
-            // a select=gte(n,X) reference bit for bit - but N frames asked for come out as N-1 for any
-            // X greater than zero, because both ends of the window land on a frame boundary and
-            // ffmpeg's own rounding drops the one sitting on the far edge. Adding a quarter frame to
-            // the far end, measured from the seek actually used, fixes it for every section tried but
-            // one, which is not a good enough reason to put new arithmetic into a frame-exact path -
-            // so the shortfall stands, documented, rather than being traded for an unproven formula.
-            return $"-ss {GetTimeString(start)} -t {GetTimeString(duration)}";
+            // The far end gets the same half frame, and that one is not symmetry for its own sake: a
+            // window ending exactly on the last wanted frame loses it. Measured against the bundled
+            // ffmpeg, a section of three frames or more starting anywhere but frame 0 came out one
+            // frame short - and no arrangement of the two numbers fixed that on its own. Ending half a
+            // frame late instead, and letting the count below do the cutting, was frame-for-frame
+            // identical to a select=gte(n,X) reference across every section tried: 1 to 598 frames,
+            // from the start of the file, the middle and the last frame.
+            TimeSpan start = TimeSpan.FromSeconds(Math.Max(0d, StartTime * frame - frame / 2d));
+            TimeSpan duration = TimeSpan.FromSeconds((Duration + 0.5d) * frame);
+
+            // The count is what makes the section exactly N frames, and the window above is deliberately
+            // half a frame too long so that it never has to be. It can only go out over a chain that
+            // hands on as many frames as it took, though: -frames:v counts frames *leaving* the chain,
+            // so a bob deinterlacer - which a trim forces, by ruling QTGMC out - or a Frame Rate above
+            // the source's hits the limit halfway through the section and cuts it there. Measured on a
+            // 29.97 source, frames 240-480 through bwdif=send_field came out as 240 frames covering
+            // 4.0s of an 8.0s section, with the audio ending there too.
+            //
+            // Over such a chain the window is the whole mechanism, and being half a frame long is the
+            // right way round to be wrong: the section can carry an extra frame rather than lose the
+            // last one, and its count was never going to be N anyway - a bob emits two frames for each
+            // one it was given, which is what asking for N *source* frames means there.
+            string count = chainKeepsFrameCount ? $" -frames:v {Duration}" : "";
+            return $"-ss {GetTimeString(start)} -t {GetTimeString(duration)}{count}";
         }
 
         /// <summary>
