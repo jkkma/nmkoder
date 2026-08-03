@@ -262,7 +262,48 @@ namespace Nmkoder.Media
             return $"scale={w}:{h}";
         }
 
+        /// <summary>
+        /// Answers already worked out, keyed by the file and by what would make the answer stale - its
+        /// length and its last write. A detection is ten seeks and sixty decoded frames, and one encode
+        /// asks for it more than once: Quick Convert builds its filter chain for the stream maps, then
+        /// again for the command, and again for a second pass, each through a call that knows nothing
+        /// of the others. The AV1AN tab settles it once in <see cref="UI.Tasks.Av1anUi.ResolveFrameAsync"/>
+        /// and carries the answer; this is the same idea for the callers that cannot.
+        /// </summary>
+        private static readonly Dictionary<string, string> autoCropCache = new Dictionary<string, string>();
+
+        private static string GetAutoCropCacheKey(string path)
+        {
+            try
+            {
+                FileInfo file = new FileInfo(path);
+                return $"{path}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
+            }
+            catch
+            {
+                return ""; // Not a readable file - do not remember an answer that cannot be checked
+            }
+        }
+
         public static async Task<string> GetCurrentAutoCrop(string path, bool quiet)
+        {
+            string cacheKey = GetAutoCropCacheKey(path);
+
+            if (cacheKey.Length > 0 && autoCropCache.TryGetValue(cacheKey, out string cached))
+            {
+                Logger.Log($"Using the crop already detected for '{Path.GetFileName(path)}': {cached}", true);
+                return cached;
+            }
+
+            string result = await DetectCrop(path, quiet);
+
+            if (cacheKey.Length > 0)
+                autoCropCache[cacheKey] = result;
+
+            return result;
+        }
+
+        private static async Task<string> DetectCrop(string path, bool quiet)
         {
             string msg = "Detecting crop... This can take a while for long videos.";
             Logger.Log(msg, quiet);
@@ -299,7 +340,10 @@ namespace Nmkoder.Media
 
             string mostCommon = detectedCrops.GroupBy(i => i).OrderByDescending(grp => grp.Count()).Select(grp => grp.Key).First();
             string largest = detectedCrops.First();
-            int commonCertainty = (detectedCrops.CountOccurences(mostCommon) / detectedCrops.Count * 100f).RoundToInt();
+            // Cast before dividing. Both sides were ints, so this was integer division: 100 when every
+            // sample agreed and 0 when one did not, which made the 80% rule below "all of them agreed"
+            // and printed "(0%)" in the line underneath for a nine-out-of-ten result.
+            int commonCertainty = ((float)detectedCrops.CountOccurences(mostCommon) / detectedCrops.Count * 100f).RoundToInt();
             string chosen = commonCertainty > 80 ? mostCommon : largest; // Use most common if it's >80% common, otherwise use largest to be safe (thanks Nolan)
             Logger.Log($"GetCurrentAutoCrop - Largest: {largest} - Smallest: {detectedCrops.Last()} - Most Common: {mostCommon} ({commonCertainty}%) - Chosen: {chosen} [T = {sw}]", true);
             string[] cropVals = chosen.Split(':');

@@ -263,14 +263,16 @@
                               ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
                     </StackPanel>
 
-                    <TextBlock Grid.Row="6" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Both halves of the row are hidden together, and only shown once the loaded file
+                         is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
+                    <TextBlock Grid.Row="6" Grid.Column="3" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                     <!-- Spans into the filler column for the readout underneath, as the Resize row does. -->
-                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                    <StackPanel Grid.Row="6" Grid.Column="4" Grid.ColumnSpan="2" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
                       <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                         <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
                                   ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
                         <ComboBox x:Name="Av1anDeintPresetBox" Width="125" SelectionChanged="Av1anDeintPreset_SelectionChanged"
-                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC's noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
                         <CheckBox x:Name="Av1anDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Av1anDeintRate_Changed"
                                   ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Only offered for QTGMC: it runs before av1an, so the doubled rate is simply the rate of the file av1an is given, where a filter inside av1an emitting one frame per field would write twice the frames its chunking expects." />
                       </StackPanel>
@@ -458,15 +460,17 @@
                               ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
                     </StackPanel>
 
-                    <TextBlock Grid.Row="5" Grid.Column="3" Classes="field" Text="Deinterlace" />
+                    <!-- Both halves of the row are hidden together, and only shown once the loaded file
+                         is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
+                    <TextBlock Grid.Row="5" Grid.Column="3" x:Name="EncDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                     <!-- Spans into the filler column, as the AV1AN tab's Resize row does: the readout
                          under it is rewritten on every file load and must not wrap. -->
-                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" Spacing="4">
+                    <StackPanel Grid.Row="5" Grid.Column="4" Grid.ColumnSpan="2" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
                       <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                         <ComboBox x:Name="EncDeintModeBox" Width="200" SelectionChanged="EncDeintMode_SelectionChanged"
                                   ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />
                         <ComboBox x:Name="EncDeintPresetBox" Width="125" SelectionChanged="EncDeintPreset_SelectionChanged"
-                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Medium is the default here because the sources this runs on are usually hour-long captures." />
+                                  ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC's noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
                         <CheckBox x:Name="EncDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="EncDeintRate_Changed"
                                   ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
                       </StackPanel>

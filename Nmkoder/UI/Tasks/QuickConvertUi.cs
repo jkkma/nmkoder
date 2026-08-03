@@ -520,14 +520,22 @@ namespace Nmkoder.UI.Tasks
             return CurrentTrim.StartTime / 1000f;
         }
 
+        /// <summary> The source's frame rate, which the frame-number trim mode is stated in and has to
+        /// be converted out of. Zero where there is no video to ask, which leaves that mode emitting
+        /// nothing rather than guessing at a rate. </summary>
+        private static Fraction GetSourceRate()
+        {
+            return TrackList.current?.File.VideoStreams.FirstOrDefault()?.Rate ?? Fraction.Zero;
+        }
+
         public static string GetMiscInputArgs()
         {
             List<string> args = new List<string>();
 
-            if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.TimeKeyframe)
-                args.Add(CurrentTrim.StartArg);
+            if (CurrentTrim != null && !CurrentTrim.IsUnset)
+                args.Add(CurrentTrim.GetInputArgs(GetSourceRate()));
 
-            return string.Join(" ", args);
+            return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
         public static string GetMiscOutputArgs()
@@ -535,14 +543,9 @@ namespace Nmkoder.UI.Tasks
             List<string> args = new List<string>();
 
             if (CurrentTrim != null && !CurrentTrim.IsUnset)
-            {
-                if (CurrentTrim.TrimMode == TrimSettings.Mode.TimeExact)
-                    args.Add(CurrentTrim.StartArg);
+                args.Add(CurrentTrim.GetOutputArgs(GetSourceRate()));
 
-                args.Add(CurrentTrim.DurationArg);
-            }
-
-            return string.Join(" ", args);
+            return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
         /// <summary>
@@ -607,6 +610,20 @@ namespace Nmkoder.UI.Tasks
             return divisor == 0 ? 0 : (value + divisor / 2) / divisor;
         }
 
+        /// <summary> Why the configured crop cannot run on the loaded file, or "" when it can - the
+        /// question <see cref="QuickConvert.Run"/> asks before it builds anything. The AV1AN tab answers
+        /// the same one out of <see cref="Av1anFrame.CropProblem"/>, where it is settled in the pass
+        /// that resolves the rest of the geometry. </summary>
+        public static string GetCropProblem()
+        {
+            VideoStream vs = TrackList.current?.File.VideoStreams.FirstOrDefault();
+
+            if (vs == null || CurrentCrop == null || !CurrentCrop.IsSet || !Form.EncCropModeBox.GetText().ToLower().Contains("manual"))
+                return "";
+
+            return CurrentCrop.GetProblem(vs.Resolution);
+        }
+
         public static async Task<string> GetVideoFilterArgs(IEncoder vCodec, CodecArgs codecArgs = null, bool quiet = false)
         {
             MediaFile currFile = TrackList.current.File;
@@ -633,11 +650,26 @@ namespace Nmkoder.UI.Tasks
             // and add no filter at all, leaving the output at 59.94.
             Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
-            if (CurrentTrim != null && !CurrentTrim.IsUnset && CurrentTrim.TrimMode == TrimSettings.Mode.FrameNumbers) // Check Filter: Frame Number Trim
-                filters.Add(CurrentTrim.StartArg);
+            // No trim filter of any kind. The frame-number mode used to put a "select" here, which cut
+            // the video and nothing else, counted frames coming out of the deinterlacer above rather
+            // than frames of the source, and left the kept ones carrying their original timestamps.
+            // It is a seek and a duration now, like the other two modes - see TrimSettings.
 
-            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Check Filter: Framerate Resampling
+            // Compared with a tolerance rather than exactly - see MiscUtils.FrameRateTolerance, which is
+            // there because "23.976" and 24000/1001 are the same rate written two ways and this used to
+            // build a filter between them.
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps)) // Check Filter: Framerate Resampling
+            {
                 filters.Add($"fps=fps={fps}");
+
+                // Said out loud because nothing else says it: this box has no readout of its own, so a
+                // rate left over from another file, or typed with a digit out of place, used to reach
+                // the end of an encode without ever being mentioned.
+                Logger.Log($"Resampling the frame rate from {MiscUtils.DescribeFrameRate(sourceRate)} to " +
+                    $"{MiscUtils.DescribeFrameRate(fps)}" +
+                    $"{(CurrentDeinterlace != null && CurrentDeinterlace.DoublesFrameRate ? " - the source rate here is the doubled one, from one frame per field" : "")}. " +
+                    $"Frames are duplicated or dropped to fit; the running time stays the same.", quiet);
+            }
 
             int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In
 
@@ -670,18 +702,19 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
-            if ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0)) // Check Filter: Pad for mod2
-                filters.Add(FfmpegUtils.GetPadFilter(2));
-
             string scaleW = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
             string scaleH = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
             string cropMode = Form.EncCropModeBox.GetText().ToLower();
             Size scaleInput = vs.Resolution; // What the scale filter is handed, once a crop has taken its share
 
-            if (cropMode.Contains("manual") && CurrentCrop != null) // Check Filter: Manual Crop
+            // Left out rather than clamped when it does not fit: the run refuses first, through
+            // GetCropProblem, so reaching here with a bad crop means some other caller asking what the
+            // chain would be - which is a question, not an encode.
+            if (cropMode.Contains("manual") && CurrentCrop != null && CurrentCrop.IsSet
+                && CurrentCrop.FitsInside(vs.Resolution)) // Check Filter: Manual Crop
             {
                 filters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
-                scaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+                scaleInput = CurrentCrop.GetCroppedSize(vs.Resolution);
             }
 
             if (cropMode.Contains("auto")) // Check Filter: Autocrop
@@ -690,6 +723,12 @@ namespace Nmkoder.UI.Tasks
                 filters.Add(autoCrop);
                 scaleInput = FfmpegUtils.ParseCropSize(autoCrop, scaleInput);
             }
+
+            // After the crop, and measured against what the crop leaves: a rectangle is measured against
+            // the frame the file has, so padding first moves the picture out from under it - and an odd
+            // rectangle taken out of a padded frame is odd again, which is what the pad exists to stop.
+            if ((scaleInput.Width % 2 != 0) || (scaleInput.Height % 2 != 0)) // Check Filter: Pad for mod2
+                filters.Add(FfmpegUtils.GetPadFilter(2));
 
             if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
             {

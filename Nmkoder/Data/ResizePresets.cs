@@ -6,7 +6,8 @@ namespace Nmkoder.Data
     /// <summary> One entry of the resize dropdown: a name, and the resize it stands for. </summary>
     public class ResizePreset
     {
-        /// <summary> Stable across releases and across reorderings of the list, because it is what gets saved. </summary>
+        /// <summary> Stable across releases and across reorderings of the list: it is what a configured
+        /// resize is matched back to when the dropdown has to show which entry produced it. </summary>
         public string Key { get; }
         public string Name { get; }
 
@@ -36,22 +37,41 @@ namespace Nmkoder.Data
     /// entry rather than working out four different pairs of numbers. A user who really does want the
     /// height forced - scope content at a full 1080 lines, so 2582x1080 - says so in the dialog, which
     /// is the mode the box entries deliberately are not.
+    /// <para/>
+    /// The box entries enlarge a source smaller than the target rather than clamping at its own size, so
+    /// "2160p (4K)" means 3840x2160 for a 1080p file. Naming a target and being handed the source back is
+    /// the more surprising of the two behaviours, and the readout and the encode log both say when a
+    /// picture is being grown - what upscaling costs is worth stating, not worth refusing on someone's
+    /// behalf. The cost is real: enlarging invents no detail and spends bitrate keeping the softness it
+    /// produces, and the usual good reason to do it anyway is a platform whose bitrate ladder pays more
+    /// for a larger frame. It also means a preset left set across a batch of mixed-resolution files
+    /// enlarges the small ones, which is what the per-file log line is there to make visible.
+    /// <para/>
+    /// The percentage entries below take no part in this - they are proportions of whatever the source
+    /// is, and all three shrink it. A percentage over 100 is somebody asking for an upscale outright,
+    /// which ResizeConfig honours without consulting the flag at all.
     /// </summary>
     public class ResizePresets
     {
         public const string CustomKey = "custom";
         public const string NoneKey = "none";
 
+        /// <summary> One "p" entry: a box to fit inside, which may enlarge the source. See the note on <see cref="All"/>. </summary>
+        private static ResizeConfig Box(int w, int h, string key)
+        {
+            return ResizeConfig.FitBox(w, h, key, allowUpscale: true);
+        }
+
         public static readonly List<ResizePreset> All = new List<ResizePreset>
         {
             new ResizePreset(NoneKey, "No resizing", () => new ResizeConfig()),
-            new ResizePreset("2160p", "2160p (4K)", () => ResizeConfig.FitBox(3840, 2160, "2160p")),
-            new ResizePreset("1440p", "1440p", () => ResizeConfig.FitBox(2560, 1440, "1440p")),
-            new ResizePreset("1080p", "1080p (Full HD)", () => ResizeConfig.FitBox(1920, 1080, "1080p")),
-            new ResizePreset("720p", "720p (HD)", () => ResizeConfig.FitBox(1280, 720, "720p")),
-            new ResizePreset("576p", "576p", () => ResizeConfig.FitBox(1024, 576, "576p")),
-            new ResizePreset("480p", "480p", () => ResizeConfig.FitBox(854, 480, "480p")),
-            new ResizePreset("360p", "360p", () => ResizeConfig.FitBox(640, 360, "360p")),
+            new ResizePreset("2160p", "2160p (4K)", () => Box(3840, 2160, "2160p")),
+            new ResizePreset("1440p", "1440p", () => Box(2560, 1440, "1440p")),
+            new ResizePreset("1080p", "1080p (Full HD)", () => Box(1920, 1080, "1080p")),
+            new ResizePreset("720p", "720p (HD)", () => Box(1280, 720, "720p")),
+            new ResizePreset("576p", "576p", () => Box(1024, 576, "576p")),
+            new ResizePreset("480p", "480p", () => Box(854, 480, "480p")),
+            new ResizePreset("360p", "360p", () => Box(640, 360, "360p")),
             new ResizePreset("75pc", "75% of the source", () => ResizeConfig.Proportion(75, "75pc")),
             new ResizePreset("50pc", "50% of the source", () => ResizeConfig.Proportion(50, "50pc")),
             new ResizePreset("25pc", "25% of the source", () => ResizeConfig.Proportion(25, "25pc")),
@@ -65,10 +85,10 @@ namespace Nmkoder.Data
         }
 
         /// <summary>
-        /// The entry to select for a configuration. A resize with no preset behind it - one migrated from
-        /// the old scale boxes, or written by a build whose preset list has since changed - is a custom
-        /// one rather than none at all: falling back to "No resizing" would show a resize being off while
-        /// it was on, which is the one thing the readout must never say.
+        /// The entry to select for a configuration. A resize with no preset behind it - one built in the
+        /// dialog, or carrying a key this build's list no longer has - is a custom one rather than none
+        /// at all: falling back to "No resizing" would show a resize being off while it was on, which is
+        /// the one thing the readout must never say.
         /// </summary>
         public static int IndexFor(ResizeConfig cfg)
         {

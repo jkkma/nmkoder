@@ -35,9 +35,12 @@ namespace Nmkoder.UI.Tasks
 
         public static void Init()
         {
-            // Load video codecs
-            Form.Av1anCodecBox.SetItems(Enum.GetValues<CodecUtils.Av1anCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
-            ConfigParser.LoadComboxIndex(Form.Av1anCodecBox);
+            // Load video codecs. SVT-AV1 rather than the first entry, and stated here rather than left
+            // to a saved value: the Video tab restores nothing between sessions, so this is the only
+            // place the default encoder is named. Every other control on that tab is filled from
+            // whichever one this picks.
+            Form.Av1anCodecBox.SetItems(Enum.GetValues<CodecUtils.Av1anCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                (int)CodecUtils.Av1anCodec.SvtAv1);
 
             // Load quality modes
             Form.Av1anQualModeBox.SetItems(Enum.GetValues<Av1an.QualityMode>()
@@ -358,8 +361,21 @@ namespace Nmkoder.UI.Tasks
             Fraction fps = GetUiFps();
             Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
 
-            if (fps.GetFloat() > 0.01f && sourceRate.GetFloat() != fps.GetFloat()) // Framerate Resampling
+            // Compared with a tolerance rather than exactly - see MiscUtils.FrameRateTolerance, which is
+            // there because "23.976" and 24000/1001 are the same rate written two ways and this used to
+            // build a filter between them.
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps)) // Framerate Resampling
+            {
                 frame.FpsFilter = $"fps=fps={fps}";
+
+                // Said out loud because nothing else says it. The resize has a readout and a per-file
+                // log line; this box has neither, so a rate typed for one file - or typed with a digit
+                // out of place - reached the end of an encode without ever being mentioned.
+                Logger.Log($"Resampling the frame rate from {MiscUtils.DescribeFrameRate(sourceRate)} to " +
+                    $"{MiscUtils.DescribeFrameRate(fps)}" +
+                    $"{(CurrentDeinterlace != null && CurrentDeinterlace.DoublesFrameRate ? " - the source rate here is the doubled one, from one frame per field" : "")}. " +
+                    $"Frames are duplicated or dropped to fit and the running time stays the same; av1an is told to ignore the chunk frame counts it changes.");
+            }
 
             // The resize is a rule rather than a pair of numbers, so the pixels it comes out to are only
             // settled here: this runs per file, after the crop above the scale filter has been decided,
@@ -378,19 +394,21 @@ namespace Nmkoder.UI.Tasks
             frame.Desqueezing = !frame.Resizing && AspectRatio.IsAnamorphic(vs.Sar)
                 && !GetCustomFilters().Any(f => f.Contains("setsar") || f.Contains("setdar"));
 
-            // Padding an odd source to mod 2 is what stops it reaching an encoder that will not take one.
-            // A resize makes it redundant - every size computed below is a multiple of 2 - and dropping it
-            // also takes away its one sharp edge, which is that it runs *ahead* of a crop whose rectangle
-            // was measured against the unpadded frame.
-            frame.Padding = !frame.Resizing && !frame.Desqueezing
-                && ((vs.Resolution.Width % 2 != 0) || (vs.Resolution.Height % 2 != 0));
-
             string cropMode = Form.Av1anCropBox.GetText().ToLower();
 
-            if (cropMode.Contains("manual") && CurrentCrop != null) // Manual Crop
+            if (cropMode.Contains("manual") && CurrentCrop != null && CurrentCrop.IsSet) // Manual Crop
             {
-                frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
-                frame.ScaleInput = new Size(CurrentCrop.GetCroppedWidth(vs.Resolution), CurrentCrop.GetCroppedHeight(vs.Resolution));
+                // Carried rather than acted on, so the run can refuse with a sentence naming the file
+                // instead of av1an discovering "Invalid too big or non positive size" one chunk at a
+                // time. Reachable without anyone typing anything strange: the four edges outlive the
+                // file they were set for, and a batch does not clear them between files.
+                frame.CropProblem = CurrentCrop.GetProblem(vs.Resolution);
+
+                if (frame.CropProblem.IsEmpty())
+                {
+                    frame.CropFilters.Add($"crop={CurrentCrop.GetFilterArgs(vs.Resolution)}");
+                    frame.ScaleInput = CurrentCrop.GetCroppedSize(vs.Resolution);
+                }
             }
 
             if (cropMode.Contains("auto")) // Autocrop - the sampling run this method exists to do only once
@@ -404,15 +422,21 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
+            // Padding an odd frame to mod 2 is what stops it reaching an encoder that will not take one,
+            // and it is measured against what the crop leaves rather than against the source: the pad now
+            // runs *after* the crop, because a rectangle taken out of a padded picture is a rectangle
+            // measured against the wrong frame. A resize makes it redundant either way - every size that
+            // one computes is already even.
+            frame.Padding = !frame.Resizing && !frame.Desqueezing
+                && ((frame.ScaleInput.Width % 2 != 0) || (frame.ScaleInput.Height % 2 != 0));
+
             frame.Encoded = frame.ScaleInput;
 
             if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar))
                 frame.Encoded = OrKeep(CurrentResize.Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
             else if (frame.Desqueezing)
                 frame.Encoded = OrKeep(ResizeConfig.DesqueezeOnly().Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
-            else if (frame.Padding && frame.CropFilters.Count < 1)
-                // The pad runs ahead of the crop, so it only decides the frame's size when there is no
-                // crop behind it to take a rectangle of its own out of the padded picture.
+            else if (frame.Padding)
                 frame.Encoded = new Size(RoundUpToEven(frame.ScaleInput.Width), RoundUpToEven(frame.ScaleInput.Height));
 
             return frame;
@@ -453,10 +477,14 @@ namespace Nmkoder.UI.Tasks
             if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
                 filters.Add(frame.FpsFilter);
 
+            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
+
+            // After the crop, not before it. A crop rectangle is measured against the frame the file
+            // actually has, so padding first moved the picture out from under it - and padding an odd
+            // source only to crop an odd rectangle out of the result left the encoder with the odd
+            // frame the pad existed to prevent.
             if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
-
-            filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
 
             if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, frame.Sar)) // Check Filter: Scale
             {
@@ -516,6 +544,14 @@ namespace Nmkoder.UI.Tasks
                 : $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height}";
 
             Logger.Log($"Resizing {source} to {result.Width}x{result.Height} ({AspectRatio.Describe(result.Width, result.Height)}).");
+
+            // The box presets enlarge a source smaller than their target, so this is reachable without
+            // anyone having opened the resize dialog - and in a batch of mixed resolutions it is the
+            // small files it happens to, one at a time, where the tab's readout only ever described the
+            // file that was loaded. Said rather than prevented: the size asked for is the size delivered.
+            if (CurrentResize.IsUpscale(frame.ScaleInput, frame.Sar))
+                Logger.Log($"Note: that is larger than the source, so this encode is upscaling. It invents no " +
+                    $"detail and the softness it produces costs bitrate - pick a smaller target if that was not the intent.");
 
             // Not clamped to, only mentioned: silently growing a frame to something the user did not ask
             // for is worse than an encoder saying no. SVT-AV1 refuses anything under 64 in either
@@ -605,8 +641,7 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// Acts on the user picking an entry - and only on the user: refilling the list raises the same
-        /// event, and acting on that would read the freshly selected entry back over what is being shown,
-        /// as well as committing an unrelated save on every file load.
+        /// event, and acting on that would read the freshly selected entry back over what is being shown.
         /// </summary>
         public static void ResizePresetSelected(int index)
         {
@@ -634,7 +669,6 @@ namespace Nmkoder.UI.Tasks
             }
 
             UpdateResizeReadout();
-            Form.SaveAv1anEncodeSettings();
         }
 
         /// <summary> The line under the dropdown: the size, the ratio it works out to, and whichever caveat applies. </summary>
@@ -679,114 +713,6 @@ namespace Nmkoder.UI.Tasks
                 text += " · before autocrop; the final size is measured when the encode starts";
 
             return text;
-        }
-
-        #endregion
-
-        #region Resize Persistence
-
-        public static void SaveResizeConfig()
-        {
-            Config.Set(Config.Key.Av1anResize, JsonConvert.SerializeObject(CurrentResize));
-        }
-
-        /// <summary>
-        /// Restores the saved resize, or - for a config written before this tab had one - translates
-        /// whatever the two scale text boxes it replaced were holding.
-        /// </summary>
-        public static void LoadResizeConfig()
-        {
-            string json = Config.Get(Config.Key.Av1anResize);
-
-            if (json.IsEmpty())
-            {
-                CurrentResize = MigrateOldScaleBoxes();
-                // Written back straight away rather than left to the next save, so the translation - and
-                // the log line that goes with the cases it cannot translate - happens exactly once.
-                SaveResizeConfig();
-                return;
-            }
-
-            try
-            {
-                CurrentResize = JsonConvert.DeserializeObject<ResizeConfig>(json) ?? new ResizeConfig();
-            }
-            catch (Exception e)
-            {
-                Logger.Log($"Failed to read the saved resize settings: {e.Message}", true);
-                CurrentResize = new ResizeConfig();
-            }
-        }
-
-        /// <summary>
-        /// The old UI was two free-text boxes fed straight to an ffmpeg scale filter, so a saved value can
-        /// be a number, a percentage, or an expression like "iw/2". The first two have an exact equivalent
-        /// here and are carried over; an expression has none, and rather than approximate it the setting is
-        /// dropped with a line saying where the same thing can still be written by hand.
-        /// </summary>
-        private static ResizeConfig MigrateOldScaleBoxes()
-        {
-            // Asked of the cache rather than of Config.Get, which writes a default for any key it does not
-            // find - so a fresh install would be given two dead scale entries by the act of looking.
-            string w = ReadOldScaleBox("Av1anScaleBoxW");
-            string h = ReadOldScaleBox("Av1anScaleBoxH");
-
-            if (w.IsEmpty() && h.IsEmpty())
-                return new ResizeConfig();
-
-            ResizeConfig migrated = TranslateOldScaleBoxes(w, h);
-
-            if (migrated == null)
-            {
-                Logger.Log($"The saved AV1AN resize ('{w}' x '{h}') is an ffmpeg expression, which the new resize " +
-                    $"tool has no equivalent for, so it has been cleared. A scale filter can still be written out in full on the Advanced tab.");
-                return new ResizeConfig();
-            }
-
-            // Custom rather than a preset: the old boxes held a size, and no size is one of the targets in
-            // the list. Left keyless it would select "No resizing" while a resize was in force.
-            migrated.PresetKey = ResizePresets.CustomKey;
-            return migrated;
-        }
-
-        /// <summary> The pair of old values as a resize, or null where there is no equivalent. </summary>
-        private static ResizeConfig TranslateOldScaleBoxes(string w, string h)
-        {
-            if (w.EndsWith("%") || h.EndsWith("%"))
-            {
-                // Read as a float and rounded: GetInt strips the dot rather than the fraction, so "12.5%"
-                // came out as 125% - an upscale, off a value that asked to shrink the picture eightfold.
-                int percent = (w.EndsWith("%") ? w : h).TrimEnd('%').GetFloat().RoundToInt();
-                return percent > 0 ? new ResizeConfig { Mode = ResizeMode.Percent, Percent = percent } : null;
-            }
-
-            if (IsPlainNumber(w) && IsPlainNumber(h))
-                return new ResizeConfig { Mode = ResizeMode.Exact, Fill = ResizeFill.Stretch, TargetWidth = w.GetInt(), TargetHeight = h.GetInt() };
-
-            if (IsPlainNumber(h) && IsAutoOrEmpty(w))
-                return new ResizeConfig { Mode = ResizeMode.Height, TargetHeight = h.GetInt() };
-
-            if (IsPlainNumber(w) && IsAutoOrEmpty(h))
-                return new ResizeConfig { Mode = ResizeMode.Width, TargetWidth = w.GetInt() };
-
-            return null;
-        }
-
-        private static string ReadOldScaleBox(string key)
-        {
-            return Config.cachedValues.TryGetValue(key, out string value) ? (value ?? "").Trim().ToLower() : "";
-        }
-
-        private static bool IsPlainNumber(string s)
-        {
-            return s.Length > 0 && s.All(char.IsDigit) && s.GetInt() > 0;
-        }
-
-        /// <summary> Blank, or one of the negative values ffmpeg reads as "work this one out from the other" -
-        /// which is exactly what the Width and Height modes do. </summary>
-        private static bool IsAutoOrEmpty(string s)
-        {
-            return s.IsEmpty() || s == "-1" || s == "-2";
         }
 
         #endregion

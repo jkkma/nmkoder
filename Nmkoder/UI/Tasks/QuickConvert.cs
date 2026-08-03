@@ -58,6 +58,35 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // Before anything is built, because a crop that does not fit the frame in front of it
+                // becomes "crop=-80:1080:1000:0" and ffmpeg refuses that with an error naming neither
+                // the setting nor the file. The way in is rarely a typo: the four edges outlive the file
+                // they were set for, and a batch does not clear them between files, so the crop measured
+                // on a 1080p source is still 140 lines off a 480p one.
+                string cropProblem = QuickConvertUi.GetCropProblem();
+
+                if (cropProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot be cropped as configured - " +
+                        $"{cropProblem}.\n\nChange the crop, or switch it off for this file.");
+                    return;
+                }
+
+                // The same question the AV1AN tab and the Cut utility have always asked, and for the
+                // same reason: a trim outlives the file it was set for, so a batch runs one section
+                // against every file in it. Where the section starts past the end of a shorter one,
+                // ffmpeg seeks past everything there is and writes an empty file without complaining.
+                if (QuickConvertUi.CurrentTrim != null && !QuickConvertUi.CurrentTrim.IsUnset)
+                {
+                    string trimProblem = UtilCut.ResolveSection(QuickConvertUi.CurrentTrim, TrackList.current.File, out long _, out long _);
+
+                    if (trimProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel($"{trimProblem}\n\nChange the trim, or clear it for this file.");
+                        return;
+                    }
+                }
+
                 bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
@@ -101,7 +130,10 @@ namespace Nmkoder.UI.Tasks
                     string vf1 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass1);
                     CodecArgs codecArgsPass2 = vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.TwoOfTwo);
                     string v2 = codecArgsPass2.Arguments;
-                    string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2);
+                    // Quiet: the second pass builds the same chain as the first and has nothing new to
+                    // say about it, so the lines that come with it - the resample, the de-squeeze -
+                    // belong in the log once rather than twice.
+                    string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2, quiet: true);
 
                     // Each pass needs its own VapourSynth process - a pipe feeds one reader - and each
                     // appends to the same log, which is why the check afterwards expects two finished

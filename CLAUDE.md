@@ -303,6 +303,77 @@ automatic one costs those ten probes, and there is nowhere here to spend them on
 worked out from a size that is not the real one is the thing being fixed, so guessing is worse
 than abstaining.
 
+Those ten probes are now answered from `FfmpegUtils`' own cache, keyed by the file's path, length and
+last write, so asking twice costs one detection. Quick Convert asks more than twice: it builds its
+filter chain once for the stream maps - `GetMapArgs` needs to know whether there *is* a chain, to map
+`[vf]` - then again for the command, and again for a second pass, each through a call that knows
+nothing of the others. That was thirty seeks and a hundred and eighty decoded frames for one two-pass
+encode. The cache is keyed rather than cleared so a file replaced on disk under the same name still
+gets looked at again.
+
+**A crop is four edges, and the rectangle they come to is worked out in one place.** `CropConfig` is
+that place, so the dialog's readout, the frame the resize is measured against and the filter that runs
+cannot disagree. It enforces two things that used to reach ffmpeg exactly as typed:
+
+The result stays inside the frame. Every box was clamped against the *whole* dimension on its own, so
+Left 1000 and Right 1000 on a 1920 frame was something the dialog would let you confirm, and it came
+out as `crop=-80:1080:1000:0`. The way in is rarely a typo - the four edges outlive the file they were
+set for, and `RunTask` clears each file with `resetSettings: false`, so a batch carries a 140-line
+letterbox crop from a 1080p file onto a 480p one. Both tabs now refuse the encode through
+`CropConfig.GetProblem`, naming the file and the numbers, rather than letting av1an meet it one chunk
+at a time; the dialog holds each *pair* of opposing edges instead of each edge, and shrinks a crop
+that arrives too big for the file proportionally, so a symmetric one stays symmetric.
+
+The result is even on both axes. 4:2:0 has one chroma sample per 2x2 block, so an odd width or height
+is refused by x264, x265 and SVT-AV1 alike, and an odd offset is silently moved by ffmpeg's own crop
+filter - which puts the file a pixel away from what the dialog drew. The dialog steps in twos but a
+typed 3 got through. The offset rounds up and the size rounds down, so alignment never re-exposes a
+sliver of the bar being removed.
+
+**The mod-2 pad runs after the crop**, on both tabs, and is decided from what the crop leaves rather
+than from the source. Before, an odd source with a crop padded to 720x406 and then took an odd
+rectangle out of it - odd again, and measured against a frame the pad had already moved. With the
+crop's own rounding above, a cropped frame is even before the pad is asked, which leaves the pad doing
+what it was written for: an odd source with no crop on it.
+
+**The dropdown's box presets enlarge a source smaller than their target**, so "2160p (4K)" means
+3840x2160 for a 1080p file rather than handing the file back unchanged. `ResizePresets.Box` is where
+that is set, on the `AllowUpscale` flag a hand-built `ResizeConfig` still defaults to off. What it
+costs is said rather than refused: the readout carries the clause, and `Av1anUi.LogResize` repeats it
+per file, which is the only place a batch of mixed resolutions shows which files were grown. The
+percentage entries take no part in it - they are proportions, and a percentage over 100 was always an
+upscale asked for outright.
+
+That combination is what made `GetNote` return two clauses rather than one. A de-squeezed DVD scaled
+up to 1080p is being un-squashed *and* enlarged, with neither implying the other, and the de-squeeze
+clause sits above the upscale one - so before this the readout stated the shape and said nothing
+about the cost. Nothing else in that list pairs up: every other clause answers "what is happening to
+the frame", where being enlarged is a price.
+
+**Nothing on the AV1AN Video tab is saved.** The encoder, the container, the quality mode and its
+value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim
+and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
+selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` restores none of them. It
+is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid; `LoadConfigAv1an`
+keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a
+preference, and every way they go wrong is expensive and quiet: a QTGMC left armed spends hours and
+tens of gigabytes on a progressive source, a resize left on 720p halves a 4K encode nobody meant to
+shrink, a CRF picked for a grainy film is the wrong number for line art. Reset On New File already
+made that argument for Trim, Crop and Deinterlace; this carries it to the whole tab and to the
+boundary that is even easier to lose track of, which is a session that ended days ago.
+
+The encoder had to move rather than merely stop being restored, and this is the part to be careful
+with: what made SVT-AV1 the default was `Config`'s default *for the saved value*, so dropping the
+restore on its own would have opened every session on the first entry of the enum, which is aomenc -
+and dragged the whole tab with it, since the quality scale, the preset list, the colour formats and
+the Advanced tab's rows are all rebuilt per encoder. `Av1anUi.Init` names SVT-AV1 where the box is
+filled instead, and that is now the only statement anywhere of what the tab opens as.
+
+Not writing them matters as much as not reading them: a value saved and never restored is one the
+next person to touch that method will restore, reasonably enough, and the setting then comes back
+from whatever session last happened to write it. Keys from before this are still sitting in existing
+config files - do not wire one back up on the strength of finding it there.
+
 **The resize dialog's anamorphic switch is warned about rather than overridden.** Off, the targets
 measure the stored pixels and nothing bakes the display shape in - and there is nowhere else for it
 to live, since av1an hands its encoders bare frames and a chain ending in `setsar=1:1` drops the
@@ -344,29 +415,80 @@ its concat step reads the flag as "an FPS changing filter might have been applie
 forcing the source's rate onto the output, which is the other half of what a resampled encode
 needs. It goes out whenever `Av1anFrame.ResamplesFrameRate`, behind the usual help-text check.
 
+**Whether the box asks for a different rate at all is decided with a tolerance, and must stay that
+way.** `MiscUtils.IsSameFrameRate` calls two rates the same within 0.01%, because the app shows a rate
+two ways - the Track List reads `24000/1001 (~23.976 FPS)` - and typing the readable one back was an
+exact-comparison mismatch that built a filter. The retiming that produced was nothing, one frame in a
+million; what it cost was everything a non-empty chain costs on this tab, which is
+`--ignore-frame-mismatch`, the pixel format conversion coming off VapourSynth, and every
+target-quality probe measuring an unfiltered source. The same trap sat one level along, where `59.94`
+did not match the 60000/1001 a bobbed 29.97i source arrives at. 0.01% is ten times finer than the gap
+it must never close - a rate and its NTSC form are 0.1% apart, 24 against 23.976 and 30 against 29.97
+- so pulldown rates stay distinct while a rounded decimal of the same rate does not.
+
+Both tabs also log the resample per file, naming the source rate in both forms and saying so when that
+source rate is the doubled one a bob produces. That box has no readout of its own - the resize and the
+deinterlace both have one - so before this a rate left over from another file, or typed with a digit
+out of place, reached the end of an encode without ever being mentioned. Quick Convert's second pass
+builds the same chain as the first and is asked for it with `quiet: true`, so this and the de-squeeze
+line land in the log once rather than twice.
+
 ## Deinterlacing
 
-Both encode tabs carry a Deinterlace setting, defaulting to Automatic, which does nothing at
-all unless the source really is interlaced. That default is the point: a Hi8 or VHS capture
-comes out deinterlaced without anyone having had to know to ask, and a modern download is
-left alone.
+**Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the
+setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore arrives with the
+best deinterlacer there is already selected, and a modern download never shows the control at all.
 
-**An engine picked by name deinterlaces whatever it is handed, and must not outlive the file it
-was picked for.** Forcing is the point of naming one - `Deinterlace.ResolveAsync` consults the
-scan verdict only for Automatic - and it is the only way past a container flag that lies about its
-own scan type, which is exactly what the section below declines to check for. What made that a
-trap was that the mode was sticky and nothing cleared it: it is saved per tab and restored at
-startup, so a QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a
-full pass over the video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that
-- a progressive 1080p WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields,
-with nothing wrong anywhere in the detection, which had read it correctly and said so on screen.
+`DeinterlaceUi.IsRowRelevant` decides which a file is, and it is true for two different reasons. One
+is the obvious one: the verdict says interlaced. The other is that the file's fields were actually
+**measured** - `Scanned`, which `InterlaceDetect` only sets for a file whose container says nothing
+about its scan type - and there the row appears whatever the measurement concluded. That second
+clause is the escape hatch: the counters are the part of the verdict that can be wrong, and a capture
+that scored just under the line is exactly where a person can see combing that the scan missed. It
+does **not** cover a container that lies outright, because a file flagged progressive is believed
+rather than measured and never reaches the scan - that one still goes to the Deinterlace Video
+utility, which deinterlaces whatever it is given.
 
-`ResetSettingsOnNewFile.ResetDeinterlace` is the fix, on by default beside Trim and Crop - the
+**Showing the row is not arming it, and two separate things see to that.** An engine picked by name
+deinterlaces whatever it is handed - `Deinterlace.ResolveAsync` consults the verdict only for
+Automatic - so a QTGMC default reaching a progressive file would start an hours-long pass on it.
+`ApplyScanVerdict` puts the mode on Automatic for anything not called interlaced, so a row that
+appears over progressive video appears switched off, reading "this file is progressive, so nothing
+will be deinterlaced" until somebody picks an engine in it. And `ModeInEffect` reports Automatic
+whenever the row is off screen entirely, whatever the box behind it says - which covers the gap
+between a file being loaded and its scan landing, since Automatic is the one mode that is safe
+without knowing anything: `ResolveAsync` waits for the verdict itself.
+
+`ApplyScanVerdict` runs where the verdict is *measured* rather than every time a file is looked at.
+That is deliberate - it is the same moment the row first appears, so there is no selection of the
+user's to overwrite, and re-selecting an already-scanned file in the list therefore keeps an engine
+picked by hand.
+
+**An engine picked by name must not outlive the file it was picked for.** What made that a trap was
+that the mode was sticky and nothing cleared it: it was saved per tab and restored at startup, so a
+QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a full pass over the
+video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that - a progressive 1080p
+WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields, with nothing wrong anywhere
+in the detection, which had read it correctly and said so on screen. Hiding the row is what closes
+that case for good; the resets below still matter for the file the row *is* shown for.
+
+`ResetSettingsOnNewFile.ResetDeinterlace` is the other half, on by default beside Trim and Crop - the
 three whose value describes the file that was just replaced rather than how the user likes to
-encode. `DeinterlaceUi.ResetModes` puts both tabs back to Automatic and touches neither the preset
+encode. `DeinterlaceUi.ResetModes` puts both tabs back to `DefaultMode` and touches neither the preset
 nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
 loaded the file: a batch clears each one with `resetSettings: false`, so a stack of tapes keeps the
 engine picked for it.
+
+The startup half of that trap is closed at the other end now - the AV1AN tab restores nothing across
+sessions at all, so its mode is the default on every launch whatever was picked last time. Quick
+Convert's is still saved, and still relies on this reset, because deinterlacing there is one filter
+in a chain rather than a pass of its own.
+
+The default is stated in exactly two places and nowhere else: `DeinterlaceUi.DefaultMode` for the
+engine, `Qtgmc.DefaultPreset` for the preset. The second is not only a default - it is also the
+fallback for an empty preset box and, through `Qtgmc.NeedsNoisePlugins`, the thing that decides which
+plugin set has to be present, since Very Slow is one of the two presets that turn QTGMC's noise
+processing on and pull in `fft3dfilter`. Moving it moves what the probe and the release check verify.
 
 A default added to that list has to reach the configs that already exist, and defaulting on a first
 run does not - a setting added after a list was written is missing from that list in exactly the way
@@ -538,11 +660,35 @@ purely to collect the reason autoload swallows, so the app says "VapourSynth ref
 QTGMC needs (eedi3m) - … requires API R4.2" rather than the flatly misleading "missing".
 
 **A trim is the one thing QTGMC does not cover on the Quick Convert tab**, because that trim is
-ffmpeg's - an input seek, an output duration, or a frame-number filter - and none of the three
-reaches the script that reads the source, so the video would arrive whole while the audio
-arrived cut. Both together means cutting first; the Cut utility does that without re-encoding,
-and the log says so. The AV1AN tab's trim is not ffmpeg's - it cuts a copy before av1an starts -
-so there the two compose, and `Av1an.Run` runs the cut first and QTGMC over what it produced.
+ffmpeg's - a seek and a duration on the command line - and neither reaches the script that reads the
+source, so the video would arrive whole while the audio arrived cut. Both together means cutting
+first; the Cut utility does that without re-encoding, and the log says so. The AV1AN tab's trim is
+not ffmpeg's - it cuts a copy before av1an starts - so there the two compose, and `Av1an.Run` runs
+the cut first and QTGMC over what it produced.
+
+**All three trim modes are a seek and a duration, and the modes differ only in what the user types
+and how exact the start is.** The keyframe mode seeks the input, which is instant and lands on the
+keyframe before the point; the other two seek the output, which decodes and discards its way there
+and so stops where it was asked to. `TrimSettings.GetInputArgs` and `GetOutputArgs` are the only
+place that mapping lives.
+
+Frame mode was the exception and was wrong three ways for being one. It emitted a
+`select=gte(n,X)` video filter plus `-vframes N`, so the kept frames carried their original
+timestamps and the output opened on however many seconds the trim had skipped; the audio was cut at
+neither end, since both of those touch video only; and the frames being counted were the ones coming
+*out* of the chain, so a rate-doubling deinterlacer above the select halved the point it landed on.
+It converts to a time now - the same conversion the dialog does to display it - and the seek goes
+half a frame early, because a seek keeps what is at or after its timestamp and `X/rate` is a place
+floating point can land either side of. `-frames:v` still goes out to pin the count the duration
+only implies.
+
+**A trim is checked against the file before the encode starts**, through `UtilCut.ResolveSection`,
+which all three of the Cut utility, the AV1AN tab and Quick Convert now ask. A trim outlives the file
+it was set for and a batch does not clear it, so one section runs against every file in the queue;
+where it starts past the end of a shorter one, ffmpeg seeks past everything there is and writes an
+empty file without complaining. `ResolveSection` reads the section through the millisecond accessors
+rather than off the fields, because in frame mode those hold frame numbers and comparing a frame
+count against a duration compares nothing.
 
 **QTGMC cannot run inside av1an, so the AV1AN tab renders it in front.** av1an applies video
 filters with ffmpeg once per chunk and there is nowhere in that to put a script; and it
@@ -566,11 +712,18 @@ hours-long pass and a tens-of-gigabytes intermediate is not that. The expensive 
 one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said, through the
 same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
 
-Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order. The AV1AN box therefore saves
-the mode's **name** where every other fixed dropdown saves its index: adding QTGMC in its proper
-place moved Bwdif and Yadif down one, and a saved index of 2 would have started an unwanted
-QTGMC pass for someone who had picked Bwdif. `DeinterlaceUi.RestoreAv1anMode` reads a saved
-integer once, against the list as it stood in 2.8.9, and writes a name back.
+That is a statement about Automatic, not about what the tab opens on, and the two have come apart:
+the default is QTGMC now, so a file *measured as interlaced* on the AV1AN tab gets the expensive pass
+unless someone changes the row. Nothing weaker than that selects it - a scan that says progressive
+lands on Automatic, and so does a hidden row - and Automatic is still bwdif when a person picks it
+deliberately.
+
+Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order, and the Quick Convert box saves
+its index - so entries may be appended to that list but not reordered. The AV1AN box saved the
+mode's **name** for a while, because adding QTGMC in its proper place moved Bwdif and Yadif down
+one and a saved index of 2 would have started an unwanted QTGMC pass for someone who had picked
+Bwdif. That box now saves nothing at all, its whole tab starting each session at the defaults, so
+the migration that read the old integer is gone with it.
 
 Feeding av1an a `.vpy` directly is possible and is still the wrong trade. Measured rather than
 assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come

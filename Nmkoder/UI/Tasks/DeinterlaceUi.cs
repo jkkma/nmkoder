@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Threading;
 using Nmkoder.Data;
 using Nmkoder.Extensions;
@@ -12,9 +13,26 @@ using System.Threading.Tasks;
 namespace Nmkoder.UI.Tasks
 {
     /// <summary>
-    /// The Deinterlace controls, which both encode tabs carry. The setting defaults to Automatic and
-    /// does nothing at all to progressive video, so a tape capture comes out deinterlaced without
-    /// anyone having had to know to ask - which is the whole point of it.
+    /// The Deinterlace controls, which both encode tabs carry.
+    /// <para/>
+    /// The row is hidden for a file with no fields worth discussing, and the setting behind it defaults
+    /// to QTGMC at Very Slow - so a tape capture gets the best deinterlacer there is without anyone
+    /// having had to know to ask, and a file that plainly says it is progressive never shows the
+    /// control at all. <see cref="IsRowRelevant"/> decides which of those a file is, and it shows the
+    /// row for anything whose fields were actually measured as well as for anything called interlaced,
+    /// so a verdict a person can see is wrong is one they can still act on.
+    /// <para/>
+    /// Two things keep that from arming an expensive filter on video that does not need it, because a
+    /// default of QTGMC is an engine picked *by name* and <see cref="Media.Deinterlace.ResolveAsync"/>
+    /// runs one of those over whatever it is handed without consulting the verdict.
+    /// <see cref="ApplyScanVerdict"/> puts the mode on Automatic for any file not called interlaced, so
+    /// a row that appears over progressive video appears switched off; and <see cref="ModeInEffect"/>
+    /// reports Automatic whenever the row is not on screen at all, whatever the box behind it says.
+    /// <para/>
+    /// What none of it covers is a container that lies outright. A file flagged progressive is believed
+    /// rather than scanned, so it never reaches the measurement that would show the row, and forcing an
+    /// engine by name was how that used to be overruled. The Deinterlace Video utility takes no notice
+    /// of any of this and deinterlaces what it is given, so that is where such a file goes.
     /// <para/>
     /// Both tabs offer the same five engines, and they get there differently. Quick Convert runs QTGMC
     /// inline, ffmpeg reading its frames from a VapourSynth pipe; the AV1AN tab cannot do that - av1an
@@ -28,8 +46,9 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary> Modes in dropdown order, the same list everywhere the setting appears: both encode
         /// tabs and the Deinterlace utility's own dialog. The Quick Convert box saves its index, so
-        /// entries may be appended but not reordered; the AV1AN box saves the mode's name instead, for
-        /// the reason <see cref="RestoreAv1anMode"/> gives. </summary>
+        /// entries may be appended but not reordered. The AV1AN box saves nothing at all - its whole
+        /// tab starts each session at its defaults - which is what retired the name-versus-index
+        /// migration this list used to need there. </summary>
         public static readonly DeinterlaceMode[] AllModes =
             { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Qtgmc, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
 
@@ -53,70 +72,96 @@ namespace Nmkoder.UI.Tasks
         /// with different requirements still gets asked about. </summary>
         private static readonly HashSet<string> probed = new HashSet<string>();
 
+        /// <summary> The engine both tabs take for a file that is interlaced - what they open on, what
+        /// Reset On New File goes back to, and what <see cref="ApplyScanVerdict"/> selects. QTGMC
+        /// because on a genuinely interlaced source the motion-compensated deinterlacer is the right
+        /// answer often enough to be the one nobody has to go and pick. It is not the cheap answer: on
+        /// the AV1AN tab it is a whole extra pass into a near-lossless intermediate before av1an
+        /// starts, which is why nothing but a measured "interlaced" selects it. </summary>
+        public const DeinterlaceMode DefaultMode = DeinterlaceMode.Qtgmc;
+
         public static void Init()
         {
-            Form.EncDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), 0);
-            Form.Av1anDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), 0);
-            Form.EncDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), Array.IndexOf(Qtgmc.Presets, Qtgmc.DefaultPreset));
-            Form.Av1anDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), Array.IndexOf(Qtgmc.Presets, Qtgmc.DefaultPreset));
+            int mode = Array.IndexOf(AllModes, DefaultMode);
+            int preset = Array.IndexOf(Qtgmc.Presets, Qtgmc.DefaultPreset);
+            Form.EncDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), mode);
+            Form.Av1anDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), mode);
+            Form.EncDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), preset);
+            Form.Av1anDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), preset);
         }
 
         /// <summary>
-        /// Restores the AV1AN tab's mode, which is saved by name where every other fixed dropdown in
-        /// the app saves its index.
-        /// <para/>
-        /// It has to be, because this list has just been reordered. QTGMC used to be missing from it,
-        /// and appending it would have left the tab's own dropdown listing the engines in a different
-        /// order from the identical one two tabs over; putting it where it belongs moves Bwdif and
-        /// Yadif down a place, so every index saved by an older build now names the engine below the
-        /// one that was picked - and one of those wrong answers starts an hours-long QTGMC pass over a
-        /// setting the user thought said Bwdif. A name cannot go stale that way. The old index is read
-        /// once, against the list as it stood, so nobody's setting is lost in the move.
-        /// </summary>
-        public static void RestoreAv1anMode()
-        {
-            string key = Form.Av1anDeintModeBox.Name;
-
-            // Asked before reading, as ConfigParser's own Restore helpers do: the Get helpers write a
-            // default for any key that is missing, so reading first would create the entry either way.
-            if (!Config.cachedValues.ContainsKey(key))
-                return;
-
-            string saved = (Config.Get(key) ?? "").Trim();
-
-            if (saved.IsEmpty())
-                return;
-
-            // Written by 2.8.9 and earlier: an index into { Automatic, Disabled, Bwdif, Yadif }.
-            DeinterlaceMode[] oldOrder = { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
-            bool wasIndex = int.TryParse(saved, out int index);
-            DeinterlaceMode mode = wasIndex
-                ? oldOrder[index.Clamp(0, oldOrder.Length - 1)]
-                : AllModes.FirstOrDefault(m => GetLabel(m) == saved);
-
-            int at = Array.IndexOf(AllModes, mode);
-
-            if (at >= 0)
-                Form.Av1anDeintModeBox.SelectedIndex = at;
-        }
-
-        /// <summary>
-        /// Both tabs' modes back to Automatic, for Reset On New File.
+        /// Both tabs' modes back to <see cref="DefaultMode"/>, for Reset On New File.
         /// <para/>
         /// Only the mode. The preset and the field doubling say *how* to deinterlace, which is a
         /// preference and survives the file it was set over; the mode says *whether* to, which is a
-        /// fact about a file that has just been replaced. Neither of the other two does anything
-        /// while the mode is Automatic on this tab anyway.
+        /// fact about a file that has just been replaced.
         /// <para/>
-        /// The index is looked up rather than written as 0 because this list has been reordered once
-        /// already - see <see cref="RestoreAv1anMode"/> - and a literal here would have moved with it
-        /// in silence, resetting to whatever ended up first.
+        /// The index is looked up rather than written as a literal because this list has been reordered
+        /// once already - QTGMC went into the middle of it - and a literal here would have moved with
+        /// it in silence, resetting to whatever ended up in that position.
         /// </summary>
         public static void ResetModes()
         {
-            int automatic = Array.IndexOf(AllModes, DeinterlaceMode.Automatic);
-            Form.EncDeintModeBox.SelectedIndex = automatic;
-            Form.Av1anDeintModeBox.SelectedIndex = automatic;
+            int mode = Array.IndexOf(AllModes, DefaultMode);
+            Form.EncDeintModeBox.SelectedIndex = mode;
+            Form.Av1anDeintModeBox.SelectedIndex = mode;
+        }
+
+        /// <summary>
+        /// Whether the loaded file is one the Deinterlace row has anything to say about - which is the
+        /// question behind both the row's visibility and what the two tabs report while it is hidden.
+        /// <para/>
+        /// Two things make it true, and the second is there to leave a way to disagree. A file the
+        /// verdict calls interlaced obviously needs the row. A file whose fields were actually
+        /// *measured* gets it too, whatever the measurement said, because that measurement is the part
+        /// of the verdict that can be wrong: <see cref="InterlaceDetect"/> only decodes frames for a
+        /// file whose container says nothing about its scan type, and a capture that scored just under
+        /// the line is exactly the case where a person can see combing the counters missed.
+        /// <para/>
+        /// The row being *there* is not the row being armed - see <see cref="ApplyScanVerdict"/>, which
+        /// puts the mode on Automatic for anything not called interlaced, so a scanned-progressive file
+        /// shows a control that is doing nothing until somebody picks an engine in it.
+        /// <para/>
+        /// False for no file, for a file whose scan type is not settled yet - until that lands there is
+        /// nothing to show a control for, and <see cref="AnalyzeInBackground"/> calls
+        /// <see cref="RefreshInfo"/> when it does - and for a container that states progressive, which
+        /// is believed rather than measured and so never reaches the scan at all. That last one is the
+        /// case this does not cover: a container that lies outright still has to go to the Deinterlace
+        /// Video utility, which deinterlaces whatever it is given.
+        /// </summary>
+        public static bool IsRowRelevant(MediaFile file)
+        {
+            if (file == null || file.VideoStreams.Count < 1 || file.Interlacing == null)
+                return false;
+
+            return file.Interlacing.Interlaced || file.Interlacing.Scanned;
+        }
+
+        /// <summary>
+        /// Points both tabs at the engine a freshly measured file wants: <see cref="DefaultMode"/> when
+        /// it is interlaced, Automatic when it is not.
+        /// <para/>
+        /// This is what keeps the widened row above from arming QTGMC on progressive video. A scan runs
+        /// on any file whose container says nothing, most of which are progressive, and the row appears
+        /// for all of them - so if the box still read QTGMC there, every one of those would get a
+        /// forced deinterlace, which is the thing hiding the row was supposed to prevent.
+        /// <para/>
+        /// Called only where the verdict was just measured, which is also the moment the row first
+        /// appears, so there is no selection of the user's to overwrite: they could not have touched a
+        /// control that was not on screen. Re-selecting a file already scanned does not come back
+        /// through here, so a mode picked by hand survives a trip round the file list.
+        /// </summary>
+        public static void ApplyScanVerdict(MediaFile file)
+        {
+            int mode = Array.IndexOf(AllModes, IsInterlaced(file) ? DefaultMode : DeinterlaceMode.Automatic);
+            Form.EncDeintModeBox.SelectedIndex = mode;
+            Form.Av1anDeintModeBox.SelectedIndex = mode;
+        }
+
+        private static bool IsInterlaced(MediaFile file)
+        {
+            return file?.Interlacing != null && file.Interlacing.Interlaced;
         }
 
         public static string GetLabel(DeinterlaceMode mode)
@@ -134,11 +179,32 @@ namespace Nmkoder.UI.Tasks
             }
         }
 
+        /// <summary>
+        /// The mode a box is actually asking for: what it says while the row is on screen, and
+        /// Automatic while it is not.
+        /// <para/>
+        /// This is what makes hiding the row safe rather than merely tidy. A mode picked by name is
+        /// applied to whatever it is handed - that is the point of naming one - so a box left on QTGMC
+        /// behind a hidden row would deinterlace progressive video, which is both wrong and impossible
+        /// to see. Automatic asks the scan verdict first and does nothing when the answer is
+        /// progressive, so it is the one mode that is safe to fall back to without knowing anything:
+        /// on a file whose scan type has not been measured yet it still cleans up a source that turns
+        /// out to be interlaced, because <see cref="Media.Deinterlace.ResolveAsync"/> waits for that
+        /// answer itself.
+        /// </summary>
+        private static DeinterlaceMode ModeInEffect(ComboBox box)
+        {
+            if (!IsRowRelevant(TrackList.current?.File))
+                return DeinterlaceMode.Automatic;
+
+            return AllModes[box.SelectedIndex.Clamp(0, AllModes.Length - 1)];
+        }
+
         public static DeinterlaceRequest GetQuickConvertRequest()
         {
             return new DeinterlaceRequest
             {
-                Mode = AllModes[Form.EncDeintModeBox.SelectedIndex.Clamp(0, AllModes.Length - 1)],
+                Mode = ModeInEffect(Form.EncDeintModeBox),
                 QtgmcPreset = Form.EncDeintPresetBox.GetText().IsEmpty() ? Qtgmc.DefaultPreset : Form.EncDeintPresetBox.GetText(),
                 DoubleRate = Form.EncDeintDoubleRateBox.IsChecked == true,
             };
@@ -156,7 +222,7 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static DeinterlaceRequest GetAv1anRequest()
         {
-            DeinterlaceMode mode = AllModes[Form.Av1anDeintModeBox.SelectedIndex.Clamp(0, AllModes.Length - 1)];
+            DeinterlaceMode mode = ModeInEffect(Form.Av1anDeintModeBox);
             bool qtgmc = mode == DeinterlaceMode.Qtgmc;
 
             return new DeinterlaceRequest
@@ -169,8 +235,9 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Brings both tabs' readouts up to date, and shows or hides the QTGMC controls with them.
-        /// Touches no collection and starts nothing that blocks, so it is safe from any handler.
+        /// Brings both tabs' readouts up to date, and shows or hides the row and the QTGMC controls
+        /// with them. Touches no collection and starts nothing that blocks, so it is safe from any
+        /// handler - which matters, because the answer it works from arrives on a background scan.
         /// </summary>
         public static void RefreshInfo()
         {
@@ -179,6 +246,14 @@ namespace Nmkoder.UI.Tasks
                 MediaFile file = TrackList.current?.File;
                 DeinterlaceRequest enc = GetQuickConvertRequest();
                 DeinterlaceRequest av1an = GetAv1anRequest();
+
+                // Both halves of each row, label included, so nothing is left behind pointing at a
+                // missing control. Hidden rather than disabled: a greyed-out row still asks the user
+                // to work out why it is greyed out, where a file with no fields in it has no question
+                // to answer in the first place.
+                bool relevant = IsRowRelevant(file);
+                Form.EncDeintLabel.IsVisible = Form.EncDeintPanel.IsVisible = relevant;
+                Form.Av1anDeintLabel.IsVisible = Form.Av1anDeintPanel.IsVisible = relevant;
 
                 bool qtgmcPossible = enc.Mode == DeinterlaceMode.Qtgmc || enc.Mode == DeinterlaceMode.Automatic;
                 Form.EncDeintPresetBox.IsVisible = qtgmcPossible;
@@ -235,10 +310,14 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Works out whether the loaded file is interlaced and updates the readouts with the answer.
-        /// Off the UI thread because a file whose container says nothing about its scan type has to
-        /// have a few hundred frames decoded before anything is known, and loading a file should not
-        /// wait on that.
+        /// Works out whether the loaded file is interlaced, then points the row at the right engine and
+        /// updates the readouts with the answer. Off the UI thread because a file whose container says
+        /// nothing about its scan type has to have a few hundred frames decoded before anything is
+        /// known, and loading a file should not wait on that.
+        /// <para/>
+        /// A file that has been through this before takes the early exit and keeps whatever mode is
+        /// selected: the verdict is applied where it is *measured*, not every time a file is looked at,
+        /// which is what stops a trip round the file list undoing an engine picked by hand.
         /// </summary>
         public static void AnalyzeInBackground(MediaFile file)
         {
@@ -253,11 +332,15 @@ namespace Nmkoder.UI.Tasks
                 await InterlaceDetect.GetAsync(file);
 
                 // Only if it is still the file on screen: loading two files in quick succession would
-                // otherwise leave the first one's verdict describing the second.
+                // otherwise leave the first one's verdict describing the second - and would point the
+                // row at an engine chosen for a file nobody is looking at any more.
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (TrackList.current?.File == file)
-                        RefreshInfo();
+                    if (TrackList.current?.File != file)
+                        return;
+
+                    ApplyScanVerdict(file);
+                    RefreshInfo(); // Setting the mode raises this too; called plainly for the case where it does not change
                 });
             });
         }

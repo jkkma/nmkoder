@@ -298,6 +298,18 @@ namespace Nmkoder.Views
                 return;
             }
 
+            // A range that runs backwards used to be confirmed and then thrown away: BuildResult calls a
+            // zero-or-negative length unset and returns null, so the dialog closed, the setting was
+            // cleared, and the button went back to reading "Configure…" with nothing said. End equal to
+            // start is left alone - that is the empty range, and clearing is a fair reading of it.
+            if (end < start)
+            {
+                await UiUtils.ShowMessageBox($"The end point is before the start point.\n\n" +
+                    $"{(IsFrameMode() ? $"Frame {MsToFrames(end)} comes before frame {MsToFrames(start)}" : $"{TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(end))} comes before {TrimSettings.GetTimeString(TimeSpan.FromMilliseconds(start))}")}.",
+                    UiUtils.MessageType.Error);
+                return;
+            }
+
             _startMs = start;
             _endMs = end;
 

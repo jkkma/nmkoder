@@ -50,7 +50,11 @@ namespace Nmkoder.Data
         /// <summary> Output dimensions are rounded to a multiple of this. 2 is the floor, not a preference - see <see cref="RoundDown"/>. </summary>
         public int Modulus { get; set; } = 2;
 
-        /// <summary> Whether a target larger than the source is allowed to enlarge it. Off by default: enlarging invents detail and costs bitrate. </summary>
+        /// <summary>
+        /// Whether a target larger than the source is allowed to enlarge it. Off for a resize built by
+        /// hand, because enlarging invents no detail and costs bitrate - the dropdown's box presets turn
+        /// it on, which is what makes "2160p" mean 2160p for a 1080p source. See <see cref="ResizePresets"/>.
+        /// </summary>
         public bool AllowUpscale { get; set; } = false;
 
         /// <summary> Whether a non-square-pixel source is un-squeezed to its display shape. See <see cref="GetSourceSize"/>. </summary>
@@ -59,7 +63,8 @@ namespace Nmkoder.Data
         /// <summary> The swscale flag, or "" for ffmpeg's own default (bicubic). </summary>
         public string Resampler { get; set; } = "";
 
-        /// <summary> Which dropdown entry produced this, so the box can be put back on it next session. "" means it was configured by hand. </summary>
+        /// <summary> Which dropdown entry produced this, so the box can be put back on it after the list is
+        /// refilled. "" means it was configured by hand. </summary>
         public string PresetKey { get; set; } = "";
 
         /// <summary>
@@ -87,9 +92,9 @@ namespace Nmkoder.Data
 
         public ResizeConfig() { }
 
-        public static ResizeConfig FitBox(int w, int h, string presetKey)
+        public static ResizeConfig FitBox(int w, int h, string presetKey, bool allowUpscale = false)
         {
-            return new ResizeConfig { Mode = ResizeMode.Fit, TargetWidth = w, TargetHeight = h, PresetKey = presetKey };
+            return new ResizeConfig { Mode = ResizeMode.Fit, TargetWidth = w, TargetHeight = h, PresetKey = presetKey, AllowUpscale = allowUpscale };
         }
 
         public static ResizeConfig Proportion(int percent, string presetKey)
@@ -416,7 +421,14 @@ namespace Nmkoder.Data
         /// <summary>
         /// The clause that goes after the size and the ratio on the tab's readout - whichever of this
         /// resize's less obvious outcomes applies to this source, or "" when there is nothing to say.
-        /// Only one is ever returned: they are ordered by how much the user needs to hear it.
+        /// One clause is returned: they are ordered by how much the user needs to hear it.
+        /// <para/>
+        /// The de-squeeze is the one that takes a second half, because it is the only pair that is really
+        /// two facts rather than two descriptions of one. Every other clause here answers "what is
+        /// happening to the frame", and the first of those is the answer; being enlarged is a *cost*, and
+        /// a DVD scaled up to 1080p is being both un-squashed and enlarged with neither implying the
+        /// other. Reachable since the box presets started upscaling - before that a preset could not
+        /// enlarge anything, so the two never met and the ordering never had to say which won.
         /// </summary>
         public string GetNote(Size storage, Size sar)
         {
@@ -460,11 +472,41 @@ namespace Nmkoder.Data
                     return $"stretched {way} by {amount * 100d:0.#}%";
             }
 
+            const string upscaleNote = "larger than the source - upscaling invents no detail and costs bitrate";
+            bool upscaled = IsUpscale(storage, sar);
+
             if (desqueezed)
-                return $"de-squeezed from {storage.Width}x{storage.Height}, whose pixels are {sar.Width}:{sar.Height}";
+                return $"de-squeezed from {storage.Width}x{storage.Height}, whose pixels are {sar.Width}:{sar.Height}" +
+                    (upscaled ? $", and {upscaleNote}" : "");
 
             if (result == storage)
                 return "already this size, so it is left alone";
+
+            if (upscaled)
+                return upscaleNote;
+
+            if (!AllowUpscale && WasClampedByUpscaleGuard(src))
+                return "the source is smaller than the target, and upscaling is off";
+
+            return "";
+        }
+
+        /// <summary>
+        /// Whether this grows the picture. Asked by the readout and by the encode log, which is the only
+        /// per-file place a batch shows it - the dropdown's box presets enlarge a source smaller than
+        /// their target, so this is reachable without anyone having opened the dialog.
+        /// </summary>
+        public bool IsUpscale(Size storage, Size sar)
+        {
+            Size result = Compute(storage, sar);
+
+            if (Mode == ResizeMode.Disabled || result.IsEmpty)
+                return false;
+
+            Size src = GetSourceSize(storage, sar);
+
+            if (src.Width < 1 || src.Height < 1)
+                return false;
 
             // Measured against the picture rather than the frame it sits in. A letterbox scales a 640x480
             // source down to fit inside 1920x1080 and fills the rest with black; the frame is bigger than
@@ -481,13 +523,7 @@ namespace Nmkoder.Data
             double slack = 1d + (double)SafeModulus / Math.Min(src.Width, src.Height);
             double growth = Math.Max((double)picture.Width / src.Width, (double)picture.Height / src.Height);
 
-            if (growth > slack)
-                return "larger than the source - upscaling invents no detail and costs bitrate";
-
-            if (!AllowUpscale && WasClampedByUpscaleGuard(src))
-                return "the source is smaller than the target, and upscaling is off";
-
-            return "";
+            return growth > slack;
         }
 
         /// <summary> Whether the no-upscale guard is what decided the size, rather than the target. </summary>
