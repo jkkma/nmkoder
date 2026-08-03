@@ -696,10 +696,22 @@ Frame mode was the exception and was wrong three ways for being one. It emitted 
 timestamps and the output opened on however many seconds the trim had skipped; the audio was cut at
 neither end, since both of those touch video only; and the frames being counted were the ones coming
 *out* of the chain, so a rate-doubling deinterlacer above the select halved the point it landed on.
-It converts to a time now - the same conversion the dialog does to display it - and the seek goes
-half a frame early, because a seek keeps what is at or after its timestamp and `X/rate` is a place
-floating point can land either side of. `-frames:v` still goes out to pin the count the duration
-only implies.
+It converts to a time now - the same conversion the dialog does to display it. Both ends of the
+window sit half a frame outside the section: a seek keeps what is at or after its timestamp, and
+`X/rate` is a place floating point can land either side of, so the early margin is what makes the
+first frame the one asked for. The late margin is not symmetry - a window ending exactly on the last
+wanted frame *loses* it, measured against the bundled ffmpeg for any section of three frames or more
+starting anywhere but frame 0, and no arrangement of the two numbers fixed that on its own.
+`-frames:v` does the cutting instead, and the generous window means it never has to reach.
+
+**That count only goes out over a chain that hands on as many frames as it took**, which
+`QuickConvertUi.ChainKeepsFrameCount` is what decides. `-frames:v` counts frames *leaving* the chain,
+so a bob deinterlacer - which a trim makes likely, by ruling QTGMC out - or a frame rate above the
+source's hits the limit halfway through the section and ends it there: frames 240-480 of a 29.97
+source through `bwdif=send_field` came out as 240 frames covering 4.0s of an 8.0s section, audio
+included. Without the count the window governs, and being half a frame long is the right way round to
+be wrong there: the section carries an extra frame rather than losing the last one, and its count was
+never going to be N anyway, since a bob emits two frames for every one it is given.
 
 **A trim is checked against the file before the encode starts**, through `UtilCut.ResolveSection`,
 which all three of the Cut utility, the AV1AN tab and Quick Convert now ask. A trim outlives the file
