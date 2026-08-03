@@ -153,18 +153,6 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
-                    // IVF holds one raw video stream and nothing else - no audio, no subtitles, and only
-                    // VP8, VP9 or AV1. MKV and WebM are neither, so what it wrote would carry their name
-                    // over a file that is not one, missing every track that is not video and with nothing
-                    // having said so. MP4 is exempt only because it already overrides the dropdown below.
-                    if (!mp4 && IsUsingIvfConcat())
-                    {
-                        RunTask.Cancel("The IVF concatenator writes a raw video stream, not an MKV or WebM file, " +
-                            "and it holds no audio or subtitles.\n\n" +
-                            "Choose MKVMerge or FFmpeg as the concatenation method.");
-                        return;
-                    }
-
                     // The check above only covers re-encoding. Copying is a separate question - it turns
                     // on what the source already is, and a track the container cannot hold fails the
                     // final mux just the same, having by then encoded the whole video for nothing.

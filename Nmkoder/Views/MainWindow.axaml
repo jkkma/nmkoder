@@ -323,7 +323,6 @@
                     <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Av1anOptsConcatModeBox" SelectionChanged="Av1anOption_SelectionChanged">
                       <ComboBoxItem Content="MKVMerge" />
                       <ComboBoxItem Content="FFmpeg" />
-                      <ComboBoxItem Content="IVF" />
                     </ComboBox>
 
                     <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Chunk Order" />
