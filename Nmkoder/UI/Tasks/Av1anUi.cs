@@ -719,9 +719,14 @@ namespace Nmkoder.UI.Tasks
 
         #region Get Args
 
+        /// <summary> Whether the Split Method box is asking av1an to detect scene changes. The other
+        /// entry cuts on nothing but '-x', so everything under av1an's Scene Detection heading is inert
+        /// for it - which is what the callers of this use it to decide. </summary>
+        public static bool SceneDetectionEnabled => Form.Av1anOptsSplitModeBox.SelectedIndex != 0;
+
         public static string GetSplittingMethodArgs()
         {
-            return $"--split-method {(Form.Av1anOptsSplitModeBox.SelectedIndex == 0 ? "none" : "av-scenechange")}";
+            return $"--split-method {(SceneDetectionEnabled ? "av-scenechange" : "none")}";
         }
 
         /// <summary> Takes the method as a value rather than reading the dropdown, so the caller can

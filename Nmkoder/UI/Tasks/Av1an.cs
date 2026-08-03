@@ -365,7 +365,7 @@ namespace Nmkoder.UI.Tasks
                         $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
-                        $"--sc-downscale-height {GetScDownscaleHeight()} " +
+                        $"{GetScDownscaleHeightArg()} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
                         $"{pixFmtConverter} " +
@@ -888,9 +888,29 @@ namespace Nmkoder.UI.Tasks
             }
         }
 
+        /// <summary>
+        /// The height to run scene detection at, or "" where there is nothing for it to say.
+        /// <para/>
+        /// Split Method "None" is one of those: av1an detects no scenes for it, so the flag named a
+        /// resolution for a pass that never runs. The other is a file with no video track, where
+        /// <see cref="GetScDownscaleHeight"/> has no height to work from and answers 0 - and 0 is not
+        /// inert, since av1an only skips the downscale when the height it was given is *above* the
+        /// source's. A zero goes through as scale=-2:'min(0,ih)', which ffmpeg refuses.
+        /// </summary>
+        private static string GetScDownscaleHeightArg()
+        {
+            if (!Av1anUi.SceneDetectionEnabled)
+                return "";
+
+            int height = GetScDownscaleHeight();
+            return height > 0 ? $"--sc-downscale-height {height}" : "";
+        }
+
         private static int GetScDownscaleHeight()
         {
-            if (TrackList.current.File == null || TrackList.current.File.VideoStreams.Count < 1)
+            // current itself, not just its file - the rest of this class reads it the same way, and
+            // the branch below was written to answer "no height to work from" rather than to throw.
+            if (TrackList.current?.File == null || TrackList.current.File.VideoStreams.Count < 1)
                 return 0;
 
             int h = TrackList.current.File.VideoStreams[0].Resolution.Height;
