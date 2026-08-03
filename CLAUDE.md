@@ -377,9 +377,64 @@ clause sits above the upscale one - so before this the readout stated the shape 
 about the cost. Nothing else in that list pairs up: every other clause answers "what is happening to
 the frame", where being enlarged is a price.
 
+**The Borders row pads out to a target aspect ratio, and which bars it needs is not a setting.** A
+picture wider than the target gets them along the top and bottom, a narrower one gets them down the
+sides, and one already that shape gets none and no filter at all - so a 2.39:1 film and a 4:3 capture
+both reach 16:9 off one dropdown entry, which is the whole reason the target is held as a *ratio* and
+not as a frame size. `BorderConfig.Compute` is the one place that comparison is made; a target frame
+size is already available on the other row, an exact resize with "Letterbox with black bars" scaling
+to reach a named WxH. This does not scale at all.
+
+It runs **last of the geometry, after the crop and after the resize**, and that ordering is the point:
+a scaler run over a hard black edge rings, so bars added before a scale come out neither black nor
+straight-edged. `Av1anFrame.Encoded` is therefore the *padded* frame, which is what the tile count and
+the frame-pixel-limit refusal want - a pillarboxed 4:3 capture is 1920 across where the picture in it
+is 1440. `Av1anFrame.Scaled` carries the pre-pad size, because three log lines mean "what the scale
+produced" rather than "what the encoder gets", and one of them names the aspect ratio the file will
+play at.
+
+The growth is a multiple of **four**, not two. Half of a multiple of four is even, so one rounding
+makes the frame even *and* both offsets land on the chroma grid - where ffmpeg's own pad filter would
+otherwise relocate an odd offset silently, putting the picture a pixel off the middle it was centred
+in. Nothing is added under four pixels: two a side is not a bar, and growing a source that is already
+the target shape to within a rounding is exactly the surprise a batch must not spring. The mod-2 pad
+above the scale is untouched and still needed - a letterbox only grows the height, so an odd width
+stays odd.
+
+The frame handed to it is square-pixel almost everywhere, a resize and the de-squeeze that runs in its
+place both ending in `setsar=1:1`, but **not quite everywhere**, so the SAR is taken into account
+rather than assumed away. Quick Convert with both scale boxes empty is the case: nothing there
+un-squeezes a DVD, ffmpeg carries its aspect flag through to the output, and bars measured against the
+stored 720x480 would be measured against a shape nobody ever sees. `pad` does not change the SAR, so
+nothing here appends a `setsar` of its own.
+
+**Quick Convert refuses rather than guessing, and rather than silently skipping.** Its scale boxes are
+free text, so a percentage or an expression leaves the frame the bars would go around unknown until
+ffmpeg is already running - `QuickConvertUi.GetBorderProblem` stops the run and names both settings,
+the way a crop too big for its file does. Writing the pad as ffmpeg arithmetic instead was the
+alternative and is not worth it: the AV1AN tab has an exact answer and this would not, and dropping a
+setting the user picked on a run they started is the failure that check exists to prevent. It stands
+down for a stream-copy codec, which builds no chain at all - and where the dropdown is disabled, so a
+target left over from another codec is one they cannot currently reach.
+
+`GetEncodedFrameSize` applies a **manual** crop where bars are on and not otherwise. That is not an
+inconsistency: a crop moves the *ratio*, which is what picks between a letterbox and a pillarbox, so a
+pad measured over an uncropped frame can be the wrong bars on the wrong axis - where for a scale
+target the same omission is only a number or two out, which is what that method's own comment already
+says. An automatic crop is still left alone, costing ten probes.
+
+The geometry was checked by running it rather than by reading it. 141 pad filters rendered through
+ffmpeg across 32 source shapes and 5 targets, with the output size, the evenness, the centring and the
+blackness of the bars read back out of the frame; then 1152 chains built by the tab itself - 8 sources
+including two anamorphic DVDs and a genuinely odd 641x481, against crops, resize presets, exact
+pad/stretch, anamorphic correction off, a frame-rate resample, and every scale-box form - each run
+through ffmpeg and compared against the size the tab said the encoder would get. No mismatches. Note
+that x264 silently produces 640x480 for a 641x481 source, so the odd-frame case needs FFV1 to exist at
+all.
+
 **Nothing on the AV1AN Video tab is saved.** The encoder, the container, the quality mode and its
-value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim
-and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
+value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim,
+the borders and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
 selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` restores none of them. It
 is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid; `LoadConfigAv1an`
 keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a

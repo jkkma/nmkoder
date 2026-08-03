@@ -60,6 +60,12 @@ namespace Nmkoder.UI.Tasks
             // MP4 is appended rather than ordered with the rest: the selected index is what gets
             // saved, so inserting ahead of the others would repoint saved settings.
             Form.Av1anContainerBox.SetItems(new[] { Containers.Container.Mkv, Containers.Container.Webm, Containers.Container.Mp4 }.Select(c => (object)c.ToString().Upper()), 0);
+
+            // Filled once. Unlike the resize list these entries name a shape rather than a size, so
+            // there is nothing in them for a new file to change - what this file comes out as is on
+            // the line underneath instead. Off is the first entry and where the tab opens, nothing
+            // here being restored between sessions.
+            Form.Av1anBordersBox.SetItems(BorderPresets.All.Select(p => (object)p.Name), 0);
         }
 
         public static void InitFile(string path)
@@ -432,12 +438,26 @@ namespace Nmkoder.UI.Tasks
 
             frame.Encoded = frame.ScaleInput;
 
-            if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar))
+            bool scaling = frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, vs.Sar);
+
+            if (scaling)
                 frame.Encoded = OrKeep(CurrentResize.Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
             else if (frame.Desqueezing)
                 frame.Encoded = OrKeep(ResizeConfig.DesqueezeOnly().Compute(frame.ScaleInput, vs.Sar), frame.ScaleInput);
             else if (frame.Padding)
                 frame.Encoded = new Size(RoundUpToEven(frame.ScaleInput.Width), RoundUpToEven(frame.ScaleInput.Height));
+
+            // Last, and measured against what everything above it leaves: the bars go around the
+            // finished picture rather than being scaled along with it, since a scaler run over a hard
+            // black edge rings and the bars would come out neither black nor straight.
+            //
+            // What that frame's pixels are shaped like is a separate question, and the answer is
+            // exactly "square wherever one of the two filters above ran", both of them ending in
+            // setsar=1:1. Where neither did, the source's own SAR is still in force - which on this
+            // tab means either square pixels or a custom filter that has taken the shape over.
+            frame.Scaled = frame.Encoded;
+            frame.Border = CurrentBorders.Compute(frame.Scaled, scaling || frame.Desqueezing ? new Size(1, 1) : vs.Sar);
+            frame.Encoded = frame.Border.Frame;
 
             return frame;
         }
@@ -498,8 +518,10 @@ namespace Nmkoder.UI.Tasks
                 if (!desqueeze.Compute(frame.ScaleInput, frame.Sar).IsEmpty)
                 {
                     filters.Add(desqueeze.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                    // Scaled rather than Encoded: what the de-squeeze produced, not what the border
+                    // bars added after it leave.
                     Logger.Log($"De-squeezing {frame.ScaleInput.Width}x{frame.ScaleInput.Height} ({frame.Sar.Width}:{frame.Sar.Height} pixels) to " +
-                        $"{frame.Encoded.Width}x{frame.Encoded.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
+                        $"{frame.Scaled.Width}x{frame.Scaled.Height} - av1an's encoders take bare frames and no aspect flag, so the shape " +
                         $"has to be baked into the pixels to survive. Configure a resize to control the size.");
                 }
             }
@@ -513,10 +535,19 @@ namespace Nmkoder.UI.Tasks
             if (frame.Resizing && !CurrentResize.CorrectAspect && AspectRatio.IsAnamorphic(frame.Sar))
             {
                 Size display = AspectRatio.GetDisplaySize(frame.Source, frame.Sar);
+                // Scaled rather than Encoded, and pointedly: this sentence names the shape the file
+                // will play at, and border bars added after the scale are a different shape again -
+                // stating the padded one here would say the resize produced a ratio it did not.
                 Logger.Log($"Warning: this resize has anamorphic correction switched off, so the {frame.Sar.Width}:{frame.Sar.Height} " +
                     $"pixel shape is not baked in - and av1an's encoders cannot record it. The output will be " +
-                    $"{frame.Encoded.Width}x{frame.Encoded.Height} playing as {AspectRatio.Describe(frame.Encoded.Width, frame.Encoded.Height)} " +
+                    $"{frame.Scaled.Width}x{frame.Scaled.Height} playing as {AspectRatio.Describe(frame.Scaled.Width, frame.Scaled.Height)} " +
                     $"rather than {AspectRatio.Describe(display.Width, display.Height)}. Switch it back on in the resize dialog to keep the shape.");
+            }
+
+            if (frame.Border.Runs) // Check Filter: Borders to a target aspect ratio
+            {
+                filters.Add(frame.Border.GetFilterArgs());
+                LogBorders(frame);
             }
 
             filters.AddRange(GetCustomFilters());
@@ -538,7 +569,10 @@ namespace Nmkoder.UI.Tasks
         /// the numbers exist at all, and in a batch it is different for every file. </summary>
         private static void LogResize(Av1anFrame frame)
         {
-            Size result = frame.Encoded;
+            // What the scale filter leaves, which is not what the encoder gets once bars are added
+            // around it: this line is about the resize, and saying it produced the padded frame would
+            // credit it with a size it had nothing to do with.
+            Size result = frame.Scaled;
             string source = AspectRatio.IsAnamorphic(frame.Sar) && CurrentResize.CorrectAspect
                 ? $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height} at {frame.Sar.Width}:{frame.Sar.Height} pixels"
                 : $"{frame.ScaleInput.Width}x{frame.ScaleInput.Height}";
@@ -556,8 +590,24 @@ namespace Nmkoder.UI.Tasks
             // Not clamped to, only mentioned: silently growing a frame to something the user did not ask
             // for is worse than an encoder saying no. SVT-AV1 refuses anything under 64 in either
             // direction, x265 anything under 16; the other encoders take whatever they are given.
-            if (result.Width < 64 || result.Height < 64)
-                Logger.Log($"Warning: {result.Width}x{result.Height} is very small - SVT-AV1 will not encode a frame under 64 pixels on either side.");
+            // Measured on the frame the encoder is handed rather than on the one the scaler leaves,
+            // since border bars are part of what it has to take.
+            if (frame.Encoded.Width < 64 || frame.Encoded.Height < 64)
+                Logger.Log($"Warning: {frame.Encoded.Width}x{frame.Encoded.Height} is very small - SVT-AV1 will not encode a frame under 64 pixels on either side.");
+        }
+
+        /// <summary> Said per file at encode time, like the resize line above it and for the same
+        /// reasons: with an automatic crop this is the first moment the numbers exist, and across a
+        /// batch of differently shaped files one setting produces a different answer for each - a
+        /// letterbox for the films in it and a pillarbox for the 4:3 captures. </summary>
+        private static void LogBorders(Av1anFrame frame)
+        {
+            BorderPad pad = frame.Border;
+
+            Logger.Log($"Adding {pad.Describe()} to {pad.Input.Width}x{pad.Input.Height} " +
+                $"({AspectRatio.Describe(pad.Input.Width, pad.Input.Height)}), which brings the frame to " +
+                $"{pad.Frame.Width}x{pad.Frame.Height} ({AspectRatio.Describe(pad.Frame.Width, pad.Frame.Height)}). " +
+                $"The picture is not scaled - only the frame around it grows.");
         }
 
         #endregion
@@ -637,6 +687,12 @@ namespace Nmkoder.UI.Tasks
         {
             Form.Av1anResizeConfBtn.IsVisible = ResizePresets.Get(ResizePresets.IndexFor(CurrentResize)).Key == ResizePresets.CustomKey;
             Form.Av1anResizeInfoLabel.Text = GetResizeInfoText(GetResizeSourceSize(), GetResizeSar());
+
+            // The bars are added to what the resize leaves, so everything that moves this readout -
+            // a file, a crop, a resize target - moves that one too. Called from here rather than
+            // beside each of those, which is four places and counting. Text only: the borders list
+            // names no sizes, so it is filled once and never refilled.
+            UpdateBordersReadout();
         }
 
         /// <summary>
@@ -713,6 +769,109 @@ namespace Nmkoder.UI.Tasks
                 text += " · before autocrop; the final size is measured when the encode starts";
 
             return text;
+        }
+
+        #endregion
+
+        #region Borders
+
+        /// <summary> The aspect ratio to pad out to, or an unset configuration for no bars at all.
+        /// Never null. Not saved: nothing on this tab is. </summary>
+        public static BorderConfig CurrentBorders = new BorderConfig();
+
+        /// <summary>
+        /// The frame the bars are measured against, and the shape of its pixels - the source, less a
+        /// manual crop, then whatever the resize or the de-squeeze in its place leaves.
+        /// <para/>
+        /// The same answer <see cref="ResolveFrameAsync"/> arrives at, minus the one thing that cannot
+        /// be had without running ffmpeg: an automatic crop's bars are still in this frame, and the
+        /// readout says so rather than showing a shape that will not be the one.
+        /// </summary>
+        private static (Size Frame, Size Sar) GetBorderInput()
+        {
+            Size storage = GetResizeSourceSize();
+            Size sar = GetResizeSar();
+
+            if (storage.IsEmpty)
+                return (Size.Empty, sar);
+
+            // Square pixels come out of either scale filter, both of them ending in setsar=1:1
+            if (CurrentResize != null && CurrentResize.Mode != ResizeMode.Disabled && !CurrentResize.IsNoOp(storage, sar))
+            {
+                Size result = CurrentResize.Compute(storage, sar);
+
+                if (!result.IsEmpty)
+                    return (result, new Size(1, 1));
+            }
+
+            if (AspectRatio.IsAnamorphic(sar)) // The de-squeeze that runs where no resize does
+            {
+                Size desqueezed = ResizeConfig.DesqueezeOnly().Compute(storage, sar);
+
+                if (!desqueezed.IsEmpty)
+                    return (desqueezed, new Size(1, 1));
+            }
+
+            return (storage, sar);
+        }
+
+        /// <summary> The line under the dropdown: the frame the bars leave, the ratio that comes to,
+        /// and which bars they are. </summary>
+        public static void UpdateBordersReadout()
+        {
+            Form.Av1anBordersInfoLabel.Text = GetBordersInfoText();
+        }
+
+        private static string GetBordersInfoText()
+        {
+            if (CurrentBorders == null || !CurrentBorders.IsSet)
+                return "The frame keeps whatever shape it has.";
+
+            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count < 1)
+                return "No video track - no bars will be added.";
+
+            (Size input, Size sar) = GetBorderInput();
+
+            if (input.IsEmpty)
+                return $"Padded out to {CurrentBorders.Label} - the bars are worked out per file when the encode starts.";
+
+            BorderPad pad = CurrentBorders.Compute(input, sar);
+            string text;
+
+            if (!pad.Runs)
+            {
+                text = $"{input.Width}x{input.Height} · already {CurrentBorders.Label}, so no bars are added";
+            }
+            else
+            {
+                // The frame limit is checked here for the reason the resize checks it: this is a size
+                // FFmpeg refuses to produce at all, and being told so by the tab beats meeting it from
+                // inside av1an as "Picture size WxH is invalid" one chunk at a time. Only reachable by
+                // padding something extreme towards an extreme ratio, the bars being additive.
+                if (ResizeConfig.ExceedsFrameLimit(pad.Frame))
+                    return $"{pad.Frame.Width}x{pad.Frame.Height} · too large to encode - FFmpeg will not produce a frame of " +
+                        $"{(double)pad.Frame.Width * pad.Frame.Height / 1_000_000d:0.#} megapixels, so nothing would be written";
+
+                text = $"{pad.Frame.Width}x{pad.Frame.Height} · {AspectRatio.Describe(pad.Frame.Width, pad.Frame.Height)} · " +
+                    $"{pad.Describe()}, around an unscaled {input.Width}x{input.Height} picture";
+            }
+
+            if (Form.Av1anCropBox.GetText().ToLower().Contains("auto"))
+                text += " · before autocrop; the bars are measured when the encode starts";
+
+            return text;
+        }
+
+        /// <summary> Acts on the user picking an entry. The list carries no per-file labels, so unlike
+        /// the resize box it is filled once and never refilled - which is what lets this be the only
+        /// thing that ever moves the selection, and why there is no loading guard beside it. </summary>
+        public static void BorderPresetSelected(int index)
+        {
+            if (index < 0)
+                return;
+
+            CurrentBorders = BorderPresets.Get(index).Build();
+            UpdateBordersReadout();
         }
 
         #endregion

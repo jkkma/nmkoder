@@ -121,6 +121,13 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncCustomArgsOut);
             ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
             ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
+
+            // Restored like the scale boxes beside it, and for the same reason: "everything I encode
+            // comes out 16:9" is a preference about output rather than a fact about the file that
+            // happens to be loaded. The selection has to be pushed back into the config object by
+            // hand - the box's own handler bails until _initialized, which is not set yet here.
+            ConfigParser.RestoreIndexIfSaved(EncBordersBox);
+            QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
         }
 
         public void SaveQuickConvertSettings()
@@ -150,6 +157,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncCustomArgsIn);
                 ConfigParser.SaveGuiElement(EncCustomArgsOut);
                 ConfigParser.SaveGuiElement(EncMetaApplyGrid);
+                ConfigParser.SaveComboxIndex(EncBordersBox);
                 ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
             }
         }
@@ -157,6 +165,27 @@ namespace Nmkoder.Views
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             EncCropConfBtn.IsVisible = EncCropModeBox.GetText().ToLower().Contains("manual");
+            QuickConvertUi.UpdateBordersReadout(); // A crop moves the shape the bars are picked by
+        }
+
+        private void EncBorders_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
+            SaveQuickConvertSettings();
+        }
+
+        /// <summary> The borders readout names the frame the bars go around, which is whatever these
+        /// two boxes leave - so it is rewritten as they are typed in. They are saved on close rather
+        /// than per keystroke, which is why this does not save. </summary>
+        private void EncScaleBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            QuickConvertUi.UpdateBordersReadout();
         }
 
         private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
