@@ -160,18 +160,6 @@ namespace Nmkoder.Extensions
             return str;
         }
 
-        public static string StripBadChars(this string str)
-        {
-            string outStr = Regex.Replace(str, @"[^\u0020-\u007E]", string.Empty);
-            outStr = outStr.Remove("(").Remove(")").Remove("[").Remove("]").Remove("{").Remove("}").Remove("%").Remove("'").Remove("~");
-            return outStr;
-        }
-
-        public static string StripNumbers(this string str)
-        {
-            return new string(str.Where(c => c != '-' && (c < '0' || c > '9')).ToArray());
-        }
-
         public static string Remove(this string str, string stringToRemove)
         {
             if (str == null || stringToRemove == null)
@@ -200,26 +188,6 @@ namespace Nmkoder.Extensions
                 newString.Append(str[i]);
             }
             return newString.ToString();
-        }
-
-        public static string ReplaceLast(this string str, string stringToReplace, string replaceWith)
-        {
-            int place = str.LastIndexOf(stringToReplace);
-
-            if (place == -1)
-                return str;
-
-            return str.Remove(place, stringToReplace.Length).Insert(place, replaceWith);
-        }
-
-        public static string[] SplitBy(this string str, string splitBy)
-        {
-            return str.Split(new string[] { splitBy }, StringSplitOptions.None);
-        }
-
-        public static string RemoveComments(this string str)
-        {
-            return str.Split('#')[0].SplitBy("//")[0];
         }
 
         public static string FilenameSuffix(this string path, string suffix)
@@ -266,13 +234,6 @@ namespace Nmkoder.Extensions
             }
 
             return regex.IsMatch(str);
-        }
-
-        public static int RoundMod(this int n, int mod = 2)     // Round to a number that's divisible by 2 (for h264 etc)
-        {
-            int a = (n / 2) * 2;    // Smaller multiple
-            int b = a + 2;   // Larger multiple
-            return (n - a > b - n) ? b : a; // Return of closest of two
         }
 
         public static string ToTitleCase(this string s)

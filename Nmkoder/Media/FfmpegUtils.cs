@@ -20,7 +20,6 @@ namespace Nmkoder.Media
     class FfmpegUtils
     {
         private readonly static FfprobeMode showStreams = FfprobeMode.ShowStreams;
-        private readonly static FfprobeMode showFormat = FfprobeMode.ShowFormat;
 
         public static async Task<int> GetStreamCount(string path)
         {
