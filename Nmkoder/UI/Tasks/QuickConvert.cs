@@ -301,10 +301,11 @@ namespace Nmkoder.UI.Tasks
         /// in muxing mode the video can come from any file in the list, and reading the wrong one would
         /// deinterlace a different video than the encode is about.
         /// </summary>
+        /// <summary> Delegated so the encode and the mode gate cannot pick different files - see
+        /// <see cref="DeinterlaceUi.GetQuickConvertSourceFile"/>. </summary>
         private static MediaFile GetDeinterlaceSourceFile()
         {
-            return TrackList.CheckedItems.FirstOrDefault(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video)?.MediaFile
-                ?? TrackList.current?.File;
+            return DeinterlaceUi.GetQuickConvertSourceFile();
         }
 
         /// <summary> The extra '-i' that reads VSPipe's output, or "" when nothing is being piped.

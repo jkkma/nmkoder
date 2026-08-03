@@ -100,12 +100,29 @@ namespace Nmkoder.UI.Tasks
         /// The index is looked up rather than written as a literal because this list has been reordered
         /// once already - QTGMC went into the middle of it - and a literal here would have moved with
         /// it in silence, resetting to whatever ended up in that position.
+        /// <para/>
+        /// **The loaded file's verdict has the last word, and 2.8.14 and 2.8.15 both shipped without
+        /// that.** This used to write Automatic, which is safe whatever the file turns out to be -
+        /// Automatic asks the verdict. Moving <see cref="DefaultMode"/> to QTGMC turned the same line
+        /// into an engine picked *by name*, which runs over whatever it is handed, and nothing demoted
+        /// it again for a file already measured: <see cref="AnalyzeInBackground"/> takes its early exit
+        /// and <see cref="EnsureScanVerdictAsync"/> sees the verdict as already applied. So a reset
+        /// landing on a progressive file - Settings' "Reset Now", or a trip through Batch mode and back -
+        /// left QTGMC armed over a visible row, and Run started the whole pre-av1an pass on progressive
+        /// video. Exactly the 2.8.12 failure, reached through the reset instead of through a saved
+        /// setting.
         /// </summary>
         public static void ResetModes()
         {
             int mode = Array.IndexOf(AllModes, DefaultMode);
             Form.EncDeintModeBox.SelectedIndex = mode;
             Form.Av1anDeintModeBox.SelectedIndex = mode;
+
+            // A reset is already a reset, so the preference gate inside does not apply here - what is
+            // being asked for is the default, and the verdict decides what the default means for this
+            // file. With no file, or none measured yet, this leaves DefaultMode standing: the row is
+            // hidden until there is a verdict, and ModeInEffect reports Automatic while it is.
+            ApplyScanVerdict(TrackList.current?.File, force: true);
         }
 
         /// <summary>
@@ -159,7 +176,7 @@ namespace Nmkoder.UI.Tasks
         /// on the AV1AN tab is an hours-long pass each. With the reset off, an engine picked by hand now
         /// survives the next file, which is what turning it off means.
         /// </summary>
-        public static void ApplyScanVerdict(MediaFile file)
+        public static void ApplyScanVerdict(MediaFile file, bool force = false)
         {
             verdictAppliedTo = file;
 
@@ -167,7 +184,7 @@ namespace Nmkoder.UI.Tasks
             if (file?.Interlacing == null)
                 return;
 
-            if (IsInterlaced(file) && !ResetSettingsOnNewFile.ResetDeinterlace)
+            if (IsInterlaced(file) && !force && !ResetSettingsOnNewFile.ResetDeinterlace)
                 return;
 
             int mode = Array.IndexOf(AllModes, IsInterlaced(file) ? DefaultMode : DeinterlaceMode.Automatic);
@@ -229,19 +246,33 @@ namespace Nmkoder.UI.Tasks
         /// out to be interlaced, because <see cref="Media.Deinterlace.ResolveAsync"/> waits for that
         /// answer itself.
         /// </summary>
-        private static DeinterlaceMode ModeInEffect(ComboBox box)
+        private static DeinterlaceMode ModeInEffect(ComboBox box, MediaFile file)
         {
-            if (!IsRowRelevant(TrackList.current?.File))
+            if (!IsRowRelevant(file))
                 return DeinterlaceMode.Automatic;
 
             return AllModes[box.SelectedIndex.Clamp(0, AllModes.Length - 1)];
+        }
+
+        /// <summary>
+        /// The file Quick Convert will actually deinterlace, which in muxing mode is the one the checked
+        /// video stream came from rather than whichever file the Track List happens to be showing. The
+        /// two differ exactly when several files are loaded, and gating on the wrong one cuts both ways:
+        /// a hidden row over a progressive Track List selection would demote an engine picked for the
+        /// interlaced file being muxed in, and a row shown over an interlaced selection would carry
+        /// QTGMC onto a progressive one.
+        /// </summary>
+        public static MediaFile GetQuickConvertSourceFile()
+        {
+            return TrackList.CheckedItems.FirstOrDefault(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video)?.MediaFile
+                ?? TrackList.current?.File;
         }
 
         public static DeinterlaceRequest GetQuickConvertRequest()
         {
             return new DeinterlaceRequest
             {
-                Mode = ModeInEffect(Form.EncDeintModeBox),
+                Mode = ModeInEffect(Form.EncDeintModeBox, GetQuickConvertSourceFile()),
                 QtgmcPreset = Form.EncDeintPresetBox.GetText().IsEmpty() ? Qtgmc.DefaultPreset : Form.EncDeintPresetBox.GetText(),
                 DoubleRate = Form.EncDeintDoubleRateBox.IsChecked == true,
             };
@@ -259,7 +290,9 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static DeinterlaceRequest GetAv1anRequest()
         {
-            DeinterlaceMode mode = ModeInEffect(Form.Av1anDeintModeBox);
+            // The AV1AN tab encodes the loaded file itself, so this one is not asked through
+            // GetQuickConvertSourceFile - av1an is given TrackList.current and nothing else.
+            DeinterlaceMode mode = ModeInEffect(Form.Av1anDeintModeBox, TrackList.current?.File);
             bool qtgmc = mode == DeinterlaceMode.Qtgmc;
 
             return new DeinterlaceRequest
