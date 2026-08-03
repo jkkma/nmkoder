@@ -108,6 +108,16 @@
     <SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="{StaticResource NmkoderHoverColor}" />
     <Color x:Key="TextControlSelectionHighlightColor">#79D1C6</Color>
 
+    <!-- The chevron buttons of a NumericUpDown, which are RepeatButtons inside its spinner. They
+         sit *in* the field rather than beside it, so a disabled one is a dimmed glyph and no fill
+         at all: Fluent fills it with BaseLow, which in this palette is the neutral button grey, so
+         a value at either end of its range left the button that had just stopped working as the
+         brightest thing in the row. -->
+    <SolidColorBrush x:Key="RepeatButtonBackgroundPointerOver" Color="{StaticResource NmkoderHoverColor}" />
+    <SolidColorBrush x:Key="RepeatButtonBackgroundPressed" Color="{StaticResource NmkoderActiveColor}" />
+    <SolidColorBrush x:Key="RepeatButtonBackgroundDisabled" Color="Transparent" />
+    <SolidColorBrush x:Key="RepeatButtonForegroundDisabled" Color="#5C6068" />
+
     <!-- Dropdowns: closed they read as inputs, open they float above everything -->
     <SolidColorBrush x:Key="ComboBoxBackground" Color="{StaticResource NmkoderSunkenColor}" />
     <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="{StaticResource NmkoderSunkenColor}" />
@@ -320,8 +330,59 @@
       <Setter Property="SelectionForegroundBrush" Value="{DynamicResource NmkoderOnAccent}" />
     </Style>
 
+    <!-- A NumericUpDown is a TextBox wearing a ButtonSpinner, and the spinner is what carries the
+         border, the height and the two chevron buttons - so styling the outer control alone leaves
+         a Fluent widget sitting in a form of Discord-grey fields. -->
     <Style Selector="NumericUpDown">
       <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <!-- Fluent's minimum here is 32, and it comes from the spinner's own theme rather than from the
+         NumericUpDown above, which is why every spinner stood two pixels taller than the text boxes
+         and dropdowns it shares a row with. -->
+    <Style Selector="ButtonSpinner">
+      <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <!-- Hover and focus belong to the whole field. The number sits in a second, borderless TextBox
+         inside the spinner, and Fluent gives the states to *that* box instead - a rounded accent
+         ring around the digits alone, and a darkened patch stopping where the buttons begin. -->
+    <Style Selector="ButtonSpinner:pointerover">
+      <Setter Property="Background" Value="{DynamicResource TextControlBackgroundPointerOver}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushPointerOver}" />
+    </Style>
+
+    <Style Selector="ButtonSpinner:focus-within">
+      <Setter Property="Background" Value="{DynamicResource TextControlBackgroundFocused}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushFocused}" />
+    </Style>
+
+    <Style Selector="TextBox#PART_TextBox:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+
+    <Style Selector="TextBox#PART_TextBox:focus /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+
+    <!-- The hairlines between the number and its two buttons are the buttons' own left border, and
+         the template takes that from the field's - so a focused field drew a pair of accent lines
+         down the middle of itself, and a hovered one lit them up. They stay a seam either way. -->
+    <Style Selector="ButtonSpinner:focus-within /template/ RepeatButton,
+                     ButtonSpinner:pointerover /template/ RepeatButton">
+      <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrush}" />
+    </Style>
+
+    <!-- A chevron button's template carries no corner radius to follow, so the one against the
+         field's edge painted its hover as a square over the rounded corner. -->
+    <Style Selector="ButtonSpinner:not(:left) /template/ RepeatButton#PART_DecreaseButton /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="CornerRadius" Value="0,4,4,0" />
+    </Style>
+
+    <Style Selector="ButtonSpinner:left /template/ RepeatButton#PART_IncreaseButton /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="CornerRadius" Value="4,0,0,4" />
     </Style>
 
     <!-- Rows of a label/field form. The field column is a fixed width, so inputs stay

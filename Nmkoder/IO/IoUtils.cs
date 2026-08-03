@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Nmkoder.UI;
 using Bitmap = Avalonia.Media.Imaging.Bitmap;
@@ -887,11 +888,20 @@ namespace Nmkoder.IO
 			return 0;
 		}
 
+		/// <summary> A number this method has already put on the end of a name. </summary>
+		private static readonly Regex NumberSuffix = new Regex(@"\s*\(\d{1,4}\)$", RegexOptions.Compiled);
+
 		/// <summary>
 		/// <paramref name="preferredPath"/> when nothing is there, otherwise the same name with a
 		/// number on the end - "My Film (1).mp4" - counting up until one is free. This used to append a
 		/// marker instead, which stacked on repeat: "My Film.nmkoder.nmkoder.mp4".
 		/// </summary>
+		/// <remarks>
+		/// A name that already carries one of those numbers counts on from it rather than growing a
+		/// second one. Both encode tabs write the free name they are handed back into their own output
+		/// box, so the next encode of the same file arrives here with the number already on it - which
+		/// is how five runs used to come out as "My Film (1) (1) (1) (1) (1).webm".
+		/// </remarks>
 		public static string GetAvailableFilename(string preferredPath)
         {
 			if (string.IsNullOrWhiteSpace(preferredPath) || !File.Exists(preferredPath))
@@ -900,6 +910,11 @@ namespace Nmkoder.IO
 			string dir = Path.GetDirectoryName(preferredPath) ?? "";
 			string name = Path.GetFileNameWithoutExtension(preferredPath);
 			string ext = Path.GetExtension(preferredPath);
+			string stem = NumberSuffix.Replace(name, "");
+
+			// Unless the number was the whole name, which leaves nothing to count from
+			if (stem.IsNotEmpty())
+				name = stem;
 
 			for (int i = 1; i <= 9999; i++)
 			{

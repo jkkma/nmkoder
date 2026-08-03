@@ -71,6 +71,29 @@ lookup. A key that exists in neither place is one Fluent 12.1 does not define;
 the names it does define can be read out of the theme assembly with
 `strings -el ~/.nuget/packages/avalonia.themes.fluent/<version>/lib/net10.0/Avalonia.Themes.Fluent.dll`.
 
+**A repainted palette entry can make a disabled control the loudest thing on the
+screen.** Fluent fills several disabled states from `BaseLow`, and this palette
+hands `BaseLow` the neutral *button* grey (#4E5058) - so where the theme means
+"fade this out" the control came out brighter than the sunken field around it.
+That is what put a light grey square on the end of every `NumericUpDown` sitting
+at its minimum or maximum: the chevron that had just stopped working was the
+most prominent thing in the row, and a disabled one showed two. The spinner's
+own leaf keys (`RepeatButtonBackgroundDisabled` and friends) are overridden for
+it, and anything else reaching for `BaseLow` will need the same. Check a control
+disabled, not only enabled.
+
+A `NumericUpDown` is worth knowing the shape of, because almost nothing about it
+answers to the outer control: it templates a `ButtonSpinner`, which carries the
+border, the corner radius, the *minimum height* and two `RepeatButton`s, and the
+number itself lives in a second, borderless `TextBox` inside that. So the height
+comes from the spinner's own theme rather than the `NumericUpDown` style beside
+it, hover and focus land on the inner box (an accent ring around the digits, in
+a field that stayed unmarked), and the hairlines between the parts are the
+buttons' own left border taken from the field's - which is how a focused field
+drew accent lines down its middle. The buttons' template binds no `CornerRadius`
+at all, so a hover fill is square unless the `ContentPresenter` inside is given
+one; `Border.ClipToBounds` will not round it for you, having a rectangular clip.
+
 There is no display in a web session, but the UI can still be seen: a throwaway
 console project referencing `Nmkoder.csproj` plus `Avalonia.Headless` and
 `Avalonia.Skia` can `AppBuilder.Configure<Nmkoder.App>().UseSkia().UseHeadless(new
@@ -79,7 +102,11 @@ construct `MainWindow` directly (the lifetime is null, so `App` does not open on
 itself), `Show()` it, pump `Dispatcher.UIThread.RunJobs()` for a second or two
 while its async startup settles, and save `CaptureRenderedFrame()` to a PNG.
 Switching `MainTabs.SelectedIndex` between shots covers every tab. The dialogs
-all have parameterless constructors and shoot the same way.
+all have parameterless constructors and shoot the same way. States nobody can
+click in a headless session are reachable too - `((IPseudoClasses)control.Classes)
+.Set(":pointerover", true)` on a template part renders the hover, the press or
+the focus, which is the only way to see what a restyled control does before
+shipping it.
 
 None of that is accidental, and the `avalonia_docs` MCP server will tell you
 otherwise: `get_avalonia_expert_rules` prescribes MVVM, compiled bindings with
