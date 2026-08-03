@@ -270,7 +270,15 @@ namespace Nmkoder.Data.Codecs.Video
             string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
             string depth = bitDepth > 0 ? $"--output-depth {bitDepth}" : ""; // Unrecognised pixel format - let x265 pick
 
-            return new CodecArgs($" -e x265 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} {keyint} --frame-threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            // --pools, not --frame-threads. x265 is the one encoder here with no --threads at all, and
+            // its frame threads are the number of frames encoded *concurrently* - the worker pool
+            // underneath them is one thread per core whatever F is set to, so "Threads per Worker" was
+            // the only setting on this tab that did not limit any threads. Eight workers on a sixteen
+            // core machine ran eight sixteen-thread pools. --pools *is* that pool, and x265 derives its
+            // own frame thread count from the size of it, which is why F is no longer sent.
+            string pools = thr.GetInt() > 0 ? $"--pools {thr}" : "";
+
+            return new CodecArgs($" -e x265 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} {keyint} {pools} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
 }

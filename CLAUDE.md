@@ -354,6 +354,29 @@ for. `enable-qm` was one and has been removed. Do not add one back. (Mainline de
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
 
+**"Threads per Worker" is the encoder's own thread count, and each encoder spells that
+differently.** The box writes one number into `GetVideoArgsFromUi`'s `threads` entry and every
+encoder's `GetArgs` picks its own flag out of it: `--threads=` for aomenc and vpxenc, `--threads`
+for x264, `--lp` for SVT-AV1, `--pools` for x265. x265 is the one to be careful with, because it
+has no `--threads` at all and the obvious-looking neighbour is not the same thing:
+`--frame-threads` is how many frames are encoded *concurrently*, and the worker pool underneath
+them is one thread per core whatever F is set to. So through 2.8.20 that box was the only setting
+on the tab that limited no threads - eight workers on a sixteen-core machine ran eight
+sixteen-thread pools, and the machine was oversubscribed eightfold on the one encoder where the
+number looked like it was being respected. `--pools` is the pool; x265 derives its own frame
+thread count from the size of it, which is why F is no longer sent alongside.
+
+Measured against x265 3.5 rather than read out of its documentation, because the two flags look
+interchangeable and are not: on a four-core machine `--frame-threads 2` still reports "Thread
+pool created using 4 threads", where `--pools 2` reports 2. `--threads` is not a flag it has.
+
+`--set-thread-affinity` is **not** what that box means, and there used to be a
+`Av1anUi.GetThreadAffArgs` building it that nothing called - so the flag has never reached av1an,
+and reinstating it is not a fix for anything above. Affinity *pins* each worker to N cores rather
+than telling the encoder how many threads to start: it leaves cores idle on a machine whose count
+is not a multiple of the pin size, and it stops the OS moving a worker off a core something else
+wants. The comment where it used to sit says so; do not read its absence as an oversight.
+
 **Colour goes to these encoders by name, and no two of them spell it alike.**
 `ColorDataUtils` holds the values as H.273 integers and hands SVT-AV1 and x265 exactly that,
 but aomenc and x264 want names - and their lists differ from each other *and* from the one
