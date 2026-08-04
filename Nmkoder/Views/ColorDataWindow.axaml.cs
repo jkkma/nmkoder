@@ -13,6 +13,9 @@ namespace Nmkoder.Views
     /// <summary> Picks source/target files for the color metadata transfer utility. </summary>
     public partial class ColorDataWindow : Window
     {
+        /// <summary> The Target Video box's "do not write anything" entry. Not a FileProxy, which is how Apply tells it apart. </summary>
+        private const string NoTarget = "(none - only read the source's metadata)";
+
         private bool _batchMode;
 
         public ColorDataWindow()
@@ -51,6 +54,11 @@ namespace Nmkoder.Views
             _batchMode = RunTask.currentFileListMode == RunTask.FileListMode.Batch;
             BatchNote.IsVisible = _batchMode;
 
+            // Batch mode has its own note saying the same thing, and no target to offer - an empty
+            // box left enabled beside it reads as one that failed to fill.
+            TargetNote.IsVisible = !_batchMode;
+            TargetVideo.IsEnabled = !_batchMode;
+
             if (_batchMode)
             {
                 if (TrackList.current != null)
@@ -58,6 +66,11 @@ namespace Nmkoder.Views
             }
             else
             {
+                // Sits first and is not a file, so Apply's "is FileProxy" reads it as no target.
+                // Without it, picking a target once is a decision there is no way back out of - the
+                // choice is remembered and every later Run rewrites that file again.
+                TargetVideo.Items.Add(NoTarget);
+
                 foreach (var entry in FileList.Items)
                 {
                     SourceVideo.Items.Add(new FileProxy(entry.File));
@@ -71,17 +84,21 @@ namespace Nmkoder.Views
             SelectByPath(SourceVideo, UtilColorData.vidSrc);
 
             if (!_batchMode)
+            {
                 SelectByPath(TargetVideo, UtilColorData.vidTarget);
 
-            if (SourceVideo.SelectedIndex < 0 && SourceVideo.ItemCount > 0)
-            {
-                // Default guess: the biggest file is the source, the smallest is the target.
-                var bySize = SourceVideo.Items.OfType<FileProxy>().OrderByDescending(x => x.File.Size).ToList();
-                SourceVideo.SelectedItem = bySize.First();
-
-                if (!_batchMode && TargetVideo.ItemCount > 1)
-                    TargetVideo.SelectedItem = TargetVideo.Items.OfType<FileProxy>().OrderByDescending(x => x.File.Size).Last();
+                // Nothing restored, so no target - including the case where one was picked for a file
+                // that has since left the list.
+                if (TargetVideo.SelectedIndex < 0)
+                    TargetVideo.SelectedIndex = 0;
             }
+
+            // The source is only read, so defaulting it costs nothing and the biggest file is the
+            // likeliest to be carrying the metadata worth copying. The target is deliberately not
+            // defaulted to match: it gets rewritten in place, and this utility used to guess the
+            // smallest file for that and do it on a Run nobody had configured.
+            if (SourceVideo.SelectedIndex < 0 && SourceVideo.ItemCount > 0)
+                SourceVideo.SelectedItem = SourceVideo.Items.OfType<FileProxy>().OrderByDescending(x => x.File.Size).First();
         }
 
         private static void SelectByPath(ComboBox box, string path)
