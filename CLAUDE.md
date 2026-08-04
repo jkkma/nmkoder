@@ -908,6 +908,16 @@ off to keep bwdif for a queue of tapes had every file of it moved back to QTGMC 
 each on the AV1AN tab, and the exact surprise the whole feature exists to prevent, arriving through a
 different door.
 
+**The safe half has to be undone as well as done, and for a while it was only done.** Demoting a
+progressive file to Automatic is right for that file and wrong for the rest of the queue: the
+interlaced files after it take the early return above, which keeps whatever is in the box rather than
+putting anything back, so one progressive file among a stack of tapes ran everything after it on
+Automatic - the setting the queue was configured not to use. `DeinterlaceUi` remembers the engine a
+*person* picked, per tab, and reinstates it wherever the early return fires; `writingModeBoxes` is what
+keeps the demotion from being recorded as the choice it is meant to be undoing, the same shape as
+`Av1anUi.writingWorkerCount`. `ResetModes` clears the memory as well as the boxes, a reset being
+somebody asking for the default back.
+
 **And the encode settles the verdict before it reads the box.** `AnalyzeInBackground` is
 fire-and-forget so that loading a file does not wait on a few hundred frames being decoded, but a
 batch starts each encode the moment its file is loaded - so in 2.8.14 the two raced, and which engine

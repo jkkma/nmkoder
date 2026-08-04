@@ -111,7 +111,13 @@ namespace Nmkoder.UI.Tasks
                 // ffmpeg seeks past everything there is and writes an empty file without complaining.
                 if (QuickConvertUi.CurrentTrim != null && !QuickConvertUi.CurrentTrim.IsUnset)
                 {
-                    string trimProblem = UtilCut.ResolveSection(QuickConvertUi.CurrentTrim, TrackList.current.File, out long _, out long _);
+                    // Against the file the trim's own arguments are built from - GetSourceRate reads the
+                    // video that is mapped, and in frame mode the section is stated in frames and has to
+                    // be converted with a rate. Checked against the loaded file instead, a mux of a 25
+                    // fps video and an audio file whose "rate" is nothing at all had a perfectly valid
+                    // frame-number trim refused before the encode started.
+                    MediaFile trimFile = QuickConvertUi.GetVideoSourceFile() ?? TrackList.current.File;
+                    string trimProblem = UtilCut.ResolveSection(QuickConvertUi.CurrentTrim, trimFile, out long _, out long _);
 
                     if (trimProblem.IsNotEmpty())
                     {
@@ -254,7 +260,13 @@ namespace Nmkoder.UI.Tasks
 
                 if (vsProblem.IsNotEmpty())
                 {
-                    RunTask.Fail($"The deinterlaced video was cut short.\n\n{vsProblem}");
+                    // ffmpeg's own error goes with it when there is one. A two-pass encode whose *first*
+                    // pass fails never starts the second, so the log holds one finished VapourSynth run
+                    // where two were expected - which reads as a cut-short deinterlace and quotes
+                    // VSPipe's own success line as the evidence for it. The reason the run stopped is
+                    // ffmpeg's, and it was the one thing not being shown.
+                    string alsoFfmpeg = settings.Problem.IsNotEmpty() ? $"\n\nFFmpeg also reported: {settings.Problem}" : "";
+                    RunTask.Fail($"The deinterlaced video was cut short.\n\n{vsProblem}{alsoFfmpeg}");
                     return;
                 }
 

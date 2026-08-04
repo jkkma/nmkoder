@@ -25,13 +25,16 @@ namespace Nmkoder.Utils
             List<int> audioBitrates = GetAudioBitratesKbps();
             int audioBps = audioBitrates.Select(x => x * 1024).Sum();
 
-            double durationSecs = GetEncodedDurationMs(TrackList.current.File) / (double)1000;
+            // The video's own file, which the trim below is stated against - in Muxing Mode that is not
+            // necessarily the one the Track List is showing
+            MediaFile durationFile = QuickConvertUi.GetVideoSourceFile() ?? TrackList.current.File;
+            double durationSecs = GetEncodedDurationMs(durationFile) / (double)1000;
             float targetMbytes = form.EncVidQualityBox.Value.AsFloat();
             long targetBits = (long)Math.Round(targetMbytes * 8 * 1024 * 1024);
 
             if (durationSecs <= 0d)
             {
-                RunTask.Cancel($"Target Filesize Mode:\n\nThe length of '{TrackList.current.File.Name}' is not known, so there is no way to " +
+                RunTask.Cancel($"Target Filesize Mode:\n\nThe length of '{durationFile.Name}' is not known, so there is no way to " +
                     $"work out what bitrate reaches {targetMbytes} megabytes.\n\nUse CRF or Target Bitrate for this file.");
                 return -1;
             }
