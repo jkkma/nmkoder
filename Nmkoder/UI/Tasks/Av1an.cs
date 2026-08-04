@@ -334,6 +334,11 @@ namespace Nmkoder.UI.Tasks
                     if (hbdProblem.IsNotEmpty())
                         Logger.Log(hbdProblem);
 
+                    string grainProblem = GetGrainSynthProblem(vCodec);
+
+                    if (grainProblem.IsNotEmpty())
+                        Logger.Log(grainProblem);
+
                     if (form.CheckAv1anCopyData.IsChecked == true && (TrackList.current?.File.DataStreams.Count ?? 0) > 0)
                         Logger.Log("Note: data streams are being left out. av1an muxes through an intermediate Matroska file, which stores none, so they cannot be carried either way.");
 

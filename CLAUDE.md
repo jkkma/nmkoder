@@ -354,6 +354,31 @@ for. `enable-qm` was one and has been removed. Do not add one back. (Mainline de
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
 
+**SVT-AV1 has three ways to ask for film grain and takes exactly one of them.** The Video tab's
+Grain Synthesis box is `--film-grain`; the Advanced tab's Film Grain & Noise group holds `noise`,
+which is svt-av1-hdr's own second synthesiser (0-200, and its help says 50 is roughly a
+`--film-grain 50`), and `fgs-table`, which applies a table from a file. They do not compose.
+`--fgs-table` switches `--noise` off, and either of them switches `--film-grain` off - the first
+in `app_config.c`, the other two in `enc_handle.c`'s `set_param_based_on_input`, each with an
+`SVT_WARN` nobody here ever sees: that goes to the encoder's stderr, which av1an collects per
+chunk into a log `HandleTempFolder` deletes on a successful run. So the box was set, ignored, and
+never mentioned.
+
+Denoise is the half with teeth, and the reason `Av1anUi.GetGrainSynthProblem` says so rather than
+leaving the number to speak for itself. `film_grain_denoise_apply` is only read inside
+`apply_denoise_2d`, which `svt_aom_picture_pre_processing_operations` only reaches on the
+`--film-grain` branch - so the checkbox is dropped along with the strength, and neither of the
+other two paths touches the source. Someone who asked for "denoise, then synthesise" gets
+synthetic grain laid over the grain that was already there, which is the opposite of the setting.
+
+`aomenc` is clean here: `AomAv1.json` carries no grain rows at all, and the grid is rebuilt per
+encoder, so only SVT-AV1 can be holding one. Neither content preset touches that group either,
+so clicking one cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
+than a rival - `apply_denoise_2d` reads it directly - and `noise-chroma`, `noise-chroma-from-luma`
+and `noise-size` are `--noise`'s own satellites, reset with a warning when it is 0, so they are
+only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
+`ac-bias` and `tune 5` are grain *retention*, a different mechanism, and do not conflict.
+
 **"Threads per Worker" is the encoder's own thread count, and each encoder spells that
 differently.** The box writes one number into `GetVideoArgsFromUi`'s `threads` entry and every
 encoder's `GetArgs` picks its own flag out of it: `--threads=` for aomenc and vpxenc, `--threads`
