@@ -549,6 +549,27 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
+        /// Whether a tool is present, in bin/ or on the user's PATH.
+        /// <para/>
+        /// Worth asking before running one, because a missing binary is not a failure any caller here
+        /// can see: the command goes through a shell, which writes "command not found" to stderr and
+        /// exits, so the utility finds out only by noticing the file it wanted was never written - and
+        /// then says whatever it says about that instead. <c>bundle-tools.sh</c> ships MKVToolNix for
+        /// win-x64 alone, so mkvmerge, mkvextract and mkvinfo are routinely absent on Linux and macOS
+        /// and this is the difference between naming the missing package and reporting a mystery.
+        /// </summary>
+        public static bool IsToolAvailable(string name)
+        {
+            // Searched over the PATH the tool will be launched with, not the one this process holds.
+            // Every runner here goes through OsUtils.SetPathVar, and on Windows that keeps bin/ and
+            // C:\Windows and drops the rest - so checking the full PATH would vouch for an mkvmerge
+            // installed in Program Files that the launcher then cannot resolve, leaving exactly the
+            // unexplained failure this check exists to replace.
+            IEnumerable<string> dirs = OsUtils.GetPathVar(new[] { Paths.GetBinPath() }).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            return File.Exists(Shell.ResolveExecutable(name, dirs));
+        }
+
+        /// <summary>
         /// Whether to run av1an in a console of its own rather than capturing its output.
         /// <para/>
         /// The setting only means anything on Windows, and honouring it elsewhere threw av1an's

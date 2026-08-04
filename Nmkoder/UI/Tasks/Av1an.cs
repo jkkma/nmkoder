@@ -1039,8 +1039,26 @@ namespace Nmkoder.UI.Tasks
                     string tmpOutPath = IoUtils.FilenameSuffix(outPath, ".tmp");
                     string cmd = $"-o {tmpOutPath.Wrap()} --attachment-mime-type text/plain --attach-file {txtPath.Wrap()} {outPath.Wrap()}";
                     await AvProcess.RunMkvMerge(cmd, NmkoderProcess.ProcessType.Background);
-                    File.Delete(outPath);
-                    File.Move(tmpOutPath, outPath);
+
+                    // Only once mkvmerge has actually written the replacement. This delete was
+                    // unconditional, and it is deleting av1an's encoded audio - so a run with no
+                    // mkvmerge to call, which is every Linux and macOS build since bundle-tools.sh
+                    // ships MKVToolNix for win-x64 alone, threw away the audio track and then failed
+                    // the move into a catch that logs where nobody looks. The encode finished, the
+                    // output had no sound, and nothing on screen said so. Windows is not exempt
+                    // either: a full disk or a path too long lands in the same place.
+                    //
+                    // What is at stake on the other side is a text file naming the encoder arguments.
+                    // Losing that is not worth a second's thought; losing the audio is the encode.
+                    if (File.Exists(tmpOutPath))
+                    {
+                        File.Delete(outPath);
+                        File.Move(tmpOutPath, outPath);
+                    }
+                    else
+                    {
+                        Logger.Log($"Could not attach the encode settings to the output - mkvmerge wrote nothing. The audio is untouched.", true);
+                    }
                 }
                 else // Create an empty audio.mkv with just the attachment in it
                 {
