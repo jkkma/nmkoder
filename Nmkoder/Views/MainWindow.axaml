@@ -223,7 +223,8 @@
 
                     <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Grain Synthesis" />
                     <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Horizontal" Spacing="10">
-                      <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0" />
+                      <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
+                                     ValueChanged="Av1anGrainSynthStrength_ValueChanged" />
                       <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
                     </StackPanel>
 

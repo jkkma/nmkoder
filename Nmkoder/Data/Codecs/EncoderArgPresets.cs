@@ -34,8 +34,14 @@ namespace Nmkoder.Data.Codecs
 
         /// <summary>
         /// What av1an calls an encoder on its own command line, which is also the key to the binary
-        /// behind it - so a preset can ask that binary whether it has the parameters being set.
-        /// "" for an encoder whose presets do not need asking.
+        /// behind it - so a caller can ask that binary whether it has the parameters being set.
+        /// "" for an encoder that is not to be asked.
+        /// <para/>
+        /// SVT-AV1 alone, and that is a limit on the question rather than an oversight: asking is only
+        /// sound where <c>--help</c> lists every parameter, and SvtAv1EncApp's prints its whole token
+        /// table. x264's does not - it is the short list, with the rest behind <c>--longhelp</c> and
+        /// <c>--fullhelp</c> - so half of X264.json would come back unsupported from a binary that has
+        /// every one of them. The others are unverified, which is the same answer.
         /// </summary>
         public static string Av1anEncoderName(string encoderName)
         {

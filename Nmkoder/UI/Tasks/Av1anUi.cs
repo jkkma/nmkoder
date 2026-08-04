@@ -117,7 +117,8 @@ namespace Nmkoder.UI.Tasks
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
             bool av1 = c == CodecUtils.Av1anCodec.AomAv1 || c == CodecUtils.Av1anCodec.SvtAv1;
-            Form.Av1anGrainSynthStrengthUpDown.IsEnabled = Form.Av1anGrainSynthDenoiseBox.IsEnabled = av1; // Only AV1 has grain synth
+            Form.Av1anGrainSynthStrengthUpDown.IsEnabled = av1; // Only AV1 has grain synth
+            ApplyGrainDenoiseEnabled(); // Follows the strength as well as the encoder
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
@@ -1119,6 +1120,23 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// Grain Synthesis' Denoise box, enabled or not. It follows the strength beside it as well as
+        /// the encoder, because both AV1 encoders read the denoise flag only where they are
+        /// synthesising grain at all - aomenc's <c>--enable-dnl-denoising</c> applies "when
+        /// denoise-noise-level is enabled", and SVT-AV1 answers a denoise flag set against
+        /// <c>--film-grain 0</c> with "ignored when film grain is off". At a strength of 0 it was a
+        /// tickable box that did nothing.
+        /// <para/>
+        /// What it is ticked to is left alone rather than cleared: a strength dropped to 0 and put back
+        /// should bring the choice back with it, not silently lose it.
+        /// </summary>
+        public static void ApplyGrainDenoiseEnabled()
+        {
+            Form.Av1anGrainSynthDenoiseBox.IsEnabled = Form.Av1anGrainSynthStrengthUpDown.IsEnabled &&
+                Form.Av1anGrainSynthStrengthUpDown.Value.AsInt() > 0;
+        }
+
+        /// <summary>
         /// What the advanced grid holds for a parameter, matched without its dashes and without case,
         /// or "" where the row is absent or has not been filled in. The grid is preloaded with every
         /// documented parameter and edited in place, so a blank row and a missing one mean the same
@@ -1185,6 +1203,64 @@ namespace Nmkoder.UI.Tasks
 
             return $"Note: the Advanced tab's {subject} - so Grain Synthesis {strength} is dropped and " +
                 $"{winner} runs instead.{denoise} Clear whichever of the two you did not mean.";
+        }
+
+        /// <summary>
+        /// Why the encode cannot start with the advanced grid as it stands, or "" if it can.
+        /// <para/>
+        /// The grid is filled from a parameter list written against the build this project bundles -
+        /// svt-av1-hdr for SVT-AV1, and whatever was current for the rest - while the binary that
+        /// actually runs is a build-time accident: the bundle falls back where no prebuilt exists, macOS
+        /// bundles no encoder at all, and a user's own PATH is not something the bundler controls. A
+        /// parameter the binary in front of it does not have is not ignored; the whole command is
+        /// refused, and not one chunk encodes.
+        /// <para/>
+        /// This refuses where the content presets' own check (GetApplicablePresetValues) drops, and the
+        /// difference is who chose the value. A preset is a bundle that stays useful with one entry
+        /// taken out of it, and dropping happens as it is applied, in front of whoever clicked it. A row
+        /// here was typed by hand on a run that has already been started, where dropping a setting
+        /// silently is the failure this check exists to prevent.
+        /// <para/>
+        /// Nothing is refused on a failed lookup - <see cref="AvProcess.EncoderKnowsFlagOrIsUnknown"/>
+        /// answers false only for a help text that was read and lacked the flag. And nothing is asked
+        /// at all outside SVT-AV1: <see cref="EncoderArgPresets.Av1anEncoderName"/> is where that limit
+        /// is stated, and x264 - whose <c>--help</c> is the short list - is why it exists.
+        /// </summary>
+        public static async Task<string> GetUnsupportedAdvancedArgsProblem(CodecUtils.Av1anCodec vCodec)
+        {
+            IEncoder enc = CodecUtils.GetCodec(vCodec);
+            string av1anEncoder = EncoderArgPresets.Av1anEncoderName(enc.Name);
+
+            if (av1anEncoder.IsEmpty())
+                return "";
+
+            var unsupported = new List<string>();
+
+            foreach (EncoderArgRow row in Form.Av1anArgRows.Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty()))
+            {
+                string arg = row.Argument.Trim().TrimStart('-');
+
+                // Matched with the dashes on, so a parameter is not found inside a longer one's name
+                if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(av1anEncoder, $"--{arg}"))
+                    unsupported.Add(arg);
+            }
+
+            if (unsupported.Count < 1)
+                return "";
+
+            bool one = unsupported.Count == 1;
+
+            // Worth naming the cause rather than the symptom, the way the preset path does. For
+            // SVT-AV1 there is only one thing this ever means.
+            string cause = vCodec == CodecUtils.Av1anCodec.SvtAv1
+                ? "That means it is mainline SVT-AV1 rather than the PSY-line build (svt-av1-hdr) this " +
+                    "tab's parameter list is written for."
+                : "That means it is an older build than that list was written against.";
+
+            return $"{string.Join(", ", unsupported)} {(one ? "is" : "are")} set on the Advanced tab, and the " +
+                $"encoder that would run does not have {(one ? "it" : "them")}. An unrecognised parameter is " +
+                $"refused as a whole command, so not one chunk would encode.\n\n{cause}\n\n" +
+                $"Clear {(one ? "that row" : "those rows")}, or use a build that has {(one ? "it" : "them")}.";
         }
 
         /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>

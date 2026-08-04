@@ -379,6 +379,37 @@ and `noise-size` are `--noise`'s own satellites, reset with a warning when it is
 only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
 `ac-bias` and `tune 5` are grain *retention*, a different mechanism, and do not conflict.
 
+**The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
+denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
+applies "when denoise-noise-level is enabled", and SVT-AV1 answers one set against `--film-grain 0`
+with "ignored when film grain is off" - so at a strength of 0 it was a tickable box that did
+nothing. `Av1anUi.ApplyGrainDenoiseEnabled` is the one statement of that, called from
+`VidEncoderSelected` and from the strength box's own handler. It does not *clear* the tick, only
+disable it: a strength dropped to 0 and put back should bring the choice back with it.
+
+**An advanced row naming a parameter the binary does not have refuses the encode, and only for
+SVT-AV1.** The grid is filled from a JSON list written against the build this project bundles,
+while the binary that runs is a build-time accident - the bundle falls back, macOS bundles no
+encoder, and a user's own PATH is not the bundler's to control - and an encoder refuses the whole
+command over one parameter it does not know. `Av1anUi.GetUnsupportedAdvancedArgsProblem` asks
+before the run and names what it found; on SVT-AV1 that is a mainline binary against a PSY-line
+list, which the message says outright.
+
+It **refuses** where `GetApplicablePresetValues` **drops**, and the difference is who chose the
+value. A preset is a bundle that stays useful with one entry taken out, and the dropping happens as
+it is applied, in front of whoever just clicked it. A grid row was typed by hand on a run that has
+already started, where quietly dropping a setting is the failure the check exists to prevent - the
+same argument `QuickConvertUi.GetBorderProblem` makes.
+
+**Asking is only sound where `--help` lists everything, which is why no other encoder is asked.**
+SvtAv1EncApp's `--help` prints its whole token table. x264's does not: it is the short list by
+design, with the rest behind `--longhelp` and `--fullhelp`, so half of `X264.json` - `qpstep`,
+`merange`, `partitions`, `ipratio` and the like - would come back unsupported from a binary holding
+every one of them, and a legitimate encode would be refused. `EncoderArgPresets.Av1anEncoderName`
+returning "" for everything but SVT-AV1 is where that limit lives; do not widen it to the other four
+on the grounds that the map is obviously incomplete. The others are simply unverified, which for
+this question is the same answer as x264's.
+
 **"Threads per Worker" is the encoder's own thread count, and each encoder spells that
 differently.** The box writes one number into `GetVideoArgsFromUi`'s `threads` entry and every
 encoder's `GetArgs` picks its own flag out of it: `--threads=` for aomenc and vpxenc, `--threads`

@@ -126,6 +126,16 @@ namespace Nmkoder.Views
         private void Av1anOption_SelectionChanged(object sender, SelectionChangedEventArgs e) => SaveConfigAv1an();
         private void Av1anOption_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e) => SaveConfigAv1an();
 
+        /// <summary> Nothing to save - the Video tab restores nothing - but the Denoise box beside this
+        /// one does nothing at a strength of 0, so it is enabled from here. </summary>
+        private void Av1anGrainSynthStrength_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            Av1anUi.ApplyGrainDenoiseEnabled();
+        }
+
         /// <summary> The Workers box is not the plain saved spinner the rest of the tab is: it shows the
         /// count for the encoder selected, and what is saved is the count for an encoder that is not
         /// SVT-AV1. An edit here states the first, so Av1anUi works the second back out of it. </summary>
