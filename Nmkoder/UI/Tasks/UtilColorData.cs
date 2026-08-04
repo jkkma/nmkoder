@@ -34,10 +34,11 @@ namespace Nmkoder.UI.Tasks
                 }
                 else
                 {
-                    Logger.Log($"Transferring color data from {Path.GetFileName(vidSrc)} to {Path.GetFileName(vidTarget)}.");
+                    string what = copyColorSpace && copyHdrData ? "color space and HDR data" : copyColorSpace ? "color space" : copyHdrData ? "HDR data" : "nothing";
+                    Logger.Log($"Transferring {what} from {Path.GetFileName(vidSrc)} to {Path.GetFileName(vidTarget)}.");
                     VideoColorData data = await ColorDataUtils.GetColorData(vidSrc);
                     Logger.Log(data.ToString());
-                    await ColorDataUtils.SetColorData(vidTarget, data);
+                    await ColorDataUtils.SetColorData(vidTarget, data, copyColorSpace, copyHdrData);
                 }
             }
             catch(Exception e)
