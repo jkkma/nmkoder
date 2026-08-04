@@ -186,7 +186,9 @@ namespace Nmkoder.Views
 
         private void EncResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_initialized)
+            // Refilling the list raises this too, and that is not a choice: the entries are renamed for
+            // every file loaded, so a batch would otherwise write the settings file once per file.
+            if (!_initialized || QuickConvertUi.LoadingResizeBox)
                 return;
 
             QuickConvertUi.ResizePresetSelected(EncResizeBox.SelectedIndex);
@@ -229,10 +231,9 @@ namespace Nmkoder.Views
 
         private async void EncCropConf_Click(object sender, RoutedEventArgs e)
         {
-            Size res = new Size();
-
-            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count > 0)
-                res = TrackList.current.File.VideoStreams[0].Resolution;
+            // The video the crop will actually run on, which in Muxing Mode is not the file the Track
+            // List is showing - the dialog's own bounds are measured against it
+            Size res = QuickConvertUi.GetVideoSourceStream()?.Resolution ?? new Size();
 
             CropConfig crop = await CropWindow.Show(res, QuickConvertUi.CurrentCrop);
 

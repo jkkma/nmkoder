@@ -118,6 +118,11 @@ namespace Nmkoder.UI.Tasks
         /// SelectionChanged that would then read the new selection back over what is being shown. </summary>
         private static bool _loadingResizeBox;
 
+        /// <summary> Whether the resize dropdown is mid-refill, for the handler that has to tell a
+        /// refill from a choice - a refill is neither worth acting on nor worth saving, and a batch
+        /// refills the list once per file. </summary>
+        public static bool LoadingResizeBox { get { return _loadingResizeBox; } }
+
         /// <summary>
         /// The file whose video this encode is about - the one the first ticked video track came from,
         /// which in Muxing Mode need not be the file the Track List is showing. Delegated so the geometry
@@ -269,8 +274,14 @@ namespace Nmkoder.UI.Tasks
         /// files were resized and by how much - the readout above describes the loaded one alone. </summary>
         private static void LogResize(Size scaleInput, Size sar, Size result, bool quiet)
         {
-            string source = AspectRatio.IsAnamorphic(sar) && CurrentResize.CorrectAspect
-                ? $"{scaleInput.Width}x{scaleInput.Height} ({sar.Width}:{sar.Height} pixels, so {AspectRatio.Describe(AspectRatio.GetDisplaySize(scaleInput, sar).Width, AspectRatio.GetDisplaySize(scaleInput, sar).Height)})"
+            bool anamorphic = AspectRatio.IsAnamorphic(sar);
+            Size display = AspectRatio.GetDisplaySize(scaleInput, sar);
+
+            // The pixel shape belongs in the line for an anamorphic source whichever way the correction
+            // is set - it was only mentioned where the correction was on, which is the case where the
+            // shape survives and so the one where saying it matters least.
+            string source = anamorphic
+                ? $"{scaleInput.Width}x{scaleInput.Height} ({sar.Width}:{sar.Height} pixels, so {AspectRatio.Describe(display.Width, display.Height)})"
                 : $"{scaleInput.Width}x{scaleInput.Height}";
 
             string note = CurrentResize.IsUpscale(scaleInput, sar)
@@ -279,6 +290,18 @@ namespace Nmkoder.UI.Tasks
 
             Logger.Log($"Resizing {source} to {result.Width}x{result.Height} " +
                 $"({AspectRatio.Describe(result.Width, result.Height)}){note}.", quiet);
+
+            // The one outcome worth a warning rather than a clause: with the correction off, a chain
+            // ending in setsar=1:1 drops the flag that made the stored pixels mean that shape, so the
+            // file comes out playing at a ratio nobody picked. The AV1AN tab has said this since the
+            // dialog was written; the readout says it too, but a batch only shows the loaded file's.
+            if (anamorphic && !CurrentResize.CorrectAspect)
+            {
+                Logger.Log($"Warning: this resize has anamorphic correction switched off, so the {sar.Width}:{sar.Height} " +
+                    $"pixel shape is dropped and the output plays as {AspectRatio.Describe(result.Width, result.Height)} " +
+                    $"rather than {AspectRatio.Describe(display.Width, display.Height)}. " +
+                    $"Switch it back on in the resize dialog to keep the shape.", quiet);
+            }
         }
 
         #endregion
@@ -974,10 +997,20 @@ namespace Nmkoder.UI.Tasks
         {
             VideoStream vs = GetVideoSourceStream();
 
-            if (vs == null || Form.EncCropModeBox.GetText().ToLower().Contains("auto"))
+            if (vs == null)
                 return Size.Empty;
 
-            (Size scaled, Size sar) = ResolveScaledFrame(GetCroppedSourceSize(vs), vs.Sar);
+            bool autoCrop = Form.EncCropModeBox.GetText().ToLower().Contains("auto");
+
+            // With bars on, an automatic crop is worth abstaining over: it moves the *ratio*, which is
+            // what picks between a letterbox and a pillarbox, so a pad measured over an uncropped frame
+            // can be the wrong bars entirely, on the wrong axis. Without them it only moves a number,
+            // and abstaining there would hand the encoder the source's own size - which is further from
+            // the truth than a resize target measured against a frame with its black bars still in.
+            if (autoCrop && CurrentBorders.IsSet)
+                return Size.Empty;
+
+            (Size scaled, Size sar) = ResolveScaledFrame(autoCrop ? vs.Resolution : GetCroppedSourceSize(vs), vs.Sar);
 
             return CurrentBorders.IsSet ? CurrentBorders.Compute(scaled, sar).Frame : scaled;
         }
@@ -1091,7 +1124,9 @@ namespace Nmkoder.UI.Tasks
 
             // Named by whichever setting asked for it: the bars are additive, so they can carry a frame
             // over on their own, and pointing at the resize would send the user to the wrong control.
-            string culprit = CurrentBorders.IsSet && !scaled.Equals(frame)
+            // Only where the resize alone was under the line, though - past it the bars are innocent and
+            // saying "or switch the borders off" is advice that changes nothing.
+            string culprit = CurrentBorders.IsSet && !ResizeConfig.ExceedsFrameLimit(scaled)
                 ? "Pick a smaller resize target, or switch the borders off."
                 : "Pick a smaller target in the resize dialog.";
 
