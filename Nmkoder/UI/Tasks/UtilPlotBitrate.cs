@@ -30,6 +30,15 @@ namespace Nmkoder.UI.Tasks
                 string path = TrackList.current.File.ImportPath;
                 List<BitratePlottingUtils.Frame> frameList = await BitratePlottingUtils.GetFrameInfos(path, true);
                 var seconds = BitratePlottingUtils.GetBytesPerSecond(frameList);
+
+                // A window drawing "No data" does not say whether the probe failed or the file is
+                // empty, and it is the same picture either way.
+                if (seconds.Count < 1)
+                {
+                    RunTask.Fail("No frames could be read from this file, so there is no bitrate to chart. The log has ffprobe's own output.");
+                    return;
+                }
+
                 Program.MainWin.SetWorking(false);
                 await BitratePlotWindow.Show(seconds);
             }
@@ -37,6 +46,15 @@ namespace Nmkoder.UI.Tasks
             {
                 RunTask.Fail($"The bitrate chart could not be produced: {e.Message}");
                 Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
+            }
+            finally
+            {
+                // The only SetWorking(false) sat inside the try, after the analysis, so the early
+                // returns and the throw path left this method without clearing it. RunTask.Start
+                // clears it after every task regardless, so nothing was actually stuck - this is here
+                // so the method stands on its own rather than on its caller. It is idempotent, so the
+                // happy path clearing it early to show the chart still stands.
+                Program.MainWin.SetWorking(false);
             }
         }
     }
