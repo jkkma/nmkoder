@@ -25,7 +25,6 @@ namespace Nmkoder.Utils
 
             List<string> commands = new List<string>();
             List<string> superChunkPaths = new List<string>();
-            Dictionary<int, List<string>> lists = new Dictionary<int, List<string>>();
             string superChunkBasePath = Directory.CreateDirectory($"{outPath}.merge.tmp").FullName;
             int superChunkIndex = 0;
             string currentCmd = GetBaseCmd(superChunkBasePath, superChunkIndex);
@@ -44,10 +43,6 @@ namespace Nmkoder.Utils
 
                 currentCmd += $" {(first ? "" : "+")}{paths[i].Wrap()}";
                 first = false;
-
-                var currList = lists.ContainsKey(superChunkIndex) ? lists[superChunkIndex] : new List<string>();
-                currList.Add(paths[i]);
-                lists[superChunkIndex] = currList;
 
                 if (i + 1 == paths.Count) // if this is the last iteration
                 {
