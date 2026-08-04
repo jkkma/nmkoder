@@ -109,6 +109,12 @@ namespace Nmkoder.Data
             List<AudioConfigurationEntry> audioConf = TrackList.currentAudioConfig != null ? TrackList.currentAudioConfig.GetConfig(mf) : null;
             bool perTrack = Program.MainWin.EncAudConfModeBox.SelectedIndex == 1;
 
+            // Belt and braces behind the reset in TrackList.SetAsMainFile, which puts the dropdown back
+            // to the global mode wherever the configuration behind it is cleared. The two coming apart is
+            // what made this fall back to the global settings without a word.
+            if (perTrack && audioConf == null)
+                Logger.Log("Per-track audio settings are selected but none are configured for this file - using the Audio tab's own bitrate and channel count.", true);
+
             foreach (AudioStream s in checkedAudStreams)
             {
                 int indexTotal = allAudStreams.IndexOf(s);
@@ -136,8 +142,15 @@ namespace Nmkoder.Data
                     {
                         string[] split = arg.Split(' ');
 
+                        // "a:" as well as the number, the way the two lines above it write theirs. A
+                        // bare ":0" is a stream specifier meaning *output stream 0*, not the first audio
+                        // stream - and in any output with video that is the video. ffmpeg matched Opus's
+                        // "-mapping_family 1" against the video encoder, found no such option on it,
+                        // dropped it, and said so in a line nothing here reads. The audio streams never
+                        // matched at all. An audio-only output is where stream 0 happens to be the
+                        // audio, which is why this worked exactly where it was least interesting.
                         if (split.Length == 2)
-                            args.Add($"{split[0]}:{indexChecked} {split[1]}");
+                            args.Add($"{split[0]}:a:{indexChecked} {split[1]}");
                     }
                 }
             }

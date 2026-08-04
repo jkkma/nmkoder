@@ -432,10 +432,26 @@ namespace Nmkoder.UI.Tasks
             CodecUtils.AudioCodec c = (CodecUtils.AudioCodec)index;
             IEncoder enc = CodecUtils.GetCodec(c);
 
-            Form.EncAudChannelsBox.IsEnabled = !(c == CodecUtils.AudioCodec.CopyAudio || c == CodecUtils.AudioCodec.StripAudio);
+            RefreshAudioChannelsEnabled();
             Form.EncAudQualUpDown.IsEnabled = enc.QDefault >= 0 && Math.Abs(enc.QMin - enc.QMax) > 0;
             LoadAudBitrate(enc);
             ValidateContainer();
+        }
+
+        /// <summary>
+        /// Whether the Channels dropdown governs anything, which is two questions rather than one: a
+        /// copied or stripped track has no layout to pick, and a per-track configuration replaces the
+        /// dropdown outright - every row of that dialog is written into the configuration whether it was
+        /// edited or not, and GetAudioArgsForEachStream takes the channel count from there. Left enabled
+        /// over that, it was a control that looked as though it still did something and did not.
+        /// </summary>
+        public static void RefreshAudioChannelsEnabled()
+        {
+            CodecUtils.AudioCodec c = GetCurrentCodecA();
+            bool codecTakesOne = !(c == CodecUtils.AudioCodec.CopyAudio || c == CodecUtils.AudioCodec.StripAudio);
+            bool perTrack = Form.EncAudConfModeBox.SelectedIndex == 1 && TrackList.currentAudioConfig != null;
+
+            Form.EncAudChannelsBox.IsEnabled = codecTakesOne && !perTrack;
         }
 
         #region Load Video Options

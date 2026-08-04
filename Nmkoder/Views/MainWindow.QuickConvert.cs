@@ -273,10 +273,19 @@ namespace Nmkoder.Views
             if (TrackList.current == null)
                 return;
 
-            var entries = await AudioStreamsWindow.Show(TrackList.current.File, EncAudQualUpDown.Value.AsInt());
+            var entries = await AudioStreamsWindow.Show(TrackList.current.File, EncAudQualUpDown.Value.AsInt(),
+                EncAudChannelsBox.GetText().Split(' ')[0].GetInt());
 
             if (entries != null && entries.Count > 0)
                 TrackList.currentAudioConfig = new AudioConfiguration(TrackList.current.File, entries);
+
+            // Dismissing the dialog leaves nothing configured, so the mode has to come back with it -
+            // otherwise the box reads "Configure each track separately" over no configuration at all,
+            // which is the state the reset in TrackList.SetAsMainFile exists to prevent.
+            if (TrackList.currentAudioConfig == null && EncAudConfModeBox.SelectedIndex == 1)
+                EncAudConfModeBox.SelectedIndex = 0;
+
+            QuickConvertUi.RefreshAudioChannelsEnabled();
         }
 
         private async void EncAudConfMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -305,10 +314,18 @@ namespace Nmkoder.Views
                     return;
                 }
 
+                // Both set before the dialog opens: it is async, so control comes back here the moment it
+                // is on screen, and the button beside the box has to be there when it closes. The dialog
+                // refreshes the Channels row itself on the way out, where it knows whether anything was
+                // actually configured.
+                EncAudConfigureBtn.IsVisible = true;
+                QuickConvertUi.RefreshAudioChannelsEnabled();
                 EncAudConfigure_Click(null, null);
+                return;
             }
 
-            EncAudConfigureBtn.IsVisible = i == 1;
+            EncAudConfigureBtn.IsVisible = false;
+            QuickConvertUi.RefreshAudioChannelsEnabled();
         }
 
         private void EncFilterAdd_Click(object sender, RoutedEventArgs e)

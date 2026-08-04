@@ -173,7 +173,15 @@ namespace Nmkoder.UI
             string dur = FormatUtils.MsToTimestamp(current.File.DurationMs);
             Program.MainWin.FormatInfoLabel.Text = $"{titleStr}Format: {current.File.Format} - Duration: {dur}{br} - Size: {FormatUtils.Bytes(current.File.Size)}";
             Items.Clear();
+            // The per-track audio settings describe the file being replaced, and AudioConfiguration
+            // refuses to hand them to any other one. The dropdown that points at them has to come back
+            // with them: left on "Configure each track separately" over nothing, GetAudioArgsForEachStream
+            // found perTrack set and the configuration null, skipped both override branches in silence,
+            // and every track went out at the global spinner's bitrate and channel count - with the
+            // Configure… button still on screen saying otherwise. A batch met this on every file,
+            // including the first, since the queue loads each one through here.
             currentAudioConfig = null;
+            Program.MainWin.EncAudConfModeBox.SelectedIndex = 0;
 
             QuickConvertUi.InitFile(current.File.SourcePath);
             Av1anUi.InitFile(current.File.SourcePath);

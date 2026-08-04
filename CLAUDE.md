@@ -863,6 +863,31 @@ that is a file with no video track in it, so the whole chain was silently droppe
 `QuickConvertUi.GetVideoSourceFile` delegates to `DeinterlaceUi.GetQuickConvertSourceFile` so the
 geometry and the deinterlacer cannot pick different files.
 
+**A per-stream ffmpeg option needs the stream's *type* in its specifier, not just a number.** A bare
+`:0` means output stream 0, which in any output with video is the video - so Opus's
+`-mapping_family 1`, re-emitted per track by `GetAudioArgsForEachStream`, was matched against the video
+encoder, found no such option there and dropped, while the audio streams never matched at all. ffmpeg
+says so in a line nothing here reads ("Codec AVOption mapping_family … has not been used for any
+stream"). The two `args.Add` calls above it always wrote `-b:a:N` and `-ac:a:N` correctly; only the
+extra-args loop did not. An audio-only output is where stream 0 happens to *be* the audio, which is
+where this worked and where it mattered least.
+
+**The per-track audio configuration and the dropdown that points at it are one setting.**
+`AudioConfiguration` refuses to hand its entries to any file but the one they were made on, and
+`SetAsMainFile` clears them outright - but nothing moved the "Configure each track separately" box, so
+`GetAudioArgsForEachStream` found `perTrack` set and the configuration null, skipped both override
+branches in silence, and encoded every track at the global spinner's bitrate with the Configure… button
+still on screen. A batch met this on every file including the first, since the queue loads each one
+through the same method. The box is reset where the data is, dismissing the dialog puts it back too,
+and a mismatch that reaches the arguments anyway now leaves a line in the log.
+
+That dialog also seeded its rows from each source track's own channel count, so confirming it - and it
+is opened *automatically* the moment the mode is switched - overwrote a downmix already picked on the
+Channels dropdown, that dropdown then being ignored because every row is written into the configuration
+whether it was edited or not. The rows start from what the dropdown asks for now, the bitrate is scaled
+to that same layout, and the dropdown is disabled while a configuration governs it rather than being
+left looking as though it still does something.
+
 **Refilling a dropdown loses what was selected in it.** The subtitle burn-in and the metadata/chapter
 source lists are rebuilt on every change to the file list, so adding an unrelated file to the queue
 turned a chosen burn-in track back to "Disabled" and put the metadata source back on the first file.
