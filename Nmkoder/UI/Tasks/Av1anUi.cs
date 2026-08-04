@@ -1268,10 +1268,13 @@ namespace Nmkoder.UI.Tasks
             return $"--chunk-order {ChunkOrders[Form.Av1anOptsChunkOrderBox.SelectedIndex.Clamp(0, ChunkOrders.Length - 1)]}";
         }
 
-        public static string GetThreadAffArgs()
-        {
-            return $"--set-thread-affinity {Form.Av1anThreadsUpDown.Value.AsInt()}";
-        }
+        // There is no GetThreadAffArgs here any more. It built "--set-thread-affinity N" out of the
+        // Threads per Worker box and nothing ever called it, so the flag has never gone out - and it
+        // is not the flag that box means. Thread affinity *pins* each worker to N cores, which is a
+        // different setting with a different failure mode: on a machine whose core count is not a
+        // multiple of the pin size it leaves cores idle, and it stops the OS moving a worker off a
+        // core that another process wants. What the box means is the encoder's own thread count,
+        // which is what GetVideoArgsFromUi's "threads" entry carries into each encoder's arguments.
 
         #endregion
 
