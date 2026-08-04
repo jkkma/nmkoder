@@ -8,6 +8,8 @@ using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.Media;
+using Nmkoder.OS;
+using Nmkoder.Utils;
 using static Nmkoder.Media.AvProcess;
 
 namespace Nmkoder.UI.Tasks
@@ -46,9 +48,51 @@ namespace Nmkoder.UI.Tasks
                 if (runVmaf)
                 {
                     Logger.Log("Calculating VMAF...");
-                    string vmafPath = Paths.GetVmafPath(true, GetVmafModel());
-                    string vmafFilter = $"libvmaf={vmafPath}:n_threads={Environment.ProcessorCount}:n_subsample={subsample}";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph()}{vmafFilter} -f null -";
+                    // The model is named, not passed positionally. libvmaf's first positional option
+                    // is log_path - there is no model_path on it any more - so a bare path here did
+                    // not select a model at all: it named the file the run's XML log is written to,
+                    // and the app pointed that at bin/vmaf_v0.6.1.json. Every metrics run overwrote
+                    // the bundled model with its own log, then scored against libvmaf's built-in
+                    // default, which is why the dialog's model dropdown never changed a number and
+                    // why nothing here noticed - the "VMAF score: " line is printed either way.
+                    // Measured against a current BtbN master build: the model file went from 19101
+                    // bytes of JSON to 6438 of <VMAF version=...>, and picking the 4k model now moves
+                    // the score (87.018811 -> 92.154843) where before it did nothing.
+                    //
+                    // A Windows drive colon used to split this value before it could do any harm, so
+                    // this was a Linux and macOS fault until the colon started surviving the trip.
+                    // Av1an.cs hands the same file to av1an's --vmaf-path, so one metrics run left
+                    // target-quality encodes pointing at an XML file.
+                    //
+                    // The model is named by version rather than by file, which keeps a path out of the
+                    // command entirely. A path is not impossible here, but it is the one place in this
+                    // app where a colon has to clear *three* parsers rather than two: ffmpeg's graph
+                    // parser, then the filter's option parser, then libvmaf's own key=value splitter,
+                    // which splits its pairs on ':' as well. Measured on the bundled build, that comes
+                    // to three backslashes - "path\=...C\\\:/..." scores; one is "could not parse
+                    // model config" and two is a graph-level error - and a Windows drive letter means
+                    // the question is never academic. The three models the dropdown offers are all
+                    // compiled into libvmaf, so naming the version asks for exactly the same thing:
+                    // by-path and by-version score identically, model for model.
+                    //
+                    // Measured against a current BtbN master build, scoring the same clip pair:
+                    // vmaf_v0.6.1 87.018811, vmaf_v0.6.1neg 85.072420, vmaf_4k_v0.6.1 92.154843 - and
+                    // the first two match what loading the bundled .json by path produces, where a
+                    // path can be loaded at all. The '=' inside the spec still has to be escaped past
+                    // ffmpeg's own option parser.
+                    //
+                    // GetVmafModel returns "" for an index the list does not have, and an empty
+                    // 'model' is not the default but an error, so it is left off entirely instead.
+                    string vmafModel = GetVmafModel();
+                    List<string> vmafOpts = new List<string>();
+
+                    if (vmafModel.IsNotEmpty())
+                        vmafOpts.Add($"model='version\\={vmafModel}'");
+
+                    vmafOpts.Add($"n_threads={Environment.ProcessorCount}");
+                    vmafOpts.Add($"n_subsample={subsample}");
+                    string vmafFilter = $"libvmaf={string.Join(":", vmafOpts)}";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(vmafFilter)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> vmafLines = output.SplitIntoLines().Where(x => x.Contains("VMAF score: ")).ToList();
@@ -71,7 +115,7 @@ namespace Nmkoder.UI.Tasks
                 {
                     Logger.Log("Calculating SSIM...");
                     string select = subsample > 1 ? $"select=not(mod(n-1\\,{subsample}))" : "";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(select)}ssim -f null -";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph("ssim", select)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> ssimLines = output.SplitIntoLines().Where(x => x.Contains("] SSIM ")).ToList();
@@ -94,7 +138,7 @@ namespace Nmkoder.UI.Tasks
                 {
                     Logger.Log("Calculating PSNR...");
                     string select = subsample > 1 ? $"select=not(mod(n-1\\,{subsample}))" : "";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(select)}psnr -f null -";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph("psnr", select)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> psnrLines = output.SplitIntoLines().Where(x => x.Contains("] PSNR ")).ToList();
@@ -143,23 +187,30 @@ namespace Nmkoder.UI.Tasks
             public Size RefSize;
 
             /// <summary>
-            /// Everything up to the metric filter, which the caller appends: two labelled chains and
-            /// then the pair of labels the metric reads, the encode first and the reference second.
-            /// That order is the one an unfiltered comparison binds in - ffmpeg attaches the unused
-            /// inputs to the metric filter in the order they were opened - and it is worth keeping,
-            /// because VMAF is not symmetric and scores differently with its inputs the other way up.
+            /// The whole -filter_complex value: two labelled chains, then the pair of labels the
+            /// metric reads, the encode first and the reference second. That order is the one an
+            /// unfiltered comparison binds in - ffmpeg attaches the unused inputs to the metric filter
+            /// in the order they were opened - and it is worth keeping, because VMAF is not symmetric
+            /// and scores differently with its inputs the other way up.
             /// <para/>
-            /// Quoted, because the chains are separated by semicolons and this command line is handed
-            /// to a shell, which reads an unquoted ';' as the end of the command. The metric filter is
-            /// left outside the quotes: libvmaf's model path carries quoting of its own, and the two
-            /// halves join into one argument regardless, having no whitespace between them.
+            /// Wrapped as one argument, because the chains are separated by semicolons and this command
+            /// line is handed to a shell, which reads an unquoted ';' as the end of the command.
+            /// <para/>
+            /// The metric filter is taken as a parameter rather than appended by the caller, because
+            /// appending is what it used to do and the quotes ended before it: libvmaf's model path is
+            /// quoted at ffmpeg's level, which the *shell* does not honour, so the halves joined into
+            /// one argument only while nothing after the closing quote held a space. The model sits in
+            /// the app's own bin folder, so an install under "C:\Program Files\..." split the argument
+            /// in two and failed the run. Through Shell.WrapArg rather than a pair of double quotes,
+            /// for the reasons GetVideoFilterArgs gives.
             /// </summary>
+            /// <param name="metric"> The metric filter the two labels feed - libvmaf, ssim or psnr. </param>
             /// <param name="perInput"> A filter to append to both chains alike - the frame selection
             /// SSIM and PSNR subsample with, which has to drop the same frames on both sides or it
             /// would compare each surviving frame against whatever the other input still had. </param>
-            public string Graph(string perInput = "")
+            public string Graph(string metric, string perInput = "")
             {
-                return $"\"[0:v]{Chain(EncFilters, perInput)}[enc];[1:v]{Chain(RefFilters, perInput)}[ref];[enc][ref]\"";
+                return Shell.WrapArg($"[0:v]{Chain(EncFilters, perInput)}[enc];[1:v]{Chain(RefFilters, perInput)}[ref];[enc][ref]{metric}");
             }
 
             /// <summary> A link with no filters in it is a syntax error, so an untouched input gets 'null'. </summary>

@@ -1,5 +1,6 @@
 ﻿using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
@@ -171,14 +172,23 @@ namespace Nmkoder.Data
             return path;
         }
 
-        public static string GetVmafPath(bool escape, string model = "vmaf_v0.6.1")
+        /// <summary>
+        /// One of the VMAF models bundled into bin/, with forward slashes so it can go straight into a
+        /// command line. Unescaped: it used to have an "escape" flag that ran it through
+        /// FormatUtils.GetFilterPath, on the understanding that libvmaf's first positional option was
+        /// the model - it is not, and what that produced is described in UtilGetMetrics. That caller
+        /// names the model by version now and wants no path at all, leaving av1an's --vmaf-path as the
+        /// only one, so the flag is gone rather than left as a branch nothing takes.
+        /// </summary>
+        public static string GetVmafPath(string model = "vmaf_v0.6.1")
         {
             string path = Path.Combine(GetBinPath(), $"{model}.json");
 
-            if (escape)
-                return FormatUtils.GetFilterPath(path);
-            else
-                return path.Replace("\\", "/");
+            // Forward slashes on Windows only. There a backslash is the separator and cannot be part
+            // of a name, so the rewrite is free; off Windows it is legal data, and substituting it
+            // would hand av1an a --vmaf-path that does not exist for anyone who unzipped the app into
+            // a directory with a backslash in its name. Same split as FormatUtils.GetFilterPath.
+            return Shell.IsWindows ? path.Replace(@"\", "/") : path;
         }
     }
 }

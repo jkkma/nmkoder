@@ -95,15 +95,14 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
-                // And the one that cannot be worked around in the filter chain at all - see
-                // GetBurnInProblem, which is where the reason is.
-                string burnInProblem = QuickConvertUi.GetBurnInProblem();
-
-                if (burnInProblem.IsNotEmpty())
-                {
-                    RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot have subtitles burnt in - {burnInProblem}");
-                    return;
-                }
+                // A burn-in check sat here until 2.8.23, cancelling the encode for an apostrophe in the
+                // source's path on the finding that no spelling of one survived the filtergraph. It did
+                // not survive the *documented* spellings, which are one level deep where this needs two
+                // - the same thing the drive-letter colon turned out to need - so FormatUtils
+                // .GetFilterPath writes it now and there is nothing left here to refuse. Do not read its
+                // absence as an oversight: every character measured as breaking the burn-in is escaped
+                // there, and one that turns out not to be escapable would earn this check back rather
+                // than a rename.
 
                 // The same question the AV1AN tab and the Cut utility have always asked, and for the
                 // same reason: a trim outlives the file it was set for, so a batch runs one section

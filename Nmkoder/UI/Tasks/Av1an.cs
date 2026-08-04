@@ -451,7 +451,7 @@ namespace Nmkoder.UI.Tasks
                             // match"), minutes into a run. Both sides unfiltered is at least like for
                             // like; that the search then runs at the source's size is what the note
                             // above says out loud.
-                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath(false).Wrap()} --vmaf-threads 2";
+                            args += $" --target-quality {(int)quality} --vmaf-path {Paths.GetVmafPath().Wrap()} --vmaf-threads 2";
                         }
                     }
                 }

@@ -893,18 +893,183 @@ double backslashes, `%`, `&`, `!`, `;`, newlines, spaces and parentheses through
 and sh. Windows keeps its plain double quotes; cmd has no single-quoting and what it expands is a
 different question.
 
+**That different question has an answer, and the answer is to leave it alone.** cmd expands `%VAR%`
+inside double quotes, so a path is not protected from it - but the exposure is narrow and there is no
+escape to reach for, which is why `WrapArg`'s Windows branch stays as it is. Narrow, because a command
+line passes an **undefined** `%NAME%` through unchanged where a batch file deletes it: `Show%20-%2001.mkv`
+and `50% off.mkv` both survive, and only a real variable name between two percents - `%TEMP%`, or a
+dynamic `%CD%`/`%DATE%` - is substituted, which then fails loudly naming a path nobody typed. No escape,
+because `%%` is a *batch-file* spelling that a command line does not collapse ("Escaping a % character as
+%%, the way you can do inside batch files, isn't supported"), and `^` is literal data inside double
+quotes.
+
+**So `EscapeExpansions` must not be reached for here, though it looks like the fix.** Doubling the
+percents would corrupt every `%`-bearing path *and* break Quick Convert's image sequences, whose output
+path is `%8d.<ext>` and goes through `WrapArg`: measured, `%8d.png` writes the numbered frames and
+`%%8d.png` fails with "Cannot write more than one file with the same name" leaving one file literally
+called `%%8d.png`. `EscapeExpansions` is right where it is used, on the av1an launch *script*, because a
+batch file is the one context where `%%` means one percent - and it is needed there for the other half of
+the same asymmetry, an undefined `%NAME%` being deleted rather than passed through. The way out, if this
+ever matters, is to stop using cmd for the launches that need no shell, the way the av1an launcher
+already does - not to escape anything.
+
 **Burning in a text subtitle track has two quoting layers and had neither.** The path was double-quoted
 inside the already-quoted `-filter_complex`, and ffmpeg has no double-quoting at all - so the quotes
 became part of the filename, except that the surrounding shell happened to strip them again for a path
 with no space in it. A path *with* one broke the command outright. `FormatUtils.GetFilterPath`
 single-quotes at ffmpeg's level and `GetVideoFilterArgs` wraps the whole graph at the shell's.
 
-**An apostrophe in that path is refused before the run rather than escaped.** ffmpeg's own quoting for
-one - `'it'\''s'` - does not survive the second unescaping its filter's option parser makes, and neither
-does any other spelling: what comes back is a complaint about a filename with the apostrophe missing and
-`:si=0` stuck on the end. Measured against ffmpeg 6.1 across five encodings, quoted and unquoted.
-`GetBurnInProblem` names the file and the setting instead. Bitmap tracks are unaffected - they are a
-filtergraph input mapped by stream index, with no filename in the graph.
+**Those single quotes are consumed, not passed on, so the drive-letter colon still had to be escaped.**
+ffmpeg unescapes twice: the graph parser strips the quotes - which is what earns them, since a path full
+of spaces, commas, semicolons and square brackets survives that pass intact - and hands the bare string
+to the filter's *own* option parser, which splits it on `:`. So `subtitles='C:/Users/…/ep06.mkv':si=0`
+reached that second pass as `C:/Users/…`, took `C` for the filename and `/Users/…` for the next
+positional option, which for this filter is `original_size`. Every burn-in on Windows died on "Unable to
+parse original_size" fifty milliseconds in, whatever the path - a colon-free one does not exist there.
+A backslash inside the quotes is the one spelling that survives both passes, being literal to the first
+and an escape to the second. The comment in `GetFilterPath` used to assert the opposite, that inside
+quotes a colon is an ordinary character; it is ordinary to the parser that honours the quotes and not to
+the one that never saw them.
+
+That makes this Windows-only in practice but not in principle - a colon is a legal character in a Linux
+filename and broke it identically there. The order of the replacements is load-bearing: the escapes have
+to be written after the backslashes have been turned into slashes, or their own backslashes are turned
+into slashes too.
+
+**`=` is escaped as well, and it is a separate character rather than the same one twice.** That second
+pass splits a key from its value on `=` *before* it splits options on `:`, so `Season=1` or
+`Movie=Extended.mkv` came back as "Option not found" naming everything up to the `=`. What makes it worth
+writing down is how it hid: it only bites when nothing earlier in the path has already moved where that
+scan starts, so a *Windows* path - always carrying a drive colon two characters in - passes with `=`
+unescaped, and every colon-free path fails. The first cut of this fix therefore measured `=` as passing
+and said so here, on the strength of a test path that began `C:/`. Escaping it fixes the colon-free case
+and changes nothing about the other.
+
+Measured end to end rather than reasoned out, and through the real code rather than a model of it - a
+throwaway console project compiling `Shell.cs` and `FormatUtils.cs` as they are, running each candidate
+through `WrapArg`, `BuildArguments`, .NET's argument parsing, sh and ffmpeg, against 6.1 and a current
+BtbN master build alike. 18 path shapes: the reported one, spaces, `$`, backticks, `%`, `&`, `!`, `;`,
+`,`, `=` both with a drive colon and without, square brackets, a double quote, two colons, and two
+colon-free controls. 16 of the 18 failed before and none after. The check is that the frames *differ from
+the same chain with no burn-in in it*, because an exit code of 0 only proves ffmpeg ran - `File.Exists`
+is not a test of whether ffmpeg wrote something, and neither is this.
+
+**The backslash is the one character handled by platform, and it used to be handled as though every
+filesystem were Windows.** There it is the separator and cannot appear in a filename, so turning it into
+a slash is right - ffmpeg reads a slash as an ordinary character and Windows takes it as a separator.
+Everywhere else it is legal *data* in a filename, and substituting it aimed the filter at a path that
+does not exist: `back\slash.mkv` came back as "Unable to open …/back/slash.mkv". It is escaped rather
+than substituted off Windows now. That branch is also what keeps the rest unambiguous - whichever half
+runs, it leaves no backslash behind that the method did not write itself, so every one after it is an
+escape rather than data, which is why it has to run first.
+
+**A UNC path survives that substitution, which is worth recording because it looks as though it would
+not.** Windows normalisation turns every forward slash into a backslash and keeps the leading pair - "a
+series of slashes that follow the first two slashes are collapsed into a single slash" - and identifies a
+UNC path by two *separators* rather than two backslashes, so `//NAS/Media/clip.mkv` round-trips to
+`\\NAS\Media\clip.mkv`. ffmpeg does not leave it to chance either, running the name through
+`GetFullPathNameW` itself before opening it on Windows; and a doubled leading slash is measured here as
+an ordinary file path on both builds, as `-i` and inside the graph alike. A `\\?\` path is demoted to an
+ordinary one by the same substitution, since only the canonical backslash form skips normalisation - it
+still opens, and `MediaFile.ImportPath` being `FileInfo.FullName` means nothing here can produce one.
+
+**Two other places substituted the same way and had no business doing so off Windows.**
+`FfmpegUtils.CreateConcatFile` wrote every entry as `file '<path with \ turned into />'`, so a frame
+called `fra\me0001.png` came back as "Impossible to open …/fra/me0001.png" - the whole image sequence
+lost over one character, measured on both builds. Nothing was bought by it: the concat demuxer copies a
+single-quoted run literally, backslashes included. `Paths.GetVmafPath` did the same to av1an's
+`--vmaf-path`. Both carry the platform guard now. This is the shape to look for when a path is being made
+"safe" for a command line: the rewrite is a Windows separator fix, and every filesystem that is not
+Windows treats a backslash as data.
+
+**A trailing space or tab is escaped too, and only a trailing one.** That second pass trims whitespace
+off the end of the value, and it trims back as far as the last escape or quote it saw - which is nowhere,
+the quotes having been eaten by the pass before it. So `ep06.mkv ` arrived as `ep06.mkv` and could not be
+opened, while the same space in the middle of a path was never at risk. Any escape stops the trim, so the
+character is written back with a backslash in front of it. `EscapeTrailingWhitespace` runs last, which
+costs nothing and is one less thing to reason about: no other replacement can add or remove trailing
+whitespace, and a path ending in an apostrophe ends in a quote by the time they have run. The set is
+ffmpeg's own `WHITESPACES` rather than `char.IsWhiteSpace`, which would escape characters that pass
+through untouched anyway.
+
+## The VMAF model was never a model
+
+**`libvmaf`'s first positional option is `log_path`. There is no `model_path` on it any more, and the
+Metrics utility was passing the model file there.** So `libvmaf='…/bin/vmaf_v0.6.1.json':n_threads=…`
+did not select a model - it named the file the run's XML log is written to, and the app aimed that at
+its own bundled model. Every metrics run overwrote `bin/vmaf_v0.6.1.json` with `<VMAF version="…">`,
+scored against libvmaf's built-in default, and printed a `VMAF score:` line, which is the only thing
+`UtilGetMetrics` looks for - so it reported success either way, and the dialog's model dropdown had
+never moved a number in its life. Measured against a current BtbN master build: 19101 bytes of JSON to
+6438 of XML, and `Av1an.cs` hands the same file to av1an as `--vmaf-path`, so one metrics run left
+target-quality encodes pointing at a log.
+
+**That one is worth the space because of how the colon fix reached it.** On Windows the drive colon had
+been splitting this value before it could do any harm - `log_path` got `C`, the filter refused to
+initialise, and the model file survived by accident. Escaping the colon made the path arrive whole,
+which turned a command that failed to parse into one that quietly destroyed a bundled file. Linux and
+macOS had been destroying it all along, colon-free paths making the new escape a no-op there. A fix that
+unblocks a path is not finished when the parse succeeds: what the value now *reaches* has to be checked
+too.
+
+**The model is named by version rather than by file, which keeps a path out of the command entirely.**
+`model` takes a `key=value` spec parsed by libvmaf itself, and that is the one place in this app where a
+colon has to clear **three** parsers rather than two: ffmpeg's graph parser, the filter's option parser,
+then libvmaf's own splitter, which also splits its pairs on `:`. A path is not impossible there - it
+comes to *three* backslashes, `path\=…C\\\:/…`, where one is "could not parse model config" and two is a
+graph-level error - but a Windows drive letter means the question is never academic, and a count of
+backslashes that has to be right across three layers is not what this should rest on. All three models
+the dropdown offers are compiled into libvmaf, so `model='version\=vmaf_4k_v0.6.1'` asks for exactly the
+same thing: measured on one clip pair, 87.018811, 85.072420 and 92.154843 for the three, each matching
+its by-path score, with the files byte-identical afterwards. The `=` inside the spec still needs
+escaping past ffmpeg's own option parser. `GetVmafModel` returns `""` for an index the list does not
+have, and an empty `model` is an error rather than the default, so it is left off entirely instead.
+
+The bundled `.json` files are still downloaded by `bundle-tools.sh` and still wanted - av1an's
+`--vmaf-path` is a path and takes one. `Paths.GetVmafPath` lost its `escape` flag with this: that branch
+existed only to feed the positional argument above.
+
+**Whether av1an has the same bug is not known and is worth one check.** `model_path` left libvmaf
+between ffmpeg 6.0 and 6.1 - 6.0 lists `model_path log_path log_fmt …`, 6.1 and everything since start
+at `log_path` - so if av1an still builds `libvmaf=model_path=…` out of `--vmaf-path`, target-quality
+encodes score against the built-in default and write an XML log over `bin/vmaf_v0.6.1.json`, which is
+this same fault reached through av1an instead. There is no av1an binary in a web session to ask, so this
+is unverified; `strings` on the bundled one at release time settles it.
+
+**A second Windows fault sat behind the same one, and it is the one the burn-in's own history warns
+about: ffmpeg's quotes are not the shell's.** `Comparison.Graph` closed its double quotes *before* the
+metric filter and left the caller to append it, so anything in that filter sat outside them - protected
+only by ffmpeg-level single quotes, which mean nothing to `CommandLineToArgvW`. The comment there
+conceded the whole bug while calling it safe: the halves "join into one argument regardless, having no
+whitespace between them". An install under `C:\Program Files\...` is exactly the whitespace it assumed
+away. `Graph` takes the metric filter as a parameter now and wraps the lot with `Shell.WrapArg`, so
+there is no longer an outside to append to.
+
+The layer decides which string you may ask about: the split is a Windows question, so it is asked of
+`WrapArg`'s *Windows* branch, through .NET's own `Arguments`-to-argv parser, which follows the same
+convention as `CommandLineToArgvW`. Asking it of the Linux encoding answers "split" for both shapes and
+means nothing - single quotes are not something that parser has ever honoured. Before: two arguments for
+a path with a space, one without. After: one either way.
+
+**An apostrophe needs one level more than ffmpeg documents, and was refused outright until 2.8.23 for
+want of it.** The documented spelling closes the quoted run, escapes, and reopens - `'it'\''s'` - which
+is right for a value handed on whole, and this one is unescaped *again* after it: the `\` is eaten by
+the first pass and the bare apostrophe reopens a quote to the second, so what came back was a complaint
+about a filename with the apostrophe missing and `:si=0` stuck on the end. Written `'it'\\\''s` -
+close-quote, `\\` (a literal backslash to the first pass, the escape to the second), `\'` (a literal
+apostrophe to the first, the escaped one to the second), reopen-quote - it survives both, on ffmpeg 6.1
+and a current master build alike, with the frames differing from a no-burn-in control.
+
+The old finding was "no spelling of it works", and it was arrived at honestly: every spelling tried was
+one level deep, which is all ffmpeg documents, and one level is exactly what a value unescaped twice
+cannot use. The colon had the same shape and the same wrong conclusion written beside it. **A character
+that cannot be escaped and a character nobody escaped twice look identical from the outside** - so
+before refusing a path again, count the parsers between the string and the thing that reads it.
+
+`GetBurnInProblem` and the `QuickConvert.Run` check that called it are gone rather than left returning
+"", with a comment where the check sat: `It's Always Sunny.mkv` burns in now instead of sending the user
+away to rename it. Bitmap tracks never reached that check anyway - they are a filtergraph input mapped
+by stream index, with no filename in the graph.
 
 **The burn-in runs after the crop and the scale**, where it used to run before all of them: a crop
 taking black bars off took the subtitles in them with it, an anamorphic source came out with stretched

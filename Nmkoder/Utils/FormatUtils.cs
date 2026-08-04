@@ -1,5 +1,6 @@
 ﻿using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -212,17 +213,95 @@ namespace Nmkoder.Utils
         /// again for a path with no space in it. A path *with* one broke the command outright, the
         /// unquoted middle of it being read as another argument.
         /// <para/>
-        /// Forward slashes on Windows too, and no escaping of the drive-letter colon: inside quotes it
-        /// is an ordinary character, and the backslashes that used to escape it would now be literal.
+        /// Forward slashes on Windows, and the drive-letter colon escaped, because the quotes above are
+        /// consumed by the graph parser rather than passed on: ffmpeg unescapes twice, and the second
+        /// pass - the filter's own option parser, splitting on ':' - sees a bare string. So "C:/x.mkv"
+        /// reached it as the filename "C" followed by "/x.mkv" as the *next* positional option, which
+        /// for "subtitles=" is original_size, and every burn-in on Windows died on "Unable to parse
+        /// original_size". A backslash inside the quotes is literal to the first pass and an escape to
+        /// the second, which is the one spelling that survives both. That makes this Windows-only in
+        /// practice, though a colon is a legal character in a Linux filename and broke it there too.
         /// <para/>
-        /// An apostrophe in the path is not solvable here and is refused before the run instead - see
-        /// QuickConvertUi.GetBurnInProblem. It is quoted the way ffmpeg documents ('it'\''s'), and
-        /// measured against ffmpeg 6.1 and the bundled build alike that does not survive the second
-        /// unescaping pass the filter's own option parser makes; neither does any other spelling tried.
+        /// An apostrophe needs one level more than ffmpeg documents, for the same reason the colon does.
+        /// The documented spelling closes the quoted run, escapes, and reopens - 'it'\''s' - which is
+        /// right for a value the graph parser hands on whole, and this one is unescaped again after it:
+        /// the '\' is eaten by the first pass and the bare apostrophe reopens a quote to the second, so
+        /// the path came back missing its apostrophe with ":si=0" stuck on the end. Written 'it'\\\''s -
+        /// close-quote, "\\" (a literal backslash to the first pass, the escape to the second), "\'" (a
+        /// literal apostrophe to the first, the escaped apostrophe to the second), reopen-quote - it
+        /// survives both. This was refused before the run until 2.8.23, on the finding that no spelling
+        /// worked; that was measured of one-level spellings only, which is what the colon turned out to
+        /// be as well.
+        /// <para/>
+        /// '=' is escaped for the same reason and is a separate character: that second pass splits a
+        /// key from its value on '=' before it splits options on ':', so a path holding one - a folder
+        /// called "Season=1", a file called "Movie=Extended.mkv" - came back as "Option not found"
+        /// naming everything up to it. It survived a spot check only because an *earlier* colon or
+        /// space in the same path changes where that scan starts, which is why a Windows path, always
+        /// carrying a drive colon, hid this one while every colon-free path met it.
+        /// <para/>
+        /// The backslash is the one character handled by platform. On Windows it is the separator and
+        /// nothing else - the filename cannot contain one - so it becomes a slash, which ffmpeg reads
+        /// as an ordinary character and Windows accepts as a separator. Everywhere else it is a legal
+        /// filename character, and substituting it there pointed the filter at a path that does not
+        /// exist ("Unable to open .../back/slash.mkv"), so it is escaped like the rest.
+        /// <para/>
+        /// A UNC path survives that substitution and does not need a case of its own, which is worth
+        /// recording because it looks as though it would. Windows normalisation turns every forward
+        /// slash into a backslash and keeps the leading pair - "a series of slashes that follow the
+        /// first two slashes are collapsed into a single slash" - and identifies a UNC path by two
+        /// *separators* rather than two backslashes, so //NAS/Media/clip.mkv round-trips to
+        /// \\NAS\Media\clip.mkv. ffmpeg does not leave that to chance either: on Windows it runs the
+        /// name through GetFullPathNameW itself before opening it. A "\\?\" path is demoted to an
+        /// ordinary one by the same substitution, since only the canonical backslash form skips
+        /// normalisation - it still opens, and nothing here can produce one anyway, MediaFile's
+        /// ImportPath being FileInfo.FullName.
+        /// <para/>
+        /// The replacements are ordered, and that is what keeps them unambiguous: whichever branch runs
+        /// first leaves no backslash behind that this method did not write, so every one after it is an
+        /// escape rather than data. Writing any of them before it would have their own backslashes
+        /// substituted or doubled in turn.
+        /// <para/>
+        /// Measured, not reasoned out - end to end through Shell.WrapArg, Shell.BuildArguments, .NET's
+        /// argument parsing, sh and ffmpeg, against both ffmpeg 6.1 and a current BtbN master build,
+        /// over paths carrying spaces, $, backticks, %, &amp;, !, ';', ',', '=', square brackets, a
+        /// double quote, an apostrophe, a literal backslash and a trailing space or tab, checked by the
+        /// frames differing from the same chain with no burn-in in it.
         /// </summary>
         public static string GetFilterPath(string path)
         {
-            return $"'{path.Replace(@"\", @"/").Replace("'", @"'\''")}'";
+            // A backslash the caller meant, before any this method adds - see the note above.
+            string p = Shell.IsWindows ? path.Replace(@"\", @"/") : path.Replace(@"\", @"\\");
+
+            p = p.Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\\\''");
+
+            return $"'{EscapeTrailingWhitespace(p)}'";
+        }
+
+        /// <summary>
+        /// Escapes a trailing space, tab or newline, which the second unescaping pass would otherwise
+        /// trim off the end of the value. It trims back only as far as the last escape or quote it saw,
+        /// and by then the quotes are gone - so a file called "ep06.mkv " arrived as "ep06.mkv" and
+        /// could not be opened, while the same space anywhere else in the path was never at risk. Any
+        /// escape does the job, so the character is written back with a backslash in front of it.
+        /// <para/>
+        /// Runs after the other replacements rather than before, which costs nothing and is one less
+        /// thing to reason about: none of them can add or remove trailing whitespace, and a path ending
+        /// in an apostrophe ends in a quote once they have run.
+        /// </summary>
+        private static string EscapeTrailingWhitespace(string value)
+        {
+            int end = value.Length;
+
+            // ffmpeg's own set, from libavutil's WHITESPACES - not char.IsWhiteSpace, which would
+            // escape characters that pass through untouched anyway.
+            while (end > 0 && " \t\r\n".Contains(value[end - 1]))
+                end--;
+
+            if (end == value.Length)
+                return value;
+
+            return value.Substring(0, end) + string.Concat(value.Substring(end).Select(c => $@"\{c}"));
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)
