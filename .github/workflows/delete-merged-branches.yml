@@ -1,0 +1,172 @@
+name: Delete merged branches
+
+# Clearing a merged branch off the remote is the one piece of housekeeping a Claude Code on the
+# web session cannot do for itself. The sandbox's git proxy answers `git push --delete` with a
+# 403 and hangs up - the same way it refuses a tag push - and the GitHub MCP server has
+# create_branch and list_branches but nothing that removes a ref, so both routes are closed and
+# the merged claude/* branches pile up until somebody clears them from the branches page by
+# hand. This runs on GitHub's side, where the proxy is not in the way.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only list what would be deleted. Turn this off to actually delete.'
+        required: false
+        default: true
+        type: boolean
+      pattern:
+        description: 'Which branches to consider, as a glob.'
+        required: false
+        default: 'claude/*'
+        type: string
+
+# Deleting a ref needs contents: write. Reading pull requests is for the open-PR guard below.
+# Nothing here needs any more than that, and this is the workflow it is worth being narrow in.
+permissions:
+  contents: write
+  pull-requests: read
+
+# Two pushes landing together would both enumerate the same branches and race to delete them,
+# and the loser would report a failure for work the winner had already done.
+concurrency:
+  group: delete-merged-branches
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune merged branches
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Every branch and its whole history, not just the pushed ref: the merged test below
+          # is a local ancestry check, and a tip that was never fetched cannot be tested.
+          fetch-depth: 0
+
+      - name: Delete branches already contained in the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+          # Empty on a push, which is the event that should actually delete. Only a manual run
+          # gets to ask for a dry run, and that is what it defaults to.
+          DRY_RUN: ${{ inputs.dry_run }}
+          # Deliberately not "everything that is merged". The queue this exists to clear is the
+          # claude/* one; a blanket sweep would also take a collaborator's merged branch out
+          # from under them, which is not this workflow's decision to make. Widen it on a
+          # manual run if you mean to.
+          PATTERN: ${{ inputs.pattern || 'claude/*' }}
+        run: |
+          set -euo pipefail
+
+          dry="${DRY_RUN:-false}"
+
+          if [ "$dry" = "true" ]; then
+            echo "Dry run: nothing will be deleted."
+          fi
+
+          echo "Base branch: $BASE"
+          echo "Pattern: $PATTERN"
+          echo
+
+          # A branch with an open pull request is left alone even when it is merged, because
+          # deleting the head ref of an open PR closes the PR. A PR still open over commits that
+          # are already on the base is a state somebody is in the middle of, not litter.
+          open_prs="$(gh pr list --repo "$REPO" --state open --json headRefName --jq '.[].headRefName' | sort -u)"
+
+          # Captured rather than piped straight into the loop so that a failing gh call fails the
+          # step, instead of quietly presenting an empty branch list as "nothing to do".
+          branches="$(gh api "repos/$REPO/branches" --paginate --jq '.[] | [.name, (.protected|tostring)] | @tsv')"
+
+          declare -a deleted=() kept=() failed=()
+
+          while IFS=$'\t' read -r name protected; do
+            if [ -z "$name" ]; then
+              continue
+            fi
+
+            if [ "$name" = "$BASE" ]; then
+              continue
+            fi
+
+            # Unquoted on purpose - this is the glob match, not a string comparison.
+            case "$name" in
+              $PATTERN) ;;
+              *) continue ;;
+            esac
+
+            if [ "$protected" = "true" ]; then
+              kept+=("$name - protected")
+              continue
+            fi
+
+            if printf '%s\n' "$open_prs" | grep -qxF "$name"; then
+              kept+=("$name - open pull request")
+              continue
+            fi
+
+            # The test that matters: the tip is already reachable from the base, so the branch
+            # holds nothing that deleting it would lose.
+            #
+            # This catches a merge commit and a fast-forward, which is how this repo merges. It
+            # does NOT catch a squash-merge or a rebase-merge - those rewrite the commits, so the
+            # original tip is not an ancestor of anything - and that is the safe way round: such
+            # a branch is reported as unmerged and left in place rather than deleted on the
+            # strength of a claim that its contents are elsewhere.
+            if ! git merge-base --is-ancestor "origin/$name" "origin/$BASE" 2>/dev/null; then
+              kept+=("$name - not contained in $BASE")
+              continue
+            fi
+
+            if [ "$dry" = "true" ]; then
+              deleted+=("$name")
+              continue
+            fi
+
+            if err="$(gh api -X DELETE "repos/$REPO/git/refs/heads/$name" --silent 2>&1)"; then
+              deleted+=("$name")
+            else
+              failed+=("$name - ${err//$'\n'/ }")
+            fi
+          done <<< "$branches"
+
+          verb="Deleted"
+          if [ "$dry" = "true" ]; then
+            verb="Would delete"
+          fi
+
+          {
+            echo "### $verb ${#deleted[@]} branch(es)"
+            echo
+            if [ "${#deleted[@]}" -gt 0 ]; then
+              printf -- '- `%s`\n' "${deleted[@]}"
+            else
+              echo "_None._"
+            fi
+
+            if [ "${#kept[@]}" -gt 0 ]; then
+              echo
+              echo "### Kept ${#kept[@]}"
+              echo
+              printf -- '- %s\n' "${kept[@]}"
+            fi
+
+            if [ "${#failed[@]}" -gt 0 ]; then
+              echo
+              echo "### Failed ${#failed[@]}"
+              echo
+              printf -- '- %s\n' "${failed[@]}"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # A delete that was decided on and then did not happen is worth a red run rather than a
+          # line in a log nobody opens - the whole point of this workflow is that nobody is
+          # watching the branch list.
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::${#failed[@]} branch(es) could not be deleted."
+            exit 1
+          fi
