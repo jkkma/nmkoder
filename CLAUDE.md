@@ -934,9 +934,14 @@ colon-free controls. 16 of the 18 failed before and none after. The check is tha
 the same chain with no burn-in in it*, because an exit code of 0 only proves ffmpeg ran - `File.Exists`
 is not a test of whether ffmpeg wrote something, and neither is this.
 
-A backslash in a POSIX filename is still rewritten to a slash by the same method and still breaks - it
-has to be, since that replacement is what makes a Windows path into a graph-safe one, and nothing here
-can tell the two apart.
+**The backslash is the one character handled by platform, and it used to be handled as though every
+filesystem were Windows.** There it is the separator and cannot appear in a filename, so turning it into
+a slash is right - ffmpeg reads a slash as an ordinary character and Windows takes it as a separator.
+Everywhere else it is legal *data* in a filename, and substituting it aimed the filter at a path that
+does not exist: `back\slash.mkv` came back as "Unable to open …/back/slash.mkv". It is escaped rather
+than substituted off Windows now. That branch is also what keeps the rest unambiguous - whichever half
+runs, it leaves no backslash behind that the method did not write itself, so every one after it is an
+escape rather than data, which is why it has to run first.
 
 ## The VMAF model was never a model
 
@@ -997,12 +1002,25 @@ convention as `CommandLineToArgvW`. Asking it of the Linux encoding answers "spl
 means nothing - single quotes are not something that parser has ever honoured. Before: two arguments for
 a path with a space, one without. After: one either way.
 
-**An apostrophe in that path is refused before the run rather than escaped.** ffmpeg's own quoting for
-one - `'it'\''s'` - does not survive the second unescaping its filter's option parser makes, and neither
-does any other spelling: what comes back is a complaint about a filename with the apostrophe missing and
-`:si=0` stuck on the end. Measured against ffmpeg 6.1 across five encodings, quoted and unquoted.
-`GetBurnInProblem` names the file and the setting instead. Bitmap tracks are unaffected - they are a
-filtergraph input mapped by stream index, with no filename in the graph.
+**An apostrophe needs one level more than ffmpeg documents, and was refused outright until 2.8.23 for
+want of it.** The documented spelling closes the quoted run, escapes, and reopens - `'it'\''s'` - which
+is right for a value handed on whole, and this one is unescaped *again* after it: the `\` is eaten by
+the first pass and the bare apostrophe reopens a quote to the second, so what came back was a complaint
+about a filename with the apostrophe missing and `:si=0` stuck on the end. Written `'it'\\\''s` -
+close-quote, `\\` (a literal backslash to the first pass, the escape to the second), `\'` (a literal
+apostrophe to the first, the escaped one to the second), reopen-quote - it survives both, on ffmpeg 6.1
+and a current master build alike, with the frames differing from a no-burn-in control.
+
+The old finding was "no spelling of it works", and it was arrived at honestly: every spelling tried was
+one level deep, which is all ffmpeg documents, and one level is exactly what a value unescaped twice
+cannot use. The colon had the same shape and the same wrong conclusion written beside it. **A character
+that cannot be escaped and a character nobody escaped twice look identical from the outside** - so
+before refusing a path again, count the parsers between the string and the thing that reads it.
+
+`GetBurnInProblem` and the `QuickConvert.Run` check that called it are gone rather than left returning
+"", with a comment where the check sat: `It's Always Sunny.mkv` burns in now instead of sending the user
+away to rename it. Bitmap tracks never reached that check anyway - they are a filtergraph input mapped
+by stream index, with no filename in the graph.
 
 **The burn-in runs after the crop and the scale**, where it used to run before all of them: a crop
 taking black bars off took the subtitles in them with it, an anamorphic source came out with stretched

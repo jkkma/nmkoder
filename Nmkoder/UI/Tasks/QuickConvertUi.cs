@@ -1382,40 +1382,6 @@ namespace Nmkoder.UI.Tasks
             filters.Add(burnIn);
         }
 
-        /// <summary>
-        /// Why the selected subtitle track cannot be burnt in, or "" when it can - asked by
-        /// <see cref="QuickConvert.Run"/> alongside the crop and border checks.
-        /// <para/>
-        /// One thing can go wrong that no amount of escaping here fixes: the "subtitles" filter is given
-        /// the source's path inside the filtergraph, and an apostrophe in it does not survive. ffmpeg's
-        /// own quoting for one - closing the quoted run, escaping, reopening - is undone twice on the way
-        /// to the filter's option parser and comes back as neither the path nor an error about it: what
-        /// ffmpeg reports is that it cannot open a filename with the apostrophe missing and ":si=0" stuck
-        /// on the end. Measured against every spelling of it, quoted and unquoted alike.
-        /// <para/>
-        /// So it is said here instead, where the file and the setting can both be named, and where it
-        /// costs nothing - the alternative is ffmpeg failing a second into the run over a path the user
-        /// has to work out for themselves. Bitmap tracks are unaffected: they are a filtergraph input
-        /// mapped by stream index, with no filename in the graph at all.
-        /// </summary>
-        public static string GetBurnInProblem()
-        {
-            MediaFile file = TrackList.current?.File;
-            int subIndex = file == null ? -1 : GetBurnInSubtitleIndex(file, quiet: true);
-
-            // A stream copy builds no filter chain, so there is nothing to burn in and nothing to be
-            // impossible - the same excuse the crop and border checks beside this one make.
-            if (subIndex < 0 || CodecUtils.GetCodec(GetCurrentCodecV()).DoesNotEncode
-                || file.SubtitleStreams[subIndex].Bitmap || !file.ImportPath.Contains('\''))
-            {
-                return "";
-            }
-
-            return $"the subtitles are burnt in by re-reading '{file.Name}', and FFmpeg cannot be given a path with " +
-                $"an apostrophe in it inside a filter - so the burn-in would fail as soon as the encode started.\n\n" +
-                $"Rename the file without the apostrophe, or set Burn Subtitles back to \"Disabled\".";
-        }
-
         private static List<string> GetCustomFilters()
         {
             return Form.EncFilterRows.Select(x => x.Filter).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();

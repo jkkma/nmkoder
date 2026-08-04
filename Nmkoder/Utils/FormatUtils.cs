@@ -1,5 +1,6 @@
 ﻿using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -221,10 +222,16 @@ namespace Nmkoder.Utils
         /// the second, which is the one spelling that survives both. That makes this Windows-only in
         /// practice, though a colon is a legal character in a Linux filename and broke it there too.
         /// <para/>
-        /// An apostrophe in the path is not solvable here and is refused before the run instead - see
-        /// QuickConvertUi.GetBurnInProblem. It is quoted the way ffmpeg documents ('it'\''s'), and
-        /// measured against ffmpeg 6.1 and the bundled build alike that does not survive the second
-        /// unescaping pass the filter's own option parser makes; neither does any other spelling tried.
+        /// An apostrophe needs one level more than ffmpeg documents, for the same reason the colon does.
+        /// The documented spelling closes the quoted run, escapes, and reopens - 'it'\''s' - which is
+        /// right for a value the graph parser hands on whole, and this one is unescaped again after it:
+        /// the '\' is eaten by the first pass and the bare apostrophe reopens a quote to the second, so
+        /// the path came back missing its apostrophe with ":si=0" stuck on the end. Written 'it'\\\''s -
+        /// close-quote, "\\" (a literal backslash to the first pass, the escape to the second), "\'" (a
+        /// literal apostrophe to the first, the escaped apostrophe to the second), reopen-quote - it
+        /// survives both. This was refused before the run until 2.8.23, on the finding that no spelling
+        /// worked; that was measured of one-level spellings only, which is what the colon turned out to
+        /// be as well.
         /// <para/>
         /// '=' is escaped for the same reason and is a separate character: that second pass splits a
         /// key from its value on '=' before it splits options on ':', so a path holding one - a folder
@@ -233,18 +240,29 @@ namespace Nmkoder.Utils
         /// space in the same path changes where that scan starts, which is why a Windows path, always
         /// carrying a drive colon, hid this one while every colon-free path met it.
         /// <para/>
+        /// The backslash is the one character handled by platform. On Windows it is the separator and
+        /// nothing else - the filename cannot contain one - so it becomes a slash, which ffmpeg reads
+        /// as an ordinary character and Windows accepts as a separator. Everywhere else it is a legal
+        /// filename character, and substituting it there pointed the filter at a path that does not
+        /// exist ("Unable to open .../back/slash.mkv"), so it is escaped like the rest.
         /// <para/>
-        /// The replacements are ordered: the escapes must be written after the backslashes have been
-        /// turned into slashes, or their own backslashes would be turned into slashes too.
+        /// The replacements are ordered, and that is what keeps them unambiguous: whichever branch runs
+        /// first leaves no backslash behind that this method did not write, so every one after it is an
+        /// escape rather than data. Writing any of them before it would have their own backslashes
+        /// substituted or doubled in turn.
         /// <para/>
         /// Measured, not reasoned out - end to end through Shell.WrapArg, Shell.BuildArguments, .NET's
         /// argument parsing, sh and ffmpeg, against both ffmpeg 6.1 and a current BtbN master build,
-        /// over paths carrying spaces, $, backticks, %, &amp;, !, ';', ',', '=', square brackets and a
-        /// double quote, checked by the frames differing from the same chain with no burn-in in it.
+        /// over paths carrying spaces, $, backticks, %, &amp;, !, ';', ',', '=', square brackets, a
+        /// double quote, an apostrophe and a literal backslash, checked by the frames differing from
+        /// the same chain with no burn-in in it.
         /// </summary>
         public static string GetFilterPath(string path)
         {
-            return $"'{path.Replace(@"\", @"/").Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\''")}'";
+            // A backslash the caller meant, before any this method adds - see the note above.
+            string p = Shell.IsWindows ? path.Replace(@"\", @"/") : path.Replace(@"\", @"\\");
+
+            return $"'{p.Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\\\''")}'";
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)
