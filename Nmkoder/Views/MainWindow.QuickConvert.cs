@@ -328,8 +328,17 @@ namespace Nmkoder.Views
         {
             string path = await Pickers.PickSavePath(this, "Choose output path", OutputPathBox.Text);
 
-            if (!string.IsNullOrWhiteSpace(path))
-                OutputPathBox.Text = Path.ChangeExtension(path, null);
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            // Only a *known* extension comes off. ChangeExtension(path, null) drops everything after the
+            // last dot whatever it is, so "My.Movie.2020" was saved as "My.Movie" - the box holds a path
+            // without an extension, and the container adds one back, so the year went for good.
+            string ext = (Path.GetExtension(path) ?? "").TrimStart('.').ToLower();
+            bool known = Enum.GetNames<Containers.Container>().Any(c => c.ToLower() == ext)
+                || new[] { "gif", "png", "jpg", "jpeg" }.Contains(ext);
+
+            OutputPathBox.Text = known ? Path.ChangeExtension(path, null) : path;
         }
     }
 }

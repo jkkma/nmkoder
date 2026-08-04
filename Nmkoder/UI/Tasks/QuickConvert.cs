@@ -622,7 +622,23 @@ namespace Nmkoder.UI.Tasks
             string path = GetOutputPath(c);
 
             if (!c.IsSequence)
+            {
+                // ffmpeg does not create directories and finds out at the last step, so a two-pass encode
+                // typed into a folder that does not exist yet spent the whole first pass before failing.
+                try
+                {
+                    string dir = Path.GetDirectoryName(path);
+
+                    if (dir.IsNotEmpty())
+                        Directory.CreateDirectory(dir);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Could not create the output folder: {e.Message}", true);
+                }
+
                 return path;
+            }
 
             Directory.CreateDirectory(path);
             return Path.Combine(path, $"%8d.{GetFixedFormatExtension()}");

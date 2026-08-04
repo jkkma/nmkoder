@@ -532,6 +532,12 @@ namespace Nmkoder.UI.Tasks
         {
             string dir = Path.GetDirectoryName(preferred) ?? "";
             string name = Path.GetFileName(preferred);
+            // Counted from the stem, as GetAvailableFilename counts: a third export of "clip" otherwise
+            // asked for "clip (1) (1)" rather than "clip (2)", the box already holding the stepped name.
+            string stem = System.Text.RegularExpressions.Regex.Replace(name, @"\s*\(\d+\)$", "");
+
+            if (stem.IsNotEmpty())
+                name = stem;
 
             for (int i = 1; i <= 9999; i++)
             {
@@ -1183,6 +1189,13 @@ namespace Nmkoder.UI.Tasks
                     $"Frames are duplicated or dropped to fit; the running time stays the same.", quiet);
             }
 
+            // A bitmap track is a second filtergraph *input*, laid over the video at whatever size it was
+            // authored for - so unlike the text one below it has to go on before anything moves the
+            // frame. Composited after a crop, a scale or a pad it sits at the source's size over a frame
+            // that is no longer that size: off-centre, or gone. Everything after this point moves the
+            // subtitles with the picture, which is what a burnt-in subtitle is.
+            AddBurnInFilters(filters, TrackList.current?.File, bitmap: true, quiet: quiet);
+
             string cropMode = Form.EncCropModeBox.GetText().ToLower();
             Size scaleInput = vs.Resolution; // What the scale filter is handed, once a crop has taken its share
 
@@ -1241,12 +1254,15 @@ namespace Nmkoder.UI.Tasks
             // picture and came out stretched, and a downscale rendered the lines at the source's size
             // and then shrank them, which is softer than rendering them at the size they end up. Ahead
             // of the borders rather than after, so the lines stay inside the picture.
-            // The *loaded* file, not the video's: the dropdown above lists that file's subtitle tracks
-            // and the number picked in it indexes them. In Muxing Mode those are two different files -
-            // a video file and the file the subtitles came from - and reading the video's tracks with an
-            // index chosen from the other file's list burns in whichever track happens to sit at that
-            // position, or none at all.
-            AddBurnInFilters(filters, TrackList.current?.File, quiet);
+            // Text subtitles only, and here rather than ahead of the geometry because "subtitles" renders
+            // its lines into the frame it is handed: run before the crop and the scale, a crop taking
+            // black bars off took the lines sitting in them with it, an anamorphic source came out with
+            // stretched text, and a downscale rendered them large and then shrank them. Before the
+            // borders, so they stay inside the picture rather than over the bars.
+            //
+            // The *loaded* file, not the video's: the dropdown lists that file's subtitle tracks and the
+            // number picked in it indexes them. In Muxing Mode those are two different files.
+            AddBurnInFilters(filters, TrackList.current?.File, bitmap: false, quiet: quiet);
 
             // Last of the geometry, and measured against what the scale leaves: the bars go around
             // the finished picture rather than being scaled along with it, since a scaler run over a
@@ -1320,14 +1336,14 @@ namespace Nmkoder.UI.Tasks
         /// <summary> The burnt-in subtitle track's filter, if one is selected and this file has it.
         /// <paramref name="currFile"/> is the file the burn-in dropdown was filled from, which need not
         /// be the one the video is read out of. </summary>
-        private static void AddBurnInFilters(List<string> filters, MediaFile currFile, bool quiet)
+        private static void AddBurnInFilters(List<string> filters, MediaFile currFile, bool bitmap, bool quiet)
         {
             int subIndex = currFile == null ? -1 : GetBurnInSubtitleIndex(currFile, quiet);
 
-            if (subIndex < 0)
+            if (subIndex < 0 || currFile.SubtitleStreams[subIndex].Bitmap != bitmap)
                 return;
 
-            if (currFile.SubtitleStreams[subIndex].Bitmap)
+            if (bitmap)
             {
                 // Read as a filtergraph input, so it has to name where the file sits among the '-i'
                 // arguments rather than assuming it is the first of them. Being an input of its own
@@ -1371,8 +1387,13 @@ namespace Nmkoder.UI.Tasks
             MediaFile file = TrackList.current?.File;
             int subIndex = file == null ? -1 : GetBurnInSubtitleIndex(file, quiet: true);
 
-            if (subIndex < 0 || file.SubtitleStreams[subIndex].Bitmap || !file.ImportPath.Contains('\''))
+            // A stream copy builds no filter chain, so there is nothing to burn in and nothing to be
+            // impossible - the same excuse the crop and border checks beside this one make.
+            if (subIndex < 0 || CodecUtils.GetCodec(GetCurrentCodecV()).DoesNotEncode
+                || file.SubtitleStreams[subIndex].Bitmap || !file.ImportPath.Contains('\''))
+            {
                 return "";
+            }
 
             return $"the subtitles are burnt in by re-reading '{file.Name}', and FFmpeg cannot be given a path with " +
                 $"an apostrophe in it inside a filter - so the burn-in would fail as soon as the encode started.\n\n" +
