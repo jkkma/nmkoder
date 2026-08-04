@@ -943,6 +943,16 @@ than substituted off Windows now. That branch is also what keeps the rest unambi
 runs, it leaves no backslash behind that the method did not write itself, so every one after it is an
 escape rather than data, which is why it has to run first.
 
+**A trailing space or tab is escaped too, and only a trailing one.** That second pass trims whitespace
+off the end of the value, and it trims back as far as the last escape or quote it saw - which is nowhere,
+the quotes having been eaten by the pass before it. So `ep06.mkv ` arrived as `ep06.mkv` and could not be
+opened, while the same space in the middle of a path was never at risk. Any escape stops the trim, so the
+character is written back with a backslash in front of it. `EscapeTrailingWhitespace` runs last, which
+costs nothing and is one less thing to reason about: no other replacement can add or remove trailing
+whitespace, and a path ending in an apostrophe ends in a quote by the time they have run. The set is
+ffmpeg's own `WHITESPACES` rather than `char.IsWhiteSpace`, which would escape characters that pass
+through untouched anyway.
+
 ## The VMAF model was never a model
 
 **`libvmaf`'s first positional option is `log_path`. There is no `model_path` on it any more, and the

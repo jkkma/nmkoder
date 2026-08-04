@@ -254,15 +254,43 @@ namespace Nmkoder.Utils
         /// Measured, not reasoned out - end to end through Shell.WrapArg, Shell.BuildArguments, .NET's
         /// argument parsing, sh and ffmpeg, against both ffmpeg 6.1 and a current BtbN master build,
         /// over paths carrying spaces, $, backticks, %, &amp;, !, ';', ',', '=', square brackets, a
-        /// double quote, an apostrophe and a literal backslash, checked by the frames differing from
-        /// the same chain with no burn-in in it.
+        /// double quote, an apostrophe, a literal backslash and a trailing space or tab, checked by the
+        /// frames differing from the same chain with no burn-in in it.
         /// </summary>
         public static string GetFilterPath(string path)
         {
             // A backslash the caller meant, before any this method adds - see the note above.
             string p = Shell.IsWindows ? path.Replace(@"\", @"/") : path.Replace(@"\", @"\\");
 
-            return $"'{p.Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\\\''")}'";
+            p = p.Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\\\''");
+
+            return $"'{EscapeTrailingWhitespace(p)}'";
+        }
+
+        /// <summary>
+        /// Escapes a trailing space, tab or newline, which the second unescaping pass would otherwise
+        /// trim off the end of the value. It trims back only as far as the last escape or quote it saw,
+        /// and by then the quotes are gone - so a file called "ep06.mkv " arrived as "ep06.mkv" and
+        /// could not be opened, while the same space anywhere else in the path was never at risk. Any
+        /// escape does the job, so the character is written back with a backslash in front of it.
+        /// <para/>
+        /// Runs after the other replacements rather than before, which costs nothing and is one less
+        /// thing to reason about: none of them can add or remove trailing whitespace, and a path ending
+        /// in an apostrophe ends in a quote once they have run.
+        /// </summary>
+        private static string EscapeTrailingWhitespace(string value)
+        {
+            int end = value.Length;
+
+            // ffmpeg's own set, from libavutil's WHITESPACES - not char.IsWhiteSpace, which would
+            // escape characters that pass through untouched anyway.
+            while (end > 0 && " \t\r\n".Contains(value[end - 1]))
+                end--;
+
+            if (end == value.Length)
+                return value;
+
+            return value.Substring(0, end) + string.Concat(value.Substring(end).Select(c => $@"\{c}"));
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)
