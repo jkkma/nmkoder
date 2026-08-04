@@ -64,14 +64,16 @@ namespace Nmkoder.UI.Tasks
                     // Av1an.cs hands the same file to av1an's --vmaf-path, so one metrics run left
                     // target-quality encodes pointing at an XML file.
                     //
-                    // The model is named by version rather than by file, and that is not a shortcut -
-                    // it is the only spelling that works on Windows. 'model' takes a key=value spec
-                    // parsed by libvmaf itself, a third parser under ffmpeg's two, and that one splits
-                    // its pairs on ':' with no escape this side of it that survives: "path=C:/..."
-                    // comes back as "could not parse model config" however the colon is written, and
-                    // a drive letter is not optional on Windows. The three models the dropdown offers
-                    // are all compiled into libvmaf, so naming the version asks for the same thing
-                    // without a path in the command at all.
+                    // The model is named by version rather than by file, which keeps a path out of the
+                    // command entirely. A path is not impossible here, but it is the one place in this
+                    // app where a colon has to clear *three* parsers rather than two: ffmpeg's graph
+                    // parser, then the filter's option parser, then libvmaf's own key=value splitter,
+                    // which splits its pairs on ':' as well. Measured on the bundled build, that comes
+                    // to three backslashes - "path\=...C\\\:/..." scores; one is "could not parse
+                    // model config" and two is a graph-level error - and a Windows drive letter means
+                    // the question is never academic. The three models the dropdown offers are all
+                    // compiled into libvmaf, so naming the version asks for exactly the same thing:
+                    // by-path and by-version score identically, model for model.
                     //
                     // Measured against a current BtbN master build, scoring the same clip pair:
                     // vmaf_v0.6.1 87.018811, vmaf_v0.6.1neg 85.072420, vmaf_4k_v0.6.1 92.154843 - and

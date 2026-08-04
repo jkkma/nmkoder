@@ -958,21 +958,29 @@ macOS had been destroying it all along, colon-free paths making the new escape a
 unblocks a path is not finished when the parse succeeds: what the value now *reaches* has to be checked
 too.
 
-**The model is named by version rather than by file, and that is not a shortcut - it is the only
-spelling that works on Windows.** `model` takes a `key=value` spec parsed by libvmaf itself, a third
-parser underneath ffmpeg's two, and that one splits its pairs on `:` with no escape above it that
-survives: `path=C:/…` comes back as "could not parse model config" whether the colon is written raw,
-`\:` or `\\:`, and a drive letter is not optional. All three models the dropdown offers are compiled
-into libvmaf, so `model='version\=vmaf_4k_v0.6.1'` asks for the same thing with no path in the command
-at all. Measured on the same clip pair: 87.018811, 85.072420 and 92.154843 for the three, the first two
-matching what loading the bundled `.json` by path produces where a path can be loaded at all - and the
-files left byte-identical afterwards. The `=` inside the spec still needs escaping past ffmpeg's own
-option parser. `GetVmafModel` returns `""` for an index the list does not have, and an empty `model` is
-an error rather than the default, so it is left off entirely instead.
+**The model is named by version rather than by file, which keeps a path out of the command entirely.**
+`model` takes a `key=value` spec parsed by libvmaf itself, and that is the one place in this app where a
+colon has to clear **three** parsers rather than two: ffmpeg's graph parser, the filter's option parser,
+then libvmaf's own splitter, which also splits its pairs on `:`. A path is not impossible there - it
+comes to *three* backslashes, `path\=…C\\\:/…`, where one is "could not parse model config" and two is a
+graph-level error - but a Windows drive letter means the question is never academic, and a count of
+backslashes that has to be right across three layers is not what this should rest on. All three models
+the dropdown offers are compiled into libvmaf, so `model='version\=vmaf_4k_v0.6.1'` asks for exactly the
+same thing: measured on one clip pair, 87.018811, 85.072420 and 92.154843 for the three, each matching
+its by-path score, with the files byte-identical afterwards. The `=` inside the spec still needs
+escaping past ffmpeg's own option parser. `GetVmafModel` returns `""` for an index the list does not
+have, and an empty `model` is an error rather than the default, so it is left off entirely instead.
 
 The bundled `.json` files are still downloaded by `bundle-tools.sh` and still wanted - av1an's
 `--vmaf-path` is a path and takes one. `Paths.GetVmafPath` lost its `escape` flag with this: that branch
 existed only to feed the positional argument above.
+
+**Whether av1an has the same bug is not known and is worth one check.** `model_path` left libvmaf
+between ffmpeg 6.0 and 6.1 - 6.0 lists `model_path log_path log_fmt …`, 6.1 and everything since start
+at `log_path` - so if av1an still builds `libvmaf=model_path=…` out of `--vmaf-path`, target-quality
+encodes score against the built-in default and write an XML log over `bin/vmaf_v0.6.1.json`, which is
+this same fault reached through av1an instead. There is no av1an binary in a web session to ask, so this
+is unverified; `strings` on the bundled one at release time settles it.
 
 **A second Windows fault sat behind the same one, and it is the one the burn-in's own history warns
 about: ffmpeg's quotes are not the shell's.** `Comparison.Graph` closed its double quotes *before* the
