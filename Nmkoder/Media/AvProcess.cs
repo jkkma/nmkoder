@@ -325,8 +325,15 @@ namespace Nmkoder.Media
 
                 if (missing.IsNotEmpty())
                 {
-                    RunTask.Cancel($"{missing} was not found.\n\nIt is neither bundled with this build nor on your PATH. " +
-                        $"Put it in '{encPath}' or install it, then try again.");
+                    // mkvmerge is not an encoder and does not belong in enc/, and it is the one tool
+                    // here a package manager is the normal way to get - so it is worth naming the
+                    // package, and worth saying the setting can be changed instead. Not for H.265,
+                    // where av1an has no other way to join its chunks.
+                    string advice = missing == "mkvmerge"
+                        ? "Install MKVToolNix - 'apt install mkvtoolnix' on Linux, 'brew install mkvtoolnix' on macOS - or pick a different Concat Method on the Av1an Options tab. H.265 can only be concatenated by mkvmerge, so for that one the install is the only way."
+                        : $"Put it in '{encPath}' or install it, then try again.";
+
+                    RunTask.Cancel($"{missing} was not found.\n\nIt is neither bundled with this build nor on your PATH. {advice}");
                     return -1;
                 }
 
@@ -533,6 +540,24 @@ namespace Nmkoder.Media
             if (encoder.IsNotEmpty() && av1anEncoderBinaries.TryGetValue(encoder, out string binary) && GetToolPath(binary, searchDirs).IsEmpty())
                 return binary;
 
+            // av1an joins its chunks back up with mkvmerge unless told otherwise, and for H.265 it is
+            // not a preference - Av1anUi forces it, ffmpeg having no way to join raw HEVC chunks. But
+            // bundle-tools.sh ships MKVToolNix for win-x64 alone, so on Linux and macOS this is
+            // routinely absent, and without asking here the encode runs every chunk to completion -
+            // which is the hours - and only then dies in av1an's concat step, reported as whatever
+            // av1an says about it rather than as a missing package.
+            //
+            // Read off the command rather than the dropdown, because the dropdown is not the last
+            // word on it: the MP4 override and the H.265 forcing have both already been applied by
+            // the time these arguments exist, so this is what av1an is actually being told. The
+            // concat flag is emitted ahead of the custom-argument box and the encoder's own quoted
+            // arguments, so the first occurrence is the real one, and " -c:a " in the audio arguments
+            // does not match for want of the trailing space.
+            string concat = args.Contains(" -c ") ? args.Split(" -c ")[1].Trim().Split(' ').FirstOrDefault() : "";
+
+            if (concat == "mkvmerge" && GetToolPath("mkvmerge", searchDirs).IsEmpty())
+                return "mkvmerge";
+
             return "";
         }
 
@@ -546,6 +571,27 @@ namespace Nmkoder.Media
             IEnumerable<string> dirs = searchDirs.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator));
             string resolved = Shell.ResolveExecutable(name, dirs);
             return File.Exists(resolved) ? resolved : "";
+        }
+
+        /// <summary>
+        /// Whether a tool is present, in bin/ or on the user's PATH.
+        /// <para/>
+        /// Worth asking before running one, because a missing binary is not a failure any caller here
+        /// can see: the command goes through a shell, which writes "command not found" to stderr and
+        /// exits, so the utility finds out only by noticing the file it wanted was never written - and
+        /// then says whatever it says about that instead. <c>bundle-tools.sh</c> ships MKVToolNix for
+        /// win-x64 alone, so mkvmerge, mkvextract and mkvinfo are routinely absent on Linux and macOS
+        /// and this is the difference between naming the missing package and reporting a mystery.
+        /// </summary>
+        public static bool IsToolAvailable(string name)
+        {
+            // Searched over the PATH the tool will be launched with, not the one this process holds.
+            // Every runner here goes through OsUtils.SetPathVar, and on Windows that keeps bin/ and
+            // C:\Windows and drops the rest - so checking the full PATH would vouch for an mkvmerge
+            // installed in Program Files that the launcher then cannot resolve, leaving exactly the
+            // unexplained failure this check exists to replace.
+            IEnumerable<string> dirs = OsUtils.GetPathVar(new[] { Paths.GetBinPath() }).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            return File.Exists(Shell.ResolveExecutable(name, dirs));
         }
 
         /// <summary>

@@ -31,8 +31,11 @@ namespace Nmkoder.UI.Tasks
 
             foreach (StreamListEntry item in TrackList.CheckedItems.ToList())
             {
+                // Stop rather than skip. Nothing was being spent either way - the continue did skip
+                // the probe - but a loop that keeps running to the end of a long track list after the
+                // user cancelled leaves the window working for no reason.
                 if (RunTask.canceled)
-                    continue;
+                    break;
 
                 Stream s = item.Stream;
                 FfmpegUtils.StreamSizeInfo info = await FfmpegUtils.GetStreamSizeBytes(TrackList.current.File.ImportPath, s.Index);
@@ -57,6 +60,14 @@ namespace Nmkoder.UI.Tasks
                     totalKbpsSub += info.Kbps.RoundToInt();
                     totalBytesSub += info.Bytes;
                 }
+            }
+
+            // Totals over a list that was cut short are not this file's totals, and reading like they
+            // are is worse than not printing them.
+            if (RunTask.canceled)
+            {
+                Program.MainWin.SetWorking(false);
+                return;
             }
 
             string totalPercentVid = FormatUtils.RatioFloat(totalBytesVid, TrackList.current.File.Size).ToString("0.0");

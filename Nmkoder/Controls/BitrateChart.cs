@@ -46,7 +46,7 @@ namespace Nmkoder.Controls
             _points.Clear();
 
             foreach (var pair in bytesPerSecond.OrderBy(x => x.Key))
-                _points.Add((pair.Key, Utils.BitratePlottingUtils.BitsToKbytes(pair.Value)));
+                _points.Add((pair.Key, Utils.BitratePlottingUtils.BytesToKbits(pair.Value)));
 
             _dragStartX = _dragCurrentX = null;
             InvalidateVisual();

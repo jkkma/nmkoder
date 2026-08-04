@@ -15,6 +15,9 @@
       <ComboBox Grid.Row="1" Grid.Column="1" x:Name="TargetVideo" />
     </Grid>
 
+    <TextBlock x:Name="TargetNote" Classes="dim"
+               Text="With no target picked, this utility only prints the source's metadata. Picking one rewrites that file in place." />
+
     <TextBlock Classes="h" Text="DATA TO TRANSFER" />
     <CheckBox x:Name="CopyColorSpace" Content="Color space (transfer, primaries, matrix, range)" />
     <CheckBox x:Name="CopyHdrData" Content="HDR metadata (mastering display, MaxCLL/MaxFALL)" />

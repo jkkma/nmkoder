@@ -2,6 +2,7 @@ using Nmkoder.Data;
 using Nmkoder.Data.Ui;
 using Nmkoder.IO;
 using Nmkoder.Main;
+using Nmkoder.Media;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
@@ -26,8 +27,39 @@ namespace Nmkoder.UI.Tasks
 
             try
             {
+                if (!AvProcess.IsToolAvailable("mkvmerge"))
+                {
+                    // Worth saying up front. Without it the run reaches mkvmerge, the shell reports
+                    // "command not found" to a stream nothing here reads, and the first thing that
+                    // notices is a File.Move onto a chunk that was never written - which surfaces as
+                    // "Could not find file", naming a temp path the user has never heard of.
+                    RunTask.Fail("Concatenation is done with mkvmerge, which is not installed. It ships with the Windows build; on Linux and macOS install MKVToolNix from your package manager (e.g. 'apt install mkvtoolnix' or 'brew install mkvtoolnix').");
+                    return;
+                }
+
                 List<FileListEntry> fileListEntries = FileList.Items.ToList();
                 List<string> paths = fileListEntries.Where(x => x.File.ImportPath == x.File.SourcePath).Select(x => x.File.ImportPath).ToList();
+
+                // An image sequence is imported as a generated concat file rather than as itself, so
+                // it is not something mkvmerge can join. Skipping them is right; doing it without a
+                // word left the count in the log disagreeing with the file list for no visible reason.
+                int skipped = fileListEntries.Count - paths.Count;
+
+                if (skipped > 0)
+                    Logger.Log($"Skipping {skipped} image sequence{(skipped == 1 ? "" : "s")} - only regular files can be concatenated.");
+
+                if (paths.Count < 1)
+                {
+                    RunTask.Fail("There is nothing here to concatenate. Load two or more video files into the file list - image sequences cannot be joined this way.");
+                    return;
+                }
+
+                if (paths.Count < 2)
+                {
+                    RunTask.Fail("Concatenation joins the file list into one output, so it needs at least two files. Only one is loaded.");
+                    return;
+                }
+
                 string filename = new FileInfo(paths[0]).Directory.Name + "-merge.mkv";
                 string outPath = Path.Combine(new FileInfo(paths[0]).Directory.FullName, filename);
                 IoUtils.TryDeleteIfExists(outPath);

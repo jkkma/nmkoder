@@ -51,17 +51,21 @@ namespace Nmkoder.Utils
                 else if (line.StartsWith("green_y="))
                     data.GreenY = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
 
+                // X into X, Y into Y. These four were crossed over, and the mkvinfo pass below has
+                // them the right way round - so the transposed white point and blue primary only
+                // reached the output for a source mkvinfo says nothing about, which is every file
+                // that is not Matroska.
                 else if (line.StartsWith("blue_x="))
-                    data.BlueY = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
-
-                else if (line.StartsWith("blue_y="))
                     data.BlueX = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
 
+                else if (line.StartsWith("blue_y="))
+                    data.BlueY = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
+
                 else if (line.StartsWith("white_point_x="))
-                    data.WhiteY = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
+                    data.WhiteX = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
 
                 else if (line.StartsWith("white_point_y="))
-                    data.WhiteX = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
+                    data.WhiteY = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
 
                 else if (line.StartsWith("max_luminance="))
                     data.LumaMax = line.Contains("/") ? FractionToFloat(line.Split('=').Last()) : line.Split('=').Last();
@@ -148,25 +152,71 @@ namespace Nmkoder.Utils
             return Double.Parse(numStr, NumberStyles.Float, CultureInfo.InvariantCulture).ToString("0.#######", new CultureInfo("en-US"));
         }
 
-        public static async Task SetColorData(string path, VideoColorData d)
+        /// <summary>
+        /// Muxes <paramref name="d"/> onto <paramref name="path"/> in place.
+        /// <para/>
+        /// <paramref name="colorSpace"/> covers the four tags every video has - matrix, transfer,
+        /// primaries, range - and <paramref name="hdr"/> the mastering display and light levels that
+        /// only HDR carries. They are the dialog's two checkboxes, which used to be stored and then
+        /// read by nothing at all, so both sets went out however they were left.
+        /// </summary>
+        public static async Task SetColorData(string path, VideoColorData d, bool colorSpace = true, bool hdr = true)
         {
             try
             {
+                if (!colorSpace && !hdr)
+                {
+                    Logger.Log("Neither color space nor HDR data is selected for transfer, so there is nothing to write. Tick one in the utility's settings.");
+                    return;
+                }
+
+                if (!AvProcess.IsToolAvailable("mkvmerge"))
+                {
+                    RunTask.Fail("Color data is written with mkvmerge, which is not installed. It ships with the Windows build; on Linux and macOS install MKVToolNix from your package manager (e.g. 'apt install mkvtoolnix' or 'brew install mkvtoolnix').");
+                    return;
+                }
+
                 string tmpPath = IoUtils.FilenameSuffix(path, ".tmp");
 
                 List<string> args = new List<string>();
 
                 args.Add($"-o {tmpPath.Wrap()}");
-                args.Add($"--colour-matrix 0:{d.ColorMatrixCoeffs}");
-                args.Add($"--colour-transfer-characteristics 0:{d.ColorTransfer}");
-                args.Add($"--colour-primaries 0:{d.ColorPrimaries}");
-                args.Add($"--colour-range 0:{d.ColorRange}");
-                if (!string.IsNullOrWhiteSpace(d.LumaMax)) args.Add($"--max-luminance 0:{d.LumaMax}");
-                if (!string.IsNullOrWhiteSpace(d.LumaMin)) args.Add($"--min-luminance 0:{d.LumaMin}");
-                if (!string.IsNullOrWhiteSpace(d.RedX)) args.Add($"--chromaticity-coordinates 0:{d.RedX},{d.RedY},{d.GreenX},{d.GreenY},{d.BlueX},{d.BlueY}");
-                if (!string.IsNullOrWhiteSpace(d.RedX)) args.Add($"--white-colour-coordinates 0:{d.WhiteX},{d.WhiteY}");
-                if (!string.IsNullOrWhiteSpace(d.MaxCll)) args.Add($"--max-content-light 0:{d.MaxCll}");
-                if (!string.IsNullOrWhiteSpace(d.MaxFall)) args.Add($"--max-frame-light 0:{d.MaxFall}");
+
+                if (colorSpace)
+                {
+                    args.Add($"--colour-matrix 0:{d.ColorMatrixCoeffs}");
+                    args.Add($"--colour-transfer-characteristics 0:{d.ColorTransfer}");
+                    args.Add($"--colour-primaries 0:{d.ColorPrimaries}");
+                    args.Add($"--colour-range 0:{d.ColorRange}");
+                }
+
+                if (hdr)
+                {
+                    // Each flag is guarded by the values it actually prints. The chromaticity line
+                    // takes all six coordinates and the white point its own two - both used to be
+                    // gated on RedX alone, so a file carrying a white point and no primaries lost it,
+                    // and one with primaries and no white point had mkvmerge handed "0:," to reject.
+                    bool haveChroma = new[] { d.RedX, d.RedY, d.GreenX, d.GreenY, d.BlueX, d.BlueY }.All(x => !string.IsNullOrWhiteSpace(x));
+                    bool haveWhite = !string.IsNullOrWhiteSpace(d.WhiteX) && !string.IsNullOrWhiteSpace(d.WhiteY);
+
+                    if (!string.IsNullOrWhiteSpace(d.LumaMax)) args.Add($"--max-luminance 0:{d.LumaMax}");
+                    if (!string.IsNullOrWhiteSpace(d.LumaMin)) args.Add($"--min-luminance 0:{d.LumaMin}");
+                    if (haveChroma) args.Add($"--chromaticity-coordinates 0:{d.RedX},{d.RedY},{d.GreenX},{d.GreenY},{d.BlueX},{d.BlueY}");
+                    if (haveWhite) args.Add($"--white-colour-coordinates 0:{d.WhiteX},{d.WhiteY}");
+                    if (!string.IsNullOrWhiteSpace(d.MaxCll)) args.Add($"--max-content-light 0:{d.MaxCll}");
+                    if (!string.IsNullOrWhiteSpace(d.MaxFall)) args.Add($"--max-frame-light 0:{d.MaxFall}");
+                }
+
+                // Only "-o tmp" so far, so this would remux the file to say nothing about it - which
+                // costs a full copy of it and a delete of the original to end up where it started.
+                // HDR data on its own is the way in: a source that has none leaves every flag above
+                // unset, and there is no reason to touch the target over that.
+                if (args.Count < 2)
+                {
+                    Logger.Log($"'{Path.GetFileName(path)}' was left alone - the source carries none of the data selected for transfer.");
+                    return;
+                }
+
                 args.Add($"{path.Wrap()}");
 
                 await AvProcess.RunMkvMerge(string.Join(" ", args), OS.NmkoderProcess.ProcessType.Primary, true);
@@ -197,19 +247,34 @@ namespace Nmkoder.Utils
             }
         }
 
+        // These three read what ffprobe prints, and ffprobe's vocabulary is not the one the
+        // int-to-string functions further down emit - it spells transfer 18 "arib-std-b67" where they
+        // say "bt2100", 13 "iec61966-2-1" against "srgb", primaries 6 "smpte170m" against "bt601", and
+        // matrix 10 "bt2020c" against "bt2020". Checking only for this file's own names is what made
+        // an HLG or sRGB file read back as Unspecified - and then get muxed into the target as
+        // Unspecified, which is worse than not reading it. Both vocabularies are accepted here; the
+        // names below stay as they are because the encoders are given those.
+        // Every spelling was read out of the bundled ffprobe rather than assumed, by tagging a file
+        // with each value in turn and probing it back.
+
         public static int GetColorPrimaries(string s) // Defined by the "Color primaries" section of ISO/IEC 23091-4/ITU-T H.273
         {
             s = s.Trim().ToLower();
             if (s == "bt709") return 1;
             if (s == "bt470m") return 4;
             if (s == "bt470bg") return 5;
-            if (s == "bt601") return 6;
+            if (s == "bt601" || s == "smpte170m") return 6;
             if (s == "smpte240m") return 7;
             if (s == "film") return 8;
             if (s == "bt2020") return 9;
-            if (s == "smpte428") return 10;
+            if (s == "smpte428" || s == "smpte428_1") return 10;
             if (s == "smpte431") return 11;
             if (s == "smpte432") return 12;
+            // EBU 3213-E is 22 and is deliberately not read here. The string table below has no entry
+            // for it, so aomenc and x264 would be given nothing either way, and the two encoders that
+            // take this number raw cannot use it: x265 refuses --colorprim 22 outright ("Color
+            // Primaries must be unknown, bt709, ... smpte-eg-432"), which fails the encode. Falling
+            // through to Unspecified is what it did before and is the only value that works.
             return 2; // Fallback: 2 = Unspecified
         }
 
@@ -222,34 +287,39 @@ namespace Nmkoder.Utils
             if (s == "bt601" || s == "smpte170m") return 6; // BT.601
             if (s == "smpte240m") return 7; // SMPTE 240 M
             if (s == "linear") return 8; // Linear
-            //if (s == "?") return 9; // Logarithmic(100 : 1 range)
-            //if (s == "?") return 10; // Logarithmic (100 * Sqrt(10) : 1 range)
-            if (s == "iec61966-2-4") return 11; // IEC 61966-2-4
+            if (s == "log100") return 9; // Logarithmic (100 : 1 range)
+            if (s == "log316") return 10; // Logarithmic (100 * Sqrt(10) : 1 range)
+            if (s == "iec61966-2-4" || s == "iec61966_2_4") return 11; // IEC 61966-2-4
             if (s == "bt1361" || s == "bt1361e") return 12; // BT.1361
-            if (s == "srgb") return 13; // SRGB
-            if (s == "bt2020-10") return 14; // BT.2020 10-bit systems
-            if (s == "bt2020-12") return 15; // BT.2020 12-bit systems
+            if (s == "srgb" || s == "iec61966-2-1" || s == "iec61966_2_1") return 13; // SRGB
+            if (s == "bt2020-10" || s == "bt2020_10") return 14; // BT.2020 10-bit systems
+            if (s == "bt2020-12" || s == "bt2020_12") return 15; // BT.2020 12-bit systems
             if (s == "smpte2084") return 16; // SMPTE ST 2084, ITU BT.2100 PQ
-            if (s == "smpte428") return 17; // SMPTE ST 428
-            if (s == "bt2100") return 18; // BT.2100 HLG, ARIB STD-B67
+            if (s == "smpte428" || s == "smpte428_1") return 17; // SMPTE ST 428
+            if (s == "bt2100" || s == "arib-std-b67") return 18; // BT.2100 HLG, ARIB STD-B67
             return 2; // Fallback: 2 = Unspecified
         }
 
         public static int GetMatrixCoeffs(string s) // Defined by the "Matrix coefficients" section of ISO/IEC 23091-4/ITU-T H.27
         {
             s = s.Trim().ToLower();
+            // "gbr" is deliberately not mapped to 0 (Identity). ffprobe prints it for an RGB pixel
+            // format, which describes how the frames decode rather than a tag the file is carrying -
+            // and every encode here converts to YUV first, so signalling Identity on the result would
+            // describe planes that are no longer GBR. SVT-AV1 and x265 are handed this number raw.
+            // Unspecified is what it fell through to before, and it is the honest answer.
             if (s == "bt709") return 1;
             if (s == "fcc") return 4; // US FCC 73.628
             if (s == "bt470bg") return 5; // BT.470 System B, G (historical)
             if (s == "bt601" || s == "smpte170m") return 6; // BT.601
             if (s == "smpte240m") return 7; // SMPTE 240 M
-            if (s == "ycgco") return 8; // YCgCo
+            if (s == "ycgco" || s == "ycocg") return 8; // YCgCo
             if (s == "bt2020ncl" || s == "bt2020nc") return 9; // BT.2020 non-constant luminance, BT.2100 YCbCr
-            if (s == "bt2020") return 10; // BT.2020 constant luminance
+            if (s == "bt2020" || s == "bt2020c" || s == "bt2020cl") return 10; // BT.2020 constant luminance
             if (s == "smpte2085") return 11; // SMPTE ST 2085 YDzDx
-            // 12: MC_CHROMAT_NCL - Chromaticity-derived non-constant luminance
-            // 13: MC_CHROMAT_CL - Chromaticity-derived constant luminance
-            // 14: MC_ICTCP BT.2100 - ICtCp
+            if (s == "chroma-derived-nc") return 12; // Chromaticity-derived non-constant luminance
+            if (s == "chroma-derived-c") return 13; // Chromaticity-derived constant luminance
+            if (s == "ictcp") return 14; // BT.2100 ICtCp
             return 2; // Fallback: 2 = Unspecified
         }
 
@@ -261,10 +331,52 @@ namespace Nmkoder.Utils
             return 0; // Fallback: Unspecified
         }
 
-        public static string FormatForAom (string colorspace)
+        #region aomenc spellings
+
+        // aomenc takes colour by name as well, and its vocabulary is a third one - neither H.273's
+        // nor x264's. It rejects a name it does not know outright, printing its usage text and
+        // encoding nothing, so a wrong spelling kills every chunk of an av1an run rather than being
+        // ignored the way an unknown *number* would be.
+        //
+        // FormatForAom stood here and rewrote two names, which left seven wrong: "gamma22",
+        // "gamma28", "linear", "smpte240m", "iec61966-2-4", "fcc" and "smpte428" are all ordinary
+        // tags a real file carries, and each one failed the encode. Widening the ffprobe tables above
+        // to read HLG and BT.2020 CL made two more reachable ("bt2100" and "bt2020" for matrix 10),
+        // which is what turned this up.
+        //
+        // Every entry below was read out of `aomenc --help` and then confirmed against the binary by
+        // passing it, including the pass-through names - the table is what aomenc accepts, not what
+        // it is documented to.
+
+        public static string GetColorPrimariesStringAom(int n) => GetColorPrimariesString(n) switch
         {
-            return colorspace.Replace("bt2020-10", "bt2020-10bit").Replace("bt2020-12", "bt2020-12bit");
-        }
+            "smpte240m" => "smpte240",
+            "smpte428" => "xyz",
+            var s => s,
+        };
+
+        public static string GetColorTransferStringAom(int n) => GetColorTransferString(n) switch
+        {
+            "gamma22" => "bt470m",
+            "gamma28" => "bt470bg",
+            "smpte240m" => "smpte240",
+            "linear" => "lin",
+            "iec61966-2-4" => "iec61966",
+            "bt2020-10" => "bt2020-10bit",
+            "bt2020-12" => "bt2020-12bit",
+            "bt2100" => "hlg",
+            var s => s,
+        };
+
+        public static string GetColorMatrixCoeffsStringAom(int n) => GetColorMatrixCoeffsString(n) switch
+        {
+            "fcc" => "fcc73",
+            "smpte240m" => "smpte240",
+            "bt2020" => "bt2020cl",
+            var s => s,
+        };
+
+        #endregion
 
         #region x264 spellings
 
@@ -377,14 +489,19 @@ namespace Nmkoder.Utils
 
         #region Get friendly name from int
 
+        // H.273 numbers System M 4 and System B, G 5, for primaries and transfer alike - and the
+        // string tables above already agree ("bt470m" is 4, "bt470bg" is 5). These two name tables
+        // had the pair the other way round, so the readout contradicted the file's own value and
+        // mislabelled every PAL or SECAM source. The matrix names below were already right.
+
         public static string GetColorPrimariesName(int n)
         {
             switch (n)
             {
                 case 1: return "BT.709";
                 case 2: return "Unspecified";
-                case 4: return "BT.470 System B, G (historical)";
-                case 5: return "BT.470 System M (historical)";
+                case 4: return "BT.470 System M (historical)";
+                case 5: return "BT.470 System B, G (historical)";
                 case 6: return "BT.601";
                 case 7: return "SMPTE 240";
                 case 8: return "Generic film (color filters using illuminant C)";
@@ -404,8 +521,8 @@ namespace Nmkoder.Utils
             {
                 case 1: return "BT.709";
                 case 2: return "Unspecified";
-                case 4: return "BT.470 System B, G (historical)";
-                case 5: return "BT.470 System M (historical)";
+                case 4: return "BT.470 System M (historical)";
+                case 5: return "BT.470 System B, G (historical)";
                 case 6: return "BT.601";
                 case 7: return "SMPTE 240 M";
                 case 8: return "Linear";
@@ -428,6 +545,7 @@ namespace Nmkoder.Utils
         {
             switch (n)
             {
+                case 0: return "Identity (GBR)";
                 case 1: return "BT.709";
                 case 2: return "Unspecified";
                 case 4: return "US FCC 73.628";

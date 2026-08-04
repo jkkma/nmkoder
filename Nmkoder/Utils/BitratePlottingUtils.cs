@@ -27,7 +27,7 @@ namespace Nmkoder.Utils
 
                 if (type == "I")
                     Type = FrameType.Intra;
-                else if (type == "I")
+                else if (type == "B") // Was a second "I", so every B frame fell through to Unknown
                     Type = FrameType.Bidirectional;
                 else if (type == "P")
                     Type = FrameType.Predictive;
@@ -88,7 +88,10 @@ namespace Nmkoder.Utils
             }
             catch(Exception e)
             {
-                Logger.Log($"GetFrameInfos Error: {e.Message}", true);
+                // Visible, not hidden: an empty frame list draws an empty chart, which reads as "this
+                // file has no bitrate to speak of" rather than as the probe having fallen over.
+                Logger.LogErr($"Could not read the frame list for the bitrate chart: {e.Message}");
+                Logger.Log($"{e.StackTrace}", true, level: Logger.Level.Debug);
             }
 
             return frames;
@@ -124,14 +127,18 @@ namespace Nmkoder.Utils
                 Logger.Log($"Second {pair.Key} => {kbps} kbps");
             }
 
-            Logger.Log($"Min: {seconds.Min(x => BitsToKbytes(x.Value))} kbps");
-            Logger.Log($"Max: {seconds.Max(x => BitsToKbytes(x.Value))} kbps");
-            Logger.Log($"Avg: {seconds.Average(x => BitsToKbytes(x.Value))} kbps");
+            Logger.Log($"Min: {seconds.Min(x => BytesToKbits(x.Value))} kbps");
+            Logger.Log($"Max: {seconds.Max(x => BytesToKbits(x.Value))} kbps");
+            Logger.Log($"Avg: {seconds.Average(x => BytesToKbits(x.Value))} kbps");
         }
 
-        public static int BitsToKbytes(long bits)
+        /// <summary>
+        /// A second's worth of packet bytes as kbps. Named BitsToKbytes before, which is wrong at both
+        /// ends - it is handed bytes and returns kbits - though the arithmetic was always right.
+        /// </summary>
+        public static int BytesToKbits(long bytes)
         {
-            return ((float)bits * 8 / 1024).RoundToInt();
+            return ((float)bytes * 8 / 1024).RoundToInt();
         }
     }
 }

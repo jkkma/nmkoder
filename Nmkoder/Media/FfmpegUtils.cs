@@ -11,6 +11,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static Nmkoder.Media.GetVideoInfo;
 using Stream = Nmkoder.Data.Streams.Stream;
@@ -21,10 +22,16 @@ namespace Nmkoder.Media
     {
         private readonly static FfprobeMode showStreams = FfprobeMode.ShowStreams;
 
-        public static async Task<int> GetStreamCount(string path)
+        /// <summary>
+        /// How many streams <paramref name="path"/> has. <paramref name="noCache"/> is for a path that
+        /// gets rewritten rather than replaced - the cache behind this is keyed on path, size and
+        /// command with no timestamp in it, so a temp file that happens to come out the same length
+        /// twice would answer with the previous file's streams.
+        /// </summary>
+        public static async Task<int> GetStreamCount(string path, bool noCache = false)
         {
             Logger.Log($"GetStreamCount({path})", true);
-            string output = await GetFfmpegInfoAsync(path, "Stream #0:");
+            string output = await GetFfmpegInfoAsync(path, "Stream #0:", noCache);
 
             if (string.IsNullOrWhiteSpace(output.Trim()))
                 return 0;
@@ -369,17 +376,82 @@ namespace Nmkoder.Media
 
         public struct StreamSizeInfo { public float Kbps; public long Bytes; }
 
+        // ffmpeg's stats line is not one fixed shape, and anchoring on the literals it used to have
+        // is what made every size come back 0. Two things move: the key is "size=" while muxing but
+        // "Lsize=" on the final line of a stream copy, and the unit was spelled "kB" for years and is
+        // "KiB" on current builds - both meaning 1024 bytes. Matching the shape rather than one
+        // spelling of it is what survives the next rename.
+        //
+        // Current ffmpeg has exactly one of each: "size=%8.0fKiB time=" and "bitrate=%6.1fkbits/s",
+        // read out of the bundled binary's own strings, and a 1.9 GB stream still prints KiB. So the
+        // larger prefixes below are defensive rather than something you can produce today. They are
+        // not scaled the same way, which is the part to be careful with: a size is binary, matching
+        // its KiB/MiB spelling, while a bitrate is ffmpeg's own division by 1000 and so decimal.
+        private static readonly Regex StatsSizeRegex = new Regex(@"\bL?size=\s*(\d+(?:\.\d+)?)\s*([kKMGT])i?B", RegexOptions.Compiled);
+        private static readonly Regex StatsBitrateRegex = new Regex(@"\bbitrate=\s*(\d+(?:\.\d+)?)\s*([kMG])bits/s", RegexOptions.Compiled);
+
+        /// <summary> Bytes out of an ffmpeg stats line, or -1 if it does not carry a size. </summary>
+        private static long ParseStatsSizeBytes(string line)
+        {
+            Match m = StatsSizeRegex.Match(line);
+
+            if (!m.Success)
+                return -1;
+
+            double value = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+
+            // "kB" was never 1000 bytes in ffmpeg's output - it prints binary multiples under either
+            // spelling, which is why KiB replaced it rather than changing the number beside it.
+            double multiplier = char.ToLowerInvariant(m.Groups[2].Value[0]) switch
+            {
+                'k' => 1024d,
+                'm' => 1024d * 1024d,
+                'g' => 1024d * 1024d * 1024d,
+                't' => 1024d * 1024d * 1024d * 1024d,
+                _ => 1024d,
+            };
+
+            return (long)Math.Round(value * multiplier);
+        }
+
+        /// <summary> Kbps out of an ffmpeg stats line, or -1 if it does not carry a bitrate. </summary>
+        private static float ParseStatsKbps(string line)
+        {
+            Match m = StatsBitrateRegex.Match(line);
+
+            if (!m.Success)
+                return -1f;
+
+            float value = float.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+
+            // Decimal, not binary: the number is already ffmpeg's own bits/1000, so a hypothetical
+            // Mbits/s is a thousand of these and not 1024 of them.
+            return m.Groups[2].Value switch
+            {
+                "M" => value * 1000f,
+                "G" => value * 1000f * 1000f,
+                _ => value,
+            };
+        }
+
         public static async Task<StreamSizeInfo> GetStreamSizeBytes(string path, int streamIndex = 0)
         {
             try
             {
                 string decodeOutput = await GetFfmpegOutputAsync(path, $"-map 0:{streamIndex} -c copy -f matroska {Shell.NullDevice} {Shell.GrepStderr("time", "video")}", "", true);
                 string[] outputLines = decodeOutput.SplitIntoLines();
-                string sizeLine = outputLines.Where(l => l.Contains("size=") && !l.Contains("size=N/A")).Last();
-                string bitrateLine = outputLines.Where(l => l.Contains("bitrate=") && !l.Contains("bitrate=N/A")).Last();
-                long bytes = sizeLine.Split("size= ")[1].Split("kB")[0].GetInt();
-                float bitrate = bitrateLine.Split("bitrate=")[1].Split("kbits/s")[0].GetFloat();
-                return new StreamSizeInfo() { Bytes = bytes * 1024, Kbps = bitrate };
+
+                long bytes = outputLines.Select(ParseStatsSizeBytes).Where(x => x >= 0).DefaultIfEmpty(-1).Last();
+                float bitrate = outputLines.Select(ParseStatsKbps).Where(x => x >= 0f).DefaultIfEmpty(-1f).Last();
+
+                // On screen, not just in the log file: "0B (0.0%)" is indistinguishable from an empty
+                // track, which is exactly how this shipped broken and went unnoticed. It is also
+                // reachable without any rename - a stream ffmpeg cannot copy into Matroska, a
+                // mov_text subtitle track among them, dies before printing a stats line at all.
+                if (bytes < 0 || bitrate < 0f)
+                    Logger.LogWarn($"Could not read the {(bytes < 0 ? "size" : "bitrate")} of stream #{streamIndex} - ffmpeg printed no usable stats line for it. The reported 0 is not a measurement.");
+
+                return new StreamSizeInfo() { Bytes = Math.Max(0, bytes), Kbps = Math.Max(0f, bitrate) };
             }
             catch(Exception ex)
             {
