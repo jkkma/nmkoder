@@ -110,8 +110,6 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidPresetBox);
             ConfigParser.RestoreIfSaved(EncVidColorsBox);
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
-            ConfigParser.RestoreIfSaved(EncScaleBoxW);
-            ConfigParser.RestoreIfSaved(EncScaleBoxH);
             ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
             ConfigParser.RestoreIfSaved(EncDeintPresetBox);
             ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
@@ -122,12 +120,18 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
             ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
 
-            // Restored like the scale boxes beside it, and for the same reason: "everything I encode
-            // comes out 16:9" is a preference about output rather than a fact about the file that
-            // happens to be loaded. The selection has to be pushed back into the config object by
-            // hand - the box's own handler bails until _initialized, which is not set yet here.
+            // Restored like the resize beside it, and for the same reason: "everything I encode comes
+            // out 16:9" is a preference about output rather than a fact about the file that happens to
+            // be loaded. The selection has to be pushed back into the config object by hand - the box's
+            // own handler bails until _initialized, which is not set yet here.
             ConfigParser.RestoreIndexIfSaved(EncBordersBox);
             QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
+
+            // The resize is an object rather than a control's value, so it is read straight into the
+            // configuration and the dropdown is then filled from it. Filling has to happen whether or
+            // not anything was saved: the list has to hold its entries before a file is ever loaded.
+            QuickConvertUi.CurrentResize = ConfigParser.LoadResize(Config.Key.EncResize);
+            QuickConvertUi.RefreshResizeBox();
         }
 
         public void SaveQuickConvertSettings()
@@ -147,8 +151,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncVidPresetBox);
                 ConfigParser.SaveGuiElement(EncVidColorsBox);
                 ConfigParser.SaveGuiElement(EncVidFpsBox);
-                ConfigParser.SaveGuiElement(EncScaleBoxW);
-                ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveResize(Config.Key.EncResize, QuickConvertUi.CurrentResize);
                 ConfigParser.SaveComboxIndex(EncDeintModeBox);
                 ConfigParser.SaveGuiElement(EncDeintPresetBox);
                 ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
@@ -165,7 +168,9 @@ namespace Nmkoder.Views
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             EncCropConfBtn.IsVisible = EncCropModeBox.GetText().ToLower().Contains("manual");
-            QuickConvertUi.UpdateBordersReadout(); // A crop moves the shape the bars are picked by
+            // A crop changes the frame the resize targets are measured against, and the shape the bars
+            // are picked by - the second of those is refreshed on the way out of the first.
+            QuickConvertUi.RefreshResizeBox();
         }
 
         private void EncBorders_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -177,15 +182,28 @@ namespace Nmkoder.Views
             SaveQuickConvertSettings();
         }
 
-        /// <summary> The borders readout names the frame the bars go around, which is whatever these
-        /// two boxes leave - so it is rewritten as they are typed in. They are saved on close rather
-        /// than per keystroke, which is why this does not save. </summary>
-        private void EncScaleBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void EncResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)
                 return;
 
-            QuickConvertUi.UpdateBordersReadout();
+            QuickConvertUi.ResizePresetSelected(EncResizeBox.SelectedIndex);
+            SaveQuickConvertSettings();
+        }
+
+        private async void EncResizeConf_Click(object sender, RoutedEventArgs e)
+        {
+            ResizeConfig resize = await ResizeWindow.Show(QuickConvertUi.GetResizeSourceSize(), QuickConvertUi.GetResizeSar(), QuickConvertUi.CurrentResize);
+
+            if (resize != null)
+            {
+                // Configured by hand is the Custom entry, whichever preset it started from
+                resize.PresetKey = ResizePresets.CustomKey;
+                QuickConvertUi.CurrentResize = resize;
+                SaveQuickConvertSettings();
+            }
+
+            QuickConvertUi.UpdateResizeReadout();
         }
 
         private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
@@ -214,6 +232,9 @@ namespace Nmkoder.Views
 
             if (crop != null)
                 QuickConvertUi.CurrentCrop = crop;
+
+            // The rectangle just moved, so what every resize target comes out to moved with it
+            QuickConvertUi.RefreshResizeBox();
         }
 
         private async void EncTrimConf_Click(object sender, RoutedEventArgs e)

@@ -101,8 +101,7 @@ namespace Nmkoder.UI
 
             if (resetAll || ResetSettingsOnNewFile.ResetResize)
             {
-                f.EncScaleBoxW.Text = f.EncScaleBoxH.Text = "";
-                Av1anUi.CurrentResize = new ResizeConfig();
+                QuickConvertUi.CurrentResize = Av1anUi.CurrentResize = new ResizeConfig();
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetResize)]);
             }
 
@@ -143,11 +142,11 @@ namespace Nmkoder.UI
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetCustomFilters)]);
             }
 
-            // Both the crop and the resize clauses above move what the resize dropdown's entries work out to
+            // Both the crop and the resize clauses above move what the resize dropdowns' entries work out
+            // to, on both tabs - and each of those refreshes its own borders readout on the way out, the
+            // bars being measured against the frame the resize leaves.
             Av1anUi.RefreshResizeBox();
-            // And all three move the frame the border bars are measured against, on the tab whose
-            // readout RefreshResizeBox does not reach
-            QuickConvertUi.UpdateBordersReadout();
+            QuickConvertUi.RefreshResizeBox();
 
             if (showMsgBox)
                 UiUtils.ShowMessageBoxAsync($"The following settings have been reset:\n{string.Join(", ", clearedSettings)}.", UiUtils.MessageType.Message);
@@ -398,11 +397,25 @@ namespace Nmkoder.UI
             Containers.Container container = QuickConvertUi.GetCurrentContainer();
             List<StreamListEntry> kept = new List<StreamListEntry>();
             List<string> dropped = new List<string>();
+            // A stripped kind reaches no output stream. It used to be mapped anyway and taken out again
+            // at the far end by "-vn", "-an" or "-sn", which works for the file and not for anything
+            // counting output streams: with the audio stripped, every title and language the metadata
+            // grid set on a track after it went one stream too late - onto the subtitles, usually.
+            bool stripV = QuickConvertUi.GetCurrentCodecV() == CodecUtils.VideoCodec.StripVideo;
+            bool stripA = QuickConvertUi.GetCurrentCodecA() == CodecUtils.AudioCodec.StripAudio;
+            bool stripS = QuickConvertUi.GetCurrentCodecS() == CodecUtils.SubtitleCodec.StripSubs;
 
             foreach (StreamListEntry entry in CheckedItems)
             {
                 if (videoOnly && entry.Stream.Type != Stream.StreamType.Video) // Skip all non-video streams if videoOnly == true
                     continue;
+
+                if ((stripV && entry.Stream.Type == Stream.StreamType.Video)
+                    || (stripA && entry.Stream.Type == Stream.StreamType.Audio)
+                    || (stripS && entry.Stream.Type == Stream.StreamType.Subtitle))
+                {
+                    continue;
+                }
 
                 if (entry.Stream.Type == Stream.StreamType.Data && !Containers.CanCopyDataStream(container))
                 {

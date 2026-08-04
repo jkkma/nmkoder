@@ -85,6 +85,16 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // And the frame those two settings come to between them, which FFmpeg refuses outright
+                // past a certain size - the AV1AN tab has asked this since its resize dialog was written.
+                string frameProblem = QuickConvertUi.GetFrameSizeProblem();
+
+                if (frameProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(frameProblem);
+                    return;
+                }
+
                 // And the one that cannot be worked around in the filter chain at all - see
                 // GetBurnInProblem, which is where the reason is.
                 string burnInProblem = QuickConvertUi.GetBurnInProblem();
@@ -110,7 +120,13 @@ namespace Nmkoder.UI.Tasks
                     }
                 }
 
-                bool crf = (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
+                // The fixed formats have no rate control at all, and VidEncoderSelected disables the mode
+                // box for them - but a disabled box keeps whatever was last selected in it, so a Target
+                // Bitrate left over from H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG
+                // read a "q". Both fell back to their own default, so the palette size and the JPEG
+                // quality spinners did nothing whatsoever until the mode was put back to CRF.
+                bool crf = vCodec.IsFixedFormat
+                    || (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
                 // What the scale boxes come out to, where that can be said - the tile count below is a

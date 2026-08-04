@@ -16,28 +16,10 @@ namespace Nmkoder.Utils
             return (T)Enum.Parse(typeof(T), value, ignoreCase);
         }
 
-        public static string GetScaleFilter(string w, string h, bool logWarnings = true)
-        {
-            string argW = w.Replace("w", "iw").Replace("h", "ih");
-            string argH = h.Replace("w", "iw").Replace("h", "ih");
-
-            if (w.EndsWith("%"))
-                argW = $"iw*{((float)w.GetInt() / 100).ToStringDot()}";
-            else if (string.IsNullOrWhiteSpace(w))
-                argW = "-2";
-
-            if (h.EndsWith("%"))
-                argH = $"ih*{((float)h.GetInt() / 100).ToStringDot()}";
-            else if (string.IsNullOrWhiteSpace(h))
-                argH = "-2";
-
-            string forceDiv = (argW.Contains("*") || argH.Contains("*")) ? ":force_original_aspect_ratio=increase:force_divisible_by=2" : "";
-
-            if (logWarnings && forceDiv.Length > 0 && (argW.Contains("*") && argH.Contains("*")))
-                Logger.Log($"Info: Scaling using percentages enforces the original aspect ratio. You cannot use different percentages for width and height.");
-
-            return $"scale={argW}:{argH}{forceDiv},setsar=1:1";
-        }
+        // GetScaleFilter used to live here, building a scale filter out of the two free-text boxes the
+        // Quick Convert tab had where it now has a resize target. Nothing calls it, and nothing should:
+        // it rewrote every "w" in the box to "iw", so ffmpeg's own "iw/2" went out as "iiw/2" and the
+        // encode failed on a syntax the box had invited. ResizeConfig computes the pixels instead.
 
         public static Fraction GetFpsFromString(string str)
         {
