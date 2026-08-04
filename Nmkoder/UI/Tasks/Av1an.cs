@@ -1111,9 +1111,52 @@ namespace Nmkoder.UI.Tasks
             return ProcessManager.RunningSubProcesses.Any(x => x.Type == NmkoderProcess.ProcessType.Primary && x.Process.StartInfo.Arguments.Contains("av1an"));
         }
 
-        public static int GetDefaultWorkerCount()
+        /// <summary> Encoder threads the whole run should add up to, as a fraction of the machine.
+        /// Under one on purpose: av1an runs a decoding ffmpeg beside every worker, and scene
+        /// detection and the concat step want somewhere to run too. </summary>
+        private const double ThreadBudgetPerCore = 0.8;
+
+        /// <summary> Workers is the memory axis - each one holds an encoder instance and its frames -
+        /// so it is capped whatever the core count is. SVT-AV1 at preset 4 on 4K wants some GB per
+        /// worker, and a machine that runs out reports it as chunks failing rather than as memory. </summary>
+        private const int MaxDefaultWorkers = 32;
+
+        /// <summary>
+        /// The Workers and Threads per Worker a config that has neither yet opens on. Both come out of
+        /// here together, because what has to track the machine is their <i>product</i>: workers alone
+        /// says nothing about how much of the CPU is booked, and through 2.8.17 these were two unrelated
+        /// constants - a computed worker count and a literal 2 - whose product landed near
+        /// <see cref="ThreadBudgetPerCore"/> by coincidence, with nothing to notice if either moved.
+        /// <para/>
+        /// Splitting the budget rather than fixing the threads is what fixes the high core counts.
+        /// <see cref="MaxDefaultWorkers"/> is a memory guard, but with the thread count pinned at 2 it
+        /// was also silently a CPU cap: past 80 logical processors - the point where ceil(0.4c) first
+        /// reaches 32 - nothing took up the slack the cap gave away, so a 128-core machine defaulted to
+        /// booking half of itself and a 192-core one a third. Threads now takes the remainder.
+        /// <para/>
+        /// Rounded up rather than to nearest, because the two errors are not the same size: going a
+        /// little over the budget costs some timeslicing, where going under leaves whole cores idle -
+        /// at 96 cores the nearest-integer split is 2, which is the very hole this closes. The cost is
+        /// that the first core counts past the cap come out slightly over the budget rather than under
+        /// it (88 cores books 96 threads), which is the right way round to be wrong here: av1an's
+        /// chunks are independent, so mild oversubscription is timeslicing rather than contention.
+        /// <para/>
+        /// The 0.4 is a double and must stay one. It was <c>0.4f</c>, multiplied against a
+        /// <c>(double)</c> core count, so the widened float came out a hair above the real value and
+        /// the ceiling took that as a whole extra worker on every core count where the product is
+        /// exact - which is every multiple of 5. A 20-thread machine defaulted to 9 workers rather
+        /// than 8, a 10-thread one to 5 rather than 4. Nothing in the arithmetic wanted that, and the
+        /// cast that caused it is not needed at all: int times double is already double.
+        /// </summary>
+        public static (int Workers, int Threads) GetDefaultThreadPlan()
         {
-            return ((int)Math.Ceiling((double)Environment.ProcessorCount * 0.4f)).Clamp(2, 32);
+            int cores = Environment.ProcessorCount;
+            int workers = ((int)Math.Ceiling(cores * 0.4)).Clamp(2, MaxDefaultWorkers);
+            int budget = Math.Max(2, (int)Math.Round(cores * ThreadBudgetPerCore));
+            // Capped at 16 as well as floored at 2: a single encoder instance stops scaling well
+            // before that, so past it the threads would be bought and not used.
+            int threads = ((int)Math.Ceiling((double)budget / workers)).Clamp(2, 16);
+            return (workers, threads);
         }
     }
 }

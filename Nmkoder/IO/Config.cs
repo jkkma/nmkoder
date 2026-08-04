@@ -358,8 +358,10 @@ namespace Nmkoder.IO
             // this pointing at a different one. Opus defaults to 128 kbps for stereo on its own.
             if (key == Key.Av1anAudCodecBox)            return WriteDefault(key, ((int)CodecUtils.AudioCodec.Opus).ToString());
             if (key == Key.DefaultKeyIntSecs)           return WriteDefault(key, "10");
-            if (key == Key.Av1anOptsWorkerCountUpDown)  return WriteDefault(key, $"{Av1an.GetDefaultWorkerCount()}");
-            if (key == Key.Av1anThreadsUpDown)          return WriteDefault(key, "2");
+            // Both from one call, because it is their product that has to fit the machine - see
+            // Av1an.GetDefaultThreadPlan. Neither may be given a literal here.
+            if (key == Key.Av1anOptsWorkerCountUpDown)  return WriteDefault(key, $"{Av1an.GetDefaultThreadPlan().Workers}");
+            if (key == Key.Av1anThreadsUpDown)          return WriteDefault(key, $"{Av1an.GetDefaultThreadPlan().Threads}");
             if (key == Key.mp4Faststart)                return WriteDefault(key, "True");
             if (key == Key.metaMode)                    return WriteDefault(key, "1");
 

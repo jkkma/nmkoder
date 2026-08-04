@@ -370,6 +370,41 @@ Measured against x265 3.5 rather than read out of its documentation, because the
 interchangeable and are not: on a four-core machine `--frame-threads 2` still reports "Thread
 pool created using 4 threads", where `--pools 2` reports 2. `--threads` is not a flag it has.
 
+**The two boxes' first-run defaults are one decision, not two.** `Av1an.GetDefaultThreadPlan`
+returns both, because what has to track the machine is their *product*: workers on its own says
+nothing about how much of the CPU is booked. Through 2.8.20 they were a computed worker count
+(`ceil(cores × 0.4)`, capped at 32) and a literal `2` in `Config`, sitting in different files, whose
+product landed near 0.8 threads per core by coincidence - and nothing would have noticed if either
+moved. The cap is a *memory* guard, since a worker holds an encoder instance and its frames, but
+with the thread count pinned it was silently a CPU cap too: past 80 logical processors - where
+`ceil(0.4c)` first reaches 32 - nothing took up the slack it gave away, so a 128-core machine
+booked half of itself and a 192-core one a third. Threads takes the remainder now. Do not put a
+literal back in `Config` for either key.
+
+This reaches a **fresh config only**, which is worth knowing before reading a bug report against it.
+`Config.Get` consults a default where the key is missing and not otherwise, so an existing
+installation keeps the worker count it already has - including the inflated one the float artifact
+below was producing. That is deliberate: a saved count may have been tuned by hand, and nothing here
+can tell that apart from an untouched default, so overwriting it would take a setting away from
+whoever had bothered to pick one.
+
+The split rounds up, so the first counts past the cap come out a little over budget rather than
+under (88 cores books 96 threads). That is the right way round to be wrong: av1an's chunks are
+independent, so mild oversubscription is timeslicing, where rounding to nearest gives 96 cores a
+thread count of 2 and leaves a third of the machine idle - the very hole being closed.
+
+**The 0.4 in that function is a double and must stay one.** It was `0.4f` multiplied against a
+`(double)` core count, so the widened float came out a hair above the exact value and the ceiling
+read that as a whole extra worker - on every core count where the product is exact, which is every
+multiple of 5. A 20-thread machine defaulted to 9 workers instead of 8 and a 10-thread one to 5
+instead of 4. The `(double)` cast that caused it was never needed: int times double is already
+double.
+
+The `Value` on both `NumericUpDown`s in the XAML is a designer placeholder and agrees with nothing.
+`LoadConfigAv1an` fills them from the config on every launch, and reading a key that is absent
+writes its default first, so what a user sees always comes from `GetDefaultThreadPlan`. A comment
+there says so; do not "reconcile" those literals with it.
+
 `--set-thread-affinity` is **not** what that box means, and there used to be a
 `Av1anUi.GetThreadAffArgs` building it that nothing called - so the flag has never reached av1an,
 and reinstating it is not a fix for anything above. Affinity *pins* each worker to N cores rather
@@ -590,8 +625,8 @@ penalty back to get the baseline: type 4 under SVT-AV1 and 4 is what comes back 
 and next session, with the other encoders on 6. It adds the *penalty* rather than however much of it
 was applied, which is the difference at the floor - a baseline of 2 shows 1 because the box stops
 there, and the next number typed into it can afford both workers. That floor is not hypothetical:
-`Av1an.GetDefaultWorkerCount` bottoms out at 2, so a small enough machine meets it on its very first
-launch.
+the Workers half of `Av1an.GetDefaultThreadPlan` bottoms out at 2, so anything up to a four-core
+machine meets it on its very first launch.
 
 `writingWorkerCount` is what keeps the two apart - the box's `ValueChanged` fires for this class's
 own writes too, and without the guard every encoder switch would read its own write as a hand edit
