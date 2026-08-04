@@ -1,5 +1,6 @@
 ﻿using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.OS;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
@@ -181,7 +182,13 @@ namespace Nmkoder.Data
         /// </summary>
         public static string GetVmafPath(string model = "vmaf_v0.6.1")
         {
-            return Path.Combine(GetBinPath(), $"{model}.json").Replace("\\", "/");
+            string path = Path.Combine(GetBinPath(), $"{model}.json");
+
+            // Forward slashes on Windows only. There a backslash is the separator and cannot be part
+            // of a name, so the rewrite is free; off Windows it is legal data, and substituting it
+            // would hand av1an a --vmaf-path that does not exist for anyone who unzipped the app into
+            // a directory with a backslash in its name. Same split as FormatUtils.GetFilterPath.
+            return Shell.IsWindows ? path.Replace(@"\", "/") : path;
         }
     }
 }

@@ -893,6 +893,26 @@ double backslashes, `%`, `&`, `!`, `;`, newlines, spaces and parentheses through
 and sh. Windows keeps its plain double quotes; cmd has no single-quoting and what it expands is a
 different question.
 
+**That different question has an answer, and the answer is to leave it alone.** cmd expands `%VAR%`
+inside double quotes, so a path is not protected from it - but the exposure is narrow and there is no
+escape to reach for, which is why `WrapArg`'s Windows branch stays as it is. Narrow, because a command
+line passes an **undefined** `%NAME%` through unchanged where a batch file deletes it: `Show%20-%2001.mkv`
+and `50% off.mkv` both survive, and only a real variable name between two percents - `%TEMP%`, or a
+dynamic `%CD%`/`%DATE%` - is substituted, which then fails loudly naming a path nobody typed. No escape,
+because `%%` is a *batch-file* spelling that a command line does not collapse ("Escaping a % character as
+%%, the way you can do inside batch files, isn't supported"), and `^` is literal data inside double
+quotes.
+
+**So `EscapeExpansions` must not be reached for here, though it looks like the fix.** Doubling the
+percents would corrupt every `%`-bearing path *and* break Quick Convert's image sequences, whose output
+path is `%8d.<ext>` and goes through `WrapArg`: measured, `%8d.png` writes the numbered frames and
+`%%8d.png` fails with "Cannot write more than one file with the same name" leaving one file literally
+called `%%8d.png`. `EscapeExpansions` is right where it is used, on the av1an launch *script*, because a
+batch file is the one context where `%%` means one percent - and it is needed there for the other half of
+the same asymmetry, an undefined `%NAME%` being deleted rather than passed through. The way out, if this
+ever matters, is to stop using cmd for the launches that need no shell, the way the av1an launcher
+already does - not to escape anything.
+
 **Burning in a text subtitle track has two quoting layers and had neither.** The path was double-quoted
 inside the already-quoted `-filter_complex`, and ffmpeg has no double-quoting at all - so the quotes
 became part of the filename, except that the surrounding shell happened to strip them again for a path
@@ -942,6 +962,25 @@ does not exist: `back\slash.mkv` came back as "Unable to open …/back/slash.mkv
 than substituted off Windows now. That branch is also what keeps the rest unambiguous - whichever half
 runs, it leaves no backslash behind that the method did not write itself, so every one after it is an
 escape rather than data, which is why it has to run first.
+
+**A UNC path survives that substitution, which is worth recording because it looks as though it would
+not.** Windows normalisation turns every forward slash into a backslash and keeps the leading pair - "a
+series of slashes that follow the first two slashes are collapsed into a single slash" - and identifies a
+UNC path by two *separators* rather than two backslashes, so `//NAS/Media/clip.mkv` round-trips to
+`\\NAS\Media\clip.mkv`. ffmpeg does not leave it to chance either, running the name through
+`GetFullPathNameW` itself before opening it on Windows; and a doubled leading slash is measured here as
+an ordinary file path on both builds, as `-i` and inside the graph alike. A `\\?\` path is demoted to an
+ordinary one by the same substitution, since only the canonical backslash form skips normalisation - it
+still opens, and `MediaFile.ImportPath` being `FileInfo.FullName` means nothing here can produce one.
+
+**Two other places substituted the same way and had no business doing so off Windows.**
+`FfmpegUtils.CreateConcatFile` wrote every entry as `file '<path with \ turned into />'`, so a frame
+called `fra\me0001.png` came back as "Impossible to open …/fra/me0001.png" - the whole image sequence
+lost over one character, measured on both builds. Nothing was bought by it: the concat demuxer copies a
+single-quoted run literally, backslashes included. `Paths.GetVmafPath` did the same to av1an's
+`--vmaf-path`. Both carry the platform guard now. This is the shape to look for when a path is being made
+"safe" for a command line: the rewrite is a Windows separator fix, and every filesystem that is not
+Windows treats a backslash as data.
 
 **A trailing space or tab is escaped too, and only a trailing one.** That second pass trims whitespace
 off the end of the value, and it trims back as far as the last escape or quote it saw - which is nowhere,

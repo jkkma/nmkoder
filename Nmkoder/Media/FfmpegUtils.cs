@@ -478,7 +478,16 @@ namespace Nmkoder.Media
             foreach (string file in files.Where(x => validExtensions.Contains(Path.GetExtension(x).Replace(".", "").ToLower())))
             {
                 fileCount++;
-                concatFileContent += $"file '{file.Replace(@"\", "/")}'\n";
+
+                // Windows only, the same split FormatUtils.GetFilterPath makes and for the same
+                // reason: there a backslash is the separator and cannot be part of a filename, so
+                // rewriting it is safe. Everywhere else it is legal data in a filename, and
+                // substituting it aimed the entry at a path that does not exist - a frame called
+                // "fra\me0001.png" came back as "Impossible to open .../fra/me0001.png", which is
+                // the whole image sequence lost over one character. Nothing is escaped away by
+                // leaving it: measured, the concat demuxer copies a single-quoted run literally,
+                // backslashes included.
+                concatFileContent += $"file '{(Shell.IsWindows ? file.Replace(@"\", "/") : file)}'\n";
             }
 
             File.WriteAllText(outputPath, concatFileContent);

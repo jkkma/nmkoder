@@ -49,6 +49,17 @@ namespace Nmkoder.OS
         /// "My $Movie.mkv" silently loses part of its path, and one containing `...` would run it.
         /// Only apply this to text that is data (paths, arguments), never to a line that needs its
         /// own expansions, such as "SET PATH=...;%PATH%".
+        /// <para/>
+        /// The Windows branch is correct **only for a batch file**, which is the one thing that calls
+        /// it - AvProcess's av1an launch script. "%%" means one literal "%" to a .bat line and to
+        /// nothing else: on a "cmd /C" command line it is not collapsed, so a path escaped this way
+        /// arrives at the tool with its percents doubled. Microsoft says so where it documents
+        /// command-line expansion - "Escaping a % character as %%, the way you can do inside batch
+        /// files, isn't supported" - and draws the same line for "for", which takes %f at the prompt
+        /// and %%f in a batch file. **Do not reach for this from <see cref="WrapArg"/>.**
+        /// <para/>
+        /// The script needs it for the other half of that asymmetry: in a batch file an undefined
+        /// %NAME% is deleted outright, where a command line passes it through untouched.
         /// </summary>
         public static string EscapeExpansions(string text)
         {
@@ -80,9 +91,24 @@ namespace Nmkoder.OS
         /// <para/>
         /// Measured rather than reasoned out. This encoding round-trips $, backticks, both quote
         /// characters, single and double backslashes, %, &amp;, !, ;, newlines, spaces and parentheses
-        /// through the whole chain of .NET argument parsing and sh. Windows keeps the plain double
-        /// quotes it has always used: cmd has no single-quoting, and what it expands is a different
-        /// question with a different answer.
+        /// through the whole chain of .NET argument parsing and sh.
+        /// <para/>
+        /// Windows keeps the plain double quotes it has always used, and cmd *does* expand %VAR%
+        /// inside them - but there is no escape to reach for and the exposure is narrow, so it is
+        /// left alone deliberately rather than overlooked. Narrow, because a command line passes an
+        /// **undefined** %NAME% through unchanged, unlike a batch file, which deletes it: so
+        /// "Show%20-%2001.mkv" and "50% off.mkv" both survive, and only a real variable name between
+        /// two percents - %TEMP%, or a dynamic one like %CD% or %DATE% - is substituted, which then
+        /// fails loudly naming a path nobody typed. No escape, because "%%" is a batch-file spelling
+        /// that a command line does not collapse (see <see cref="EscapeExpansions"/>), and "^" is
+        /// literal data inside double quotes - % expansion runs before the caret phase in any case.
+        /// <para/>
+        /// Doubling the percents here would corrupt every %-bearing path *and* break Quick Convert's
+        /// image sequences, whose output path is "%8d.&lt;ext&gt;" and comes through this method:
+        /// measured, ffmpeg answers "%%8d.png" with "Cannot write more than one file with the same
+        /// name" and writes a single file literally called %%8d.png. The way out, if this ever
+        /// matters, is to stop using cmd for the launches that need no shell - AvProcess does exactly
+        /// that for av1an - not to escape anything here.
         /// </summary>
         public static string WrapArg(string arg)
         {

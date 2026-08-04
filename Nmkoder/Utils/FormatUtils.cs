@@ -246,6 +246,17 @@ namespace Nmkoder.Utils
         /// filename character, and substituting it there pointed the filter at a path that does not
         /// exist ("Unable to open .../back/slash.mkv"), so it is escaped like the rest.
         /// <para/>
+        /// A UNC path survives that substitution and does not need a case of its own, which is worth
+        /// recording because it looks as though it would. Windows normalisation turns every forward
+        /// slash into a backslash and keeps the leading pair - "a series of slashes that follow the
+        /// first two slashes are collapsed into a single slash" - and identifies a UNC path by two
+        /// *separators* rather than two backslashes, so //NAS/Media/clip.mkv round-trips to
+        /// \\NAS\Media\clip.mkv. ffmpeg does not leave that to chance either: on Windows it runs the
+        /// name through GetFullPathNameW itself before opening it. A "\\?\" path is demoted to an
+        /// ordinary one by the same substitution, since only the canonical backslash form skips
+        /// normalisation - it still opens, and nothing here can produce one anyway, MediaFile's
+        /// ImportPath being FileInfo.FullName.
+        /// <para/>
         /// The replacements are ordered, and that is what keeps them unambiguous: whichever branch runs
         /// first leaves no backslash behind that this method did not write, so every one after it is an
         /// escape rather than data. Writing any of them before it would have their own backslashes
