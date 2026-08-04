@@ -419,13 +419,35 @@ namespace Nmkoder.UI.Tasks
 
         static void LoadQualityLevel(IEncoder enc)
         {
-            if (Form.EncQualModeBox.SelectedIndex == 0)
-            {
-                Form.EncVidQualityBox.SetRange(enc.QMin, enc.QMax > 0 ? enc.QMax : 100);
+            // The spinner is the encoder's own scale whenever the rate control is CRF - and for the
+            // fixed formats it always is, whatever the mode box says, because they have no rate control
+            // and the box is disabled over whatever was last picked in it. Left out of this, a Target
+            // Bitrate selected under H.264 kept its 10-100000 range across the switch to GIF, so the
+            // palette size spinner sat on 1500 and reached ffmpeg as "palettegen=1500" - out of range,
+            // and the encode dies before a frame is written.
+            if (GetEffectiveQualityMode(enc) != QualityMode.Crf)
+                return;
 
-                if (enc.QDefault >= 0)
-                    Form.EncVidQualityBox.SetValueClamped(enc.QDefault);
-            }
+            Form.EncVidQualityBox.SetRange(enc.QMin, enc.QMax > 0 ? enc.QMax : 100);
+
+            if (enc.QDefault >= 0)
+                Form.EncVidQualityBox.SetValueClamped(enc.QDefault);
+        }
+
+        /// <summary>
+        /// The rate control this encoder will actually be given, which is not always what the Quality
+        /// Mode box shows: GIF, JPEG and PNG have none, so VidEncoderSelected disables that box - and a
+        /// disabled box keeps whatever was last selected in it rather than going back to CRF.
+        /// <para/>
+        /// One answer, read by the spinner's range, by the spinner's default and by
+        /// <see cref="QuickConvert.Run"/> when it decides whether to send a "q" or a bitrate. They
+        /// disagreed, which is how the palette size and the JPEG quality came to be ignored.
+        /// </summary>
+        public static QualityMode GetEffectiveQualityMode(IEncoder enc = null)
+        {
+            enc = enc ?? CodecUtils.GetCodec(GetCurrentCodecV());
+
+            return enc.IsFixedFormat ? QualityMode.Crf : (QualityMode)Math.Max(0, Form.EncQualModeBox.SelectedIndex);
         }
 
         static void LoadPresets(IEncoder enc)
@@ -1184,7 +1206,12 @@ namespace Nmkoder.UI.Tasks
             // picture and came out stretched, and a downscale rendered the lines at the source's size
             // and then shrank them, which is softer than rendering them at the size they end up. Ahead
             // of the borders rather than after, so the lines stay inside the picture.
-            AddBurnInFilters(filters, currFile, quiet);
+            // The *loaded* file, not the video's: the dropdown above lists that file's subtitle tracks
+            // and the number picked in it indexes them. In Muxing Mode those are two different files -
+            // a video file and the file the subtitles came from - and reading the video's tracks with an
+            // index chosen from the other file's list burns in whichever track happens to sit at that
+            // position, or none at all.
+            AddBurnInFilters(filters, TrackList.current?.File, quiet);
 
             // Last of the geometry, and measured against what the scale leaves: the bars go around
             // the finished picture rather than being scaled along with it, since a scaler run over a
@@ -1255,10 +1282,12 @@ namespace Nmkoder.UI.Tasks
             return $"-filter_complex {Shell.WrapArg(filterChain)}";
         }
 
-        /// <summary> The burnt-in subtitle track's filter, if one is selected and this file has it. </summary>
+        /// <summary> The burnt-in subtitle track's filter, if one is selected and this file has it.
+        /// <paramref name="currFile"/> is the file the burn-in dropdown was filled from, which need not
+        /// be the one the video is read out of. </summary>
         private static void AddBurnInFilters(List<string> filters, MediaFile currFile, bool quiet)
         {
-            int subIndex = GetBurnInSubtitleIndex(currFile, quiet);
+            int subIndex = currFile == null ? -1 : GetBurnInSubtitleIndex(currFile, quiet);
 
             if (subIndex < 0)
                 return;

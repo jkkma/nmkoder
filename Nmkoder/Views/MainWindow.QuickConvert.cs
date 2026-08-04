@@ -66,7 +66,9 @@ namespace Nmkoder.Views
         /// </summary>
         private void ApplyEncQualityMode(bool useModeDefault)
         {
-            var mode = (QuickConvert.QualityMode)Math.Max(0, EncQualModeBox.SelectedIndex);
+            // Through the same accessor the encoder's own spinner range and the run itself read, so a
+            // fixed format is treated as CRF here too rather than as whatever its disabled box shows
+            var mode = QuickConvertUi.GetEffectiveQualityMode();
 
             if (mode == QuickConvert.QualityMode.TargetKbps)
             {
@@ -206,7 +208,11 @@ namespace Nmkoder.Views
             QuickConvertUi.UpdateResizeReadout();
         }
 
-        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            DeinterlaceUi.ModeBoxEdited(av1anTab: false); // Remembered, so a progressive file in a queue cannot take it away
+            DeinterlaceSetting_Changed();
+        }
         private void EncDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
         private void EncDeintRate_Changed(object sender, RoutedEventArgs e) => DeinterlaceSetting_Changed();
 

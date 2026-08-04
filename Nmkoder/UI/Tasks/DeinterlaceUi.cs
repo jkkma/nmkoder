@@ -114,9 +114,10 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static void ResetModes()
         {
-            int mode = Array.IndexOf(AllModes, DefaultMode);
-            Form.EncDeintModeBox.SelectedIndex = mode;
-            Form.Av1anDeintModeBox.SelectedIndex = mode;
+            // Forgotten as well as overwritten: a reset is a person asking for the default back, so
+            // there is no longer an earlier choice for a later interlaced file to reinstate.
+            pickedQuickConvertMode = pickedAv1anMode = null;
+            SetModeBoxes(DefaultMode, DefaultMode);
 
             // A reset is already a reset, so the preference gate inside does not apply here - what is
             // being asked for is the default, and the verdict decides what the default means for this
@@ -184,12 +185,77 @@ namespace Nmkoder.UI.Tasks
             if (file?.Interlacing == null)
                 return;
 
-            if (IsInterlaced(file) && !force && !ResetSettingsOnNewFile.ResetDeinterlace)
+            bool interlaced = IsInterlaced(file);
+
+            // An engine picked by hand is kept across an interlaced file where the reset is off - but it
+            // has to be *put back*, not merely left alone, because the clause below demotes it for every
+            // progressive file and this early return is what would then keep the demotion. A queue of
+            // tapes with one progressive file among them lost the engine picked for it there and ran
+            // every file after it on Automatic, which is the setting the whole queue was configured not
+            // to use.
+            if (interlaced && !force && !ResetSettingsOnNewFile.ResetDeinterlace)
+            {
+                SetModeBoxes(pickedQuickConvertMode, pickedAv1anMode);
+                return;
+            }
+
+            // Demoting a file that is not interlaced to Automatic happens whatever the settings say, and
+            // takes nothing away: Automatic does nothing to progressive video. Selecting DefaultMode for
+            // one that *is* is a preference, which is why it sits behind the reset above.
+            DeinterlaceMode mode = interlaced ? DefaultMode : DeinterlaceMode.Automatic;
+            SetModeBoxes(mode, mode);
+        }
+
+        /// <summary> The engine a person last chose in each tab's box, or null while nobody has. What
+        /// <see cref="ApplyScanVerdict"/> reinstates for an interlaced file after a progressive one in
+        /// the same queue demoted it. </summary>
+        private static DeinterlaceMode? pickedQuickConvertMode, pickedAv1anMode;
+
+        /// <summary> Set while this class writes the boxes, because their SelectionChanged fires for
+        /// those writes too - and without it every demotion to Automatic would be recorded as the
+        /// choice it is meant to be undoing. </summary>
+        private static bool writingModeBoxes;
+
+        /// <summary> Writes both tabs' mode boxes, leaving either alone for a null. </summary>
+        private static void SetModeBoxes(DeinterlaceMode? quickConvert, DeinterlaceMode? av1an)
+        {
+            try
+            {
+                writingModeBoxes = true;
+
+                if (quickConvert != null)
+                    Form.EncDeintModeBox.SelectedIndex = Array.IndexOf(AllModes, quickConvert.Value);
+
+                if (av1an != null)
+                    Form.Av1anDeintModeBox.SelectedIndex = Array.IndexOf(AllModes, av1an.Value);
+            }
+            finally
+            {
+                // In a finally for the reason Av1anUi's own write guard is: left stuck on, no hand pick
+                // would ever be recorded again.
+                writingModeBoxes = false;
+            }
+        }
+
+        /// <summary> Records a mode box being moved by a person, which is what the boxes' own
+        /// SelectionChanged handlers call. This class's own writes are not that - see
+        /// <see cref="writingModeBoxes"/>. </summary>
+        public static void ModeBoxEdited(bool av1anTab)
+        {
+            if (writingModeBoxes)
                 return;
 
-            int mode = Array.IndexOf(AllModes, IsInterlaced(file) ? DefaultMode : DeinterlaceMode.Automatic);
-            Form.EncDeintModeBox.SelectedIndex = mode;
-            Form.Av1anDeintModeBox.SelectedIndex = mode;
+            DeinterlaceMode mode = ModeOf(av1anTab ? Form.Av1anDeintModeBox : Form.EncDeintModeBox);
+
+            if (av1anTab)
+                pickedAv1anMode = mode;
+            else
+                pickedQuickConvertMode = mode;
+        }
+
+        private static DeinterlaceMode ModeOf(ComboBox box)
+        {
+            return AllModes[box.SelectedIndex.Clamp(0, AllModes.Length - 1)];
         }
 
         /// <summary>

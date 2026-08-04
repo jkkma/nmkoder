@@ -164,7 +164,11 @@ namespace Nmkoder.Views
             Av1anUi.RefreshResizeBox();
         }
 
-        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
+        private void Av1anDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            DeinterlaceUi.ModeBoxEdited(av1anTab: true); // Remembered, so a progressive file in a queue cannot take it away
+            Av1anDeinterlaceSetting_Changed();
+        }
         private void Av1anDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
         private void Av1anDeintRate_Changed(object sender, RoutedEventArgs e) => Av1anDeinterlaceSetting_Changed();
 

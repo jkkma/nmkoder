@@ -120,13 +120,11 @@ namespace Nmkoder.UI.Tasks
                     }
                 }
 
-                // The fixed formats have no rate control at all, and VidEncoderSelected disables the mode
-                // box for them - but a disabled box keeps whatever was last selected in it, so a Target
-                // Bitrate left over from H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG
-                // read a "q". Both fell back to their own default, so the palette size and the JPEG
-                // quality spinners did nothing whatsoever until the mode was put back to CRF.
-                bool crf = vCodec.IsFixedFormat
-                    || (QualityMode)Math.Max(0, Program.MainWin.EncQualModeBox.SelectedIndex) == QualityMode.Crf;
+                // Not read straight off the mode box: the fixed formats have no rate control and that box
+                // is disabled over whatever was last picked in it, so a Target Bitrate left over from
+                // H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG read a "q". Both fell
+                // back to their own default, so the palette size and the JPEG quality did nothing at all.
+                bool crf = GetEffectiveQualityMode(vCodec) == QualityMode.Crf;
                 bool twoPass = anyVideoStreams && vCodec.SupportsTwoPass && (vCodec.ForceTwoPass || !crf);
                 Dictionary<string, string> videoArgs = vCodec.DoesNotEncode ? new Dictionary<string, string>() : GetVideoArgsFromUi(!crf);
                 // What the scale boxes come out to, where that can be said - the tile count below is a
