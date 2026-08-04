@@ -899,6 +899,53 @@ became part of the filename, except that the surrounding shell happened to strip
 with no space in it. A path *with* one broke the command outright. `FormatUtils.GetFilterPath`
 single-quotes at ffmpeg's level and `GetVideoFilterArgs` wraps the whole graph at the shell's.
 
+**Those single quotes are consumed, not passed on, so the drive-letter colon still had to be escaped.**
+ffmpeg unescapes twice: the graph parser strips the quotes - which is what earns them, since a path full
+of spaces, commas, semicolons and square brackets survives that pass intact - and hands the bare string
+to the filter's *own* option parser, which splits it on `:`. So `subtitles='C:/Users/…/ep06.mkv':si=0`
+reached that second pass as `C:/Users/…`, took `C` for the filename and `/Users/…` for the next
+positional option, which for this filter is `original_size`. Every burn-in on Windows died on "Unable to
+parse original_size" fifty milliseconds in, whatever the path - a colon-free one does not exist there.
+A backslash inside the quotes is the one spelling that survives both passes, being literal to the first
+and an escape to the second. The comment in `GetFilterPath` used to assert the opposite, that inside
+quotes a colon is an ordinary character; it is ordinary to the parser that honours the quotes and not to
+the one that never saw them.
+
+That makes this Windows-only in practice but not in principle - a colon is a legal character in a Linux
+filename and broke it identically there, along with `=`, which the same pass reads as its key/value
+separator. The order of the replacements is load-bearing: the colon's escape has to be written after the
+backslashes have been turned into slashes, or it is turned into one itself.
+
+Measured end to end rather than reasoned out, and through the real code rather than a model of it - a
+throwaway console project compiling `Shell.cs` and `FormatUtils.cs` as they are, running each candidate
+through `WrapArg`, `BuildArguments`, .NET's argument parsing, sh and ffmpeg. 16 path shapes: the reported
+one, spaces, `$`, backticks, `%`, `&`, `!`, `;`, `,`, `=`, square brackets, a double quote, two colons,
+and two colon-free paths to catch a regression. 14 of the 16 failed before and none after. The check is
+that the frames *differ from the same chain with no burn-in in it*, because an exit code of 0 only proves
+ffmpeg ran - `File.Exists` is not a test of whether ffmpeg wrote something, and neither is this.
+
+`Paths.GetVmafPath(true)` is the same helper's other caller, feeding `libvmaf=`, and the colon broke it
+the same way and is fixed by the same line. `--vmaf-path` on the AV1AN tab is av1an's own flag rather
+than a filter option and takes the unescaped form, which is why that call passes `false`.
+
+**That caller had a second Windows fault behind the first, and it is the one the burn-in's own history
+warns about: ffmpeg's quotes are not the shell's.** `UtilGetMetrics`' `Comparison.Graph` closed its
+double quotes *before* the metric filter and left the caller to append it, so the model path sat outside
+them - protected only by the single quotes `GetFilterPath` adds, which are ffmpeg's own and mean nothing
+to `CommandLineToArgvW`. The comment there conceded the whole bug while calling it safe: the halves
+"join into one argument regardless, having no whitespace between them". The model sits in the app's own
+`bin/`, so an install under `C:\Program Files\...` is exactly the whitespace it assumed away, and the
+argument split in two. `Graph` takes the metric filter as a parameter now and wraps the lot with
+`Shell.WrapArg`, so there is no longer an outside to append to.
+
+Measured the same way, and the layer decides which string you may ask: the split is a Windows question,
+so it is asked of `WrapArg`'s *Windows* branch, through .NET's own `Arguments`-to-argv parser, which
+follows the same convention as `CommandLineToArgvW`. Asking it of the Linux encoding says "split" for
+both shapes and means nothing - single quotes are not something that parser has ever honoured. Before:
+two arguments for a path with a space, one without. After: one either way. The Linux side is a
+no-regression check rather than a fix, sh having honoured those quotes all along - all three metrics run,
+`ssim=stats_file=` standing in for the model path, this ffmpeg having no libvmaf in it.
+
 **An apostrophe in that path is refused before the run rather than escaped.** ffmpeg's own quoting for
 one - `'it'\''s'` - does not survive the second unescaping its filter's option parser makes, and neither
 does any other spelling: what comes back is a complaint about a filename with the apostrophe missing and

@@ -8,6 +8,7 @@ using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.Media;
+using Nmkoder.OS;
 using static Nmkoder.Media.AvProcess;
 
 namespace Nmkoder.UI.Tasks
@@ -48,7 +49,7 @@ namespace Nmkoder.UI.Tasks
                     Logger.Log("Calculating VMAF...");
                     string vmafPath = Paths.GetVmafPath(true, GetVmafModel());
                     string vmafFilter = $"libvmaf={vmafPath}:n_threads={Environment.ProcessorCount}:n_subsample={subsample}";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph()}{vmafFilter} -f null -";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(vmafFilter)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> vmafLines = output.SplitIntoLines().Where(x => x.Contains("VMAF score: ")).ToList();
@@ -71,7 +72,7 @@ namespace Nmkoder.UI.Tasks
                 {
                     Logger.Log("Calculating SSIM...");
                     string select = subsample > 1 ? $"select=not(mod(n-1\\,{subsample}))" : "";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(select)}ssim -f null -";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph("ssim", select)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> ssimLines = output.SplitIntoLines().Where(x => x.Contains("] SSIM ")).ToList();
@@ -94,7 +95,7 @@ namespace Nmkoder.UI.Tasks
                 {
                     Logger.Log("Calculating PSNR...");
                     string select = subsample > 1 ? $"select=not(mod(n-1\\,{subsample}))" : "";
-                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(select)}psnr -f null -";
+                    string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph("psnr", select)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
                     List<string> psnrLines = output.SplitIntoLines().Where(x => x.Contains("] PSNR ")).ToList();
@@ -143,23 +144,30 @@ namespace Nmkoder.UI.Tasks
             public Size RefSize;
 
             /// <summary>
-            /// Everything up to the metric filter, which the caller appends: two labelled chains and
-            /// then the pair of labels the metric reads, the encode first and the reference second.
-            /// That order is the one an unfiltered comparison binds in - ffmpeg attaches the unused
-            /// inputs to the metric filter in the order they were opened - and it is worth keeping,
-            /// because VMAF is not symmetric and scores differently with its inputs the other way up.
+            /// The whole -filter_complex value: two labelled chains, then the pair of labels the
+            /// metric reads, the encode first and the reference second. That order is the one an
+            /// unfiltered comparison binds in - ffmpeg attaches the unused inputs to the metric filter
+            /// in the order they were opened - and it is worth keeping, because VMAF is not symmetric
+            /// and scores differently with its inputs the other way up.
             /// <para/>
-            /// Quoted, because the chains are separated by semicolons and this command line is handed
-            /// to a shell, which reads an unquoted ';' as the end of the command. The metric filter is
-            /// left outside the quotes: libvmaf's model path carries quoting of its own, and the two
-            /// halves join into one argument regardless, having no whitespace between them.
+            /// Wrapped as one argument, because the chains are separated by semicolons and this command
+            /// line is handed to a shell, which reads an unquoted ';' as the end of the command.
+            /// <para/>
+            /// The metric filter is taken as a parameter rather than appended by the caller, because
+            /// appending is what it used to do and the quotes ended before it: libvmaf's model path is
+            /// quoted at ffmpeg's level, which the *shell* does not honour, so the halves joined into
+            /// one argument only while nothing after the closing quote held a space. The model sits in
+            /// the app's own bin folder, so an install under "C:\Program Files\..." split the argument
+            /// in two and failed the run. Through Shell.WrapArg rather than a pair of double quotes,
+            /// for the reasons GetVideoFilterArgs gives.
             /// </summary>
+            /// <param name="metric"> The metric filter the two labels feed - libvmaf, ssim or psnr. </param>
             /// <param name="perInput"> A filter to append to both chains alike - the frame selection
             /// SSIM and PSNR subsample with, which has to drop the same frames on both sides or it
             /// would compare each surviving frame against whatever the other input still had. </param>
-            public string Graph(string perInput = "")
+            public string Graph(string metric, string perInput = "")
             {
-                return $"\"[0:v]{Chain(EncFilters, perInput)}[enc];[1:v]{Chain(RefFilters, perInput)}[ref];[enc][ref]\"";
+                return Shell.WrapArg($"[0:v]{Chain(EncFilters, perInput)}[enc];[1:v]{Chain(RefFilters, perInput)}[ref];[enc][ref]{metric}");
             }
 
             /// <summary> A link with no filters in it is a syntax error, so an untouched input gets 'null'. </summary>

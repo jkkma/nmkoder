@@ -212,17 +212,30 @@ namespace Nmkoder.Utils
         /// again for a path with no space in it. A path *with* one broke the command outright, the
         /// unquoted middle of it being read as another argument.
         /// <para/>
-        /// Forward slashes on Windows too, and no escaping of the drive-letter colon: inside quotes it
-        /// is an ordinary character, and the backslashes that used to escape it would now be literal.
+        /// Forward slashes on Windows, and the drive-letter colon escaped, because the quotes above are
+        /// consumed by the graph parser rather than passed on: ffmpeg unescapes twice, and the second
+        /// pass - the filter's own option parser, splitting on ':' - sees a bare string. So "C:/x.mkv"
+        /// reached it as the filename "C" followed by "/x.mkv" as the *next* positional option, which
+        /// for "subtitles=" is original_size, and every burn-in on Windows died on "Unable to parse
+        /// original_size". A backslash inside the quotes is literal to the first pass and an escape to
+        /// the second, which is the one spelling that survives both. That makes this Windows-only in
+        /// practice, though a colon is a legal character in a Linux filename and broke it there too.
         /// <para/>
         /// An apostrophe in the path is not solvable here and is refused before the run instead - see
         /// QuickConvertUi.GetBurnInProblem. It is quoted the way ffmpeg documents ('it'\''s'), and
         /// measured against ffmpeg 6.1 and the bundled build alike that does not survive the second
         /// unescaping pass the filter's own option parser makes; neither does any other spelling tried.
+        /// <para/>
+        /// The replacements are ordered: the colon's escape must be written after the backslashes have
+        /// been turned into slashes, or it would be turned into one itself.
+        /// <para/>
+        /// Measured, not reasoned out - end to end through Shell.WrapArg, Shell.BuildArguments, .NET's
+        /// argument parsing, sh and ffmpeg, over paths carrying spaces, $, backticks, %, &amp;, !, ';',
+        /// ',', '=', square brackets and a double quote.
         /// </summary>
         public static string GetFilterPath(string path)
         {
-            return $"'{path.Replace(@"\", @"/").Replace("'", @"'\''")}'";
+            return $"'{path.Replace(@"\", @"/").Replace(":", @"\:").Replace("'", @"'\''")}'";
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)
