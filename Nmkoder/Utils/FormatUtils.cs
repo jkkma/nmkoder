@@ -226,16 +226,25 @@ namespace Nmkoder.Utils
         /// measured against ffmpeg 6.1 and the bundled build alike that does not survive the second
         /// unescaping pass the filter's own option parser makes; neither does any other spelling tried.
         /// <para/>
-        /// The replacements are ordered: the colon's escape must be written after the backslashes have
-        /// been turned into slashes, or it would be turned into one itself.
+        /// '=' is escaped for the same reason and is a separate character: that second pass splits a
+        /// key from its value on '=' before it splits options on ':', so a path holding one - a folder
+        /// called "Season=1", a file called "Movie=Extended.mkv" - came back as "Option not found"
+        /// naming everything up to it. It survived a spot check only because an *earlier* colon or
+        /// space in the same path changes where that scan starts, which is why a Windows path, always
+        /// carrying a drive colon, hid this one while every colon-free path met it.
+        /// <para/>
+        /// <para/>
+        /// The replacements are ordered: the escapes must be written after the backslashes have been
+        /// turned into slashes, or their own backslashes would be turned into slashes too.
         /// <para/>
         /// Measured, not reasoned out - end to end through Shell.WrapArg, Shell.BuildArguments, .NET's
-        /// argument parsing, sh and ffmpeg, over paths carrying spaces, $, backticks, %, &amp;, !, ';',
-        /// ',', '=', square brackets and a double quote.
+        /// argument parsing, sh and ffmpeg, against both ffmpeg 6.1 and a current BtbN master build,
+        /// over paths carrying spaces, $, backticks, %, &amp;, !, ';', ',', '=', square brackets and a
+        /// double quote, checked by the frames differing from the same chain with no burn-in in it.
         /// </summary>
         public static string GetFilterPath(string path)
         {
-            return $"'{path.Replace(@"\", @"/").Replace(":", @"\:").Replace("'", @"'\''")}'";
+            return $"'{path.Replace(@"\", @"/").Replace(":", @"\:").Replace("=", @"\=").Replace("'", @"'\''")}'";
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)

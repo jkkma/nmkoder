@@ -9,6 +9,7 @@ using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.Media;
 using Nmkoder.OS;
+using Nmkoder.Utils;
 using static Nmkoder.Media.AvProcess;
 
 namespace Nmkoder.UI.Tasks
@@ -47,8 +48,48 @@ namespace Nmkoder.UI.Tasks
                 if (runVmaf)
                 {
                     Logger.Log("Calculating VMAF...");
-                    string vmafPath = Paths.GetVmafPath(true, GetVmafModel());
-                    string vmafFilter = $"libvmaf={vmafPath}:n_threads={Environment.ProcessorCount}:n_subsample={subsample}";
+                    // The model is named, not passed positionally. libvmaf's first positional option
+                    // is log_path - there is no model_path on it any more - so a bare path here did
+                    // not select a model at all: it named the file the run's XML log is written to,
+                    // and the app pointed that at bin/vmaf_v0.6.1.json. Every metrics run overwrote
+                    // the bundled model with its own log, then scored against libvmaf's built-in
+                    // default, which is why the dialog's model dropdown never changed a number and
+                    // why nothing here noticed - the "VMAF score: " line is printed either way.
+                    // Measured against a current BtbN master build: the model file went from 19101
+                    // bytes of JSON to 6438 of <VMAF version=...>, and picking the 4k model now moves
+                    // the score (87.018811 -> 92.154843) where before it did nothing.
+                    //
+                    // A Windows drive colon used to split this value before it could do any harm, so
+                    // this was a Linux and macOS fault until the colon started surviving the trip.
+                    // Av1an.cs hands the same file to av1an's --vmaf-path, so one metrics run left
+                    // target-quality encodes pointing at an XML file.
+                    //
+                    // The model is named by version rather than by file, and that is not a shortcut -
+                    // it is the only spelling that works on Windows. 'model' takes a key=value spec
+                    // parsed by libvmaf itself, a third parser under ffmpeg's two, and that one splits
+                    // its pairs on ':' with no escape this side of it that survives: "path=C:/..."
+                    // comes back as "could not parse model config" however the colon is written, and
+                    // a drive letter is not optional on Windows. The three models the dropdown offers
+                    // are all compiled into libvmaf, so naming the version asks for the same thing
+                    // without a path in the command at all.
+                    //
+                    // Measured against a current BtbN master build, scoring the same clip pair:
+                    // vmaf_v0.6.1 87.018811, vmaf_v0.6.1neg 85.072420, vmaf_4k_v0.6.1 92.154843 - and
+                    // the first two match what loading the bundled .json by path produces, where a
+                    // path can be loaded at all. The '=' inside the spec still has to be escaped past
+                    // ffmpeg's own option parser.
+                    //
+                    // GetVmafModel returns "" for an index the list does not have, and an empty
+                    // 'model' is not the default but an error, so it is left off entirely instead.
+                    string vmafModel = GetVmafModel();
+                    List<string> vmafOpts = new List<string>();
+
+                    if (vmafModel.IsNotEmpty())
+                        vmafOpts.Add($"model='version\\={vmafModel}'");
+
+                    vmafOpts.Add($"n_threads={Environment.ProcessorCount}");
+                    vmafOpts.Add($"n_subsample={subsample}");
+                    string vmafFilter = $"libvmaf={string.Join(":", vmafOpts)}";
                     string args = $"{r} {vidLq.GetFfmpegInputArg()} {r} {vidHq.GetFfmpegInputArg()} -filter_complex {cmp.Graph(vmafFilter)} -f null -";
                     FfmpegSettings settings = new FfmpegSettings() { Args = args, LoggingMode = LogMode.OnlyLastLine, LogLevel = "info", ReliableOutput = true, ProgressBar = true };
                     string output = await RunFfmpeg(settings);
