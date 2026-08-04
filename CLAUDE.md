@@ -266,6 +266,64 @@ methods. That is deliberate: the JIT resolves types when it compiles a method,
 so an inlined call would throw on a machine with a broken App SDK while
 compiling the *caller*, outside the `try` that is meant to catch it.
 
+## Reading what the tools print
+
+**ffmpeg's stats line is not a stable format, and two parts of it have already
+moved.** The key is `size=` while muxing and `Lsize=` on the final line of a run
+that has a frame counter, and the unit was spelled `kB` for years and is `KiB`
+now - both meaning the same 1024 bytes. `FfmpegUtils.GetStreamSizeBytes` was
+written as `Split("size= ")[1].Split("kB")[0]`, and the failure is quieter than
+"it did not match": `Lsize=` still *contains* `size= `, so the first split
+happened and handed on the rest of the line, and only the `kB` split came back
+empty-handed. What reached `GetInt` was therefore the whole tail - `235KiB
+time=00:00:05.93 bitrate=…` - which strips to a digit string far past `int`'s
+range, so `TryParse` fails and it returns its fallback of 0. Every stream in the
+bitrate readout reported `Size: 0B (0.0%)`, and every total with it, from
+whenever the bundled ffmpeg crossed that rename. The *bitrate* on the same line
+kept parsing perfectly, which is most of why nobody caught it: the readout looked
+like a file full of empty tracks rather than like a broken parse. Match the shape
+of the line, not one spelling of it.
+
+`bundle-tools.sh` takes BtbN's `master-latest`, so the ffmpeg underneath this app
+moves continuously and a format it prints today is not a promise about next
+month. What it prints *now* was read out of the binary's own strings rather than
+guessed: exactly one size format, `size=%8.0fKiB time=`, and one bitrate format,
+`bitrate=%6.1fkbits/s`. A 1.9 GB stream still printed KiB, so the larger prefixes
+in the regexes are defensive rather than something you can produce. They are not
+scaled alike, which is the part to be careful with: a size is binary, matching
+its KiB/MiB spelling, while a bitrate is ffmpeg's own division by 1000 and so
+decimal.
+
+`Lsize=` never *starts* a line - it only appears after `frame=`, and an audio-only
+run's final line begins `size=`. Measured across a video stream copy, an audio
+stream copy and an audio encode, which is why `FfmpegOutputHandler`'s gate on
+`frame=`/`size=` covers both and does not need widening. That one looks like a
+gap and is not.
+
+**`File.Exists` is not a test of whether ffmpeg wrote something.** It creates the
+output file before it writes the header, so a codec the container refuses leaves
+a stub behind and the check passes - measured at 291 bytes for `-map 0:s -c copy`
+out of a mov_text MP4 into Matroska, a file ffprobe answers "End of file" to.
+`OcrUtils` used exactly that check as its guard against exactly that case, and it
+had never once fired. Count the streams in the result instead, and ask
+**uncached**: `GetVideoInfo`'s cache is keyed on path, size and command with no
+timestamp in it, which a temp file at a fixed path rewritten every run defeats.
+
+**MKVToolNix is bundled for win-x64 alone**, so mkvmerge, mkvextract and mkvinfo
+are routinely absent on Linux and macOS - and a missing binary is not a failure
+any caller here can see. The command goes through a shell, which writes "command
+not found" to a stream nothing reads and exits, so the caller finds out only by
+noticing the file it wanted was never written, and then reports whatever it has
+to say about *that*. Concat announced "Could not find file" naming a temp path
+the user had never heard of; av1an's attachment step deleted the encoded
+`audio.mkv` before checking mkvmerge had written its replacement, so every Linux
+and macOS encode with an MKV output finished silently without sound.
+`AvProcess.IsToolAvailable` is the question to ask first. It searches the PATH the
+tool will be *launched* with rather than this process's own, because
+`OsUtils.SetPathVar` keeps only `bin/` and `C:\Windows` on Windows - checking the
+full PATH would vouch for an mkvmerge in Program Files that the launcher then
+cannot resolve, which is the same mystery under a new name.
+
 ## The AV1AN tab
 
 `bundle-tools.sh` fetches av1an's latest *release*. Anything that depends on an
@@ -295,6 +353,38 @@ a value carried only to make them half-work there is a no-op on every build they
 for. `enable-qm` was one and has been removed. Do not add one back. (Mainline defaults
 `--enable-qm` and variance boost *off* where the PSY line has them on, so on mainline some
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
+
+**Colour goes to these encoders by name, and no two of them spell it alike.**
+`ColorDataUtils` holds the values as H.273 integers and hands SVT-AV1 and x265 exactly that,
+but aomenc and x264 want names - and their lists differ from each other *and* from the one
+this file's own `Get*String` functions emit. aomenc refuses a name it does not know outright,
+printing its usage text and encoding nothing, so one wrong spelling kills every chunk of the
+run rather than being ignored the way an unknown integer would be.
+
+`FormatForAom` rewrote two names and was wrong for **eleven of the thirty-two** the app can
+emit: `gamma22`, `gamma28`, `linear`, `smpte240m`, `iec61966-2-4`, `fcc`, `smpte428` and the
+rest are all ordinary tags a real file carries, and every one of them failed an aom encode
+outright. Three per-kind tables replace it, mirroring the x264 trio beside them. Each entry
+was read out of `aomenc --help` and *then* confirmed by passing it to the binary - including
+the names that pass straight through - because what a tool documents and what it accepts are
+two questions, and this file's whole history with av1an says to ask the second one.
+
+**ffprobe's printed names are a fourth vocabulary**, and reading them with this file's own is
+what made HLG unreadable. It prints `arib-std-b67` where these tables say `bt2100`,
+`iec61966-2-1` against `srgb`, `smpte170m` against `bt601` for primaries, and `bt2020c`
+against `bt2020` for matrix. All four came back as 2, Unspecified - and the Color Data utility
+then *muxed that 2 in*, writing "unspecified" over a tag that was already there, which is
+worse than failing to read it. Round-tripping through the file's own names is clean, which is
+exactly why this looked right in isolation. The vocabulary was established by tagging a file
+with every value in turn and probing it back out of the bundled ffprobe; do that again rather
+than trusting either list from memory.
+
+**Two of ffprobe's values are read as Unspecified on purpose**, because SVT-AV1 and x265 are
+handed these numbers raw: `gbr`, which it prints for an RGB pixel format that every encode
+here converts away from before writing a frame, so signalling Identity would describe planes
+that no longer exist; and `ebu3213`, which x265 refuses as `--colorprim 22` ("Color Primaries
+must be unknown, bt709, … smpte-eg-432") and fails the encode over. Neither has a name in the
+string tables either, so aomenc and x264 are given nothing and lose nothing. Do not add them.
 
 **av1an's target quality probes never see the `-f` filters.** `Encoder::probe_cmd` composes the
 probe's ffmpeg pipe out of nothing but the probing-rate `select`, and the chunk's own source
