@@ -7,6 +7,7 @@ using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.Media;
+using Nmkoder.OS;
 using Nmkoder.Utils;
 using Nmkoder.Views;
 using System;
@@ -167,16 +168,20 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> The frame the scale filter is handed, as far as it can be known without running
-        /// anything: the source, less a manual crop. </summary>
+        /// anything: the source, less a manual crop, rounded up the way the mod-2 pad in the chain
+        /// rounds it - so the readout, the border check and the filters all measure the same frame.
+        /// A crop's own result is already even, so that last step only reaches an odd source. </summary>
         private static Size GetCroppedSourceSize(VideoStream vs)
         {
+            Size size = vs.Resolution;
+
             if (Form.EncCropModeBox.GetText().ToLower().Contains("manual") && CurrentCrop != null
                 && CurrentCrop.IsSet && CurrentCrop.FitsInside(vs.Resolution))
             {
-                return CurrentCrop.GetCroppedSize(vs.Resolution);
+                size = CurrentCrop.GetCroppedSize(vs.Resolution);
             }
 
-            return vs.Resolution;
+            return new Size(size.Width + (size.Width % 2), size.Height + (size.Height % 2));
         }
 
         public static void RefreshFileListRelatedOptions()
@@ -274,18 +279,54 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// Where this encode's output goes, with nothing created on the way: the file itself for an
+        /// ordinary encode, and the folder for an image sequence.
+        /// <para/>
+        /// The extension comes from the container box, except for the three formats that write one of
+        /// their own. GIF, JPEG and PNG hide that box and keep whatever was last selected in it, so
+        /// taking its extension anyway named an animated GIF "clip.mkv" - a file no player opens by
+        /// double-clicking and no other tool recognises. The sequence encoders were already excused
+        /// from it; GIF, which writes a single file, was not.
+        /// </summary>
+        public static string GetOutputPath(IEncoder vCodec)
+        {
+            if (!vCodec.IsFixedFormat)
+                return UiData.GetOutPath();
+
+            string basePath = UiData.GetOutPath(includeExtension: false);
+            return vCodec.IsSequence ? basePath : $"{basePath}.{GetFixedFormatExtension()}";
+        }
+
+        /// <summary> "gif", "jpeg", "png" - the format's own name, read off the codec dropdown's entry. </summary>
+        public static string GetFixedFormatExtension()
+        {
+            return Form.EncVidCodecsBox.GetText().Split(' ')[0].ToLower();
+        }
+
+        /// <summary>
         /// Steps the output filename aside when something is already there, rather than letting ffmpeg
         /// overwrite it - it is always run with -y. Only does anything once RunningTask is set, since
         /// that is what makes UiData.GetOutPath resolve to a real path.
+        /// <para/>
+        /// Asked about the path the encode will actually write, which for the fixed formats is not the
+        /// one the container box describes - a GIF was checked against a name ending in ".mkv", so the
+        /// file it was about to overwrite was never the one it looked at.
         /// </summary>
         public static void ValidatePath()
         {
-            if (TrackList.current == null || !File.Exists(UiData.GetOutPath()))
+            if (TrackList.current == null)
                 return;
 
-            string taken = UiData.GetOutPath();
-            Form.FfmpegOutputBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(taken), null);
-            Logger.Log($"'{Path.GetFileName(taken)}' already exists - saving as '{Path.GetFileName(UiData.GetOutPath())}' instead.");
+            IEncoder vCodec = CodecUtils.GetCodec(GetCurrentCodecV());
+            string taken = GetOutputPath(vCodec);
+
+            if (taken.IsEmpty() || !File.Exists(taken))
+                return;
+
+            string free = IoUtils.GetAvailableFilename(taken);
+            // The box holds the path without the extension, which is added back on the way out
+            Form.FfmpegOutputBox.Text = vCodec.IsSequence ? free : Path.ChangeExtension(free, null);
+            Logger.Log($"'{Path.GetFileName(taken)}' already exists - saving as '{Path.GetFileName(GetOutputPath(vCodec))}' instead.");
         }
 
         #region Get Current Codec
@@ -464,7 +505,13 @@ namespace Nmkoder.UI.Tasks
         public static string GetMetadataArgs()
         {
             SaveMetadata();
-            List<StreamListEntry> checkedEntries = TrackList.CheckedItems.ToList();
+            // The tracks that reach the output, not the ticked ones: every index below names an output
+            // stream, and a container that cannot hold the data or attachment tracks has them dropped
+            // from the maps. Counting the ticked tracks instead put every title and language after such
+            // a track onto the wrong one - a font attachment ahead of the audio in a Matroska source
+            // being the way in - while the last index of all matched no stream and was ignored in
+            // silence, which is why this looked like it worked.
+            List<StreamListEntry> checkedEntries = TrackList.GetMappedStreams();
 
             int metaFileIndex = (Form.EncMetaCopySource.SelectedIndex - 1).Clamp(-1, int.MaxValue);
             int chapFileIndex = (Form.EncMetaChapterSource.SelectedIndex - 1).Clamp(-1, int.MaxValue);
@@ -805,6 +852,13 @@ namespace Nmkoder.UI.Tasks
             if (vs == null || CurrentCrop == null || !CurrentCrop.IsSet || !Form.EncCropModeBox.GetText().ToLower().Contains("manual"))
                 return "";
 
+            // A stream copy builds no filter chain, so there is no crop to be impossible - and the
+            // dropdown is disabled for one, which makes a rectangle left over from another codec a
+            // setting the user cannot currently reach. Refusing the run over it is a trap, and the
+            // border check beside this one has excused it since it was written.
+            if (CodecUtils.GetCodec(GetCurrentCodecV()).DoesNotEncode)
+                return "";
+
             return CurrentCrop.GetProblem(vs.Resolution);
         }
 
@@ -879,9 +933,6 @@ namespace Nmkoder.UI.Tasks
             if (deinterlace.IsNotEmpty())
                 filters.Add(deinterlace);
 
-            if (codecArgs != null && codecArgs.ForcedFilters != null)
-                filters.AddRange(codecArgs.ForcedFilters);
-
             VideoStream vs = currFile.VideoStreams.First();
             Fraction fps = GetUiFps();
             // What the frames actually arrive at, which a bob has already doubled. Compared against
@@ -910,37 +961,6 @@ namespace Nmkoder.UI.Tasks
                     $"Frames are duplicated or dropped to fit; the running time stays the same.", quiet);
             }
 
-            int subIndex = GetBurnInSubtitleIndex(currFile, quiet); // Check Filter: Subtitle Burn-In
-
-            if (subIndex >= 0)
-            {
-                bool bitmapSubs = currFile.SubtitleStreams[subIndex].Bitmap;
-
-                if (bitmapSubs)
-                {
-                    // Read as a filtergraph input, so it has to name where the file sits among the '-i'
-                    // arguments rather than assuming it is the first of them. Being an input of its own
-                    // it is seeked along with the video, so it needs no timestamp correction.
-                    filters.Add($"[{GetInputFileIndex(currFile)}:s:{subIndex}]overlay=shortest=1");
-                }
-                else
-                {
-                    string subFilePath = FormatUtils.GetFilterPath(currFile.ImportPath);
-                    string burnIn = $"subtitles={subFilePath}:si={subIndex}";
-
-                    // This filter re-reads the source and picks its lines by frame timestamp. Seeking
-                    // the input restarts those timestamps at zero, so left alone it renders from the
-                    // top of the file: the wrong lines, or past the last cue no lines at all. Put the
-                    // frames back on the source's clock to render, then take them off again.
-                    float seekOffset = GetInputSeekOffsetSecs();
-
-                    if (seekOffset > 0f)
-                        burnIn = $"setpts=PTS+{seekOffset.ToStringDot()}/TB,{burnIn},setpts=PTS-{seekOffset.ToStringDot()}/TB";
-
-                    filters.Add(burnIn);
-                }
-            }
-
             string scaleW = (Form.EncScaleBoxW.Text ?? "").Trim().ToLower();
             string scaleH = (Form.EncScaleBoxH.Text ?? "").Trim().ToLower();
             string cropMode = Form.EncCropModeBox.GetText().ToLower();
@@ -967,7 +987,15 @@ namespace Nmkoder.UI.Tasks
             // the frame the file has, so padding first moves the picture out from under it - and an odd
             // rectangle taken out of a padded frame is odd again, which is what the pad exists to stop.
             if ((scaleInput.Width % 2 != 0) || (scaleInput.Height % 2 != 0)) // Check Filter: Pad for mod2
+            {
                 filters.Add(FfmpegUtils.GetPadFilter(2));
+                // What leaves the pad, not what went into it. Everything measured from here down - the
+                // side a lone scale box derives, and the bars the borders add - is measured against the
+                // frame that actually arrives, and this one grew by a pixel. An odd source with borders
+                // on had them worked out from the odd size, so the pad they asked for came to an odd
+                // frame that no encoder here accepts.
+                scaleInput = new Size(scaleInput.Width + (scaleInput.Width % 2), scaleInput.Height + (scaleInput.Height % 2));
+            }
 
             if (!string.IsNullOrWhiteSpace(scaleW) || !string.IsNullOrWhiteSpace(scaleH)) // Check Filter: Scale
             {
@@ -995,6 +1023,14 @@ namespace Nmkoder.UI.Tasks
                 filters.Add(MiscUtils.GetScaleFilter(scaleW, scaleH));
             }
 
+            // After the crop and the scale, and before the bars. It used to run ahead of all three, and
+            // each of those was wrong in its own way: a crop taking black bars off took the subtitles
+            // sitting in them with it, an anamorphic source had its text de-squeezed along with the
+            // picture and came out stretched, and a downscale rendered the lines at the source's size
+            // and then shrank them, which is softer than rendering them at the size they end up. Ahead
+            // of the borders rather than after, so the lines stay inside the picture.
+            AddBurnInFilters(filters, currFile, quiet);
+
             // Last of the geometry, and measured against what the scale leaves: the bars go around
             // the finished picture rather than being scaled along with it, since a scaler run over a
             // hard black edge rings and the bars would come out neither black nor straight-edged.
@@ -1018,12 +1054,20 @@ namespace Nmkoder.UI.Tasks
 
             filters.AddRange(GetCustomFilters());
 
+            // Last of everything, because the one encoder that has any is GIF, whose forced filters are
+            // its whole palettegen/paletteuse graph - and a palette describes the frames it is generated
+            // from. Run first, which is where these used to go, it quantised the source and then let the
+            // scale, the crop and the burnt-in subtitles work on the paletted result, which the GIF muxer
+            // then re-quantised with a palette of its own.
+            if (codecArgs != null && codecArgs.ForcedFilters != null)
+                filters.AddRange(codecArgs.ForcedFilters);
+
             filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
 
             if (filters.Count < 1)
                 return "";
 
-            string mapArgs = await TrackList.GetMapArgs(vCodec, true, false, false);
+            string mapArgs = TrackList.GetMapArgs(true, false, false);
             string[] mapSplit = mapArgs.Split("-map ");
 
             if (mapSplit.Length < 2)
@@ -1047,7 +1091,73 @@ namespace Nmkoder.UI.Tasks
             // refused - and the rest was run as a command of its own. Any two filters at once did it,
             // a crop with a scale among them. cmd does not split on ';', so this only ever showed on
             // Linux and macOS.
-            return $"-filter_complex \"{filterChain}\"";
+            //
+            // Through WrapArg rather than a pair of double quotes, which stop sh splitting the graph
+            // but not sh *rewriting* it: a burnt-in subtitle names the source file inside the chain, so
+            // a '$' or a backtick anywhere in that path was expanded, and the second of those ran what
+            // was between them. Single quotes leave the graph alone, and every filter path inside it is
+            // quoted again at ffmpeg's own level by FormatUtils.GetFilterPath.
+            return $"-filter_complex {Shell.WrapArg(filterChain)}";
+        }
+
+        /// <summary> The burnt-in subtitle track's filter, if one is selected and this file has it. </summary>
+        private static void AddBurnInFilters(List<string> filters, MediaFile currFile, bool quiet)
+        {
+            int subIndex = GetBurnInSubtitleIndex(currFile, quiet);
+
+            if (subIndex < 0)
+                return;
+
+            if (currFile.SubtitleStreams[subIndex].Bitmap)
+            {
+                // Read as a filtergraph input, so it has to name where the file sits among the '-i'
+                // arguments rather than assuming it is the first of them. Being an input of its own
+                // it is seeked along with the video, so it needs no timestamp correction.
+                filters.Add($"[{GetInputFileIndex(currFile)}:s:{subIndex}]overlay=shortest=1");
+                return;
+            }
+
+            string burnIn = $"subtitles={FormatUtils.GetFilterPath(currFile.ImportPath)}:si={subIndex}";
+
+            // This filter re-reads the source and picks its lines by frame timestamp. Seeking
+            // the input restarts those timestamps at zero, so left alone it renders from the
+            // top of the file: the wrong lines, or past the last cue no lines at all. Put the
+            // frames back on the source's clock to render, then take them off again.
+            float seekOffset = GetInputSeekOffsetSecs();
+
+            if (seekOffset > 0f)
+                burnIn = $"setpts=PTS+{seekOffset.ToStringDot()}/TB,{burnIn},setpts=PTS-{seekOffset.ToStringDot()}/TB";
+
+            filters.Add(burnIn);
+        }
+
+        /// <summary>
+        /// Why the selected subtitle track cannot be burnt in, or "" when it can - asked by
+        /// <see cref="QuickConvert.Run"/> alongside the crop and border checks.
+        /// <para/>
+        /// One thing can go wrong that no amount of escaping here fixes: the "subtitles" filter is given
+        /// the source's path inside the filtergraph, and an apostrophe in it does not survive. ffmpeg's
+        /// own quoting for one - closing the quoted run, escaping, reopening - is undone twice on the way
+        /// to the filter's option parser and comes back as neither the path nor an error about it: what
+        /// ffmpeg reports is that it cannot open a filename with the apostrophe missing and ":si=0" stuck
+        /// on the end. Measured against every spelling of it, quoted and unquoted alike.
+        /// <para/>
+        /// So it is said here instead, where the file and the setting can both be named, and where it
+        /// costs nothing - the alternative is ffmpeg failing a second into the run over a path the user
+        /// has to work out for themselves. Bitmap tracks are unaffected: they are a filtergraph input
+        /// mapped by stream index, with no filename in the graph at all.
+        /// </summary>
+        public static string GetBurnInProblem()
+        {
+            MediaFile file = TrackList.current?.File;
+            int subIndex = file == null ? -1 : GetBurnInSubtitleIndex(file, quiet: true);
+
+            if (subIndex < 0 || file.SubtitleStreams[subIndex].Bitmap || !file.ImportPath.Contains('\''))
+                return "";
+
+            return $"the subtitles are burnt in by re-reading '{file.Name}', and FFmpeg cannot be given a path with " +
+                $"an apostrophe in it inside a filter - so the burn-in would fail as soon as the encode started.\n\n" +
+                $"Rename the file without the apostrophe, or set Burn Subtitles back to \"Disabled\".";
         }
 
         private static List<string> GetCustomFilters()

@@ -348,14 +348,21 @@ namespace Nmkoder.UI
             }
         }
 
-        public static string GetInputFilesString()
+        /// <param name="perInput"> Arguments to repeat in front of every '-i' - for the options ffmpeg
+        /// reads as belonging to the input that follows them rather than to the command. The keyframe
+        /// trim's own "-ss" is the only one there is, and putting it once at the head of the command
+        /// applied it to the first input alone: in Muxing Mode that is one file among several, so the
+        /// video started a minute in while every other file's tracks started from the top. </param>
+        public static string GetInputFilesString(string perInput = "")
         {
+            string prefix = perInput.IsEmpty() ? "" : $"{perInput.Trim()} ";
+
             if (RunTask.currentFileListMode == RunTask.FileListMode.Batch)
             {
                 if (current.File.IsDirectory)
-                    return $"-safe 0 -f concat -r {current.File.InputRate} -i {current.File.ImportPath.Wrap()}";
+                    return $"{prefix}-safe 0 -f concat -r {current.File.InputRate} -i {Shell.WrapArg(current.File.ImportPath)}";
                 else
-                    return $"-i {current.File.ImportPath.Wrap()}";
+                    return $"{prefix}-i {Shell.WrapArg(current.File.ImportPath)}";
             }
 
             List<string> args = new List<string>();
@@ -363,41 +370,40 @@ namespace Nmkoder.UI
             foreach (FileListEntry entry in FileList.Items)
             {
                 if (entry.File.IsDirectory)
-                    args.Add($"-safe 0 -f concat -r {entry.File.InputRate} -i {entry.File.ImportPath.Wrap()}");
+                    args.Add($"{prefix}-safe 0 -f concat -r {entry.File.InputRate} -i {Shell.WrapArg(entry.File.ImportPath)}");
                 else
-                    args.Add($"-i {entry.File.ImportPath.Wrap()}");
+                    args.Add($"{prefix}-i {Shell.WrapArg(entry.File.ImportPath)}");
             }
 
             Logger.Log($"Input Args: {string.Join(" ", args)}", true);
             return string.Join(" ", args);
         }
 
-        public static async Task<string> GetMapArgs(IEncoder enc, bool videoOnly = false, bool noVideoEncode = false, bool accountForFilterChain = true)
+        /// <summary>
+        /// The ticked tracks that actually reach the output, in output order - which is not simply
+        /// <see cref="CheckedItems"/>. Data and attachment tracks are ticked by default and almost no
+        /// container takes them: attachments are a Matroska feature, data streams a QuickTime one. Left
+        /// in they fail the mux, so they are dropped and named. Refusing the encode instead would be
+        /// worse - there is no way to keep them in a container that cannot hold them, so the user would
+        /// only be told to untick tracks they never chose.
+        /// <para/>
+        /// One list, because everything that numbers the output streams has to agree with the maps.
+        /// "-metadata:s:N" and "-disposition:s:N" name an *output* stream, and counting the ticked
+        /// tracks instead put every title and language after a dropped track onto the wrong one.
+        /// </summary>
+        /// <param name="logDropped"> Whether to name what was left behind. True for the run's own maps,
+        /// which happens once per encode; false for everything else asking the same question. </param>
+        public static List<StreamListEntry> GetMappedStreams(bool videoOnly = false, bool logDropped = false)
         {
-            List<string> args = new List<string>();
-            bool hasSkippedFirstVideoStream = false;
-            bool seenFirstVideoStream = false;
-            // Where QTGMC's deinterlaced frames come in, when this run is using it: the first video
-            // track is then read off that pipe rather than out of the file it belongs to.
-            int pipeInput = QuickConvertUi.DeinterlacePipeInput;
             Containers.Container container = QuickConvertUi.GetCurrentContainer();
+            List<StreamListEntry> kept = new List<StreamListEntry>();
             List<string> dropped = new List<string>();
 
             foreach (StreamListEntry entry in CheckedItems)
             {
-                FileListEntry correspondingFileEntry = FileList.Items.FirstOrDefault(x => x.File == entry.MediaFile);
-                int fileIdx = RunTask.currentFileListMode == RunTask.FileListMode.Batch || correspondingFileEntry == null
-                    ? 0
-                    : FileList.Items.IndexOf(correspondingFileEntry);
-
                 if (videoOnly && entry.Stream.Type != Stream.StreamType.Video) // Skip all non-video streams if videoOnly == true
                     continue;
 
-                // Data and attachment tracks are ticked by default, and almost no container takes them:
-                // attachments are a Matroska feature, data streams a QuickTime one. Left in they fail the
-                // mux, so they are dropped and named. Refusing the encode instead would be worse - there
-                // is no way to keep them in a container that cannot hold them, so the user would only be
-                // told to untick tracks they never chose.
                 if (entry.Stream.Type == Stream.StreamType.Data && !Containers.CanCopyDataStream(container))
                 {
                     dropped.Add("data");
@@ -410,26 +416,58 @@ namespace Nmkoder.UI
                     continue;
                 }
 
+                kept.Add(entry);
+            }
+
+            if (logDropped)
+            {
+                foreach (var kind in dropped.GroupBy(x => x))
+                    Logger.Log($"{kind.Count()} {kind.Key} track{(kind.Count() == 1 ? "" : "s")} left out: {container.ToString().ToUpper()} cannot store {kind.Key} streams.");
+            }
+
+            return kept;
+        }
+
+        /// <param name="hasFilterChain"> Whether this run builds a video filtergraph, in which case the
+        /// first video track is read off its "[vf]" output rather than straight out of the file.
+        /// <para/>
+        /// Passed in rather than worked out here, which is what it used to do. The chain is not a
+        /// function of the encoder alone - GIF contributes its entire palettegen/paletteuse graph
+        /// through <see cref="Data.CodecArgs.ForcedFilters"/> - and the probe was made without those, so
+        /// a GIF with nothing else configured mapped the source directly past a filtergraph whose output
+        /// then went nowhere. FFmpeg refuses that outright ("Filter paletteuse:default has an
+        /// unconnected output"), which is to say GIF could not be produced at all. Asking here also
+        /// built the whole chain a second time, autocrop probes included, only to see if it was empty. </param>
+        public static string GetMapArgs(bool videoOnly, bool noVideoEncode, bool hasFilterChain)
+        {
+            List<string> args = new List<string>();
+            bool mappedChainOutput = false;
+            bool seenFirstVideoStream = false;
+            // Where QTGMC's deinterlaced frames come in, when this run is using it: the first video
+            // track is then read off that pipe rather than out of the file it belongs to.
+            int pipeInput = QuickConvertUi.DeinterlacePipeInput;
+
+            foreach (StreamListEntry entry in GetMappedStreams(videoOnly, logDropped: !videoOnly))
+            {
+                FileListEntry correspondingFileEntry = FileList.Items.FirstOrDefault(x => x.File == entry.MediaFile);
+                int fileIdx = RunTask.currentFileListMode == RunTask.FileListMode.Batch || correspondingFileEntry == null
+                    ? 0
+                    : FileList.Items.IndexOf(correspondingFileEntry);
+
                 bool firstVideo = entry.Stream.Type == Stream.StreamType.Video && !seenFirstVideoStream;
 
                 if (entry.Stream.Type == Stream.StreamType.Video)
                     seenFirstVideoStream = true;
 
-                if (accountForFilterChain && !hasSkippedFirstVideoStream && entry.Stream.Type == Stream.StreamType.Video && !noVideoEncode)
+                if (hasFilterChain && !mappedChainOutput && entry.Stream.Type == Stream.StreamType.Video && !noVideoEncode)
                 {
-                    if (!string.IsNullOrWhiteSpace(await QuickConvertUi.GetVideoFilterArgs(enc, null, true)))
-                    {
-                        args.Add($"-map [vf]");
-                        hasSkippedFirstVideoStream = true;
-                        continue;
-                    }
+                    args.Add($"-map [vf]");
+                    mappedChainOutput = true;
+                    continue;
                 }
 
                 args.Add(firstVideo && pipeInput >= 0 ? $"-map {pipeInput}:v:0" : $"-map {fileIdx}:{entry.Stream.Index}");
             }
-
-            foreach (var kind in dropped.GroupBy(x => x))
-                Logger.Log($"{kind.Count()} {kind.Key} track{(kind.Count() == 1 ? "" : "s")} left out: {container.ToString().ToUpper()} cannot store {kind.Key} streams.");
 
             return string.Join(" ", args);
         }

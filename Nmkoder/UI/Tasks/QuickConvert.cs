@@ -85,6 +85,16 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // And the one that cannot be worked around in the filter chain at all - see
+                // GetBurnInProblem, which is where the reason is.
+                string burnInProblem = QuickConvertUi.GetBurnInProblem();
+
+                if (burnInProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel($"'{TrackList.current.File.Name.Trunc(40)}' cannot have subtitles burnt in - {burnInProblem}");
+                    return;
+                }
+
                 // The same question the AV1AN tab and the Cut utility have always asked, and for the
                 // same reason: a trim outlives the file it was set for, so a batch runs one section
                 // against every file in it. Where the section starts past the end of a shorter one,
@@ -119,50 +129,67 @@ namespace Nmkoder.UI.Tasks
                 vsLogPath = QuickConvertUi.CurrentDeinterlace.UsesPipe ? GetVsLogPath() : "";
                 vsRuns = vsLogPath.IsEmpty() ? 0 : (twoPass ? 2 : 1);
 
-                string inFiles = TrackList.GetInputFilesString();
+                string miscIn = GetMiscInputArgs();
+                // The input-side arguments go in front of every '-i' rather than once at the head of the
+                // command: ffmpeg reads a "-ss" there as belonging to the input that follows it, so in
+                // Muxing Mode a keyframe trim seeked the first file and left every other one starting
+                // from the top - see TrackList.GetInputFilesString.
+                string inFiles = TrackList.GetInputFilesString(miscIn);
                 // Has to happen here rather than when the file was loaded: the check reads the output
                 // path through UiData.GetOutPath, which only resolves once RunningTask is set, so every
                 // earlier call was comparing against an empty string and finding nothing. Without it
                 // ffmpeg is handed the colliding name with -y and the existing file is overwritten.
                 ValidatePath();
                 outPath = GetFfmpegOutPath(vCodec);
-                string map = await TrackList.GetMapArgs(vCodec, vCodec.IsFixedFormat, vCodec.DoesNotEncode);
+
+                // The encoder's arguments and the filter chain, built before the stream maps because the
+                // maps have to know whether there is a filtergraph for the first video track to be read
+                // out of - and that is not a question the encoder alone answers, GIF contributing its
+                // whole palette graph through CodecArgs.ForcedFilters. See TrackList.GetMapArgs.
+                CodecArgs codecArgs = vCodec.GetArgs(videoArgs, TrackList.current.File, twoPass ? Pass.OneOfTwo : Pass.OneOfOne);
+                string v = anyVideoStreams ? codecArgs.Arguments : "";
+                string vf = anyVideoStreams && !vCodec.DoesNotEncode ? await GetVideoFilterArgs(vCodec, codecArgs) : "";
+
+                // Quiet: the second pass builds the same chain from the same controls and has nothing new
+                // to say about it, so the lines that come with it - the resample, the de-squeeze - belong
+                // in the log once rather than twice.
+                CodecArgs codecArgsPass2 = twoPass ? vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.TwoOfTwo) : null;
+                string v2 = twoPass ? codecArgsPass2.Arguments : "";
+                string vf2 = twoPass ? await GetVideoFilterArgs(vCodec, codecArgsPass2, quiet: true) : "";
+
+                // Named rather than left to ffmpeg's own default, which is "ffmpeg2pass-N.log" in the
+                // working directory - and that is wherever the app happens to have been launched from.
+                // An install the user cannot write to failed the first pass outright, and every two-pass
+                // encode that did work left a log and an x264 mbtree file sitting beside the exe. This
+                // run's scratch folder is where the rest of its temporary files already go.
+                string passLog = twoPass ? $"-passlogfile {Shell.WrapArg(Path.Combine(Paths.GetSessionDataPath(), "ffmpeg2pass"))}" : "";
+
+                string map = TrackList.GetMapArgs(vCodec.IsFixedFormat, vCodec.DoesNotEncode, hasFilterChain: vf.IsNotEmpty());
                 string a = anyAudioStreams ? CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi(), TrackList.current.File).Arguments : "";
                 string s = CodecUtils.GetCodec(sCodec).GetArgs().Arguments;
                 string meta = GetMetadataArgs();
-                string miscIn = GetMiscInputArgs();
                 string miscOut = GetMiscOutputArgs();
                 string custIn = (Program.MainWin.CustomArgsInBox.Text ?? "").Trim();
                 string custOut = (Program.MainWin.CustomArgsOutBox.Text ?? "").Trim();
-                string muxing = GetMuxingArgs();
+                // Nothing for a format that writes no container. The container box is hidden for GIF,
+                // JPEG and PNG and keeps whatever was last selected in it, so its muxer's private
+                // options - "-movflags +faststart", Matroska's "-default_mode" - were being handed to a
+                // muxer that has never heard of them.
+                string muxing = vCodec.IsFixedFormat ? "" : GetMuxingArgs();
 
-                if (twoPass && anyVideoStreams)
+                if (twoPass)
                 {
-                    CodecArgs codecArgsPass1 = vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.OneOfTwo);
-                    string v1 = codecArgsPass1.Arguments;
-                    string vf1 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass1);
-                    CodecArgs codecArgsPass2 = vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.TwoOfTwo);
-                    string v2 = codecArgsPass2.Arguments;
-                    // Quiet: the second pass builds the same chain as the first and has nothing new to
-                    // say about it, so the lines that come with it - the resample, the de-squeeze -
-                    // belong in the log once rather than twice.
-                    string vf2 = vCodec.DoesNotEncode ? "" : await GetVideoFilterArgs(vCodec, codecArgsPass2, quiet: true);
-
                     // Each pass needs its own VapourSynth process - a pipe feeds one reader - and each
                     // appends to the same log, which is why the check afterwards expects two finished
                     // runs rather than one.
                     string secondPipe = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath, append: true);
 
-                    args = $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v1} {vf1} {miscOut} {custOut} -an -sn -dn -f null - && {secondPipe}ffmpeg -y -loglevel warning -stats " +
-                           $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v2} {vf2} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
+                    args = $"{custIn} {inFiles} {pipeIn} {map} {v} {passLog} {vf} {miscOut} {custOut} -an -sn -dn -f null - && {secondPipe}ffmpeg -y -loglevel warning -stats " +
+                           $"{custIn} {inFiles} {pipeIn} {map} {v2} {passLog} {vf2} {a} {s} {meta} {miscOut} {custOut} {muxing} {Shell.WrapArg(outPath)}";
                 }
                 else
                 {
-                    CodecArgs codecArgs = vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.OneOfOne);
-                    string v = anyVideoStreams ? codecArgs.Arguments : "";
-                    string vf = anyVideoStreams && !vCodec.DoesNotEncode ? await GetVideoFilterArgs(vCodec, codecArgs) : "";
-
-                    args = $"{miscIn} {custIn} {inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {custOut} {muxing} {outPath.Wrap()}";
+                    args = $"{custIn} {inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {custOut} {muxing} {Shell.WrapArg(outPath)}";
                 }
             }
             catch (Exception e)
@@ -561,18 +588,18 @@ namespace Nmkoder.UI.Tasks
             return enc.FriendlyName.Split(" - ")[0].Trim();
         }
 
+        /// <summary> What ffmpeg is told to write, which for a sequence is a numbering pattern inside a
+        /// folder that has to exist first. Where that goes is <see cref="QuickConvertUi.GetOutputPath"/>,
+        /// which the collision check reads too so the two cannot disagree. </summary>
         private static string GetFfmpegOutPath(IEncoder c)
         {
-            if (!c.IsSequence)
-                return UiData.GetOutPath();
+            string path = GetOutputPath(c);
 
-            // A sequence goes into a folder, so it is named without the container extension. The
-            // container box is hidden for these encoders but keeps whatever was last selected, and
-            // taking the extension anyway is what produced folders literally called "clip.mkv".
-            string dir = UiData.GetOutPath(includeExtension: false);
-            Directory.CreateDirectory(dir);
-            string ext = Program.MainWin.EncVidCodecsBox.GetText().Split(' ')[0].ToLower();
-            return Path.Combine(dir, $"%8d.{ext}");
+            if (!c.IsSequence)
+                return path;
+
+            Directory.CreateDirectory(path);
+            return Path.Combine(path, $"%8d.{GetFixedFormatExtension()}");
         }
     }
 }
