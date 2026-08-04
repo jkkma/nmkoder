@@ -235,6 +235,18 @@ namespace Nmkoder.UI.Tasks
                         }
                     }
 
+                    // Asked of the binary rather than assumed, for the same reason the two checks above
+                    // ask av1an: an encoder refuses the entire command over one parameter it does not
+                    // know, so a grid row naming something this build lacks fails every chunk. The help
+                    // texts are read once per session, so this costs nothing after the first encode.
+                    string advancedArgsProblem = await GetUnsupportedAdvancedArgsProblem(vCodec);
+
+                    if (advancedArgsProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(advancedArgsProblem);
+                        return;
+                    }
+
                     // MP4 forces the ffmpeg concatenator (mkvmerge cannot write MP4), and av1an itself
                     // warns that vpx chunks come out of that path with the wrong frame rate.
                     if (mp4 && vCodec == CodecUtils.Av1anCodec.Vpx)
@@ -333,6 +345,11 @@ namespace Nmkoder.UI.Tasks
 
                     if (hbdProblem.IsNotEmpty())
                         Logger.Log(hbdProblem);
+
+                    string grainProblem = GetGrainSynthProblem(vCodec);
+
+                    if (grainProblem.IsNotEmpty())
+                        Logger.Log(grainProblem);
 
                     if (form.CheckAv1anCopyData.IsChecked == true && (TrackList.current?.File.DataStreams.Count ?? 0) > 0)
                         Logger.Log("Note: data streams are being left out. av1an muxes through an intermediate Matroska file, which stores none, so they cannot be carried either way.");

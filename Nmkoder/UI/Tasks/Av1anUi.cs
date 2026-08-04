@@ -117,7 +117,8 @@ namespace Nmkoder.UI.Tasks
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
             bool av1 = c == CodecUtils.Av1anCodec.AomAv1 || c == CodecUtils.Av1anCodec.SvtAv1;
-            Form.Av1anGrainSynthStrengthUpDown.IsEnabled = Form.Av1anGrainSynthDenoiseBox.IsEnabled = av1; // Only AV1 has grain synth
+            Form.Av1anGrainSynthStrengthUpDown.IsEnabled = av1; // Only AV1 has grain synth
+            ApplyGrainDenoiseEnabled(); // Follows the strength as well as the encoder
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
@@ -1106,10 +1107,7 @@ namespace Nmkoder.UI.Tasks
             if (FormatUtils.GetBitDepthFromPixelFormat(pixFmt) != 8)
                 return "";
 
-            string value = Form.Av1anArgRows
-                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == "hbd-mds")
-                .Select(x => (x.Value ?? "").Trim())
-                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+            string value = GetAdvancedArgValue("hbd-mds");
 
             // 0 leaves the choice to the preset, so it is not asking the input for something it does
             // not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
@@ -1119,6 +1117,150 @@ namespace Nmkoder.UI.Tasks
             return $"Note: hbd-mds is set to {value}, which asks for {(value == "1" ? "all of" : "part of")} the mode decision " +
                 $"at 10-bit, but SVT-AV1 only does that on a 10-bit input and the Color Format is 8-bit ({pixFmt}). " +
                 $"Pick a 10 bit Color Format for it to have any effect.";
+        }
+
+        /// <summary>
+        /// Grain Synthesis' Denoise box, enabled or not. It follows the strength beside it as well as
+        /// the encoder, because both AV1 encoders read the denoise flag only where they are
+        /// synthesising grain at all - aomenc's <c>--enable-dnl-denoising</c> applies "when
+        /// denoise-noise-level is enabled", and SVT-AV1 answers a denoise flag set against
+        /// <c>--film-grain 0</c> with "ignored when film grain is off". At a strength of 0 it was a
+        /// tickable box that did nothing.
+        /// <para/>
+        /// What it is ticked to is left alone rather than cleared: a strength dropped to 0 and put back
+        /// should bring the choice back with it, not silently lose it.
+        /// </summary>
+        public static void ApplyGrainDenoiseEnabled()
+        {
+            Form.Av1anGrainSynthDenoiseBox.IsEnabled = Form.Av1anGrainSynthStrengthUpDown.IsEnabled &&
+                Form.Av1anGrainSynthStrengthUpDown.Value.AsInt() > 0;
+        }
+
+        /// <summary>
+        /// What the advanced grid holds for a parameter, matched without its dashes and without case,
+        /// or "" where the row is absent or has not been filled in. The grid is preloaded with every
+        /// documented parameter and edited in place, so a blank row and a missing one mean the same
+        /// thing - neither reaches the command line.
+        /// </summary>
+        private static string GetAdvancedArgValue(string argument)
+        {
+            return Form.Av1anArgRows
+                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == argument)
+                .Select(x => (x.Value ?? "").Trim())
+                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+        }
+
+        /// <summary>
+        /// Why the Grain Synthesis box will not do what it says, or "" if nothing is in its way.
+        /// <para/>
+        /// That box is <c>--film-grain</c>, and the Advanced tab's Film Grain &amp; Noise group holds two
+        /// other ways to ask for the same thing. SVT-AV1 takes one of the three rather than combining
+        /// them: <c>--fgs-table</c> disables <c>--noise</c>, and either of them disables
+        /// <c>--film-grain</c>, each with a warning printed to the encoder's own stderr - which av1an
+        /// collects per chunk into a log this app deletes on a successful run, so from here the setting
+        /// simply had no effect.
+        /// <para/>
+        /// Denoise is the half worth naming, and the reason this is a note rather than a shrug. The
+        /// denoise flag is only read on the <c>--film-grain</c> path, so it is dropped with the
+        /// strength: neither of the other two touches the source, and the synthesised grain then lands
+        /// on top of the grain already in the picture instead of replacing it - the opposite of what
+        /// ticking the box asks for.
+        /// </summary>
+        public static string GetGrainSynthProblem(CodecUtils.Av1anCodec vCodec)
+        {
+            // aomenc's argument file carries no grain rows at all, and the grid is reloaded per
+            // encoder, so no other encoder can be carrying one of these.
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1)
+                return "";
+
+            int strength = Form.Av1anGrainSynthStrengthUpDown.Value.AsInt();
+
+            if (strength < 1)
+                return "";
+
+            // --fgs-table is read first and switches --noise off in turn, so where both are set it is
+            // the one in force. Its value is a path rather than a number, so any of it counts.
+            bool table = GetAdvancedArgValue("fgs-table").IsNotEmpty();
+            int noise = GetAdvancedArgValue("noise").GetInt();
+
+            if (!table && noise < 1)
+                return "";
+
+            // Both clauses end on the same point and only one of them can name SVT-AV1, which the
+            // other has already used.
+            string subject = table
+                ? "fgs-table applies a grain table from a file instead of analysing the source, and " +
+                    "SVT-AV1 takes one or the other rather than both"
+                : $"noise ({noise}) is SVT-AV1's own second grain synthesiser, and it takes one or the " +
+                    $"other rather than both";
+
+            string winner = table ? "the table" : "--noise";
+
+            string denoise = Form.Av1anGrainSynthDenoiseBox.IsChecked == true
+                ? $" Denoise goes with it: {winner} does not denoise the source, so the grain being " +
+                    $"synthesised lands on top of the grain already in the picture rather than replacing it."
+                : "";
+
+            return $"Note: the Advanced tab's {subject} - so Grain Synthesis {strength} is dropped and " +
+                $"{winner} runs instead.{denoise} Clear whichever of the two you did not mean.";
+        }
+
+        /// <summary>
+        /// Why the encode cannot start with the advanced grid as it stands, or "" if it can.
+        /// <para/>
+        /// The grid is filled from a parameter list written against the build this project bundles -
+        /// svt-av1-hdr for SVT-AV1, and whatever was current for the rest - while the binary that
+        /// actually runs is a build-time accident: the bundle falls back where no prebuilt exists, macOS
+        /// bundles no encoder at all, and a user's own PATH is not something the bundler controls. A
+        /// parameter the binary in front of it does not have is not ignored; the whole command is
+        /// refused, and not one chunk encodes.
+        /// <para/>
+        /// This refuses where the content presets' own check (GetApplicablePresetValues) drops, and the
+        /// difference is who chose the value. A preset is a bundle that stays useful with one entry
+        /// taken out of it, and dropping happens as it is applied, in front of whoever clicked it. A row
+        /// here was typed by hand on a run that has already been started, where dropping a setting
+        /// silently is the failure this check exists to prevent.
+        /// <para/>
+        /// Nothing is refused on a failed lookup - <see cref="AvProcess.EncoderKnowsFlagOrIsUnknown"/>
+        /// answers false only for a help text that was read and lacked the flag. And nothing is asked
+        /// at all outside SVT-AV1: <see cref="EncoderArgPresets.Av1anEncoderName"/> is where that limit
+        /// is stated, and x264 - whose <c>--help</c> is the short list - is why it exists.
+        /// </summary>
+        public static async Task<string> GetUnsupportedAdvancedArgsProblem(CodecUtils.Av1anCodec vCodec)
+        {
+            IEncoder enc = CodecUtils.GetCodec(vCodec);
+            string av1anEncoder = EncoderArgPresets.Av1anEncoderName(enc.Name);
+
+            if (av1anEncoder.IsEmpty())
+                return "";
+
+            var unsupported = new List<string>();
+
+            foreach (EncoderArgRow row in Form.Av1anArgRows.Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty()))
+            {
+                string arg = row.Argument.Trim().TrimStart('-');
+
+                // Matched with the dashes on, so a parameter is not found inside a longer one's name
+                if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(av1anEncoder, $"--{arg}"))
+                    unsupported.Add(arg);
+            }
+
+            if (unsupported.Count < 1)
+                return "";
+
+            bool one = unsupported.Count == 1;
+
+            // Worth naming the cause rather than the symptom, the way the preset path does. For
+            // SVT-AV1 there is only one thing this ever means.
+            string cause = vCodec == CodecUtils.Av1anCodec.SvtAv1
+                ? "That means it is mainline SVT-AV1 rather than the PSY-line build (svt-av1-hdr) this " +
+                    "tab's parameter list is written for."
+                : "That means it is an older build than that list was written against.";
+
+            return $"{string.Join(", ", unsupported)} {(one ? "is" : "are")} set on the Advanced tab, and the " +
+                $"encoder that would run does not have {(one ? "it" : "them")}. An unrecognised parameter is " +
+                $"refused as a whole command, so not one chunk would encode.\n\n{cause}\n\n" +
+                $"Clear {(one ? "that row" : "those rows")}, or use a build that has {(one ? "it" : "them")}.";
         }
 
         /// <summary> The chosen output container. The dropdown offers a subset of the enum, in its own order. </summary>
