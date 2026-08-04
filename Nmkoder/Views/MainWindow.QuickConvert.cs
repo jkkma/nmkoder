@@ -66,7 +66,9 @@ namespace Nmkoder.Views
         /// </summary>
         private void ApplyEncQualityMode(bool useModeDefault)
         {
-            var mode = (QuickConvert.QualityMode)Math.Max(0, EncQualModeBox.SelectedIndex);
+            // Through the same accessor the encoder's own spinner range and the run itself read, so a
+            // fixed format is treated as CRF here too rather than as whatever its disabled box shows
+            var mode = QuickConvertUi.GetEffectiveQualityMode();
 
             if (mode == QuickConvert.QualityMode.TargetKbps)
             {
@@ -110,8 +112,6 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidPresetBox);
             ConfigParser.RestoreIfSaved(EncVidColorsBox);
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
-            ConfigParser.RestoreIfSaved(EncScaleBoxW);
-            ConfigParser.RestoreIfSaved(EncScaleBoxH);
             ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
             ConfigParser.RestoreIfSaved(EncDeintPresetBox);
             ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
@@ -122,12 +122,18 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
             ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
 
-            // Restored like the scale boxes beside it, and for the same reason: "everything I encode
-            // comes out 16:9" is a preference about output rather than a fact about the file that
-            // happens to be loaded. The selection has to be pushed back into the config object by
-            // hand - the box's own handler bails until _initialized, which is not set yet here.
+            // Restored like the resize beside it, and for the same reason: "everything I encode comes
+            // out 16:9" is a preference about output rather than a fact about the file that happens to
+            // be loaded. The selection has to be pushed back into the config object by hand - the box's
+            // own handler bails until _initialized, which is not set yet here.
             ConfigParser.RestoreIndexIfSaved(EncBordersBox);
             QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
+
+            // The resize is an object rather than a control's value, so it is read straight into the
+            // configuration and the dropdown is then filled from it. Filling has to happen whether or
+            // not anything was saved: the list has to hold its entries before a file is ever loaded.
+            QuickConvertUi.CurrentResize = ConfigParser.LoadResize(Config.Key.EncResize);
+            QuickConvertUi.RefreshResizeBox();
         }
 
         public void SaveQuickConvertSettings()
@@ -147,8 +153,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncVidPresetBox);
                 ConfigParser.SaveGuiElement(EncVidColorsBox);
                 ConfigParser.SaveGuiElement(EncVidFpsBox);
-                ConfigParser.SaveGuiElement(EncScaleBoxW);
-                ConfigParser.SaveGuiElement(EncScaleBoxH);
+                ConfigParser.SaveResize(Config.Key.EncResize, QuickConvertUi.CurrentResize);
                 ConfigParser.SaveComboxIndex(EncDeintModeBox);
                 ConfigParser.SaveGuiElement(EncDeintPresetBox);
                 ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
@@ -165,7 +170,9 @@ namespace Nmkoder.Views
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             EncCropConfBtn.IsVisible = EncCropModeBox.GetText().ToLower().Contains("manual");
-            QuickConvertUi.UpdateBordersReadout(); // A crop moves the shape the bars are picked by
+            // A crop changes the frame the resize targets are measured against, and the shape the bars
+            // are picked by - the second of those is refreshed on the way out of the first.
+            QuickConvertUi.RefreshResizeBox();
         }
 
         private void EncBorders_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -177,18 +184,37 @@ namespace Nmkoder.Views
             SaveQuickConvertSettings();
         }
 
-        /// <summary> The borders readout names the frame the bars go around, which is whatever these
-        /// two boxes leave - so it is rewritten as they are typed in. They are saved on close rather
-        /// than per keystroke, which is why this does not save. </summary>
-        private void EncScaleBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void EncResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_initialized)
+            // Refilling the list raises this too, and that is not a choice: the entries are renamed for
+            // every file loaded, so a batch would otherwise write the settings file once per file.
+            if (!_initialized || QuickConvertUi.LoadingResizeBox)
                 return;
 
-            QuickConvertUi.UpdateBordersReadout();
+            QuickConvertUi.ResizePresetSelected(EncResizeBox.SelectedIndex);
+            SaveQuickConvertSettings();
         }
 
-        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
+        private async void EncResizeConf_Click(object sender, RoutedEventArgs e)
+        {
+            ResizeConfig resize = await ResizeWindow.Show(QuickConvertUi.GetResizeSourceSize(), QuickConvertUi.GetResizeSar(), QuickConvertUi.CurrentResize);
+
+            if (resize != null)
+            {
+                // Configured by hand is the Custom entry, whichever preset it started from
+                resize.PresetKey = ResizePresets.CustomKey;
+                QuickConvertUi.CurrentResize = resize;
+                SaveQuickConvertSettings();
+            }
+
+            QuickConvertUi.UpdateResizeReadout();
+        }
+
+        private void EncDeintMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            DeinterlaceUi.ModeBoxEdited(av1anTab: false); // Remembered, so a progressive file in a queue cannot take it away
+            DeinterlaceSetting_Changed();
+        }
         private void EncDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => DeinterlaceSetting_Changed();
         private void EncDeintRate_Changed(object sender, RoutedEventArgs e) => DeinterlaceSetting_Changed();
 
@@ -205,15 +231,17 @@ namespace Nmkoder.Views
 
         private async void EncCropConf_Click(object sender, RoutedEventArgs e)
         {
-            Size res = new Size();
-
-            if (TrackList.current != null && TrackList.current.File.VideoStreams.Count > 0)
-                res = TrackList.current.File.VideoStreams[0].Resolution;
+            // The video the crop will actually run on, which in Muxing Mode is not the file the Track
+            // List is showing - the dialog's own bounds are measured against it
+            Size res = QuickConvertUi.GetVideoSourceStream()?.Resolution ?? new Size();
 
             CropConfig crop = await CropWindow.Show(res, QuickConvertUi.CurrentCrop);
 
             if (crop != null)
                 QuickConvertUi.CurrentCrop = crop;
+
+            // The rectangle just moved, so what every resize target comes out to moved with it
+            QuickConvertUi.RefreshResizeBox();
         }
 
         private async void EncTrimConf_Click(object sender, RoutedEventArgs e)
@@ -245,10 +273,19 @@ namespace Nmkoder.Views
             if (TrackList.current == null)
                 return;
 
-            var entries = await AudioStreamsWindow.Show(TrackList.current.File, EncAudQualUpDown.Value.AsInt());
+            var entries = await AudioStreamsWindow.Show(TrackList.current.File, EncAudQualUpDown.Value.AsInt(),
+                EncAudChannelsBox.GetText().Split(' ')[0].GetInt());
 
             if (entries != null && entries.Count > 0)
                 TrackList.currentAudioConfig = new AudioConfiguration(TrackList.current.File, entries);
+
+            // Dismissing the dialog leaves nothing configured, so the mode has to come back with it -
+            // otherwise the box reads "Configure each track separately" over no configuration at all,
+            // which is the state the reset in TrackList.SetAsMainFile exists to prevent.
+            if (TrackList.currentAudioConfig == null && EncAudConfModeBox.SelectedIndex == 1)
+                EncAudConfModeBox.SelectedIndex = 0;
+
+            QuickConvertUi.RefreshAudioChannelsEnabled();
         }
 
         private async void EncAudConfMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -277,10 +314,18 @@ namespace Nmkoder.Views
                     return;
                 }
 
+                // Both set before the dialog opens: it is async, so control comes back here the moment it
+                // is on screen, and the button beside the box has to be there when it closes. The dialog
+                // refreshes the Channels row itself on the way out, where it knows whether anything was
+                // actually configured.
+                EncAudConfigureBtn.IsVisible = true;
+                QuickConvertUi.RefreshAudioChannelsEnabled();
                 EncAudConfigure_Click(null, null);
+                return;
             }
 
-            EncAudConfigureBtn.IsVisible = i == 1;
+            EncAudConfigureBtn.IsVisible = false;
+            QuickConvertUi.RefreshAudioChannelsEnabled();
         }
 
         private void EncFilterAdd_Click(object sender, RoutedEventArgs e)
@@ -300,8 +345,17 @@ namespace Nmkoder.Views
         {
             string path = await Pickers.PickSavePath(this, "Choose output path", OutputPathBox.Text);
 
-            if (!string.IsNullOrWhiteSpace(path))
-                OutputPathBox.Text = Path.ChangeExtension(path, null);
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            // Only a *known* extension comes off. ChangeExtension(path, null) drops everything after the
+            // last dot whatever it is, so "My.Movie.2020" was saved as "My.Movie" - the box holds a path
+            // without an extension, and the container adds one back, so the year went for good.
+            string ext = (Path.GetExtension(path) ?? "").TrimStart('.').ToLower();
+            bool known = Enum.GetNames<Containers.Container>().Any(c => c.ToLower() == ext)
+                || new[] { "gif", "png", "jpg", "jpeg" }.Contains(ext);
+
+            OutputPathBox.Text = known ? Path.ChangeExtension(path, null) : path;
         }
     }
 }

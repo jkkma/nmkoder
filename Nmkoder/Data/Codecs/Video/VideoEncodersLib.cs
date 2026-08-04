@@ -188,7 +188,11 @@ namespace Nmkoder.Data.Codecs.Video
             string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : $"-crf {q}";
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs));
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
-            string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "-tile-columns ", "-tile-rows ");
+            // Rows first, then columns - GetTilingArgs takes them in that order, and every other encoder
+            // here passes them that way. Swapped, a 4K frame asked for two tile *rows* and one column
+            // where it wanted the opposite: fewer columns than the width can use, and a horizontal split
+            // a 2160-line frame does not need.
+            string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "-tile-rows ", "-tile-columns ");
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             return new CodecArgs($"-c:v libvpx-vp9 {p} {rc} {tiles} -row-mt 1 -cpu-used {preset} {g} -pix_fmt {pixFmt} {cust}");
         }
@@ -327,7 +331,10 @@ namespace Nmkoder.Data.Codecs.Video
         {
             string q = encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            return new CodecArgs($"-c:v mjpeg -qmin 1 -q:v {q} {cust}");
+            // The Color Format dropdown is offered for this encoder and had nowhere to go, so picking
+            // 4:2:2 or 4:4:4 wrote the same 4:2:0 JPEGs as leaving it alone
+            string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
+            return new CodecArgs($"-c:v mjpeg -qmin 1 -q:v {q} -pix_fmt {pixFmt} {cust}");
         }
     }
 
@@ -355,7 +362,11 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            return new CodecArgs($"-c:v png -compression_level 3 {cust}");
+            // As for JPEG above: the dropdown offers RGB24, RGBA, RGB48 and RGBA64 for this encoder, and
+            // every one of them wrote the same file until the value was passed on. Alpha is the one that
+            // shows - a source with a transparent layer lost it whatever was picked.
+            string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
+            return new CodecArgs($"-c:v png -compression_level 3 -pix_fmt {pixFmt} {cust}");
         }
     }
 

@@ -201,10 +201,28 @@ namespace Nmkoder.Utils
                 return codec.ToTitleCase();
         }
 
+        /// <summary>
+        /// A path as one argument *inside a filtergraph* - for "subtitles=", "libvmaf=model_path=" and
+        /// the like, where the value sits among the colons the filter splits its own options on.
+        /// <para/>
+        /// Single-quoted, which is ffmpeg's own quoting and covers everything the graph parser would
+        /// otherwise read as syntax: spaces, colons, commas, square brackets, semicolons. It used to be
+        /// double-quoted, and ffmpeg has no such thing - so the quotes became part of the filename and
+        /// the burn-in failed on every path, except that the surrounding shell happened to strip them
+        /// again for a path with no space in it. A path *with* one broke the command outright, the
+        /// unquoted middle of it being read as another argument.
+        /// <para/>
+        /// Forward slashes on Windows too, and no escaping of the drive-letter colon: inside quotes it
+        /// is an ordinary character, and the backslashes that used to escape it would now be literal.
+        /// <para/>
+        /// An apostrophe in the path is not solvable here and is refused before the run instead - see
+        /// QuickConvertUi.GetBurnInProblem. It is quoted the way ffmpeg documents ('it'\''s'), and
+        /// measured against ffmpeg 6.1 and the bundled build alike that does not survive the second
+        /// unescaping pass the filter's own option parser makes; neither does any other spelling tried.
+        /// </summary>
         public static string GetFilterPath(string path)
         {
-            return path.Replace(@"\", @"/").Replace(":", @"\\:").Wrap();
-            //return path.Replace("/", @"\").Replace(@"\", @"\\\\").Replace(@":\\\\", @"\\:\\\\"); // https://trac.ffmpeg.org/ticket/3334
+            return $"'{path.Replace(@"\", @"/").Replace("'", @"'\''")}'";
         }
 
         public static int GetBitDepthFromPixelFormat(string pixFmt)

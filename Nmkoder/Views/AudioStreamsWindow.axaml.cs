@@ -33,10 +33,16 @@ namespace Nmkoder.Views
             Grid.ItemsSource = _rows;
         }
 
-        public static async Task<List<AudioConfigurationEntry>> Show(MediaFile current, int baseBitrate)
+        /// <param name="overrideChannels"> What the Audio tab's Channels dropdown asks for, or 0 for
+        /// "keep original". The rows start from it rather than from each source track's own layout: this
+        /// dialog's numbers replace that dropdown outright once it is confirmed - every row is written
+        /// into the configuration whether it was edited or not - so seeding from the source silently
+        /// undid a downmix the user had already picked. It is opened the moment the mode is switched to
+        /// per-track, so that costs nothing more than a trip through a dialog nobody asked for. </param>
+        public static async Task<List<AudioConfigurationEntry>> Show(MediaFile current, int baseBitrate, int overrideChannels)
         {
             var window = new AudioStreamsWindow();
-            window.Populate(current, baseBitrate);
+            window.Populate(current, baseBitrate, overrideChannels);
 
             Window owner = UiUtils.MainWindowHandle;
 
@@ -48,7 +54,7 @@ namespace Nmkoder.Views
             return window.ConfigurationEntries;
         }
 
-        private void Populate(MediaFile current, int baseBitrate)
+        private void Populate(MediaFile current, int baseBitrate, int overrideChannels)
         {
             List<AudioStream> audStreams = TrackList.Items
                 .Where(x => x.Stream.Type == Stream.StreamType.Audio)
@@ -60,11 +66,15 @@ namespace Nmkoder.Views
             for (int i = 0; i < audStreams.Count; i++)
             {
                 AudioStream s = audStreams[i];
-                int br = (baseBitrate * MiscUtils.GetAudioBitrateMultiplier(s.Channels)).RoundToInt();
+                // The layout this track is headed for, which is the dropdown's where it names one - and
+                // the bitrate is scaled to that same number, since a count and a bitrate picked for
+                // different layouts describe no track at all.
+                int startChannels = overrideChannels > 0 ? overrideChannels : s.Channels;
+                int br = (baseBitrate * MiscUtils.GetAudioBitrateMultiplier(startChannels)).RoundToInt();
                 string title = string.IsNullOrWhiteSpace(s.Title) ? "None" : s.Title.Trunc(35);
 
                 bool hasSaved = currentEntries != null && i < currentEntries.Count;
-                int channels = hasSaved ? currentEntries[i].ChannelCount : s.Channels;
+                int channels = hasSaved ? currentEntries[i].ChannelCount : startChannels;
                 int kbps = hasSaved ? currentEntries[i].BitrateKbps : br;
 
                 _rows.Add(new AudioTrackRow($"#{i + 1}", title, s.Language.ToUpper(), channels, kbps));

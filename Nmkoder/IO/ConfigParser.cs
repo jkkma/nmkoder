@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Newtonsoft.Json;
+using Nmkoder.Data;
 using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using System;
@@ -133,6 +134,44 @@ namespace Nmkoder.IO
             catch (Exception e)
             {
                 Logger.Log($"Failed to read the saved custom filters: {e.Message}", true);
+            }
+        }
+
+        #endregion
+
+        #region Resize
+
+        /// <summary>
+        /// The Quick Convert tab's resize, which is an object rather than a control's value and so has
+        /// no name to be keyed by. JSON for the same reason the filter grids above are: it carries a
+        /// mode, two targets, a percentage, a fill, a modulus, two flags and a resampler name, and
+        /// there is no separator a joined string could use that none of those can contain.
+        /// <para/>
+        /// Quick Convert's alone. The AV1AN tab deliberately restores nothing across sessions, and its
+        /// resize starts every launch switched off.
+        /// </summary>
+        public static void SaveResize(Config.Key key, ResizeConfig cfg)
+        {
+            Config.Set(key, cfg == null || cfg.Mode == ResizeMode.Disabled ? "" : JsonConvert.SerializeObject(cfg));
+        }
+
+        /// <summary> The saved resize, or one that is switched off - which is also what an unreadable
+        /// entry comes back as, a resize nobody asked for being worse than none. </summary>
+        public static ResizeConfig LoadResize(Config.Key key)
+        {
+            string json = Config.Get(key);
+
+            if (json.IsEmpty())
+                return new ResizeConfig();
+
+            try
+            {
+                return JsonConvert.DeserializeObject<ResizeConfig>(json) ?? new ResizeConfig();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to read the saved resize: {e.Message}", true);
+                return new ResizeConfig();
             }
         }
 

@@ -524,23 +524,36 @@ wrong for the 720p it is being scaled to. It resolves the automatic crop too, wh
 probes and a line in the log, which is why the answer is carried in an `Av1anFrame` rather than
 worked out again wherever it is wanted.
 
-Quick Convert has the same tile count and no such pass to hang it on: its scale boxes are free
-text handed to ffmpeg, and it builds its codec arguments per pass, right beside the filter chain.
-`QuickConvertUi.GetEncodedFrameSize` therefore resolves only what can be stated with certainty -
-a plain pair of numbers, or a lone number with the other side derived by ffmpeg's own `-2`
-arithmetic - and returns `Size.Empty` for a percentage or an expression, which leaves the encoder
-on the source's size exactly where it always was. It does not apply the crop either: resolving an
-automatic one costs those ten probes, and there is nowhere here to spend them once. A tile count
-worked out from a size that is not the real one is the thing being fixed, so guessing is worse
-than abstaining.
+**Quick Convert now holds its resize the same way, and that is what made the rest of its geometry
+answerable.** It used to be two free-text boxes handed straight to ffmpeg, and what that cost was never
+the typing: nothing downstream could say what frame the encoder would get, so the tile count fell back
+on the source's size for any percentage or expression, the black bars refused to run at all against
+one, no frame-pixel-limit check was possible, and neither an upscale nor a dropped anamorphic shape had
+anywhere to be mentioned. `MiscUtils.GetScaleFilter` also rewrote every `w` in the box to `iw`, so
+ffmpeg's own `iw/2` went out as `iiw/2`; it is deleted, and the comment where it sat says why.
 
-Those ten probes are now answered from `FfmpegUtils`' own cache, keyed by the file's path, length and
-last write, so asking twice costs one detection. Quick Convert asks more than twice: it builds its
-filter chain once for the stream maps - `GetMapArgs` needs to know whether there *is* a chain, to map
-`[vf]` - then again for the command, and again for a second pass, each through a call that knows
-nothing of the others. That was thirty seeks and a hundred and eighty decoded frames for one two-pass
-encode. The cache is keyed rather than cleared so a file replaced on disk under the same name still
-gets looked at again.
+The dropdown, the dialog and `ResizeConfig` are shared with the AV1AN tab. **One difference is
+deliberate and must stay: with no resize configured, nothing here de-squeezes an anamorphic source.**
+ffmpeg carries the aspect flag through to the output, where av1an's encoders are handed bare frames and
+cannot - so `ResolveScaledFrame` returns the source's own SAR in that case, and the readout says the
+file still plays at its display shape rather than promising dimensions it will not have.
+
+`GetEncodedFrameSize` is therefore exact wherever the crop is. It still does not resolve an *automatic*
+crop: that costs ten ffmpeg probes and it is asked once per pass ahead of the filter chain that will run
+them again, where the AV1AN tab can put it behind a single resolve pass and this cannot.
+
+The other half of that saving is `FfmpegUtils`' own cache, keyed by the file's path, length and last
+write, so asking twice costs one detection - and the tab no longer builds its whole chain a second time
+just to ask whether there is one. `GetMapArgs` is *told* whether a filtergraph exists rather than
+working it out, which is both cheaper and the only way it can be right: the chain is not a function of
+the encoder alone, GIF contributing its entire palette graph through `CodecArgs.ForcedFilters`. Asking
+without those is what made GIF impossible to produce at all - the source was mapped directly past a
+graph whose output then went nowhere, and ffmpeg refuses that outright.
+
+Verified the way the AV1AN geometry was: 480 chains built by the tab itself - 5 sources including an
+anamorphic PAL DVD, a portrait clip and a genuinely odd 641x481, against 2 crops, 4 border targets and
+12 resize settings - each run through ffmpeg and the output frame compared against what
+`GetEncodedFrameSize` said the encoder would get. No mismatches.
 
 **A crop is four edges, and the rectangle they come to is worked out in one place.** `CropConfig` is
 that place, so the dialog's readout, the frame the resize is measured against and the filter that runs
@@ -612,20 +625,22 @@ un-squeezes a DVD, ffmpeg carries its aspect flag through to the output, and bar
 stored 720x480 would be measured against a shape nobody ever sees. `pad` does not change the SAR, so
 nothing here appends a `setsar` of its own.
 
-**Quick Convert refuses rather than guessing, and rather than silently skipping.** Its scale boxes are
-free text, so a percentage or an expression leaves the frame the bars would go around unknown until
-ffmpeg is already running - `QuickConvertUi.GetBorderProblem` stops the run and names both settings,
-the way a crop too big for its file does. Writing the pad as ffmpeg arithmetic instead was the
-alternative and is not worth it: the AV1AN tab has an exact answer and this would not, and dropping a
-setting the user picked on a run they started is the failure that check exists to prevent. It stands
-down for a stream-copy codec, which builds no chain at all - and where the dropdown is disabled, so a
-target left over from another codec is one they cannot currently reach.
+**Quick Convert refuses rather than guessing, and rather than silently skipping.** `GetBorderProblem`
+stops the run and names the setting, the way a crop too big for its file does; `GetFrameSizeProblem`
+does the same for a frame past `ResizeConfig.MaxFramePixels`, which this tab could not ask at all while
+its resize was free text. Both stand down for a stream-copy codec, which builds no chain - and where
+the dropdowns are disabled, so a target left over from another codec is one the user cannot reach.
+`GetCropProblem` stands down there too now; it used to cancel the run over a crop that would never have
+been applied.
 
-`GetEncodedFrameSize` applies a **manual** crop where bars are on and not otherwise. That is not an
-inconsistency: a crop moves the *ratio*, which is what picks between a letterbox and a pillarbox, so a
-pad measured over an uncropped frame can be the wrong bars on the wrong axis - where for a scale
-target the same omission is only a number or two out, which is what that method's own comment already
-says. An automatic crop is still left alone, costing ten probes.
+**The bars are measured against the frame the mod-2 pad leaves, not the one that went into it.** An odd
+source with borders on had them worked out from the odd size, so the pad they asked for came to an odd
+frame no encoder here accepts. `GetCroppedSourceSize` rounds up the same way the chain does, which is
+what keeps the readout, the check and the filters measuring one frame; a crop's own result is already
+even, so that step only ever reaches an odd source with no crop on it.
+
+An **automatic** crop is still left alone everywhere, costing ten probes - so `GetEncodedFrameSize`
+abstains outright for one rather than naming a size that will not be the one.
 
 The geometry was checked by running it rather than by reading it. 141 pad filters rendered through
 ffmpeg across 32 source shapes and 5 targets, with the output size, the evenness, the centring and the
@@ -814,6 +829,128 @@ against av1an's own `ChunkMethod` and `ChunkOrdering` names (the `strum` seriali
 chunk method box is filled from the enum, so its index *is* the value; both are carried into a resume,
 since all three sit after the `-i` that `SaveJson` starts saving from.
 
+## The Quick Convert command
+
+**One ffmpeg command line is built in `QuickConvert.Run`, and the order things are worked out in is
+load-bearing.** The encoder's arguments and the filter chain come first, because the stream maps have to
+know whether there is a filtergraph for the first video track to be read out of - and that is not a
+question the encoder answers on its own. GIF contributes its entire `palettegen`/`paletteuse` graph
+through `CodecArgs.ForcedFilters`, so a probe made without the codec arguments could not see it: the
+source was mapped directly, past a graph whose output then went nowhere, and ffmpeg refuses that
+outright ("Filter paletteuse:default has an unconnected output"). **GIF could not be produced at all**
+unless some other filter happened to be configured. `TrackList.GetMapArgs` is handed the answer now,
+which also stops it building the whole chain - autocrop probes included - to ask whether it was empty.
+
+Those forced filters go **last**, not first. A palette describes the frames it is generated from, and
+run first it quantised the source and then let the scale, the crop and the burnt-in subtitles work on
+the paletted result, which the muxer re-quantised again.
+
+**A hidden control still holds a value, and three of them reached the command.** The container box is
+hidden for GIF, JPEG and PNG and kept whatever was last selected: the extension came off it, so an
+animated GIF was written as `clip.mkv` - and the overwrite check looked at that same name, so it was
+never checking the file about to be written. Its muxer's private options went out too. The Quality Mode
+box is disabled for the same three and kept a Target Bitrate, so `GetVideoArgsFromUi` sent a bitrate
+where those encoders read a `q`: the palette size and the JPEG quality did nothing at all. Fixing only
+half of that is worse than neither - the spinner's *range* comes from the mode as well, so a palette
+size left sitting at 1500 reaches ffmpeg out of range and kills the encode.
+`QuickConvertUi.GetEffectiveQualityMode` is the one answer all three of those read.
+
+**`-metadata:s:N` names an output stream, and the ticked tracks are not it.** A container that cannot
+hold a data or attachment track has it dropped; `-vn`, `-an` and `-sn` take a stripped kind out at the
+far end. Either way every title and language after such a track landed one stream too late - onto the
+subtitles, usually. `TrackList.GetMappedStreams` is the single list of what actually reaches the output,
+and both the maps and the metadata are built from it. The last index of all matches no stream and ffmpeg
+ignores it in silence, which is most of why this looked like it worked.
+
+**Input-side arguments belong in front of every `-i`.** ffmpeg reads a `-ss` there as belonging to the
+input that follows it, so a keyframe trim placed once at the head of the command seeked the first file
+and left every other one starting from the top - which in Muxing Mode is a video that begins a minute in
+playing against audio that does not. `GetInputFilesString` takes them as a per-input prefix.
+
+**Two-pass must name its own `-passlogfile`.** ffmpeg's default is `ffmpeg2pass-N.log` in the working
+directory, which is wherever the app happened to be launched from: an install the user cannot write to
+failed the first pass outright, and every run that did work left a log and an x264 mbtree file beside
+the exe. It goes in the session folder with the rest of the run's scratch data. Measured against
+libx265 as well, which honours the flag - it does not need `stats=` in `-x265-params`.
+
+**Target Filesize is a division, and both of its numbers were wrong.** The duration was the file's own
+whatever the Trim said, so a 100 MB target on a two-hour source cut to five minutes wrote twenty-odd
+times the size asked for. And the audio was booked at whatever the Bitrate spinner held - a box that is
+*disabled* for a copied track, so a 1536 kbps DTS track was costed at 128 and the video was handed 1.4
+Mbps the audio then took back. A copied track's own bitrate is already parsed and is the right number;
+FLAC cannot be predicted at all and is estimated from the source. Nothing here or in ffmpeg compares the
+result against the target, so both failures were silent.
+
+**Quoting a path is not enough on Linux or macOS.** sh expands `$var` and backticks inside double
+quotes, so a file named `My $HOME clip.mkv` reached ffmpeg as a path that does not exist and one with
+backticks in its name ran what was between them. `Shell.WrapArg` is the encoding that survives: single
+quotes, with the two characters they cannot carry handled by leaving the quoted run and coming back.
+`EscapeExpansions` is **not** the answer here even though it looks like it - it works for the av1an
+launch script, which is written to a file, and cannot work through `BuildArguments`, which doubles every
+backslash, so the single `\$` it would need is not a string that layer can produce. The encoding was
+measured rather than reasoned out, round-tripping `$`, backticks, both quote characters, single and
+double backslashes, `%`, `&`, `!`, `;`, newlines, spaces and parentheses through .NET's argument parsing
+and sh. Windows keeps its plain double quotes; cmd has no single-quoting and what it expands is a
+different question.
+
+**Burning in a text subtitle track has two quoting layers and had neither.** The path was double-quoted
+inside the already-quoted `-filter_complex`, and ffmpeg has no double-quoting at all - so the quotes
+became part of the filename, except that the surrounding shell happened to strip them again for a path
+with no space in it. A path *with* one broke the command outright. `FormatUtils.GetFilterPath`
+single-quotes at ffmpeg's level and `GetVideoFilterArgs` wraps the whole graph at the shell's.
+
+**An apostrophe in that path is refused before the run rather than escaped.** ffmpeg's own quoting for
+one - `'it'\''s'` - does not survive the second unescaping its filter's option parser makes, and neither
+does any other spelling: what comes back is a complaint about a filename with the apostrophe missing and
+`:si=0` stuck on the end. Measured against ffmpeg 6.1 across five encodings, quoted and unquoted.
+`GetBurnInProblem` names the file and the setting instead. Bitmap tracks are unaffected - they are a
+filtergraph input mapped by stream index, with no filename in the graph.
+
+**The burn-in runs after the crop and the scale**, where it used to run before all of them: a crop
+taking black bars off took the subtitles in them with it, an anamorphic source came out with stretched
+text, and a downscale rendered the lines large and then shrank them. Before the borders, so they stay
+inside the picture. And the track is indexed against **the loaded file**, not the file the video comes
+from - the dropdown lists the loaded file's subtitle tracks, and in Muxing Mode those are two different
+files.
+
+**Muxing Mode is where "the loaded file" and "the file being encoded" come apart**, and the video chain
+was built from the first of those. For the ordinary shape of a mux - a video file and an audio file -
+that is a file with no video track in it, so the whole chain was silently dropped.
+`QuickConvertUi.GetVideoSourceFile` delegates to `DeinterlaceUi.GetQuickConvertSourceFile` so the
+geometry and the deinterlacer cannot pick different files.
+
+**A per-stream ffmpeg option needs the stream's *type* in its specifier, not just a number.** A bare
+`:0` means output stream 0, which in any output with video is the video - so Opus's
+`-mapping_family 1`, re-emitted per track by `GetAudioArgsForEachStream`, was matched against the video
+encoder, found no such option there and dropped, while the audio streams never matched at all. ffmpeg
+says so in a line nothing here reads ("Codec AVOption mapping_family … has not been used for any
+stream"). The two `args.Add` calls above it always wrote `-b:a:N` and `-ac:a:N` correctly; only the
+extra-args loop did not. An audio-only output is where stream 0 happens to *be* the audio, which is
+where this worked and where it mattered least.
+
+**The per-track audio configuration and the dropdown that points at it are one setting.**
+`AudioConfiguration` refuses to hand its entries to any file but the one they were made on, and
+`SetAsMainFile` clears them outright - but nothing moved the "Configure each track separately" box, so
+`GetAudioArgsForEachStream` found `perTrack` set and the configuration null, skipped both override
+branches in silence, and encoded every track at the global spinner's bitrate with the Configure… button
+still on screen. A batch met this on every file including the first, since the queue loads each one
+through the same method. The box is reset where the data is, dismissing the dialog puts it back too,
+and a mismatch that reaches the arguments anyway now leaves a line in the log.
+
+That dialog also seeded its rows from each source track's own channel count, so confirming it - and it
+is opened *automatically* the moment the mode is switched - overwrote a downmix already picked on the
+Channels dropdown, that dropdown then being ignored because every row is written into the configuration
+whether it was edited or not. The rows start from what the dropdown asks for now, the bitrate is scaled
+to that same layout, and the dropdown is disabled while a configuration governs it rather than being
+left looking as though it still does something.
+
+**Refilling a dropdown loses what was selected in it.** The subtitle burn-in and the metadata/chapter
+source lists are rebuilt on every change to the file list, so adding an unrelated file to the queue
+turned a chosen burn-in track back to "Disabled" and put the metadata source back on the first file.
+`SetItemsIfChanged` leaves the box alone when the entries have not actually changed. The metadata grid
+had the same shape of bug from the other end: it was rebuilt from entries nothing had written yet, so
+ticking a track in the Track List threw away whatever had just been typed into it.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the
@@ -851,6 +988,16 @@ clear the deinterlace mode. Treating that half as unconditional meant a user who
 off to keep bwdif for a queue of tapes had every file of it moved back to QTGMC - an hours-long pass
 each on the AV1AN tab, and the exact surprise the whole feature exists to prevent, arriving through a
 different door.
+
+**The safe half has to be undone as well as done, and for a while it was only done.** Demoting a
+progressive file to Automatic is right for that file and wrong for the rest of the queue: the
+interlaced files after it take the early return above, which keeps whatever is in the box rather than
+putting anything back, so one progressive file among a stack of tapes ran everything after it on
+Automatic - the setting the queue was configured not to use. `DeinterlaceUi` remembers the engine a
+*person* picked, per tab, and reinstates it wherever the early return fires; `writingModeBoxes` is what
+keeps the demotion from being recorded as the choice it is meant to be undoing, the same shape as
+`Av1anUi.writingWorkerCount`. `ResetModes` clears the memory as well as the boxes, a reset being
+somebody asking for the default back.
 
 **And the encode settles the verdict before it reads the box.** `AnalyzeInBackground` is
 fire-and-forget so that loading a file does not wait on a few hundred frames being decoded, but a

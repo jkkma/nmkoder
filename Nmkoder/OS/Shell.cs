@@ -62,6 +62,39 @@ namespace Nmkoder.OS
         }
 
         /// <summary>
+        /// A path - or any other value, a filtergraph among them - as one argument, which the
+        /// interpreter hands on exactly as it was given.
+        /// <para/>
+        /// Quoting alone does not do that on Linux or macOS: sh expands $var and backticks inside
+        /// double quotes, so a file named "My $HOME clip.mkv" reached ffmpeg as a path that does not
+        /// exist, and one with backticks in its name ran whatever was between them. Single quotes
+        /// suppress every expansion there is. The two characters a single-quoted run cannot carry are
+        /// handled by leaving it and coming back - a quote through a double-quoted one, and a backslash
+        /// through a double-quoted "\\", whose doubling is exactly what <see cref="BuildArguments"/>'s
+        /// own escaping and sh's collapsing hand between them.
+        /// <para/>
+        /// That last part is why <see cref="EscapeExpansions"/> is not the answer here, though it looks
+        /// like it: it works for the av1an launch script, which is written to a file, and cannot work
+        /// through BuildArguments, which doubles every backslash - so the single "\$" that would make
+        /// sh leave the dollar alone is not a string this layer can produce at all.
+        /// <para/>
+        /// Measured rather than reasoned out. This encoding round-trips $, backticks, both quote
+        /// characters, single and double backslashes, %, &amp;, !, ;, newlines, spaces and parentheses
+        /// through the whole chain of .NET argument parsing and sh. Windows keeps the plain double
+        /// quotes it has always used: cmd has no single-quoting, and what it expands is a different
+        /// question with a different answer.
+        /// </summary>
+        public static string WrapArg(string arg)
+        {
+            arg = arg ?? "";
+
+            if (IsWindows)
+                return $"\"{arg}\"";
+
+            return string.Join("\"\\\\\"", arg.Split('\\').Select(part => $"'{part.Replace("'", "'\"'\"'")}'"));
+        }
+
+        /// <summary>
         /// Pipes stderr into a line filter that keeps lines containing any of the given literals
         /// (findstr on Windows, grep -F elsewhere).
         /// </summary>

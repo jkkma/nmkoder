@@ -75,6 +75,26 @@ namespace Nmkoder.Extensions
                 box.SelectedIndex = selectIndex;
         }
 
+        /// <summary>
+        /// Fills a dropdown only when what it should hold has actually changed, and leaves the selection
+        /// where it is when it has not.
+        /// <para/>
+        /// For the lists that describe the loaded file and the file list - the subtitle to burn in, the
+        /// file to take metadata and chapters from. Those are rebuilt on every change to either, and
+        /// refilling a dropdown loses whatever was selected in it, so adding an unrelated file to the
+        /// queue silently turned a chosen burn-in track back to "Disabled" and put the metadata source
+        /// back on the first file. Nothing said so, and the encode went ahead without them.
+        /// </summary>
+        public static void SetItemsIfChanged(this ComboBox box, IEnumerable<object> values, int selectIndex = -1)
+        {
+            List<object> items = values.ToList();
+
+            if (box.ItemCount == items.Count && box.Items.Cast<object>().Select(x => $"{x}").SequenceEqual(items.Select(x => $"{x}")))
+                return;
+
+            box.SetItems(items, selectIndex);
+        }
+
         public static int GetInt(this ComboBox box) => box.GetText().GetInt();
         public static float GetFloat(this ComboBox box) => box.GetText().GetFloat();
         public static int GetInt(this TextBox box) => (box.Text ?? "").GetInt();
