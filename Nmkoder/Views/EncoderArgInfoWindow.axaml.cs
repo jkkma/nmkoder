@@ -26,13 +26,17 @@ namespace Nmkoder.Views
             InitializeComponent();
         }
 
-        public static async Task Show(EncoderArgRow row)
+        /// <param name="spelling">How the argument is written on the command line the encoder is
+        /// given. Passed in rather than worked out here: an AV1AN argument is a standalone binary's
+        /// "--flag", where Quick Convert's is an ffmpeg AVOption or an entry in one of its parameter
+        /// lists, and this window is where a person goes to find out which.</param>
+        public static async Task Show(EncoderArgRow row, string spelling = null)
         {
             if (row == null)
                 return;
 
             var window = new EncoderArgInfoWindow();
-            window.Load(row);
+            window.Load(row, spelling);
 
             Window owner = UiUtils.MainWindowHandle;
 
@@ -42,9 +46,9 @@ namespace Nmkoder.Views
                 window.Show();
         }
 
-        private void Load(EncoderArgRow row)
+        private void Load(EncoderArgRow row, string spelling)
         {
-            ArgNameLabel.Text = $"--{(row.Argument ?? "").TrimStart('-')}";
+            ArgNameLabel.Text = string.IsNullOrWhiteSpace(spelling) ? $"--{(row.Argument ?? "").TrimStart('-')}" : spelling;
             SummaryLabel.Text = row.Description ?? "";
 
             // Nothing has been written for every argument of every encoder, and an empty window

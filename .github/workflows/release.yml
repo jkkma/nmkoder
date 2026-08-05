@@ -76,7 +76,7 @@ jobs:
         run: |
           # BinFiles/** has to land as loose files under bin/, because that is where the app reads
           # them back from. The Windows publish dropped them silently for three releases - the only
-          # symptom is an empty argument grid on the AV1AN tab - so a build missing them fails here
+          # symptom is an empty argument grid on the encode tabs - so a build missing them fails here
           # instead of shipping.
           missing=0
           for f in bin/iso639.csv \
@@ -84,7 +84,14 @@ jobs:
                    bin/av1an/encoderArgs/SvtAv1.json \
                    bin/av1an/encoderArgs/Vpx.json \
                    bin/av1an/encoderArgs/X264.json \
-                   bin/av1an/encoderArgs/X265.json; do
+                   bin/av1an/encoderArgs/X265.json \
+                   bin/ffmpeg/encoderArgs/H264Nvenc.json \
+                   bin/ffmpeg/encoderArgs/H265Nvenc.json \
+                   bin/ffmpeg/encoderArgs/LibAomAv1.json \
+                   bin/ffmpeg/encoderArgs/LibSvtAv1.json \
+                   bin/ffmpeg/encoderArgs/LibVpx.json \
+                   bin/ffmpeg/encoderArgs/Libx264.json \
+                   bin/ffmpeg/encoderArgs/Libx265.json; do
             if [ ! -s "publish/Nmkoder/$f" ]; then
               echo "MISSING: $f"
               missing=1

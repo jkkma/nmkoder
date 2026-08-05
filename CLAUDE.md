@@ -829,6 +829,71 @@ against av1an's own `ChunkMethod` and `ChunkOrdering` names (the `strum` seriali
 chunk method box is filled from the enum, so its index *is* the value; both are carried into a resume,
 since all three sit after the `-i` that `SaveJson` starts saving from.
 
+## The Advanced tab, on both encode tabs
+
+**The per-encoder argument grid is shared and the arguments in it are not.** `MainWindow.EncoderArgs.cs`
+holds one implementation of the grouping into category tabs, the preset row and its confirmation, the
+right-click help and the save-as-you-type; each tab hands it an `ArgSection` naming its own rows, its own
+encoder, its own config key and its own spelling. Two copies would have drifted the moment either tab was
+touched, which is the whole reason it moved out of the AV1AN partial rather than being copied into the
+Quick Convert one.
+
+The lists are filed apart - `bin/av1an/encoderArgs` against `bin/ffmpeg/encoderArgs`, keyed by the encoder
+class name - and the values under a key each, because they are **different vocabularies rather than
+different files**. The AV1AN tab drives standalone binaries and names their CLI parameters; Quick Convert
+drives ffmpeg and names what the *wrapper* takes, which for VP9 and NVENC is not the same set of names at
+all. Both folders are in the release workflow's post-publish check, for the reason the csproj gives.
+
+**Four of ffmpeg's encoders take their whole parameter table through one option and the rest do not.**
+`-x264-params`, `-x265-params`, `-svtav1-params` and `-aom-params` each hold a `:`-separated `key=value`
+list; libvpx-vp9 has no such option - measured against the bundled build, there is no `-vpx-params` - and
+neither does NVENC, so those two get one `-key value` AVOption per filled-in row. `FfmpegEncoderArgs` is
+the one place that split is stated, and it is why `LibVpx.json` names ffmpeg's own spellings: half of
+vpxenc's long options have no AVOption behind them.
+
+**A second `-x265-params` replaces the first outright rather than adding to it.** Measured, and true of the
+other three. `Libx265` therefore merges `pass=1`/`pass=2` and `lossless=1` into the same list the grid
+builds instead of emitting an option beside it - before the grid existed those two could not both appear
+(two-pass implies a bitrate, lossless implies CRF), so writing them as separate options got away with it,
+and the grid is the third one that would not have.
+
+**What an encoder does with a parameter it does not know is three different things.** x264, x265 and
+SVT-AV1 print one warning line and encode anyway, so a setting goes missing in silence; libaom refuses the
+encode naming the parameter; and an unknown AVOption never reaches an encoder at all, ffmpeg dying while
+parsing its own arguments. The Argument column is read-only, so a name that is not in the shipped list
+cannot be typed - what that behaviour governs is a list that has drifted from the ffmpeg being run. It is
+also why every row of every list here was passed to the real binary and observed to be accepted rather
+than read out of documentation: for three encoders out of five, "it encoded fine" is not evidence.
+
+**`tune` and `profile` are not x264 or x265 *parameters*.** Both are applied by the library's own
+preset/profile entry points rather than by its parameter parser, so `-x264-params tune=grain` comes back as
+"Error parsing option" and `-x265-params tune=grain` as "Unknown option". They exist only as ffmpeg
+AVOptions, which a params-style encoder's grid cannot emit - so neither list has a row for them, and that
+is a limit rather than an oversight.
+
+**The SVT-AV1 behind Quick Convert is not the one behind the AV1AN tab.** `bundle-tools.sh` fetches
+svt-av1-hdr as `SvtAv1EncApp`, which is av1an's encoder and nothing else's; Quick Convert runs `libsvtav1`
+*inside* BtbN's ffmpeg, a library the bundler does not choose. Measured against that build - which reports
+`SVT-AV1 Encoder Lib v4.1.0` - `hbd-mds`, `luminance-qp-bias`, `chroma-qm-min`, `ac-bias`, `max-tx-size`,
+`variance-boost-curve` and `adaptive-film-grain` are all there, while `noise-adaptive-filtering`,
+`tx-bias`, `cdef-scaling`, `kf-tf-strength`, `sharp-tx`, `alt-ssim-tuning`, `fgs-table` and the whole
+`noise*` family are not. So `SvtAv1.json` and `LibSvtAv1.json` are two files on purpose and the second is
+the shorter one. Do not "fix" it by pointing Quick Convert at the PSY list: those rows would be accepted
+by ffmpeg, dropped by the library with a warning nothing here reads, and encode as though they had never
+been set.
+
+**The params blob is quoted and the AVOption values mostly are not.** x265's `master-display` is written
+`G(13250,34500)B(...)...`, and parentheses belong to the shell on Linux and macOS, so the whole `:`-joined
+list goes through `Shell.WrapArg`; an AVOption value is quoted only where it holds something the shell
+would otherwise read. A value containing a *space* cannot survive either path, the grid handing the
+encoders one space-separated `key=value` string - the same limit `BuildCli` has always had on the AV1AN
+side, and no parameter either list offers takes one.
+
+**Quick Convert's two custom-argument boxes stay on that tab.** The AV1AN tab keeps its own pair on the
+Av1an Options tab, and Quick Convert has no such tab, so replacing its Advanced tab outright would have
+taken them away - and `QuickConvert.Run` reads them for the input side and the output side of the command,
+which nothing else can reach.
+
 ## The Quick Convert command
 
 **One ffmpeg command line is built in `QuickConvert.Run`, and the order things are worked out in is

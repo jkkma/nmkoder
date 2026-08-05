@@ -35,6 +35,11 @@ namespace Nmkoder.Views
         /// <summary> Per-encoder advanced av1an arguments. </summary>
         public ObservableCollection<EncoderArgRow> Av1anArgRows { get; } = new ObservableCollection<EncoderArgRow>();
 
+        /// <summary> Per-encoder advanced ffmpeg arguments. Kept apart from the list above rather than
+        /// shared with it: the two tabs' lists name different things even where the encoder behind
+        /// them has the same name - see <see cref="Data.Codecs.FfmpegEncoderArgs"/>. </summary>
+        public ObservableCollection<EncoderArgRow> EncArgRows { get; } = new ObservableCollection<EncoderArgRow>();
+
         public RunTask.TaskType RunningTask = RunTask.TaskType.None;
 
         public MainWindow()
@@ -54,8 +59,9 @@ namespace Nmkoder.Views
             EncMetadataGrid.ItemsSource = MetadataRows;
             EncAdvancedFiltersGrid.ItemsSource = EncFilterRows;
             Av1anAdvancedFiltersGrid.ItemsSource = Av1anFilterRows;
-            // Av1anArgRows has no grid of its own: the category tabs each show a slice of it,
-            // built in LoadAv1anArgCategoryTabs whenever the rows are reloaded.
+            // Neither argument list has a grid of its own: the category tabs each show a slice of one,
+            // built in LoadArgCategoryTabs whenever the rows are reloaded.
+            SetUpArgSections();
             SetThumbnail(AppImages.Placeholder, "");
 
             ListEntryBase.CheckedChanged += (s, e) => OnStreamCheckedChanged();
@@ -160,6 +166,7 @@ namespace Nmkoder.Views
                     TrySave(SaveLayout, "window layout");
                     TrySave(SaveUiConfig, "selected codecs");
                     TrySave(SaveQuickConvertSettings, "Quick Convert settings");
+                    TrySave(SaveEncAdvancedArgs, "Quick Convert encoder arguments");
                     TrySave(SaveConfigAv1an, "AV1AN options");
                     TrySave(SaveAv1anEncodeSettings, "AV1AN encode settings");
                     TrySave(SaveAv1anAdvancedArgs, "AV1AN encoder arguments");

@@ -282,119 +282,19 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The advanced grid's rows as encoder arguments, skipping every row the user has not filled
-        /// in. The grid is preloaded with an encoder's documented parameters so they can be read and
-        /// edited in place, so most rows are blank most of the time - passing those would put a
-        /// valueless flag on the command line and fail the encode before it started.
+        /// The advanced grid's rows as the encoder arguments av1an passes on. Shared with Quick
+        /// Convert, which spells the same rows differently - see <see cref="EncoderArgs"/>.
         /// </summary>
         public static string BuildAdvancedArgs(IEnumerable<EncoderArgRow> rows)
         {
-            return string.Join(" ", rows
-                .Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty())
-                .Select(x => $"--{x.Argument.Trim().TrimStart('-')}={x.Value.Trim()}"));
-        }
-
-        /// <summary>
-        /// The parameters documented for an encoder, as [argument, value, description, category,
-        /// details, examples] rows. Values come through blank: the list is there to be read and
-        /// filled in, and only rows with a value reach the command line. An encoder with no file
-        /// simply has nothing to show. The category names the tab the row appears under; a row
-        /// without one - the format before categories existed - is grouped as "Other" rather than
-        /// dropped. Details and examples feed the right-click window and may be absent.
-        /// </summary>
-        public static List<EncoderArgRow> ReadEncoderArgRows(IEncoder enc)
-        {
-            List<EncoderArgRow> rows = new List<EncoderArgRow>();
-            string jsonPath = Path.Combine(Paths.GetBinPath(), "av1an", "encoderArgs", enc.Name + ".json");
-
-            if (!File.Exists(jsonPath))
-                return rows;
-
-            List<string[]> args;
-
-            try
-            {
-                args = JsonConvert.DeserializeObject<List<string[]>>(File.ReadAllText(jsonPath));
-            }
-            catch (Exception e)
-            {
-                Logger.Log($"Error loading advanced arg JSON: {e.Message}");
-                args = new List<string[]>();
-            }
-
-            foreach (string[] arg in args ?? new List<string[]>())
-            {
-                if (arg.Length >= 3)
-                {
-                    rows.Add(new EncoderArgRow(arg[0], arg[1], arg[2], arg.Length >= 4 ? arg[3] : "",
-                        arg.Length >= 5 ? arg[4] : "", arg.Length >= 6 ? arg[5] : ""));
-                }
-            }
-
-            return rows;
+            return EncoderArgs.BuildCli(rows);
         }
 
         public static void LoadAdvancedArgsGrid(IEncoder enc)
         {
-            Form.Av1anArgRows.Clear();
-            ReadSavedArgs().TryGetValue(enc.Name, out Dictionary<string, string> saved);
-
-            foreach (EncoderArgRow row in ReadEncoderArgRows(enc))
-            {
-                if (saved != null && saved.TryGetValue(row.Argument, out string value))
-                    row.Value = value;
-
-                Form.Av1anArgRows.Add(row);
-            }
-
-            Form.LoadAv1anArgCategoryTabs();
-            Form.LoadAv1anArgPresets(enc.Name);
-        }
-
-        /// <summary>
-        /// Values typed into the advanced argument grid, kept per encoder. The rows themselves are
-        /// rebuilt from the encoder's JSON every time it is selected, which is what used to throw
-        /// the values away - on a restart and on every switch between encoders.
-        /// </summary>
-        public static void SaveAdvancedArgs(IEncoder enc)
-        {
-            if (enc == null)
-                return;
-
-            Dictionary<string, Dictionary<string, string>> all = ReadSavedArgs();
-
-            // Blank rows are the normal state, and storing them would grow the config with nothing
-            Dictionary<string, string> filled = Form.Av1anArgRows
-                .Where(r => r.Argument.IsNotEmpty() && r.Value.IsNotEmpty())
-                .GroupBy(r => r.Argument.Trim())
-                .ToDictionary(g => g.Key, g => g.Last().Value.Trim());
-
-            if (filled.Count > 0)
-                all[enc.Name] = filled;
-            else
-                all.Remove(enc.Name);
-
-            Config.Set(Config.Key.Av1anEncoderArgs, JsonConvert.SerializeObject(all));
-        }
-
-        private static Dictionary<string, Dictionary<string, string>> ReadSavedArgs()
-        {
-            try
-            {
-                string json = Config.Get(Config.Key.Av1anEncoderArgs);
-
-                if (json.IsEmpty())
-                    return new Dictionary<string, Dictionary<string, string>>();
-
-                return JsonConvert.DeserializeObject<Dictionary<string, Dictionary<string, string>>>(json)
-                    ?? new Dictionary<string, Dictionary<string, string>>();
-            }
-            catch (Exception e)
-            {
-                // A hand-edited or truncated entry should cost the saved values, not the whole tab
-                Logger.Log($"Failed to read saved encoder arguments: {e.Message}", true);
-                return new Dictionary<string, Dictionary<string, string>>();
-            }
+            EncoderArgs.Load(Form.Av1anArgRows, enc, EncoderArgs.Av1anFolder, Config.Key.Av1anEncoderArgs);
+            Form.LoadArgCategoryTabs(Form.Av1anArgs);
+            Form.LoadArgPresets(Form.Av1anArgs, enc.Name);
         }
 
         #endregion
