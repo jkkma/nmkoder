@@ -28,7 +28,7 @@
     "",
     "alpha,beta each -6 to 6 (default 0,0) - Loop filter strength; negative keeps grain, positive hides blocking",
     "Tuning & Profile",
-    "Offsets for the in-loop deblocking filter, which smooths the edges between coded blocks before the frame is used as a reference. The first number shifts the filter's strength and the second the threshold at which an edge is considered worth filtering.\n\nNegative values filter less, so grain and fine texture survive the loop instead of being averaged away - at the cost of visible block edges if the bitrate is not there to support them. Positive values filter more, which hides blocking at low bitrates and costs detail.\n\nWrite the two numbers separated by a comma. x264's own documentation spells this alpha:beta, and a colon is what separates one parameter from the next in the string this grid builds - so a colon here splits the value in half and the row is refused. A single number sets both.",
+    "Offsets for the in-loop deblocking filter, which smooths the edges between coded blocks before the frame is used as a reference. The first number shifts the filter's strength and the second the threshold at which an edge is considered worth filtering.\n\nNegative values filter less, so grain and fine texture survive the loop instead of being averaged away - at the cost of visible block edges if the bitrate is not there to support them. Positive values filter more, which hides blocking at low bitrates and costs detail.\n\nWrite the two numbers separated by a comma. x264's own documentation spells this alpha:beta, and a colon is what separates one parameter from the next in the string this grid builds - so a colon here ends the value early, and what that costs depends on what comes after it. With another row filled in below, the half past the colon is read as that row's name instead: this one keeps the first number only and the next row is dropped. With nothing after it, ffmpeg refuses to open the encoder at all and the encode never starts. A single number sets both.",
     "0,0|The default, neutral filtering.\n-1,-1|A mild sharpening, common for detailed live action.\n-3,-3|Strongly preserves grain; needs a generous bitrate or it blocks.\n1,1|Smooths more, for low bitrate encodes where blocking shows."
   ],
   [
@@ -156,7 +156,7 @@
     "",
     "rd,trellis - each 0.0-10.0 (default 1.0,0.0) - Keeps detail over PSNR; rd needs subme 6+, trellis needs trellis on",
     "Quantization & Psychovisual",
-    "Psychovisual rate-distortion, given as two numbers. The first biases mode decisions towards keeping the same amount of visual energy as the source rather than towards the lowest measurable error, so the encoder stops preferring a smooth block over a detailed one that is slightly wrong. The second applies the same idea inside trellis quantisation.\n\nThis is what stops x264 output looking soft, and it is exactly why it costs PSNR and SSIM: it is deliberately choosing something those metrics score lower.\n\nThe first value needs subme 6 or higher to do anything, and the second needs trellis enabled. The psy row turns both off at once.\n\nWrite the pair separated by a comma. x264 documents it as rd:trellis, and a colon is what separates one parameter from the next in the string this grid builds, so a colon here gets the row refused.",
+    "Psychovisual rate-distortion, given as two numbers. The first biases mode decisions towards keeping the same amount of visual energy as the source rather than towards the lowest measurable error, so the encoder stops preferring a smooth block over a detailed one that is slightly wrong. The second applies the same idea inside trellis quantisation.\n\nThis is what stops x264 output looking soft, and it is exactly why it costs PSNR and SSIM: it is deliberately choosing something those metrics score lower.\n\nThe first value needs subme 6 or higher to do anything, and the second needs trellis enabled. The psy row turns both off at once.\n\nWrite the pair separated by a comma. x264 documents it as rd:trellis, and a colon is what separates one parameter from the next in the string this grid builds, so a colon here ends the value at the first number and takes the next filled-in row down with it - or, with nothing filled in below it, stops the encode before a frame is written.",
     "1.0,0.0|The default; psy-rd on, psy-trellis off.\n1.0,0.15|A mild trellis component, for detailed live action.\n1.5,0.0|Stronger detail retention on grainy sources.\n0.0,0.0|Off, for metric benchmarking only."
   ],
   [
@@ -226,25 +226,25 @@
   [
     "qpmin",
     "",
-    "0-69 (default 0) - The best quantiser rate control may use; raise it to stop easy scenes soaking up bitrate",
+    "0-69, or 0-81 at 10-bit (default 0) - The best quantiser rate control may use; raise it to stop easy scenes soaking up bitrate",
     "Rate Control",
-    "A floor on the quantiser, which is a ceiling on how many bits any one frame may be given. Lower quantisers mean higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes being encoded at a quality nobody will notice. In a bitrate-targeted or filesize-targeted encode that frees bits for the difficult material; in CRF it simply caps quality on the easy parts and shrinks the file.\n\nValues above about 10 start to be visible on flat content, so this is a fine adjustment rather than a blunt one. Anything above 69 is clamped back to it.",
+    "A floor on the quantiser, which is a ceiling on how many bits any one frame may be given. Lower quantisers mean higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes being encoded at a quality nobody will notice. In a bitrate-targeted or filesize-targeted encode that frees bits for the difficult material; in CRF it simply caps quality on the easy parts and shrinks the file.\n\nValues above about 10 start to be visible on flat content, so this is a fine adjustment rather than a blunt one. Anything above the maximum is clamped back to it, and that maximum follows the colour format: 69 for an 8-bit pixel format and 81 for a 10-bit one, the two extra bits adding twelve quantiser steps.",
     "0|The default; no floor.\n10|Stops easy scenes spending more than they need.\n15|A firmer cap, noticeably smaller files on easy content."
   ],
   [
     "qpmax",
     "",
-    "0-69 (default 69) - The worst quantiser rate control may use; lower it to stop hard scenes collapsing",
+    "0-69, or 0-81 at 10-bit (default is that maximum) - The worst quantiser rate control may use; lower it to stop hard scenes collapsing",
     "Rate Control",
-    "A ceiling on the quantiser, bounding how far quality is allowed to fall when the rate controller runs short of bits.\n\nLowering it prevents the blocky collapse that difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer hit its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nThe default of 69 is the highest quantiser x264 has, which is effectively no limit, so this only matters in bitrate-targeted or filesize-targeted encoding where the target is tight. A larger number is clamped back to 69 rather than refused.",
-    "69|The default; effectively unlimited.\n40|Prevents the worst collapse on hard scenes.\n35|A firm quality floor, at the cost of size predictability."
+    "A ceiling on the quantiser, bounding how far quality is allowed to fall when the rate controller runs short of bits.\n\nLowering it prevents the blocky collapse that difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer hit its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nThe default is the highest quantiser x264 has, which is effectively no limit, so this only matters in bitrate-targeted or filesize-targeted encoding where the target is tight. That maximum follows the colour format - 69 for an 8-bit pixel format and 81 for a 10-bit one - and a larger number is clamped back to it rather than refused.",
+    "69|The default for an 8-bit format; effectively unlimited.\n81|The same for a 10-bit one.\n40|Prevents the worst collapse on hard scenes.\n35|A firm quality floor, at the cost of size predictability."
   ],
   [
     "qpstep",
     "",
-    "0-69 (default 4) - The largest quantiser change allowed between consecutive frames",
+    "2-69, or 2-81 at 10-bit (default 4) - The largest quantiser change allowed between consecutive frames",
     "Rate Control",
-    "Limits how far the quantiser may move from one frame to the next. It exists to stop the rate controller reacting so sharply to a change in difficulty that quality visibly pulses.\n\nRaising it lets rate control respond faster to a sudden change in scene complexity, which helps it hold a bitrate target through hard cuts, at the risk of visible quality steps.\n\nLowering it makes quality smoother over time and leaves the controller slower to react, which can overshoot the target when a difficult scene arrives abruptly.",
+    "Limits how far the quantiser may move from one frame to the next. It exists to stop the rate controller reacting so sharply to a change in difficulty that quality visibly pulses.\n\nRaising it lets rate control respond faster to a sudden change in scene complexity, which helps it hold a bitrate target through hard cuts, at the risk of visible quality steps.\n\nLowering it makes quality smoother over time and leaves the controller slower to react, which can overshoot the target when a difficult scene arrives abruptly. 2 is as low as it goes: anything under that is raised to it without a word, so a 0 typed here to freeze the quantiser does nothing of the kind. The top of the range is the same quantiser maximum qpmin and qpmax have, 69 for an 8-bit pixel format and 81 for a 10-bit one.",
     "4|The default.\n2|Smoother quality over time; slower to react to scene changes.\n8|Faster reaction, better target tracking, more visible steps."
   ],
   [

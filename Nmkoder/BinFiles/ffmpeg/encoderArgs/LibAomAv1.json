@@ -144,6 +144,14 @@
     "1|The default; filtered keyframes.\n0|Unfiltered keyframes, for grain retention.\n2|Filtering with a correcting overlay frame."
   ],
   [
+    "denoise-noise-level",
+    "",
+    "0 off, or a strength (default 0) - Denoises the picture by this much and has the decoder synthesise matching grain",
+    "Filtering",
+    "AV1's film grain synthesis. The encoder denoises the picture by the amount given, measures the grain it took out, and writes a parameter set the decoder uses to regenerate grain at playback - so the grain costs a few bytes of description instead of a large share of the bitrate. On grainy film that is the single largest saving libaom can make.\n\nWhat comes back is statistically similar rather than identical, which is the trade. Values around 10 suit lightly grainy digital, 25 an ordinary film scan, and above 50 the denoising starts taking picture with it. 0, the default, leaves the source alone and codes whatever grain is in it.\n\nThe companion row below decides whether the denoised picture is the one that gets encoded. Both were measured against the bundled build: this parameter overrides the -denoise-noise-level 0 the tab sends for itself, so setting it here is what makes either row do anything.\n\nThe encoder may print \"Solving latest noise equation system failed\" on a source with no real grain in it, which is its noise model declining to fit rather than an error - the encode carries on.",
+    "0|Off; the grain in the source is coded as picture.\n10|Light denoising, for lightly grainy digital sources.\n25|An ordinary 35mm scan.\n50|Heavy grain, at the edge of what stays faithful."
+  ],
+  [
     "enable-dnl-denoising",
     "",
     "0-1 (default 1) - Whether the grain-synthesis denoiser's clean picture is what actually gets encoded",
