@@ -346,6 +346,37 @@ Inspecting a published archive settles it without downloading one: a zip's
 central directory is at its end, so a range request for the last few KB, parsed
 for the entry names, lists everything the asset contains.
 
+**The win-x64 release is no longer published single-file, which takes the flag
+above out of every shipped build.** A third consequence is what settled it, and
+it is the one nobody sees until a disk fills: the extraction in (2) goes to
+`%TEMP%\.net\Nmkoder\{bundle-id}`, the id is a hash that changes with **every
+build**, and .NET deletes none of them ever. So a machine collects one copy of
+the runtime and the App SDK - about 140 MB - for each release it has run.
+Measured on a user's machine ten days after installing: 40 folders, 5.22 GB.
+The bundle was buying nothing anyway, the app shipping as a folder in a zip with
+`bin/` beside it either way, so `release.yml`'s matrix now carries `single:`
+per RID and win-x64 is the one that is false.
+
+Two things stay regardless, and both look removable now: the csproj still sets
+`IncludeAllContentForSelfExtract`, because the README documents a single-file
+win-x64 publish and the App SDK validation fails that build without it; and
+`CopyBinFilesToPublishDir` stays for the reason above. Neither is the release's
+to need any more, which is exactly why the next person will delete them.
+
+`Program.CleanupBundleExtractions` clears what is already on disk, since the
+build change cannot reach a folder written by an older release. It does not ask
+whether *this* build is bundled before looking - a non-bundled build is precisely
+the one that has stale folders and no live one. `AppContext.BaseDirectory` is
+read there on purpose, being the extraction folder itself and so the authority on
+where the root is; that is the one question it answers well, and it is the exact
+opposite of the rule in (2), so it carries a comment saying so. A folder in use by
+another build is skipped rather than deleted - a live instance holds its libraries
+open, so the loaded files would refuse to go while the rest went, stripping it of
+whatever it had not loaded yet. Verified by running it: a real linux-x64 bundle
+published with the flag, three planted folders deleted, its own kept, and one held
+under `flock` - which is what .NET's `FileShare.None` takes on Unix - kept and
+named in the log.
+
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,
 so an inlined call would throw on a machine with a broken App SDK while
