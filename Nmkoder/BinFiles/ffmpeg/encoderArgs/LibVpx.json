@@ -1,0 +1,170 @@
+[
+  [
+    "deadline",
+    "",
+    "good, best or realtime (default good) - How much time the encoder may spend; realtime is a different rate control path entirely",
+    "Tuning & Quality",
+    "Picks which of libvpx's three encoding paths runs. good is the general-purpose one and is where the speed setting the app already sends does its work. best spends considerably longer for a small gain, and libvpx has been folding it back into good for years. realtime is not a slower or faster version of the same thing - it is a separate rate control and speed-feature path written for live encoding.\n\nThe realtime path is what makes several other settings on this tab mean anything. Measured here, tune-content screen and static-thresh change nothing at all under good and change the output substantially under realtime, while the alt-ref machinery is unavailable there.\n\nFor a file you are encoding once and keeping, leave this alone. best is worth measuring on a short clip before committing hours to it; realtime is for streams and screen capture and costs real quality.",
+    "good|The default; the mode offline encoding should stay in.\nbest|Slower for a small gain; measurably different, rarely worth the time.\nrealtime|Live and screen capture; the only mode where static-thresh and tune-content screen do anything."
+  ],
+  [
+    "tune",
+    "",
+    "psnr or ssim (default psnr) - Metric the encoder optimises for; ssim scales RD per block and often looks better",
+    "Tuning & Quality",
+    "Selects the distortion metric the encoder optimises its decisions against. psnr minimises squared error; ssim weights decisions by structural similarity, which changes rate-distortion scaling per block.\n\nssim generally produces a picture people prefer, because it spends bits on structure rather than on wherever squared error happens to be largest, and it usually scores better on perceptual metrics too.\n\nNeither is a psychovisual setting in the sense x264's psy-rd is; VP9 has no equivalent, which is part of why its output tends to look softer than a comparable x264 encode.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice."
+  ],
+  [
+    "tune-content",
+    "",
+    "default, screen or film (default default) - Content hint; screen only bites in realtime mode, film only outside it",
+    "Tuning & Quality",
+    "Tells the encoder what kind of material it is coding. screen enables tools for desktop capture and UI recordings, where large flat areas and repeated elements code far more cheaply with the right prediction modes.\n\nfilm adjusts the encoder's behaviour to retain grain rather than filtering it away. Note this is not the same as the option of the same name in aomenc, which synthesises grain at the decoder - VP9 has no grain synthesis, so here it genuinely means keeping more of the noise that is there.\n\nThe two halves reach the encoder through different paths, and measured against this build only one of them is live at a time. screen changed nothing at all under the good deadline and cut a screen capture from 66106 to 51277 bytes under realtime; film did the reverse, moving the output under good and two-pass and doing nothing under realtime. So a screen hint is only worth setting alongside a realtime deadline.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings - set the deadline to realtime with it.\nfilm|Grainy sources, retaining noise rather than smoothing it."
+  ],
+  [
+    "sharpness",
+    "",
+    "-1 to 7 (default 0) - Keeps fine detail by curbing coefficient and skip optimisation, costing PSNR and bitrate",
+    "Tuning & Quality",
+    "Trades measurable accuracy for a sharper-looking picture by curbing the optimisations that quietly smooth the result - the coefficient decisions and skip choices that drop small amounts of detail because they are cheap to lose.\n\nHigher values keep more of that fine detail and cost both PSNR and bitrate. The cost is not small: on a grainy test clip, 7 came out at 333294 bytes against 159216 for the default, more than double, so treat this as a bitrate control as much as a look control.\n\nIt also feeds the loop filter level, so raising it reduces deblocking as well. -1 is ffmpeg's way of saying \"do not set this\", which lands on the same behaviour as 0.",
+    "0|The default; no bias.\n2|A mild sharpening for detailed live action.\n5|Strong detail retention, at a real bitrate cost.\n7|The maximum, and roughly double the file size on grainy material."
+  ],
+  [
+    "static-thresh",
+    "",
+    "0 or higher (default 0 off) - Codes low-motion blocks as skip below this distortion; realtime mode only",
+    "Tuning & Quality",
+    "Sets a distortion threshold below which a block is simply coded as skipped rather than searched and coded properly. Anything changing less than the threshold between frames is treated as not changing at all.\n\nThe point is speed, and the setting is aimed at real-time encoding of largely static content such as screen sharing, where most of the frame genuinely is identical. Measured against this build that is not just advice: under the good deadline no value of it changed a byte of the output, and only with the deadline on realtime did it start dropping blocks.\n\nAbove 0 it will discard real low-amplitude change, including film grain and subtle gradients in motion, so it is a poor fit for offline quality encoding even where it works.",
+    "0|The default; off, and the right setting for quality encoding.\n1000|Light skipping for realtime screen content.\n20000|Aggressive skipping; visible on anything but static material."
+  ],
+  [
+    "error-resilient",
+    "",
+    "default or 0 (default 0, off) - Codes frames so a decoder can recover from a lost one, at a bitrate cost",
+    "Tuning & Quality",
+    "Turns on error resilience, which stops the encoder relying on state the decoder may not have - chiefly the backward probability updates that refine the entropy model from the frame just coded. A decoder joining late or losing a frame can then carry on rather than showing corruption until the next keyframe.\n\nIt costs bitrate for that, and the cost is measurable rather than theoretical: the same clip came out 3-4% larger with it on. For a file on disk there is nothing to recover from, so it is a loss with no upside.\n\nffmpeg offers a second flag, partitions, which is a VP8 concept. Measured against VP9 it produces byte-identical output to default, so there is nothing to choose between them here.",
+    "0|The default; off, and the right setting for a file.\ndefault|Resilience against whole lost frames, for lossy transport."
+  ],
+  [
+    "level",
+    "",
+    "-1 or a VP9 level such as 4.1 (default -1, off) - Caps the stream to a decoder level, constraining the encode to fit",
+    "Tuning & Quality",
+    "Names a VP9 level the output has to conform to, and the encoder then adjusts its own decisions - frame size, rate, tile and reference limits - to stay inside it. A level is what a hardware decoder advertises support for, so this is the setting that makes a file playable on a device that refuses anything above its ceiling.\n\nOnly the levels VP9 actually defines are accepted. Measured, 2.1, 4.1, 5.1, 5.2, 6 and 6.2 all take; a made-up 3.5 is refused with \"target_level is invalid\" and the encode then simply carries on unconstrained, which is a failure quiet enough to miss. A level too small for the frame in front of it is the loud case - a 320x240 clip at level 1 fails outright with \"The picture size is too large\".\n\nLeave it off unless a specific decoder demands one; constraining the encoder can only cost quality.",
+    "-1|The default; no level constraint.\n4.1|A common ceiling for 1080p hardware decoding.\n5.1|Headroom for 4K.\n6.2|The highest level VP9 defines."
+  ],
+  [
+    "lossless",
+    "",
+    "0 or 1 (default 0) - Mathematically lossless coding; needs the quality set to CRF 0 or a bitrate mode",
+    "Tuning & Quality",
+    "Codes the video with no quantisation at all, so every frame decodes back to exactly the pixels that went in. It is a real VP9 mode rather than a very high quality setting, and the files are correspondingly large - measured on a test clip, 33035 bytes against 13440 for an ordinary bitrate encode of the same frames.\n\nIt clamps the quantiser to zero at both ends, which means it cannot coexist with a constant-quality target of anything but 0. Set it with the quality anywhere else and the encoder refuses to open at all, saying \"CQ level N must be between minimum and maximum quantizer value (0-0)\" - so if you want this, put the quality slider on 0 or use a bitrate mode.\n\nWorth it for an intermediate or an archival master where the source itself is the thing being kept. For anything that will be watched, a low CRF is a far better use of the space.",
+    "0|The default; ordinary lossy coding.\n1|Lossless; requires CRF 0, and produces very large files."
+  ],
+  [
+    "auto-alt-ref",
+    "",
+    "0-6 (default 1, two-pass only) - Alt reference frames; 2 and above enables multi-layer ARF, usually a quality gain",
+    "Alt-Ref & Frames",
+    "Alternate reference frames are synthetic frames the encoder builds by filtering several source frames together. They are never displayed; other frames predict from them, and because they are denoised they predict very well, which is one of VP9's larger compression wins.\n\nValues above 1 enable multi-layer alt-refs, letting the encoder maintain several at different temporal distances so both slow and fast motion have a good reference available.\n\nMeasured against this build the whole alt-ref mechanism is two-pass only, exactly as ffmpeg's own help says: in one-pass encoding, constant quality and bitrate alike, no value of this changed a single byte, while in two-pass 0 and 6 were 15% apart. So this row and the three under it are settings for a two-pass encode and nothing else.",
+    "1|The default; a single alt-ref layer.\n6|The maximum; multi-layer, the usual choice for offline quality.\n4|Multi-layer with less encoding cost than the maximum.\n0|Disabled; a clear compression loss."
+  ],
+  [
+    "lag-in-frames",
+    "",
+    "0-25 (default 25) - Lookahead depth; more improves alt-ref placement, 0 gives low delay at a quality cost",
+    "Alt-Ref & Frames",
+    "How many frames the encoder buffers before committing decisions, which sets how far ahead it can see. Lookahead is what makes alt-ref frames possible - the encoder needs the frames in hand to filter them together - and it also drives frame type and bit allocation choices.\n\nLowering it costs compression directly, and dropping it far enough disables alt-refs, taking one of VP9's main advantages with them. Measured, a two-pass encode at 0 came out the same size as one with alt-refs switched off outright.\n\n25 is both the default and the hard ceiling: ffmpeg will accept a larger number and libvpx then refuses to open the encoder over it. Set it to 0 only for genuinely low-delay use; the cost is memory and latency, not encoding speed.",
+    "25|The default and the maximum; the right setting for offline encoding.\n16|Reduced buffering where memory is constrained.\n0|Low delay, giving up alt-ref frames and a lot of efficiency."
+  ],
+  [
+    "arnr-maxframes",
+    "",
+    "0-15 (default 0, off) - Frames blended by the alt-ref temporal filter; ffmpeg leaves it off where vpxenc uses 7",
+    "Alt-Ref & Frames",
+    "How many neighbouring frames the alt-ref filter blends together when constructing an alternate reference. The blending is what removes noise and makes the alt-ref such a good prediction source.\n\nMore frames give a cleaner reference and better compression, and average away more grain and fine motion detail in the process. Fewer keep the noise but predict less well. Measured on a grainy two-pass encode, 0 gave 143012 bytes, 3 gave 139108 and 7 gave 136223, with 10 and 15 landing on the same figure as 7 - the encoder caps the count from its own group boost, so the top of the range is rarely reached.\n\nThe default is the part to know. vpxenc's own default is 7, but ffmpeg carries a second, older spelling of this option whose default of 0 is the one that actually lands, so the temporal filter is off unless you turn it on here. That also means arnr-strength beside it does nothing at all until this is raised.",
+    "0|The default in ffmpeg; the filter is off.\n7|vpxenc's own default, and a good general setting.\n3|Keeps more grain and fine motion detail.\n15|The maximum; cleanest references, softest detail."
+  ],
+  [
+    "arnr-strength",
+    "",
+    "0-6 (default 3) - Alt-ref filter strength; does nothing unless arnr-maxframes is raised above 0",
+    "Alt-Ref & Frames",
+    "How aggressively the alt-ref filter blends the frames it has gathered. Where arnr-maxframes sets how many frames take part, this sets how much of each survives the blend.\n\nDropping it to 1 or 2 is the usual move on grainy film, keeping noise that would otherwise be averaged out of the reference and therefore out of everything predicting from it. Raising it suits genuinely noisy footage, where the noise is not worth preserving and removing it saves bits.\n\nBecause ffmpeg leaves arnr-maxframes at 0, this has no effect out of the box: measured, every value from 0 to 6 produced byte-identical output until the frame count was raised, after which 0, 1 and 2 were all distinct. The encoder also caps the strength it will use from the group boost, so on ordinary material everything from 2 upwards behaves alike. Its own default is 3.",
+    "3|The default.\n2|Grainy film, preserving noise and texture.\n0|No filtering; maximum grain retention.\n6|The maximum, for noisy low-light footage."
+  ],
+  [
+    "min-gf-interval",
+    "",
+    "0-24 (default -1, derived from the frame rate) - Shortest gap the encoder may leave between golden/alt-ref frames",
+    "Alt-Ref & Frames",
+    "Golden frames are the long-lived references VP9 keeps around for material that recurs, and alt-refs are placed on the same schedule. Left alone the encoder works out a minimum spacing from the frame rate, which is what -1 means here.\n\nRaising it forces those references further apart, which suits long calm shots where a reference stays useful and there is nothing to gain from refreshing it. Lowering it lets the encoder refresh more often, which helps where the picture keeps changing character.\n\nThe ceiling is 24, one less than the lookahead buffer, and libvpx warns and ignores anything above that rather than failing - so a value of 32 leaves an encode running with the setting silently dropped. Like the rest of this group it is a two-pass control; measured, it moved the output in two-pass constant quality and nowhere in one pass.",
+    "-1|The default; the encoder derives the spacing from the frame rate.\n4|Frequent refreshes for fast-changing material.\n16|Widely spaced references for long calm shots.\n24|The maximum the lookahead buffer allows."
+  ],
+  [
+    "frame-parallel",
+    "",
+    "0 or 1 (default 1) - Frame parallel decodability; 0 allows backward probability updates and compresses better",
+    "Alt-Ref & Frames",
+    "Controls whether the stream is coded so a decoder can work on several frames at once. Frame-parallel mode requires disabling backward probability updates, where the encoder refines its entropy model using statistics gathered from the frame it just coded.\n\nThose backward updates are worth a small but real amount of compression, so turning frame-parallel decoding off makes the file smaller at the same quality. Measured here it is worth around one per cent, and unlike most of this group it works in one-pass encoding as well as two.\n\nLeave it on only if the target decoder needs the parallelism; for file encoding, 0 is the better setting.",
+    "1|The default; parallel-decodable, slightly larger files.\n0|Allows backward probability updates; better compression."
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-4 (default 0, off) - Adaptive quantisation: 1 variance, 2 complexity, 3 cyclic refresh, 4 equator360",
+    "Quantization & Rate Control",
+    "Adaptive quantisation redistributes bits within a frame. Mode 1 distributes by variance, moving bits from busy areas where error is masked to flat ones where banding shows. Mode 2 works from complexity. Mode 3 is cyclic refresh, which refreshes part of each frame in turn and targets low-bitrate streaming. Mode 4 is tuned for equirectangular 360 video, where the poles are massively oversampled and do not deserve equal bits.\n\nIt is off by default. Mode 1 is the one to try on sources that band; the others are situational.\n\nffmpeg accepts the names as well as the numbers - none, variance, complexity, cyclic and equator360 - and unlike most of this tab it takes effect in one-pass encoding too.",
+    "0|The default; off.\n1|Variance-based, the usual choice if flat areas band.\n2|Complexity-based distribution.\n3|Cyclic refresh, for low-bitrate streaming.\n4|Equirectangular 360 video."
+  ],
+  [
+    "enable-tpl",
+    "",
+    "0 or 1 (default 1, two-pass only) - Temporal dependency model; improves bit allocation between frames",
+    "Quantization & Rate Control",
+    "The temporal dependency model looks ahead to work out which blocks later frames will predict from, then spends bits on those blocks in proportion to how much depends on them. A block that fifty later frames refer to is worth more than one that is never referenced again.\n\nThis is one of the larger quality-per-bit wins available in VP9 and it is on by default. Disabling it only makes sense to save encoding time.\n\nIt needs lookahead to work, so lowering lag-in-frames weakens it, and measured against this build it is two-pass only - in one pass, switching it off changed nothing at all.",
+    "1|The default; leave it on.\n0|Disables the model to save encoding time, at a real quality cost."
+  ],
+  [
+    "corpus-complexity",
+    "",
+    "0-10000 (default 0, off) - Corpus VBR complexity midpoint; holds quality steady across a library of clips",
+    "Quantization & Rate Control",
+    "Sets a fixed complexity midpoint for corpus VBR, a rate control mode intended for encoding a whole library of clips to a consistent quality rather than each clip to its own target.\n\nNormally the encoder judges difficulty relative to the clip in front of it, so an easy clip and a hard one both end up looking average. Giving a shared midpoint across the library means an easy clip is allowed to come out small and good, and a hard one to spend more.\n\nIt only applies to two-pass bitrate encoding - in constant quality it does nothing whatever - and its effect there is enormous rather than a tweak: the same clip at a 250 kbps target came out at 276382 bytes with a midpoint of 100 and 31195 with one of 10000. Only meaningful when the same value is used across a set; 0 disables it.",
+    "0|The default; ordinary per-clip rate control.\n1000|A shared midpoint across a library of mostly easy content.\n3000|A higher midpoint for a more demanding corpus.\n10000|The maximum; treats almost everything as easier than the target."
+  ],
+  [
+    "undershoot-pct",
+    "",
+    "0-100 (default 25) - How far under target rate a section may run; higher lets easy scenes save more bits",
+    "Quantization & Rate Control",
+    "How far below the target rate the encoder is allowed to run over a section, as a percentage. It gives the rate controller permission to spend less than the target where the content does not need it.\n\nRaising it lets easy passages come in well under target and bank the difference, which suits a varied source where some scenes genuinely need very little.\n\nLowering it forces the encoder to keep pace with the target even when there is nothing to spend bits on, which mostly wastes them. It applies to bitrate-targeted encoding; in constant quality there is no target to undershoot.",
+    "25|The default.\n50|Lets easy scenes save considerably more.\n100|Maximum freedom to undershoot.\n0|Holds the rate at target regardless of content."
+  ],
+  [
+    "overshoot-pct",
+    "",
+    "0-100 (default 25) - How far over target rate a section may run; higher lets hard scenes spend more bits",
+    "Quantization & Rate Control",
+    "How far above the target rate the encoder is allowed to run over a section, as a percentage. It is the permission a difficult scene needs to spend beyond its share rather than degrade.\n\nRaising it protects hard scenes at the cost of a less predictable size and a higher peak rate, which matters if the result has to fit a buffer or a delivery constraint. Lowering it holds the rate down and lets quality drop on the material that most needs bits.\n\nWatch the ceiling here: ffmpeg's own range for this option runs to 1000, and libvpx then refuses to open the encoder for anything above 100, failing the encode with \"rc_overshoot_pct out of range\". 100 is the real maximum. It applies to bitrate-targeted encoding rather than constant quality.",
+    "25|The default.\n50|Gives difficult scenes more room to spend.\n0|Holds hard to the target, at a visible cost on hard scenes.\n100|The real maximum, whatever ffmpeg's range says."
+  ],
+  [
+    "max-intra-rate",
+    "",
+    "Percentage of target, 0 for unlimited (default 0) - Caps what a single keyframe may spend",
+    "Quantization & Rate Control",
+    "Limits how many bits one intra frame may take, as a percentage of the average frame's share of the target bitrate. A keyframe is by far the most expensive frame in a stream, and left alone the encoder will spend whatever it takes to make the first one good.\n\nThat is right for a file and wrong for a stream, where a fat keyframe is a buffer stall. Capping it holds the peak down at the cost of a visibly softer keyframe, and everything predicting from it inherits some of that.\n\nIt applies to bitrate-targeted encoding, and the effect is large - the same realtime clip came out at 192486 bytes unlimited, 143875 at 900% and 104139 at 100%. Leave it at 0 unless something downstream has a peak rate it cannot exceed.",
+    "0|The default; unlimited, and the right setting for a file.\n900|A generous cap that still bounds the peak.\n300|A firm cap for streaming.\n100|Very tight; the keyframe gets no more than an average frame's share."
+  ],
+  [
+    "drop-threshold",
+    "",
+    "0-100 (default 0, off) - Drops frames rather than let quality collapse when the buffer runs dry",
+    "Quantization & Rate Control",
+    "Lets the rate controller throw frames away when it cannot meet the target rate, as a percentage of how full the decoder buffer has to get before it starts. A dropped frame costs almost nothing to code and the previous one simply stays on screen for longer.\n\nThis is a live streaming control. It keeps a constant-bitrate stream inside its channel by sacrificing smoothness instead of picture quality, which for a video call or a screen share is the right trade. For a file it is the wrong one - the result plays with visible stutter and there was no channel to protect in the first place.\n\nIt needs a constant bitrate to do anything: measured, it changed nothing under an ordinary VBR target and dropped roughly a third of the bits once minimum and maximum rate were pinned together. The range libvpx accepts is 0 to 100, and anything outside that fails the encode outright.",
+    "0|The default; off, and the right setting for a file.\n25|Light dropping when the buffer runs low.\n50|Moderate; noticeable stutter on hard scenes.\n100|Drops as freely as it needs to hold the rate."
+  ]
+]

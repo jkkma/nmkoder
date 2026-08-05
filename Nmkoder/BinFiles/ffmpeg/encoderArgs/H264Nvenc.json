@@ -1,0 +1,266 @@
+[
+  [
+    "tune",
+    "",
+    "hq, ll, ull or lossless (default hq) - What the encoder is tuned for; the tab already sets lossless at quality 0",
+    "Quality & Tuning",
+    "Picks what NVENC is tuned for, which moves the rate control and the buffering underneath whatever preset is in use. hq is the ordinary offline choice and the default. ll and ull trade compression for latency, cutting the encoder's reordering and buffering so a frame comes out almost as soon as it goes in - which is what a live stream wants and what a file does not.\n\nlossless encodes the source exactly. It produces very large files, and the encoder switches itself into constant-QP mode for it whatever rate control was asked for.\n\nThis is the one row that can name an option the tab sets itself: with the quality value at 0 the tab emits -tune lossless. The grid's rows go on the command line after the rate control, so a tune set here wins - which also makes hq the way to take an encode back off lossless without touching the quality box.",
+    "hq|The default, and the right choice for encoding a file.\nll|Low latency, for live streaming rather than files.\null|Ultra low latency; the strongest form and the largest quality cost.\nlossless|Mathematically lossless output, at an enormous bitrate."
+  ],
+  [
+    "spatial-aq",
+    "",
+    "0 or 1 (default 0) - Adaptive quantisation within a frame; moves bits to the flat areas that band first",
+    "Quality & Tuning",
+    "Adaptive quantisation moves bits between blocks within a frame, taking them from busy areas where quantisation error hides and giving them to flat ones where banding and blocking are obvious. Without it, dark and smooth regions are where an encode visibly falls apart first.\n\nNVENC's version is a plain on/off rather than the choice of modes a software encoder offers, with aq-strength beside it deciding how far the quantiser may shift. It is off by default, which is a large part of why a hardware encode can look worse than a software one at the same bitrate.\n\nThere is no real speed cost - the analysis is work the hardware does anyway - so this is close to free quality on anything with skies, gradients, fades or large flat surfaces.",
+    "1|On; what almost any offline encode wants.\n0|The default, off."
+  ],
+  [
+    "temporal-aq",
+    "",
+    "0 or 1 (default 0) - Adaptive quantisation across frames; needs lookahead, and a GPU that implements it",
+    "Quality & Tuning",
+    "Where spatial AQ redistributes bits inside one frame, temporal AQ redistributes them between frames, spending more on the parts of the picture that later frames will keep referencing. It is the same idea as a software encoder's macroblock tree.\n\nIt needs lookahead frames to work with, so it does nothing unless rc-lookahead is also set. It is the one AQ setting the hardware can refuse outright: ffmpeg's own check prints \"Temporal AQ not supported\" and carries on without it, which older GPUs will do.\n\nWorth having on material with sustained motion over a background worth protecting. On a fast, cut-heavy source there is much less for it to find.",
+    "1|On; pair it with rc-lookahead or it does nothing.\n0|The default, off."
+  ],
+  [
+    "aq-strength",
+    "",
+    "1-15 (default 8) - How far spatial AQ may shift the quantiser; raise for flat sources, lower for grain",
+    "Quality & Tuning",
+    "How far adaptive quantisation is allowed to shift the quantiser between blocks. Higher values take more bits out of detailed areas and put more into flat ones. It does nothing at all unless spatial-aq is on - ffmpeg's own description of this option says so.\n\nRaise it when flat regions - skies, walls, gradients, fades to black - show banding or blocking. Lower it when the source is grainy or heavily textured, because there the bits are better left where the detail is, and a strong setting will smooth the grain the rest of your settings are trying to keep.\n\nThe scale runs 1 to 15 with 8 in the middle, so this is a coarser control than a software encoder's fractional strength and one step is a real change.",
+    "8|The default, the middle of the range.\n5|Grainy or heavily textured sources, keeping bits on detail.\n12|Flat, clean sources such as animation that band easily.\n15|The maximum; strong redistribution, and visible smoothing of texture."
+  ],
+  [
+    "tf_level",
+    "",
+    "-1 auto, 0 off or 4 on (default -1) - NVENC's temporal filter; needs bf 4 or more and a recent GPU",
+    "Quality & Tuning",
+    "NVENC's own temporal filter, which averages across neighbouring frames before encoding to take out noise that would otherwise be expensive to code. It is a hardware feature of the newer encoder generations, and ffmpeg prints \"Temporal filtering not supported by the device\" and carries on without it where the GPU has no such block.\n\nIt has a hard requirement beside it: ffmpeg refuses the combination unless there are at least four B-frames, saying \"Temporal filtering needs at least 4 B-Frames (-bf 4)\". So this row and the bf row are set together or not at all.\n\nOnly -1, 0 and 4 mean anything - those are the levels NVENC defines, and the encoder answers anything else with \"Invalid temporal filtering level\". ffmpeg's own range check on this option is much wider than that and will happily let a 2 or a 7 through to be refused later on.\n\nLike any denoiser it cannot tell sensor noise from fine texture, so on a grainy film scan it takes the grain with it.",
+    "-1|The default; the encoder decides.\n4|Temporal filtering on, which needs bf set to 4 or more.\n0|Explicitly off, overriding whatever the preset would pick."
+  ],
+  [
+    "lookahead_level",
+    "",
+    "-1 unset, 0-3, or auto (default -1) - How hard the lookahead analyses; needs rc-lookahead set first",
+    "Quality & Tuning",
+    "How much work the lookahead does with the frames it has been given. Higher levels analyse more and may place frame types and quantisers better, at a cost in encoder throughput - which is what ffmpeg's own description of the option says.\n\nIt is meaningless on its own: with rc-lookahead at 0 there are no lookahead frames to analyse. Set that row first.\n\nThe named auto constant is 15, and it is not the same thing as the default of -1. -1 leaves the field unset so the driver's own behaviour applies; auto asks the driver to pick a level. The GPU can also cap what it will take, which ffmpeg reports as \"Lookahead level not supported\" along with the maximum.\n\nMeasured against this build the option refuses anything above 15.",
+    "-1|The default; the field is left unset.\nauto|Asks the driver to pick a level; the constant behind it is 15.\n1|A light analysis pass over the lookahead frames.\n3|The deepest defined level, and the slowest."
+  ],
+  [
+    "qp_cb_offset",
+    "",
+    "-12 to 12 (default 0) - Shifts the Cb chroma quantiser from luma; negative spends more bits on colour",
+    "Quality & Tuning",
+    "Offsets the quantiser used for the Cb chroma plane from the one used for luma. Negative values quantise chroma more finely, spending more bits on colour; positive values coarsen it to spend more on brightness detail.\n\nNVENC splits this into two rows where a software encoder has one, so a shift meant for chroma as a whole means setting qp_cr_offset to match. Setting only one of the two tints where the error lands rather than balancing it, which is occasionally what you want and usually not.\n\nNegative values are worth trying on saturated, colour-critical material, and on animation where flat colour areas show chroma banding. Positive values are a way to buy luma detail on a tight bitrate.",
+    "0|The default.\n-2|Extra bits on colour; useful for animation and saturated sources.\n-4|A strong chroma bias, for colour-critical work.\n2|Coarser chroma, buying luma detail at low bitrates."
+  ],
+  [
+    "qp_cr_offset",
+    "",
+    "-12 to 12 (default 0) - Shifts the Cr chroma quantiser from luma; the red-difference half of qp_cb_offset",
+    "Quality & Tuning",
+    "The same control as qp_cb_offset applied to the Cr plane. Negative values quantise the red-difference chroma more finely and positive ones more coarsely.\n\nThe two are separate options, so a plain \"spend more on chroma\" means giving both the same value. Left unequal they weight one chroma plane against the other, which moves where colour error shows rather than how much of it there is.\n\nChroma is subsampled in the formats this encoder is usually given, so it starts from a quarter of the samples luma has - which is why a small negative offset here can be worth more than the same bits spent on luma detail.",
+    "0|The default.\n-2|Matches a qp_cb_offset of -2 for an even chroma bias.\n-4|A strong chroma bias, for colour-critical work.\n2|Coarser chroma, buying luma detail at low bitrates."
+  ],
+  [
+    "rc",
+    "",
+    "constqp, vbr or cbr (default -1, whatever the preset implies) - Overrides the rate control mode the tab has already set",
+    "Rate Control",
+    "Which rate control mode NVENC runs. Left alone the value is -1, and the mode follows from the preset and from the bitrate or quality arguments the tab has already put on the command line.\n\nThat is the thing to be careful about here. The tab emits its own rate control - a bitrate with a minimum, maximum and buffer size for a bitrate target, or -b:v 0 -cq N for a quality target - and this row overrides the mode underneath it. Asking for constqp under a bitrate target, or cbr under a quality target, produces a command whose two halves disagree, and the encoder resolves that rather than refusing it.\n\nSet it when you know which mode you want and the preset is picking the other one. Leave it alone otherwise.\n\nOlder NVENC builds had vbr_hq, cbr_hq and cbr_ld_hq beside these three. Measured against this build they are gone - only constqp, vbr and cbr parse - and the quality half of what they used to mean now lives in the preset and multipass settings.",
+    "vbr|Variable bitrate; the mode a quality or average-bitrate target wants.\ncbr|Constant bitrate, for streaming and fixed-rate delivery.\nconstqp|A fixed quantiser, ignoring any bitrate target."
+  ],
+  [
+    "rc-lookahead",
+    "",
+    "0 or more frames (default 0, off) - Frames analysed ahead of the encode; off by default, and four other rows need it",
+    "Rate Control",
+    "How many frames ahead the encoder looks before committing to a frame type and a quantiser. A longer lookahead paces bits better across a scene and lets the encoder put its I-frames where the cuts actually are, at the cost of memory and of that many frames of latency.\n\nIt is off by default on NVENC, and that matters more than the number itself: temporal-aq, b_adapt, no-scenecut and lookahead_level all describe what the lookahead should do, and all of them are inert while there is no lookahead to do it. This row is what switches that whole group on.\n\nThe encoder also needs enough buffered frames to hold the window. ffmpeg says \"Lookahead not enabled. Increase buffer delay (-delay)\" where it cannot, and a GPU with no lookahead block at all gets \"RC lookahead not supported\".\n\nPast roughly the length of a typical shot there is nothing left for it to learn.",
+    "0|The default; no lookahead, and the rows depending on it do nothing.\n32|A sound general setting, about a second at 30 fps.\n60|Longer scenes and offline encoding.\n250|Deep lookahead; memory-hungry with little more to show for it."
+  ],
+  [
+    "multipass",
+    "",
+    "disabled, qres or fullres (default disabled) - NVENC's own two passes, inside a single ffmpeg pass",
+    "Rate Control",
+    "NVENC can run two passes over each frame inside one encode: a first that measures how difficult the frame is and a second that codes it with that knowledge. qres does the first pass at quarter resolution, fullres at full.\n\nThis is not ffmpeg's two-pass, which runs the whole file twice. Nothing here writes a stats file and the encode stays a single run, so it is the way to get better bit distribution out of a hardware encoder without doubling the wall clock.\n\nqres is close to free and is where to start. fullres measures more accurately and costs real throughput, which on a hardware encoder is most of the reason you chose it.\n\nIt earns the most under a bitrate target, where the first pass tells the rate controller what it is about to spend. Under a fixed quality target there is much less for it to do.",
+    "disabled|The default; a single pass.\nqres|Quarter-resolution first pass; the usual choice, and nearly free.\nfullres|Full-resolution first pass; the most accurate and the slowest."
+  ],
+  [
+    "qmin",
+    "",
+    "-1 to 51 (default -1, no floor) - The best quantiser rate control may use; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, which is a ceiling on how many bits any one frame may be given. Lower quantisers mean higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes being encoded at a quality nobody will notice, which under a bitrate target frees those bits for the difficult material.\n\nThis is NVENC's own option rather than ffmpeg's generic qmin, and the two have different ranges. Measured against this build, a value of 55 is refused as out of range [-1 - 51], so it is the encoder's own bounds that apply here.\n\nUnder the quality target the tab emits, a tight floor can stop the encoder reaching the quality asked for, since it is no longer allowed to go where the target wants to take it.",
+    "-1|The default; no floor.\n10|Stops easy scenes spending more than they need.\n15|A firmer cap, noticeably smaller files on easy content.\n20|A hard cap, for size-critical work on clean sources."
+  ],
+  [
+    "qmax",
+    "",
+    "-1 to 51 (default -1, no ceiling) - The worst quantiser rate control may use; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality is allowed to fall when the rate controller runs short of bits.\n\nLowering it prevents the blocky collapse that difficult scenes show at constrained bitrates. The consequence is that the encoder can no longer hit its bitrate target on those scenes and will overshoot instead - a quality floor and a size target cannot both be guaranteed.\n\nThe default of -1 is no limit, so this only matters where the bitrate target is tight. Like qmin it is NVENC's own option rather than ffmpeg's generic one, and it stops at 51.",
+    "-1|The default; no ceiling.\n40|Prevents the worst collapse on hard scenes.\n35|A firm quality floor, at the cost of size predictability.\n51|The maximum, which is the same as no ceiling at all."
+  ],
+  [
+    "init_qpI",
+    "",
+    "-1 to 51 (default -1, automatic) - Starting quantiser for I-frames; a seed for the rate controller, not a bound",
+    "Rate Control",
+    "The quantiser the rate controller starts I-frames at, before it has learnt anything about the source. It is a seed rather than a bound - once the encode is running the controller moves away from it - so the effect is concentrated in the opening seconds.\n\nThat is exactly where a bitrate-targeted encode looks worst. With nothing measured yet the controller guesses, and a bad guess shows as a soft or blocky first shot before it settles. Setting the three init_qp rows near where you know the encode will end up removes that.\n\nUnder rc constqp they are not a starting point at all: nothing adapts, so the initial values are the values used throughout.",
+    "-1|The default; the driver picks.\n20|A high-quality start, for a generous bitrate.\n26|A middling start for ordinary delivery bitrates.\n32|A conservative start, for a tight bitrate."
+  ],
+  [
+    "init_qpP",
+    "",
+    "-1 to 51 (default -1, automatic) - Starting quantiser for P-frames; normally a step or two above init_qpI",
+    "Rate Control",
+    "The P-frame half of init_qpI. P-frames predict from what came before, so they carry less new information and are conventionally coded a little coarser than the I-frames they hang off - a step or two above the I-frame value is the usual arrangement.\n\nSet it alongside init_qpI and init_qpB rather than on its own. The three together describe the shape of the GOP's bit distribution, and moving one without the others simply shifts where the error lands.\n\nUnder rc constqp this is not a starting point but the quantiser P-frames are actually coded at.",
+    "-1|The default; the driver picks.\n22|About two steps above an init_qpI of 20, the conventional spacing.\n28|A tighter budget, with I-frames around 26.\n20|Equal to the I-frame value; spends more on P-frames than usual."
+  ],
+  [
+    "init_qpB",
+    "",
+    "-1 to 51 (default -1, automatic) - Starting quantiser for B-frames; conventionally the coarsest of the three",
+    "Rate Control",
+    "The B-frame half of init_qpI. B-frames predict from both directions and nothing refers to them unless b_ref_mode says otherwise, so they are conventionally the coarsest of the three - a couple of steps above the P-frame value.\n\nIt does nothing where there are no B-frames, and NVENC produces none by default. The bf row is what creates them.\n\nWhere b_ref_mode is on, some B-frames are references after all, and coarsening those costs more than it saves - which is an argument for closing the gap to init_qpP rather than widening it.",
+    "-1|The default; the driver picks.\n25|About three steps above an init_qpI of 20, the conventional spacing.\n22|A narrow spread, for use with b_ref_mode each or middle.\n30|Cheap B-frames, buying quality for the frames referencing them."
+  ],
+  [
+    "strict_gop",
+    "",
+    "0 or 1 (default 0) - Holds the bitrate steady from GOP to GOP rather than letting it follow the content",
+    "Rate Control",
+    "Minimises the variation in size between one GOP and the next. Normally a rate controller lets a difficult stretch take more bits and pays it back over an easy one, which is most of what gives a variable bitrate encode its quality. This constrains that.\n\nIt exists for delivery paths that cannot absorb the variation - a fixed-rate transport, a hardware player with a small buffer - and it costs quality on exactly the scenes that needed the extra bits.\n\nDo not set it for an ordinary file. It is a transport constraint dressed up as a quality setting.",
+    "0|The default; the rate controller spends where the content needs it.\n1|Even GOP sizes, for a constrained delivery path."
+  ],
+  [
+    "g",
+    "",
+    "Frames between keyframes (default 12) - ffmpeg's GOP size; the tab sets none for NVENC, so its default applies",
+    "Frames & Motion",
+    "How many frames may pass before the encoder must start a new GOP with a keyframe. This is ffmpeg's own option rather than one of NVENC's, and it is the only way to reach the keyframe interval from this tab: the tab does not emit a -g for NVENC as it does for the software encoders, so what runs is ffmpeg's own default of 12.\n\nTwelve frames is very short - half a second at 25 fps - and a keyframe is the most expensive frame there is. Raising it is one of the larger size savings available from this tab, and it costs nothing but seek granularity.\n\nSet it against how the file will be used. A couple of seconds is normal for delivery, a segmented stream wants the segment length, and an editing intermediate wants it low or at 1 for all-intra.\n\nA scene cut can still force a keyframe of its own where the lookahead is running and no-scenecut is not set, so this is a ceiling on the spacing rather than a fixed grid.",
+    "12|ffmpeg's default, and what runs if this row is left blank.\n250|Ten seconds at 25 fps; a sound choice for a delivery file.\n50|Two seconds at 25 fps, for tighter seeking and streaming.\n1|Every frame a keyframe, for an editing intermediate."
+  ],
+  [
+    "bf",
+    "",
+    "0 or more, -1 for automatic (default 0) - B-frames between reference frames; NVENC makes none unless asked",
+    "Frames & Motion",
+    "The longest run of consecutive B-frames the encoder may insert. B-frames predict from both earlier and later frames, which makes them by far the cheapest frames to code, so allowing them lets static and slow material spend its bits where something is actually happening.\n\nThis is ffmpeg's own option and its default is 0, so an NVENC encode produces no B-frames at all unless this row is filled in. That is a real compression difference on its own, and it is also what leaves b_adapt, b_ref_mode, init_qpB and tf_level doing nothing on an otherwise default command line.\n\nThe driver clamps the run to what the GPU implements and ffmpeg reports it, saying \"B-frames=N is not supported by this GPU, switched to M\". A GPU with no B-frame support at all gets \"The current GPU in use does not support H.264 B-frame encoding\".\n\nEvery B-frame adds encoding latency and a frame of decode delay, which is why a low-latency tune wants this at 0.",
+    "0|ffmpeg's default; no B-frames at all.\n3|A sound general setting for live action.\n4|The minimum tf_level requires, and where most GPUs top out.\n-1|Automatic; leaves the choice to the encoder."
+  ],
+  [
+    "refs",
+    "",
+    "1 or more (default 1) - Reference frames the motion search may use; more helps repetitive material",
+    "Frames & Motion",
+    "How many previously decoded frames the motion search may predict from. More references help whenever the same content reappears - repetitive motion, cuts back to an earlier shot, animation that reuses cels - because the encoder can point at the frame that actually matches.\n\nThis is ffmpeg's own option, and its default of 1 is far lower than a software encoder's. Raising it is cheap on hardware, where the search is fixed-function rather than something paid for in encoding time.\n\nThe GPU decides whether it can oblige: ffmpeg prints \"Multiple reference frames are not supported by the device\" and carries on with one where it cannot.\n\nHardware decoders limit this through the level as well. At 1080p, level 4.1 allows only four, and going past that produces a file a compliant decoder is entitled to refuse.",
+    "1|ffmpeg's default; a single reference.\n2|A cheap improvement wherever the GPU supports it.\n4|The most level 4.1 allows at 1080p.\n8|Repetitive or animated material, at some compatibility risk."
+  ],
+  [
+    "b_adapt",
+    "",
+    "0 or 1 (default 1) - Whether B-frame placement is decided per scene; only does anything with rc-lookahead set",
+    "Frames & Motion",
+    "Decides where in the sequence B-frames actually go, up to the limit bf sets. On, the encoder uses the lookahead to place them where they pay; off, it simply always uses the maximum run.\n\nffmpeg's own description of this option is explicit that it applies when lookahead is enabled, so with rc-lookahead at 0 the setting is inert whichever way it is left.\n\nTurning it off is a latency and determinism choice rather than a quality one: it removes a decision that depends on frames the encoder has not yet delivered. For a file there is no reason to.",
+    "1|The default; B-frames placed where the lookahead says they pay.\n0|A fixed maximum run, for deterministic low-latency output."
+  ],
+  [
+    "b_ref_mode",
+    "",
+    "disabled, each or middle (default -1, left to the driver) - Whether B-frames may themselves be used as references",
+    "Frames & Motion",
+    "Normally B-frames are never referenced by anything, so they are disposable. This allows some of them to act as references for other frames, which builds a hierarchy and improves compression noticeably on material with long B-frame runs.\n\neach makes every B-frame a reference. middle promotes only the middle of each run, which is the arrangement a software encoder's B-pyramid produces and the cheaper of the two. disabled states the conventional behaviour outright, rather than leaving the field unset the way the default does.\n\nIt is a feature of the later NVENC generations on H.264, and ffmpeg names which part is missing rather than failing: \"Each B frame reference mode is not supported\", or the same for middle.\n\nIt needs B-frames to exist, so the bf row comes first. And a referenced B-frame is no longer disposable, which is an argument against coarsening it with init_qpB.",
+    "middle|Promotes the middle B-frame of each run; the usual choice.\neach|Every B-frame a reference; the strongest form.\ndisabled|Conventional disposable B-frames, stated explicitly.\n-1|The default; the field is left unset for the driver to decide."
+  ],
+  [
+    "no-scenecut",
+    "",
+    "0 or 1 (default 0) - Set to 1 to stop the lookahead inserting an I-frame at a scene cut",
+    "Frames & Motion",
+    "With the lookahead running, NVENC inserts an I-frame where it detects a cut, because a cut is the one place a keyframe is nearly free and predicting across it is nearly useless. This turns that off.\n\nffmpeg's own description says it applies when lookahead is enabled, so like b_adapt it does nothing while rc-lookahead is 0.\n\nThe reason to set it is a fixed keyframe grid - segmented streaming, or a workflow that cuts on a known frame count - where a keyframe arriving early is a problem rather than a saving. For an ordinary file leave it alone: adaptive I-frames are one of the larger wins the lookahead buys.",
+    "0|The default; a detected cut gets its own I-frame.\n1|Keyframes only on the g interval, for a fixed segment grid."
+  ],
+  [
+    "forced-idr",
+    "",
+    "0 or 1 (default 0) - Makes a forced keyframe an IDR, so it is a real seek point",
+    "Frames & Motion",
+    "A keyframe is not automatically a point a decoder can start from. An I-frame refreshes the picture; an IDR additionally empties the reference list, so nothing after it may refer to anything before it. Only the IDR is a clean entry point.\n\nThis makes every keyframe forced from outside - by a -force_key_frames expression, or by a segmenting muxer asking for one - an IDR rather than a plain I-frame.\n\nSet it whenever the output is going to be cut, segmented or seeked at those points. It costs a little compression, since the frames after an IDR lose access to references they could otherwise have used.",
+    "0|The default; forced keyframes are plain I-frames.\n1|Forced keyframes become IDRs, for segmenting and clean seeking."
+  ],
+  [
+    "nonref_p",
+    "",
+    "0 or 1 (default 0) - Lets the encoder mark some P-frames non-reference, so it can code them cheaply",
+    "Frames & Motion",
+    "A P-frame is normally a reference, so its errors propagate to everything predicting from it and the encoder must spend accordingly. This lets it mark some of them as referenced by nothing, which means they can be coded cheaply without the cost carrying forward.\n\nIt is the B-frame trick applied to P-frames, and it is a way to get some of that benefit where B-frames are unavailable - a baseline profile stream, a GPU with no B-frame support, or a latency budget that cannot afford the reordering.\n\nInsertion is automatic and there is no count to set. It helps most under a tight bitrate, where the saved bits go somewhere useful, and least where the bitrate is generous.",
+    "0|The default; every P-frame is a reference.\n1|Automatic non-reference P-frames, for tight bitrates and low latency."
+  ],
+  [
+    "weighted_pred",
+    "",
+    "0 or 1 (default 0) - Weighted prediction, letting a frame scale its reference; helps fades and flashes",
+    "Frames & Motion",
+    "Weighted prediction lets a frame scale and offset the reference it predicts from, so a frame that is simply brighter or darker than the one before does not have to be re-coded from scratch. Fades, flashes and lighting changes are where it earns its keep.\n\nNVENC's version is a plain on/off where a software encoder offers a choice of strengths, and the GPU may not implement it at all - which ffmpeg reports as \"Weighted Prediction not supported\" before carrying on without it.\n\nIt is not free of side effects on this encoder. ffmpeg also carries the message \"Split encoding not supported with weighted prediction enabled\", so on the multi-engine GPUs that split a frame between encoders, turning this on gives up that parallelism. On a source with no fades in it there is nothing to gain in exchange.",
+    "0|The default, off.\n1|On, for sources with fades, flashes or changing light."
+  ],
+  [
+    "intra-refresh",
+    "",
+    "0 or 1 (default 0) - Spreads the refresh across many frames instead of coding whole keyframes",
+    "Frames & Motion",
+    "Instead of periodically coding an entire frame as intra, the encoder refreshes a moving band of each frame, so that over one refresh cycle every part of the picture has been renewed. There is no large keyframe anywhere in the output.\n\nThat evens the bitrate out completely, which is the point of it: a keyframe is a spike, and a fixed-rate transport or a small decoder buffer cannot take spikes. It is a streaming feature.\n\nThe cost for a file is severe and worth being plain about. With no IDR anywhere, seeking has nothing to land on and many players will only start from the beginning. Do not set it on something anyone will scrub through.\n\nThe GPU must implement it; ffmpeg says \"Intra refresh not supported by the device\" where it does not.",
+    "0|The default; ordinary periodic keyframes.\n1|Rolling intra refresh, for constant-bitrate streaming only."
+  ],
+  [
+    "profile:v",
+    "",
+    "baseline, main, high, high10, high422 or high444p (default high) - Caps the tools used so limited decoders can play the file",
+    "Stream & Compatibility",
+    "Restricts the encoder to the coding tools a given H.264 profile allows, so a decoder that only implements that profile can play the result. baseline drops CABAC and B-frames, main allows both at 8-bit 4:2:0, and high adds the 8x8 transform and is what essentially every current device decodes.\n\nThe high10, high422 and high444p profiles unlock higher bit depths and chroma subsampling, and are almost never played by hardware - they are for intermediate and mastering files, not delivery.\n\nThe profile and the pixel format have to agree, and the tab sets the pixel format itself. Asking for high444p over an 8-bit 4:2:0 format is a contradiction the driver resolves rather than a setting that takes effect, so change the colour format alongside it.\n\nTwo spellings to watch. NVENC calls the last profile high444p, and high444 - which is what a software encoder answers to - is refused outright. And the row is named profile:v rather than plain profile because ffmpeg has this option on audio encoders too: a bare -profile draws \"Please use -profile:a or -profile:v, -profile is ambiguous\" and is then applied to whatever streams will take it, which is not a thing to leave to chance in a command that also carries an audio encoder.",
+    "high|The normal choice for delivery; universally supported.\nmain|Older hardware and Blu-ray authoring.\nbaseline|Very old mobile decoders, at a real efficiency cost.\nhigh444p|4:4:4 output for intermediates, with the colour format set to match."
+  ],
+  [
+    "level",
+    "",
+    "auto, or 1 to 6.2 including 1b (default auto) - Decoder level written to the stream header",
+    "Stream & Compatibility",
+    "The decoder level written into the stream header. Levels bound resolution, frame rate, bitrate and how many reference frames may be buffered, and hardware decoders advertise the highest level they implement.\n\nThe encoder works out a suitable level on its own, so this is only worth setting when a target demands a specific one - Blu-ray at 4.1, or a device that refuses anything higher.\n\nSpell it exactly as the list has it. These names are constants, and a spelling that is not one of them is not rejected: it is evaluated as a plain number instead, so 6.3 quietly becomes level 6 and 7.0 becomes level 7. Measured against this build only a result outside 0 to 62 is refused, which means a typo here produces a stream tagged with a level nobody asked for.",
+    "auto|The default; the encoder picks a level to fit.\n4.1|Blu-ray, and a very common hardware ceiling for 1080p.\n5.1|4K delivery to modern decoders.\n4.0|Broad compatibility for 1080p without Blu-ray's constraints."
+  ],
+  [
+    "coder",
+    "",
+    "default, auto, cabac or cavlc (default 'default') - Entropy coder; cavlc decodes more cheaply and compresses worse",
+    "Stream & Compatibility",
+    "The entropy coder that packs the encoded symbols into the bitstream. CABAC is arithmetic coding adapted to context and is what every current H.264 encode uses; CAVLC is the simpler variable-length alternative.\n\nCABAC compresses better at every bitrate, by enough to matter, and costs the decoder more work in exchange. CAVLC exists for decoders that cannot keep up and for the baseline profile, which does not permit CABAC at all - so setting the profile to baseline settles this row along with it.\n\nLeave it on default unless you have a particular decoder in mind. ac and vlc are accepted as aliases of cabac and cavlc, and auto asks the encoder to choose between them.",
+    "default|The default; the encoder's own choice.\ncabac|Forces CABAC, which is what the main and high profiles want.\ncavlc|Forces CAVLC, for very weak decoders and baseline output.\nauto|Lets the encoder pick between the two."
+  ],
+  [
+    "aud",
+    "",
+    "0 or 1 (default 0) - Writes access unit delimiters, which some transport and broadcast chains require",
+    "Stream & Compatibility",
+    "An access unit delimiter is a small NAL unit marking where each coded frame begins. It carries no picture data - it exists so a demuxer can find frame boundaries without parsing the slices.\n\nAlmost nothing needs it in a file. MPEG-TS and broadcast-style workflows are where it comes up, along with some hardware decoders and analysis tools that expect the boundary marked explicitly.\n\nThe cost is a handful of bytes per frame, so setting it where it is not needed is harmless but pointless.",
+    "0|The default; no delimiters.\n1|Writes them, for MPEG-TS and broadcast delivery."
+  ],
+  [
+    "bluray-compat",
+    "",
+    "0 or 1 (default 0) - Applies the workarounds a Blu-ray authoring chain needs",
+    "Stream & Compatibility",
+    "Turns on the constraints Blu-ray requires of an H.264 stream, which are things no other target cares about - the GOP structure, the placement of the parameter sets, and the arrangement of referenced B-frames chief among them.\n\nIt is only useful if you are actually authoring a disc, and it wants setting together with the rest of what that needs: level 4.1, a profile the specification allows, and a keyframe interval within its limit.\n\nFor anything else it is a compression cost with no benefit, the constraints existing to satisfy a decoder nothing else has.",
+    "0|The default; no constraints applied.\n1|Blu-ray authoring, alongside level 4.1 and a matching profile."
+  ],
+  [
+    "a53cc",
+    "",
+    "0 or 1 (default 1) - Carries A/53 closed captions from the source into the encoded stream",
+    "Stream & Compatibility",
+    "Broadcast and capture sources carry closed captions inside the video itself, as A/53 caption data attached to the picture rather than as a subtitle track. This passes that data through into the encoded stream, and unusually for this list it is on by default.\n\nThe reason to know the row is here is the reverse case. A re-encode of a US broadcast capture keeps its captions through this option and nothing on the subtitle side is involved, which is how they survive a conversion that appears to carry no subtitle track at all.\n\nTurn it off to strip them - for a clean master, or where something downstream trips over caption data it was not expecting.",
+    "1|The default; captions in the source are carried through.\n0|Strips the caption data from the output."
+  ]
+]
