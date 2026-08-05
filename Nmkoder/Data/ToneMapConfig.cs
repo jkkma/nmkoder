@@ -187,20 +187,43 @@ namespace Nmkoder.Data
             return string.Join(",", chain);
         }
 
-        /// <summary> The <c>setparams</c> that tells the graph what the source is, or "" where this app
-        /// has no name for one of the three values and would be guessing. Partial is fine and useful -
-        /// a file whose transfer is known and whose matrix is not still gets the transfer stated. </summary>
+        /// <summary>
+        /// The <c>setparams</c> that tells the graph what the source is.
+        /// <para/>
+        /// Partial is fine for a value this app simply has no *name* for: the frame still carries it, and
+        /// leaving it unstated lets the decoder supply it. **Unspecified is the exception, and it is the
+        /// one case that kills the chain** - there the frame carries nothing either, so zscale is handed
+        /// an unspecified matrix for the YUV to RGB step and refuses the whole graph with the very "code
+        /// 3074: no path between colorspaces" this filter is here to prevent. Measured: a PQ file stating
+        /// its transfer and neither its matrix nor its primaries - which is legal, and what an HEVC
+        /// stream with a partial VUI or a Matroska carrying only a transfer element comes out as - fails
+        /// exactly that way, and states them and it encodes.
+        /// <para/>
+        /// So an HDR source that says nothing is told it is BT.2100, which is not a guess: PQ and HLG are
+        /// *defined* by BT.2100, and it specifies BT.2020 primaries and the non-constant-luminance BT.2020
+        /// matrix alongside them. A file carrying one of those curves and disagreeing about the gamut does
+        /// not exist. Only the Unspecified value is substituted, never a real one this app lacks a name
+        /// for - overriding a stated smpte170m with bt2020 would be replacing the file's own answer with
+        /// this one's, which is the opposite of the job.
+        /// </summary>
         private static string GetSourceStatement(VideoColorData src)
         {
             List<string> parts = new List<string>();
+            bool hdr = ColorDataUtils.IsHdr(src);
+
+            int primaries = hdr && src.ColorPrimaries == ColorDataUtils.Unspecified
+                ? ColorDataUtils.PrimariesBt2020 : src.ColorPrimaries;
+
+            int matrixCoeffs = hdr && src.ColorMatrixCoeffs == ColorDataUtils.Unspecified
+                ? ColorDataUtils.MatrixBt2020Ncl : src.ColorMatrixCoeffs;
 
             if (transferNames.TryGetValue(src.ColorTransfer, out string trc))
                 parts.Add($"color_trc={trc}");
 
-            if (primariesNames.TryGetValue(src.ColorPrimaries, out string prim))
+            if (primariesNames.TryGetValue(primaries, out string prim))
                 parts.Add($"color_primaries={prim}");
 
-            if (matrixNames.TryGetValue(src.ColorMatrixCoeffs, out string matrix))
+            if (matrixNames.TryGetValue(matrixCoeffs, out string matrix))
                 parts.Add($"colorspace={matrix}");
 
             return parts.Count > 0 ? $"setparams={string.Join(":", parts)}" : "";

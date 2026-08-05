@@ -1581,6 +1581,21 @@ between colorspaces" - and that is a state a Matroska file reaches easily, one w
 documented, and measured they leave the same file failing with the same error. `setparams` fixes it.
 Stating tags that were already correct changes no pixel.
 
+**A value read as Unspecified has to be filled in, and only that value.** `GetSourceStatement` states
+what it has a name for and omits the rest, which is right for a value the frame still carries and
+fatal for Unspecified, where the frame carries nothing either - measured, a PQ file stating its
+transfer and neither its matrix nor its primaries fails with the same 3074 the filter is there to
+prevent, and it is legal and ordinary (an HEVC stream with a partial VUI, a Matroska carrying only a
+transfer element). So an HDR source that says nothing is told it is BT.2100, which is not a guess:
+PQ and HLG are defined by it, and it specifies BT.2020 primaries and the non-constant-luminance
+BT.2020 matrix alongside them. A *stated* value this app has no name for is still omitted rather
+than overridden - substituting there would replace the file's own answer with this one's.
+
+That one shipped past the first round of verification, and how is worth recording: every chain was
+run over correctly tagged clips, so the clip's own frame tags supplied exactly what the omission had
+left out and the broken chain passed. **A filter that states what a frame already says is not being
+tested by a frame that says it.** The untagged sources are in the check now.
+
 ### Where it sits in the chain
 
 Second, right after the deinterlacer and **before both subtitle burn-ins** - which on Quick Convert

@@ -160,6 +160,15 @@ namespace Nmkoder.Utils
         /// <summary> H.273 colour primaries for BT.2020/BT.2100, and for BT.709. </summary>
         public const int PrimariesBt2020 = 9, PrimariesBt709 = 1;
 
+        /// <summary> H.273 matrix coefficients for BT.2020 non-constant luminance, which is the matrix
+        /// BT.2100 specifies alongside the PQ and HLG curves. </summary>
+        public const int MatrixBt2020Ncl = 9;
+
+        /// <summary> The value every one of these carries when the file says nothing - what
+        /// <see cref="GetColorPrimaries"/>, <see cref="GetMatrixCoeffs"/> and
+        /// <see cref="GetColorTransfer"/> all fall through to for a name they do not recognise. </summary>
+        public const int Unspecified = 2;
+
         /// <summary> H.273 transfer and matrix for BT.709 - what a tone-mapped file becomes. </summary>
         public const int TransferBt709 = 1, MatrixBt709 = 1;
 
