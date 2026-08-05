@@ -889,6 +889,29 @@ would otherwise read. A value containing a *space* cannot survive either path, t
 encoders one space-separated `key=value` string - the same limit `BuildCli` has always had on the AV1AN
 side, and no parameter either list offers takes one.
 
+**x264 and x265 get content presets; the other ffmpeg encoders do not, and the SVT-AV1 ones do not
+carry over.** `EncoderArgPresets` is keyed by encoder name and the preset row hides itself for a name it
+does not know, so an encoder without a considered set simply has no row rather than a bad one. The
+SVT-AV1 presets are the AV1AN tab's and are written for parameters the library above does not have, so
+they are not offered on the other tab at all. The two that were added were verified value by value
+against the library inside the bundled ffmpeg - there is no runtime check to catch them the way there is
+for av1an's, `Av1anEncoderName` answering "" for everything but SVT-AV1, so a wrong value there would be
+dropped in silence.
+
+**Both encoders' defaults move with the speed preset, which is what makes "a deliberate departure from
+the default" a question you cannot answer without saying which preset.** Measured: x265 at `medium` runs
+no rate-distortion quantisation at all, where `slower` reports `rdoq=2 psy-rdoq=1.00` - so `rdoq-level=1`
+is a real setting on one and near-inert on the other. x264 at `slow` already has `trellis=2`, where
+`medium` has 1. Each set was read against the preset its own tab opens on, `slow` for x264 and `medium`
+for x265, which is where `trellis=2` came out of the film preset: from `slow` upwards it says nothing,
+and below it, it partly undoes the speed the user just asked for.
+
+**x264's `chroma-qp-offset` is not the number that reaches the stream.** The encoder applies an offset of
+its own while the psychovisual optimisations are on, so the effective value is -2 with nothing set, -4
+with a typed -2 and -6 with a typed -4 - read out of the SEI x264 writes into the bitstream, which is the
+only place the effective value appears. The grid row is still a departure and the description is still
+right about the parameter; it is the arithmetic that surprises.
+
 **Quick Convert's two custom-argument boxes stay on that tab.** The AV1AN tab keeps its own pair on the
 Av1an Options tab, and Quick Convert has no such tab, so replacing its Advanced tab outright would have
 taken them away - and `QuickConvert.Run` reads them for the input side and the output side of the command,

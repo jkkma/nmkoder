@@ -61,8 +61,16 @@ namespace Nmkoder.Data.Codecs
         }
 
         /// <summary>
-        /// x264's, reached through <c>-x264-params</c>. Its defaults do not move with the speed preset
-        /// the way x265's do, so these are departures whatever the Preset box is set to.
+        /// x264's, reached through <c>-x264-params</c>, and read against the defaults for <c>slow</c>,
+        /// which is the speed preset the Quick Convert tab opens on for this encoder. <c>trellis=2</c>
+        /// was in the first of these and is not any more: it is already in force from <c>slow</c>
+        /// upwards, so it only did anything for someone who had moved the box the other way - and
+        /// there it partly undoes the speed-up they had just asked for.
+        /// <para/>
+        /// <c>chroma-qp-offset</c> below is worth reading twice. x264 applies an offset of its own when
+        /// the psychovisual optimisations are on, so the effective value sits at -2 with nothing set
+        /// and a typed -2 lands at -4 - measured out of the SEI the encoder writes. The row is still a
+        /// departure; what it is not is the number that ends up in the stream.
         /// </summary>
         private static readonly EncoderArgPreset[] Libx264Presets =
         {
@@ -85,9 +93,6 @@ namespace Nmkoder.Data.Codecs
                     // A strong AQ moves bits out of textured areas into flat ones - the opposite of what
                     // everything else here is paying for
                     { "aq-strength", "0.6" },
-                    // Coefficient selection in mode decision as well as in the final encode, which pays
-                    // off most where the coefficients are noisy
-                    { "trellis", "2" },
                     // Flattens the rate curve towards constant quality, so the hard grain-heavy shots
                     // get more of the budget than the default split gives them
                     { "qcomp", "0.70" },
