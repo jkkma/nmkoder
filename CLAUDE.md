@@ -223,6 +223,41 @@ Each RID carries its target framework in the matrix, because win-x64 is the one
 built against the Windows App SDK. The win-x64 job is also the only place the
 Windows publish is ever exercised - see the build section above.
 
+## The Scoop bucket
+
+`bucket/nmkoder.json` makes this repository its own Scoop bucket, so
+`scoop bucket add nmkoder https://github.com/jkkma/nmkoder` and then
+`scoop install nmkoder` is all a Windows user needs. Scoop finds a bucket by its
+`bucket/` directory, and one manifest per app is the whole of it.
+
+**Do not hand-edit the version, the URL or the hash.** The release workflow's
+last step rewrites all three with `jq` and commits the result to `master`, from
+the win-x64 zip it already has in hand - so hashing costs nothing where Scoop's
+own autoupdate would re-download 400-odd MB to reach the same number, and the
+manifest is never a release behind. It stands down for a draft, which is a
+release nobody can install. The `checkver`/`autoupdate` block is kept anyway, as
+the manual fallback for a release that somehow arrives another way; it produces
+the same three fields.
+
+Two things in it were read off the published asset rather than assumed, and both
+would break every install if they were wrong: `extract_dir` is `Nmkoder`, because
+`Compress-Archive -Path publish/Nmkoder` puts the folder itself in the zip, and
+`Nmkoder.exe` sits at the root of it. The manifest also validates against
+ScoopInstaller/Scoop's own `schema.json`, which is worth re-running after an edit.
+
+**`persist` is `data` and `logs`, and `bin` is deliberately not in it.** Scoop
+installs each version into its own directory, so without persistence a
+`scoop update` would leave the config, the recent files and the window's geometry
+behind in the old one - `Paths.GetRootDir()` resolves next to the exe, and a Scoop
+app directory is writable, so that is where they land. `bin` is the opposite case:
+it is the bundled toolchain, replaced wholesale by every release, and persisting it
+would pin whoever installed once to that release's ffmpeg forever. The manifest's
+`notes` say so, since dropping a tool into `bin/` is exactly what the README tells
+portable users to do.
+
+Submitting to the community `Extras` bucket instead would mean a PR against
+`ScoopInstaller/Extras`, which is not a repository a session here can reach.
+
 ## Notifications
 
 A finished or failed run notifies when the window is not in the foreground
