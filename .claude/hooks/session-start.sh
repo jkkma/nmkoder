@@ -40,6 +40,35 @@ export DOTNET_NOLOGO=1
 # spent before the first prompt, so only the summary and real failures are printed.
 LOG="$(mktemp -t session-start.XXXXXX.log)"
 
+# The container's clone is part of the environment snapshot and is reused by every session
+# taken from it, so the local master ref is as old as that snapshot - a week and 111 commits
+# in the case that prompted this - while the session's own branch is checked out at the
+# current tip. Nothing else moves it, and it is only ever noticed at merge time.
+#
+# The clone is also shallow, which is the worse half. Ancestry across a graft boundary answers
+# "no", so a master that is merely behind reads as divergent, `git merge --ff-only` refuses it,
+# and `git log origin/master` is a truncated list that a search through it then misses commits
+# in - all three of which happened, and led to a stale ref being reported as a rewritten
+# history. Unshallowing costs one fetch per container and settles it.
+if [ -d "$PROJECT_DIR/.git" ]; then
+  # --unshallow is an error on a complete repository rather than a no-op, hence the guard.
+  [ -f "$PROJECT_DIR/.git/shallow" ] \
+    && { git -C "$PROJECT_DIR" fetch --quiet --unshallow origin >>"$LOG" 2>&1 || true; }
+  git -C "$PROJECT_DIR" fetch --quiet origin master >>"$LOG" 2>&1 || true
+
+  # Only where master is not what is checked out, and only where it is strictly behind. A
+  # master carrying commits of its own is somebody's unpushed work and is left exactly where
+  # it is; fast-forwarding a ref nothing is standing on cannot touch the working tree.
+  HEAD_BRANCH="$(git -C "$PROJECT_DIR" symbolic-ref --quiet --short HEAD || true)"
+  if [ "$HEAD_BRANCH" != "master" ] \
+    && git -C "$PROJECT_DIR" merge-base --is-ancestor master origin/master 2>/dev/null \
+    && [ "$(git -C "$PROJECT_DIR" rev-parse master)" != "$(git -C "$PROJECT_DIR" rev-parse origin/master)" ]; then
+    BEHIND="$(git -C "$PROJECT_DIR" rev-list --count master..origin/master)"
+    git -C "$PROJECT_DIR" update-ref refs/heads/master origin/master
+    echo "session-start: local master was ${BEHIND} commits behind, fast-forwarded to origin/master"
+  fi
+fi
+
 if ! dotnet --list-sdks 2>/dev/null | grep -q "^${MAJOR}\."; then
   # Reaching here means the setup script did not run or did not work. Say so, since the
   # install it should have made free is now being paid for at the start of this session.

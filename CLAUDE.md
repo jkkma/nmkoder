@@ -188,6 +188,16 @@ The steps:
    `workflow_id: release.yml`, `ref: master`. Leaving `publish` off or false
    produces a *draft* release instead of a public one.
 
+**A web container's clone is snapshotted with the environment and shallow, so its local
+`master` is as old as that snapshot and its history is truncated.** Both are repaired by
+`.claude/hooks/session-start.sh` now, which unshallows and fast-forwards the ref; the comment
+there says why each half matters. What it is worth knowing anyway is the failure it produced,
+because the shallow half does not look like a stale clone: ancestry across a graft boundary
+answers "no", so a `master` that is only behind reads as *divergent*, `git merge --ff-only`
+refuses it, and a search of `git log origin/master` misses commits that are on the remote.
+That was reported once as a rewritten remote history, which it was not. `git fetch --unshallow`
+before believing any of it.
+
 Check the version against the published releases before picking it - the csproj
 is bumped in the same commit range as the release it belongs to, so the number
 sitting in the file is usually the one already released, not the next one.
