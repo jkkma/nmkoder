@@ -235,10 +235,23 @@ Windows publish is ever exercised - see the build section above.
 
 ## The Scoop bucket
 
-`bucket/nmkoder.json` makes this repository its own Scoop bucket, so
+`bucket/nmkoder-avalonia.json` makes this repository its own Scoop bucket, so
 `scoop bucket add nmkoder https://github.com/jkkma/nmkoder` and then
-`scoop install nmkoder` is all a Windows user needs. Scoop finds a bucket by its
-`bucket/` directory, and one manifest per app is the whole of it.
+`scoop install nmkoder-avalonia` is all a Windows user needs. Scoop finds a bucket
+by its `bucket/` directory, and one manifest per app is the whole of it.
+
+**The app is not called `nmkoder`, and must not be renamed to it.** Scoop's community
+`extras` bucket already carries a `nmkoder` - n00mkrad's pre-fork WinForms 1.10.0, still
+sitting at that version - and a bare `scoop install nmkoder` resolves there rather than
+here, printing one `WARN Multiple buckets contain manifest 'nmkoder'` line and then
+installing the app this fork replaced. That is how it was first shipped, and the person
+who tried it got 1.10.0. `scoop install nmkoder/nmkoder` would have worked, but a name
+that needs a prefix to mean what it says is one that will be typed without it.
+
+The rename buys the rest for free: Scoop keys both the app directory and the *persist*
+directory on the manifest name, so `nmkoder-avalonia` has its own `data` and `logs`
+rather than sharing `~/scoop/persist/nmkoder` with the original's, and the two can be
+installed side by side.
 
 **Do not hand-edit the version, the URL or the hash.** The release workflow's
 last step rewrites all three with `jq` and commits the result to `master`, from
