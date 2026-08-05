@@ -927,6 +927,18 @@ with a typed -2 and -6 with a typed -4 - read out of the SEI x264 writes into th
 only place the effective value appears. The grid row is still a departure and the description is still
 right about the parameter; it is the arithmetic that surprises.
 
+**The lists were checked by running them, and the check is worth repeating rather than re-deriving.**
+Every row of all seven was passed to the real binary and observed to be accepted; then every number a
+row states - each end of its range, and its default - was passed as well, which is what caught SVT-AV1's
+`lookahead` offering the -1 that its own parser refuses. For the AVOption encoders the stated range and
+default were compared against the table ffmpeg prints for itself. Two traps in doing that again: ffmpeg
+reports a boolean default as `false`/`true` where the rows state the `0`/`1` a user types, and libvpx's
+AVOptions default to a sentinel `-1` meaning "unset" where the rows state the *effective* default - so
+both look like mismatches and are not. Settle the second by encoding with the row blank against the row
+set to its stated default and comparing the files, which must be **IVF or another container without a
+random UID**: WebM writes a fresh SegmentUID per mux, so two identical encodes differ and every row
+reads as broken.
+
 **Quick Convert's two custom-argument boxes stay on that tab.** The AV1AN tab keeps its own pair on the
 Av1an Options tab, and Quick Convert has no such tab, so replacing its Advanced tab outright would have
 taken them away - and `QuickConvert.Run` reads them for the input side and the output side of the command,
