@@ -138,18 +138,6 @@ namespace Nmkoder.UI
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetFpsResample)]);
             }
 
-            if (resetAll || ResetSettingsOnNewFile.ResetCustomInArgs)
-            {
-                f.CustomArgsInBox.Text = "";
-                clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetCustomInArgs)]);
-            }
-
-            if (resetAll || ResetSettingsOnNewFile.ResetCustomOutArgs)
-            {
-                f.CustomArgsOutBox.Text = "";
-                clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetCustomOutArgs)]);
-            }
-
             if (resetAll || ResetSettingsOnNewFile.ResetCustomFilters)
             {
                 f.EncFilterRows.Clear();

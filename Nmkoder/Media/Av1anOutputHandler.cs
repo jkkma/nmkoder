@@ -15,14 +15,37 @@ namespace Nmkoder.Media
     class Av1anOutputHandler
     {
         static int currentQueueSize;
+        static int currentTotalFrames;
         static bool stopProgressLoop;
         public static Task currentLogReaderTask;
+
+        /// <summary> What one pass round the loop found in av1an's temp folder. Frames are what the
+        /// progress is measured in; the chunk counts ride along for the readout. </summary>
+        readonly struct Av1anProgress
+        {
+            public readonly int Chunks;
+            public readonly int Frames;
+            /// <summary> The whole video's frame count, which done.json also carries - the fallback for
+            /// a scenes.json that does not state it. 0 where it is not known. </summary>
+            public readonly int TotalFrames;
+
+            public Av1anProgress(int chunks, int frames, int totalFrames)
+            {
+                Chunks = chunks;
+                Frames = frames;
+                TotalFrames = totalFrames;
+            }
+
+            /// <summary> A file caught half-written. The caller keeps the counts it already had. </summary>
+            public static readonly Av1anProgress Unreadable = new Av1anProgress(-1, -1, 0);
+        }
 
         /// <summary> Starts reading progress out of the current encode's log file. Call once per av1an run. </summary>
         public static void StartProgressLoop(string av1anArgs)
         {
             stopProgressLoop = false;
             currentQueueSize = 0; // Static, so it has to be cleared or the next encode inherits this one's chunk count
+            currentTotalFrames = 0;
             int workers = ParseWorkerCount(av1anArgs);
             currentLogReaderTask = Task.Run(() => ParseProgressLoop(workers));
         }
@@ -112,6 +135,20 @@ namespace Nmkoder.Media
         /// The files are the stabler thing to read anyway. Their location is not a default that can move
         /// - it is the folder this app names itself with <c>--temp</c> - and their contents are what
         /// av1an resumes from, so they cannot quietly stop being written the way a log line can.
+        /// <para/>
+        /// Progress is counted in <b>frames</b> rather than in chunks, which is what av1an itself counts
+        /// and the only way the two agree. Chunks are not the same size - <c>-x</c> caps them but nothing
+        /// makes them uniform - and av1an encodes them <i>longest first</i> by default, so the finished
+        /// ones are the big ones and a chunk count understates the progress for most of a run, badly.
+        /// Measured on a 304-chunk encode: 36 chunks done is 12% of the queue and 25% of the video, and
+        /// the ETA extrapolated from the chunk count came to 37 minutes against av1an's own 12.
+        /// <para/>
+        /// It reads a little low, and the amount is bounded: the frames counted are those of the
+        /// <i>finished</i> chunks, where av1an's own bar also counts the part-encoded frames of the
+        /// chunks in flight, which it learns from each encoder's stderr and nothing writes down. That is
+        /// one part-chunk per worker at any moment - a roughly constant offset rather than a growing
+        /// one, so it costs the readout a few percent and the ETA very little. <c>done.json</c> is where
+        /// av1an takes its own bitrate and size estimates from for the same reason.
         /// </summary>
         public static async Task ParseProgressLoop(int workers)
         {
@@ -126,49 +163,78 @@ namespace Nmkoder.Media
 
             Dictionary<int, int> etas = new Dictionary<int, int>();
             int encodedChunks = 0;
+            int encodedFrames = 0;
             // What was already finished when this run started. Zero for a fresh encode, and the whole
             // of the previous attempt for a resumed one - which the stopwatch beside it knows nothing
-            // about, so the estimate has to extrapolate from the chunks *this* run has encoded.
+            // about, so the estimate has to extrapolate from what *this* run has encoded.
             int inheritedChunks = -1;
+            int inheritedFrames = 0;
 
             while (Directory.Exists(dir))
             {
                 try
                 {
                     if (currentQueueSize == 0) // Fixed once scene detection has written it, so it is only read until then
-                        currentQueueSize = GetQueueSizeFromScenesFile(dir);
+                        ReadScenesFile(dir);
 
-                    int done = GetDoneChunkCount(dir);
+                    Av1anProgress done = GetDoneProgress(dir);
 
-                    if (done >= 0) // -1 is a file caught half-written, where the count already in hand is the better answer
+                    if (done.Chunks >= 0) // Otherwise the file was caught half-written; the counts already in hand are the better answer
                     {
-                        encodedChunks = done;
+                        encodedChunks = done.Chunks;
+                        encodedFrames = done.Frames;
 
                         if (inheritedChunks < 0)
-                            inheritedChunks = done;
+                        {
+                            inheritedChunks = done.Chunks;
+                            inheritedFrames = done.Frames;
+                        }
+
+                        // done.json states the total as well, and is the only one that does for a scenes
+                        // file written by an av1an old enough not to have carried it.
+                        if (currentTotalFrames <= 0)
+                            currentTotalFrames = done.TotalFrames;
                     }
 
                     if (currentQueueSize > 0) // Nothing to report until scene detection has announced a queue size
                     {
-                        int ratio = FormatUtils.RatioInt(encodedChunks, currentQueueSize);
+                        // Frames wherever the total is known, which is everywhere av1an has written one.
+                        // The chunk count is the fallback rather than the measure - see the note above.
+                        bool byFrames = currentTotalFrames > 0;
+                        int ratio = byFrames
+                            ? FormatUtils.RatioInt(encodedFrames, currentTotalFrames)
+                            : FormatUtils.RatioInt(encodedChunks, currentQueueSize);
                         Program.MainWin?.SetProgress(ratio);
 
                         string etaStr = "";
                         int chunksThisRun = encodedChunks - Math.Max(0, inheritedChunks);
 
-                        if (chunksThisRun > workers && encodedChunks < currentQueueSize) // Needs finished chunks to extrapolate from
+                        // Needs more finished chunks than there are workers to extrapolate from: the
+                        // first chunk out of every worker started at the same moment, so until they
+                        // have all landed the elapsed time is the pipeline filling rather than a rate.
+                        if (chunksThisRun > workers && encodedChunks < currentQueueSize)
                         {
                             if (!etas.ContainsKey(encodedChunks)) // Cached per chunk count so the estimate doesn't jitter within a chunk
                             {
-                                float secsPerChunk = ((float)sw.ElapsedMs / 1000) / chunksThisRun;
-                                etas[encodedChunks] = ((currentQueueSize - encodedChunks) * secsPerChunk).RoundToInt();
+                                float elapsedSecs = (float)sw.ElapsedMs / 1000;
+
+                                etas[encodedChunks] = byFrames
+                                    ? ((currentTotalFrames - encodedFrames) * (elapsedSecs / Math.Max(1, encodedFrames - inheritedFrames))).RoundToInt()
+                                    : ((currentQueueSize - encodedChunks) * (elapsedSecs / chunksThisRun)).RoundToInt();
                             }
 
-                            etaStr = $" ETA: <{FormatUtils.Time(new TimeSpan(0, 0, etas[encodedChunks]), false)}";
+                            // "<" only for the chunk fallback, where it is a ceiling rather than an
+                            // estimate: longest-first means the chunks left are the short ones, so
+                            // seconds-per-chunk only ever falls. A frame rate has no such bias.
+                            etaStr = $" ETA: {(byFrames ? "" : "<")}{FormatUtils.Time(new TimeSpan(0, 0, etas[encodedChunks]), false)}";
                         }
 
-                        Logger.Log($"AV1AN is running - Encoded {encodedChunks}/{currentQueueSize} chunks ({ratio}%).{etaStr}", false, Logger.LastUiLine.Contains("Encoded"));
-                        RunTask.ReportProgress($"Encoding - {encodedChunks}/{currentQueueSize} chunks ({ratio}%){(etaStr.IsEmpty() ? "" : $" -{etaStr}")}");
+                        string progStr = byFrames
+                            ? $"{encodedFrames}/{currentTotalFrames} frames ({ratio}%), {encodedChunks}/{currentQueueSize} chunks"
+                            : $"{encodedChunks}/{currentQueueSize} chunks ({ratio}%)";
+
+                        Logger.Log($"AV1AN is running - Encoded {progStr}.{etaStr}", false, Logger.LastUiLine.Contains("Encoded"));
+                        RunTask.ReportProgress($"Encoding - {progStr}{(etaStr.IsEmpty() ? "" : $" -{etaStr}")}");
                     }
                     else
                     {
@@ -198,55 +264,75 @@ namespace Nmkoder.Media
         /// <para/>
         /// <c>scenes</c> is still read as a fallback, for a scenes file written before av1an grew the
         /// second array - av1an reads those itself, and a resume is exactly where one turns up.
+        /// <para/>
+        /// The same file states the video's whole frame count, which is what the progress is measured
+        /// against, so both are taken from the one parse - and both are taken here rather than from
+        /// <c>done.json</c> because this file exists as soon as scene detection is finished, where that
+        /// one carries nothing useful until the first chunk lands.
         /// </summary>
-        static int GetQueueSizeFromScenesFile(string dir)
+        static void ReadScenesFile(string dir)
         {
             string path = Path.Combine(dir, "scenes.json");
 
             if (!File.Exists(path))
-                return 0;
+                return;
 
             try
             {
                 JObject root = JObject.Parse(ReadSharedText(path));
 
                 foreach (string key in new[] { "split_scenes", "scenes" })
+                {
                     if (root[key] is JArray scenes)
-                        return scenes.Count;
+                    {
+                        currentQueueSize = scenes.Count;
+                        break;
+                    }
+                }
 
-                return 0;
+                currentTotalFrames = (int?)root["frames"] ?? 0;
             }
             catch (Exception e)
             {
                 // Includes catching the file mid-write, which is not worth a line of its own - the next
                 // pass round the loop is a second away and the count is not needed before then.
                 Logger.Log($"Failed to read av1an's scene list: {e.Message}", true);
-                return 0;
             }
         }
 
         /// <summary>
-        /// How many chunks have finished, from the file av1an rewrites after each one - the same file it
-        /// resumes from, so the count survives a resume rather than restarting at zero.
+        /// What has finished, from the file av1an rewrites after each chunk - the same file it resumes
+        /// from, so the counts survive a resume rather than restarting at zero.
         /// <para/>
-        /// -1 means the file could not be read this time round, which a file rewritten this often will
-        /// occasionally be. That is not "nothing is done yet": the caller keeps the count it already had
-        /// rather than letting the bar jump back to the start for a second.
+        /// Its shape is <c>{"frames": 34048, "done": {"00000": {"frames": 240, "size_bytes": …}, …}}</c>:
+        /// the total, then one entry per finished chunk carrying that chunk's own frame count. Summing
+        /// those is how av1an works out its own bitrate and size estimates.
+        /// <para/>
+        /// <see cref="Av1anProgress.Unreadable"/> means the file could not be read this time round, which
+        /// a file rewritten this often will occasionally be. That is not "nothing is done yet": the
+        /// caller keeps the counts it already had rather than letting the bar jump back to the start.
         /// </summary>
-        static int GetDoneChunkCount(string dir)
+        static Av1anProgress GetDoneProgress(string dir)
         {
             string path = Path.Combine(dir, "done.json");
 
             if (!File.Exists(path))
-                return 0; // Written once the first chunk (or the audio) finishes, so its absence means none have
+                return new Av1anProgress(0, 0, 0); // Written once the first chunk (or the audio) finishes, so its absence means none have
 
             try
             {
-                return JObject.Parse(ReadSharedText(path))["done"] is JObject done ? done.Count : 0;
+                JObject root = JObject.Parse(ReadSharedText(path));
+                int total = (int?)root["frames"] ?? 0;
+
+                if (!(root["done"] is JObject done))
+                    return new Av1anProgress(0, 0, total);
+
+                int frames = done.Properties().Sum(x => (int?)x.Value["frames"] ?? 0);
+                return new Av1anProgress(done.Count, frames, total);
             }
             catch
             {
-                return -1;
+                return Av1anProgress.Unreadable;
             }
         }
 

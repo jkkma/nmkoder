@@ -46,6 +46,31 @@ off style classes (`field`, `dim`, `hint`, `h`, `card`, `panel`, `num`, `icon`,
 `accent`, `danger`, `subtle`, `log`, `mono`); a control type used in more than
 one window gets a base rule there so its metrics line up.
 
+**Both Video tabs are three columns in a `WrapPanel`, and the wrapping is the
+whole responsive behaviour.** They were one six-column `Grid` - two label/control
+pairs and a filler - which ran the settings off the bottom of the tab into a
+scrollbar while the entire right-hand side of the window sat empty beside them.
+Three columns do not fit every window: the rows carry readouts a hundred
+characters long, so the set wants around 1700px where the window opens at 1360
+and may be dragged down to 1040. A `WrapPanel` drops the third column onto a line
+of its own when there is no room for it, which is where those rows were anyway,
+and it costs no code-behind and no size handler. Measured: three columns abreast
+and no scrollbar at 1948px of form width, wrapping to two lines at 1308 and 988,
+and shorter in both of those than the two-column layout it replaced.
+
+Each column is its own `Grid` rather than a slice of one, so its rows are sized
+by its own content. Sharing rows across columns is what made Quality sit lower
+than the Container above it - that row was being stretched by the Resize row's
+readout on the far side of the tab.
+
+The column order is load-bearing: **every row with a readout under it goes in the
+last column**, whose control column is `Auto` so the text stays on one line, and
+which has the rest of the window to run into. A readout in a middle column draws
+over the column beside it. The middle column's control cell is 360 rather than
+320 for the same reason in miniature - the Crop row is a 260 dropdown and a
+Configure button, which overflowed the old 320 cell and got away with it only
+because the filler column it spilled into was empty.
+
 ## The palette
 
 `App.axaml` carries a Discord-style dark palette, and it is the only place
@@ -764,8 +789,35 @@ builds the same chain as the first and is asked for it with `quiet: true`, so th
 line land in the log once rather than twice.
 
 **The AV1AN progress bar is measured from av1an's temp folder, never from its output.** `scenes.json`
-gives the chunk count and `done.json` the finished one, both in the folder this app names itself with
-`--temp` - so `Av1anOutputHandler` parses no av1an log line at all, and that is the point.
+gives the chunk count and the video's frame count, `done.json` what has finished, both in the folder this
+app names itself with `--temp` - so `Av1anOutputHandler` parses no av1an log line at all, and that is the
+point.
+
+**What it counts is frames, and counting chunks instead is what made the ETA fiction.** Chunks are not
+the same size - `-x` caps them and nothing makes them uniform - and av1an's default chunk order is
+*longest first*, so the chunks that finish are the big ones and a chunk count understates the progress
+for most of a run. Measured against a real encode: 36 of 304 chunks done is 12% of the queue and 25% of
+the video, which is what av1an's own bar said, and the remaining time extrapolated from the chunk count
+came to 37 minutes against av1an's 12. Both numbers reproduce exactly from `done.json`'s own contents,
+which is how that was settled rather than by argument.
+
+`done.json` is `{"frames": 34048, "done": {"00000": {"frames": 240, "size_bytes": …}, …}}` - the total,
+then one entry per finished chunk carrying that chunk's frames. Summing those is what av1an does for its
+own bitrate and size estimates (`update_progress_bar_estimates`), so it is the same arithmetic and not a
+reimplementation of it. The total is read from `scenes.json` where possible, that file existing as soon
+as scene detection is done where `done.json` says nothing until the first chunk lands; `done.json`'s own
+`frames` is the fallback, and a total of 0 - an av1an too old to write one - falls back to the chunk
+count rather than reporting nothing.
+
+It reads a little low and the amount is bounded. av1an's bar also counts the part-encoded frames of the
+chunks *in flight*, which it learns from each encoder's stderr as it goes and never writes down, so
+nothing in the temp folder can see them. That is one part-chunk per worker at any moment: a roughly
+constant offset rather than a growing one, worth a few percent on the readout and very little on the
+ETA. Do not go back to parsing av1an's stderr to close it - the rot described below is what that costs.
+
+The `<` in front of the ETA went with the chunk count and belongs only to it. Longest-first means
+seconds-per-chunk only ever falls, so a chunk-based estimate is a ceiling; a frame rate carries no such
+bias, so the frame-based estimate is printed as the estimate it is.
 
 Everything it used to read had rotted away underneath it, silently, one release at a time.
 `--log-file` stopped defaulting to `{temp}/log.log` after 0.4.x and now defaults to `./logs/av1an.log`
@@ -837,6 +889,21 @@ right-click help and the save-as-you-type; each tab hands it an `ArgSection` nam
 encoder, its own config key and its own spelling. Two copies would have drifted the moment either tab was
 touched, which is the whole reason it moved out of the AV1AN partial rather than being copied into the
 Quick Convert one.
+
+**The grid has no per-row tooltip and should not get one back.** It carried the argument's spelling and
+the whole of its description - the same description the row is already showing in its third column - and
+a tooltip is drawn *over* the rows under the pointer, so reading down the list covered the next few rows
+each time it appeared, on a control whose entire job is to be scanned. The full text is a right-click
+away and the heading above the grid says so. The preset buttons' own tooltips are a different thing and
+stay: they describe what clicking one does, which is nowhere on screen.
+
+**The right-click window sizes its example values to the values.** They were in a fixed 110px column, so
+every example that is a path arrived cut off - `/path/to/RPU.bin` as `/path/to/RPU.` - and a truncated
+example is unreadable in a way a truncated sentence is not, the value being the thing to copy. The column
+is `Auto` now, in a `Grid.IsSharedSizeScope` so the explanations still line up: each row is its own Grid
+inside the `ItemsControl`, so an Auto column on its own measures that row alone and the second column
+starts somewhere different on every line. It is capped at 340 because x265's `master-display` examples are
+69 characters and would take the window; those wrap inside the chip instead.
 
 The lists are filed apart - `bin/av1an/encoderArgs` against `bin/ffmpeg/encoderArgs`, keyed by the encoder
 class name - and the values under a key each, because they are **different vocabularies rather than
@@ -943,10 +1010,18 @@ set to its stated default and comparing the files, which must be **IVF or anothe
 random UID**: WebM writes a fresh SegmentUID per mux, so two identical encodes differ and every row
 reads as broken.
 
-**Quick Convert's two custom-argument boxes stay on that tab.** The AV1AN tab keeps its own pair on the
-Av1an Options tab, and Quick Convert has no such tab, so replacing its Advanced tab outright would have
-taken them away - and `QuickConvert.Run` reads them for the input side and the output side of the command,
-which nothing else can reach.
+**Quick Convert has no custom-argument boxes and is not meant to.** There were two, one for each side of
+the ffmpeg command, kept when this tab was ported because the AV1AN tab has its pair on the Av1an Options
+tab and this one has no such tab to move them to. They are gone at the user's request, and the removal
+went all the way through: `QuickConvert.Run` no longer splices arbitrary text into either end of the
+command, `MainWindow` no longer exposes `CustomArgsInBox`/`CustomArgsOutBox`, and `ResetSettingsOnNewFile`
+lost the two entries that existed only to clear them.
+
+Nothing else on the tab reaches ffmpeg's input side, so that capability is not hiding elsewhere - the
+Custom Video Filters grid below is output-side and filters only. The AV1AN tab's own pair is untouched.
+Existing config files still carry the `EncCustomArgsIn`/`EncCustomArgsOut` keys and a `ResetCustomInArgs`
+entry in `ResetSettingsList`; nothing reads them, `ResetSettingsOnNewFile.Load` logs the unknown property
+once behind the debug flag, and its next `Save` writes the list back without them.
 
 ## The Quick Convert command
 

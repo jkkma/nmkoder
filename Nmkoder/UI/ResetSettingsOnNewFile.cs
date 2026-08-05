@@ -14,8 +14,6 @@ namespace Nmkoder.UI
         public static bool ResetBorders { get; set; }
         public static bool ResetDeinterlace { get; set; }
         public static bool ResetToneMap { get; set; }
-        public static bool ResetCustomInArgs { get; set; }
-        public static bool ResetCustomOutArgs { get; set; }
         public static bool ResetCustomFilters { get; set; }
 
         public static Dictionary<string, string> NiceNames
@@ -30,8 +28,6 @@ namespace Nmkoder.UI
                 d.Add(nameof(ResetBorders), "Borders");
                 d.Add(nameof(ResetDeinterlace), "Deinterlace");
                 d.Add(nameof(ResetToneMap), "Tone Mapping");
-                d.Add(nameof(ResetCustomInArgs), "Custom Input Args");
-                d.Add(nameof(ResetCustomOutArgs), "Custom Output Args");
                 d.Add(nameof(ResetCustomFilters), "Custom Filters");
                 return d;
             }
@@ -46,8 +42,6 @@ namespace Nmkoder.UI
             ResetBorders = false;
             ResetDeinterlace = false;
             ResetToneMap = false;
-            ResetCustomInArgs = false;
-            ResetCustomOutArgs = false;
             ResetCustomFilters = false;
         }
 
@@ -62,8 +56,6 @@ namespace Nmkoder.UI
             if (ResetBorders) list.Add(NiceNames[nameof(ResetBorders)]);
             if (ResetDeinterlace) list.Add(NiceNames[nameof(ResetDeinterlace)]);
             if (ResetToneMap) list.Add(NiceNames[nameof(ResetToneMap)]);
-            if (ResetCustomInArgs) list.Add(NiceNames[nameof(ResetCustomInArgs)]);
-            if (ResetCustomOutArgs) list.Add(NiceNames[nameof(ResetCustomOutArgs)]);
             if (ResetCustomFilters) list.Add(NiceNames[nameof(ResetCustomFilters)]);
 
             if (list.Count > 0)
@@ -74,7 +66,7 @@ namespace Nmkoder.UI
 
         public static string ShortenName(string s)
         {
-            return s.Replace("Custom Input", "In").Replace("Custom Output", "Out").Replace("Custom Filters", "Filters").Replace("Frame Rate", "FPS");
+            return s.Replace("Custom Filters", "Filters").Replace("Frame Rate", "FPS");
         }
 
         public static void Save()

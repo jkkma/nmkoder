@@ -209,8 +209,6 @@ namespace Nmkoder.UI.Tasks
                 string s = CodecUtils.GetCodec(sCodec).GetArgs().Arguments;
                 string meta = GetMetadataArgs();
                 string miscOut = GetMiscOutputArgs();
-                string custIn = (Program.MainWin.CustomArgsInBox.Text ?? "").Trim();
-                string custOut = (Program.MainWin.CustomArgsOutBox.Text ?? "").Trim();
                 // Nothing for a format that writes no container. The container box is hidden for GIF,
                 // JPEG and PNG and keeps whatever was last selected in it, so its muxer's private
                 // options - "-movflags +faststart", Matroska's "-default_mode" - were being handed to a
@@ -224,12 +222,12 @@ namespace Nmkoder.UI.Tasks
                     // runs rather than one.
                     string secondPipe = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath, append: true);
 
-                    args = $"{custIn} {inFiles} {pipeIn} {map} {v} {passLog} {vf} {miscOut} {custOut} -an -sn -dn -f null - && {secondPipe}ffmpeg -y -loglevel warning -stats " +
-                           $"{custIn} {inFiles} {pipeIn} {map} {v2} {passLog} {vf2} {a} {s} {meta} {miscOut} {custOut} {muxing} {Shell.WrapArg(outPath)}";
+                    args = $"{inFiles} {pipeIn} {map} {v} {passLog} {vf} {miscOut} -an -sn -dn -f null - && {secondPipe}ffmpeg -y -loglevel warning -stats " +
+                           $"{inFiles} {pipeIn} {map} {v2} {passLog} {vf2} {a} {s} {meta} {miscOut} {muxing} {Shell.WrapArg(outPath)}";
                 }
                 else
                 {
-                    args = $"{custIn} {inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {custOut} {muxing} {Shell.WrapArg(outPath)}";
+                    args = $"{inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {muxing} {Shell.WrapArg(outPath)}";
                 }
             }
             catch (Exception e)
