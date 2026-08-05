@@ -882,6 +882,21 @@ the shorter one. Do not "fix" it by pointing Quick Convert at the PSY list: thos
 by ffmpeg, dropped by the library with a warning nothing here reads, and encode as though they had never
 been set.
 
+**One row deliberately overrides an argument the app sends itself, and it is the only one.** Quick
+Convert has no grain-synthesis control, so `LibAomAv1.GetArgs` always sends `-denoise-noise-level 0` -
+which left `enable-dnl-denoising` sitting in the grid beside it unable to do anything, that parameter
+only applying where the denoiser is on. Measured, the grid's `-aom-params denoise-noise-level=N` beats
+the AVOption: the files differ, and with denoising on, `enable-dnl-denoising=0` changes the output
+again. So the fix was the missing partner row rather than deleting the orphan, and AV1 grain synthesis
+is reachable on that tab. Every other row is a parameter the app does not set.
+
+**`LibSvtAv1.GetArgs` sends a `-rc vbr` that does nothing, and that is a separate bug from this tab.**
+Measured: `ffmpeg -h encoder=libsvtav1` lists `preset`, `crf` and `qp` and no `rc` at all, so every
+bitrate encode logs "Codec AVOption rc (Override the preset rate-control) has not been used for any
+stream" - the name matches another encoder's option class and is discarded. `-b:v` alone is what
+selects VBR, so removing it cannot change an encode; it has never reached SVT. Worth knowing before
+reading that warning as something the Advanced tab did.
+
 **The params blob is quoted and the AVOption values mostly are not.** x265's `master-display` is written
 `G(13250,34500)B(...)...`, and parentheses belong to the shell on Linux and macOS, so the whole `:`-joined
 list goes through `Shell.WrapArg`; an AVOption value is quoted only where it holds something the shell
