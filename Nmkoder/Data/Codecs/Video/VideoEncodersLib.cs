@@ -255,7 +255,13 @@ namespace Nmkoder.Data.Codecs.Video
             string q = encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
-            string rc = vbr ? $"-rc vbr -b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : $"-qp {q}";
+            // "-b:v" on its own is what selects VBR here. There used to be a "-rc vbr" in front of it
+            // and it never reached SVT: measured, "ffmpeg -h encoder=libsvtav1" lists preset, crf and
+            // qp and no rc at all, so the name matched another encoder's option class and was
+            // discarded - every bitrate encode logging "Codec AVOption rc (Override the preset
+            // rate-control) has not been used for any stream" on its way past. Removing it changes no
+            // output, which is measured too, because it was never applied to begin with.
+            string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : $"-qp {q}";
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-g ", vbr ? 255 : 480); // SVT can't do GOP size >255 in VBR mode
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
             string tiles = ""; // TEMP DISABLED AS IT SEEMS TO SLOW THINGS DOWN // CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "-tile_rows ", "-tile_columns ");
@@ -322,7 +328,12 @@ namespace Nmkoder.Data.Codecs.Video
         public int PresetDefault { get; }
         public List<PixelFormats> ColorFormats { get; }
         public int ColorFormatDefault { get; }
-        public int QMin { get; } = 0;
+        // 3 rather than 0, and rather than the 2 palettegen's own option range starts at: this chain
+        // leaves reserve_transparent at its default, and measured, "max_colors=2 is only allowed
+        // without reserving a transparent color slot" - so 2 parses and then fails to build the
+        // filter graph. A 0 or a 1 was refused outright ("out of range [2 - 256]"), which the
+        // spinner let anyone reach, since it took its floor from here.
+        public int QMin { get; } = 3;
         public int QMax { get; } = 256;
         public int QDefault { get; } = 128;
         public string QInfo { get; } = "Color Palette Size (Higher is better)";

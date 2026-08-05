@@ -890,12 +890,16 @@ the AVOption: the files differ, and with denoising on, `enable-dnl-denoising=0` 
 again. So the fix was the missing partner row rather than deleting the orphan, and AV1 grain synthesis
 is reachable on that tab. Every other row is a parameter the app does not set.
 
-**`LibSvtAv1.GetArgs` sends a `-rc vbr` that does nothing, and that is a separate bug from this tab.**
-Measured: `ffmpeg -h encoder=libsvtav1` lists `preset`, `crf` and `qp` and no `rc` at all, so every
-bitrate encode logs "Codec AVOption rc (Override the preset rate-control) has not been used for any
-stream" - the name matches another encoder's option class and is discarded. `-b:v` alone is what
-selects VBR, so removing it cannot change an encode; it has never reached SVT. Worth knowing before
-reading that warning as something the Advanced tab did.
+**`LibSvtAv1` used to send a `-rc vbr` that did nothing, and `Gif` used to let the palette size go
+below what its own filter accepts.** Neither came from this tab; both were found by running its
+argument lists through the real command. `ffmpeg -h encoder=libsvtav1` lists `preset`, `crf` and `qp`
+and no `rc` at all, so that name matched another encoder's option class and was discarded, every
+bitrate encode logging "Codec AVOption rc … has not been used for any stream" as it went - `-b:v`
+alone is what selects VBR, and removing it left the output byte-identical, which is how a flag that
+never arrived is supposed to behave. `Gif.QMin` was 0 where the chain needs 3: `palettegen` refuses
+0 and 1 as "out of range [2 - 256]", and 2 parses and then fails to build the graph, because this
+chain leaves `reserve_transparent` at its default and "max_colors=2 is only allowed without reserving
+a transparent color slot". The spinner took its floor from `QMin`, so all three were reachable.
 
 **The params blob is quoted and the AVOption values mostly are not.** x265's `master-display` is written
 `G(13250,34500)B(...)...`, and parentheses belong to the shell on Linux and macOS, so the whole `:`-joined
