@@ -3,11 +3,13 @@ using Nmkoder.Data;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.OS;
+using Nmkoder.Utils;
 using Nmkoder.Views;
 using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Nmkoder
 {
@@ -127,6 +129,122 @@ namespace Nmkoder
             {
                 Logger.Log($"Cleanup Error: {e.Message}\n{e.StackTrace}");
             }
+
+            // Off the startup path. This can be several gigabytes spread over dozens of folders,
+            // and nothing below waits on it.
+            Task.Run(CleanupBundleExtractions);
+        }
+
+        /// <summary>
+        /// Deletes the single-file extraction folders earlier builds left in temp. A single-file
+        /// build unpacks itself into %TEMP%\.net\Nmkoder\{bundle-id} before it runs, the id is a
+        /// hash that changes with every build, and .NET deletes none of them ever - so a machine
+        /// that has run a few weeks of releases is carrying one copy of the runtime per release.
+        /// Measured on a user's machine: 40 folders, 5.22 GB.
+        ///
+        /// The Windows release is no longer built single-file, which stops this happening again -
+        /// but that fix cannot reach what is already on disk, so this deliberately does not ask
+        /// whether *this* build is bundled before looking.
+        /// </summary>
+        private static void CleanupBundleExtractions()
+        {
+            try
+            {
+                string appName = Path.GetFileNameWithoutExtension(Paths.GetExe());
+
+                if (appName.IsEmpty())
+                    return;
+
+                string current = "";
+                string root = "";
+
+                // AppContext.BaseDirectory *is* the extraction folder when the running build is a
+                // bundle, which is the one question it answers well - and the exact opposite of
+                // what Paths.GetExeDir needs it never to be used for, so do not "tidy" this into
+                // that. Reading the root off it beats composing a path wherever it applies.
+                string baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+
+                if (baseDir != Paths.GetExeDir() && Path.GetFileName(Path.GetDirectoryName(baseDir)) == appName)
+                {
+                    current = baseDir;
+                    root = Path.GetDirectoryName(baseDir);
+                }
+                else if (Shell.IsWindows)
+                {
+                    // Not a bundle, so there is nothing to read the path off - but the builds that
+                    // left the folders were, and this is where they put them. Windows only: the
+                    // Unix layout carries a user name in the middle, which is not worth guessing at
+                    // for tens of megabytes of native libraries.
+                    root = Path.Combine(Path.GetTempPath(), ".net", appName);
+                }
+
+                if (root.IsEmpty() || !Directory.Exists(root))
+                    return;
+
+                long freed = 0;
+
+                foreach (DirectoryInfo dir in new DirectoryInfo(root).GetDirectories())
+                {
+                    if (dir.FullName.TrimEnd(Path.DirectorySeparatorChar) == current)
+                        continue;
+
+                    if (IsExtractionInUse(dir))
+                    {
+                        Logger.Log($"Cleanup: bundle folder '{dir.Name}' is in use by another build - keeping it", true);
+                        continue;
+                    }
+
+                    long size = IoUtils.GetDirSize(dir.FullName, true);
+
+                    if (IoUtils.TryDeleteIfExists(dir.FullName))
+                        freed += size;
+                }
+
+                if (freed > 0)
+                    Logger.Log($"Cleanup: freed {FormatUtils.Bytes(freed)} of single-file extractions in '{root}'.", true);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Cleanup Error (bundle extractions): {e.Message}", true);
+            }
+        }
+
+        /// <summary>
+        /// Whether another Nmkoder is running out of this extraction folder. Deleting one that is
+        /// in use is the way this goes wrong: the loaded files refuse to go and the rest do, which
+        /// strips a live instance of everything it had not got round to loading yet. A running
+        /// process holds its assemblies and native libraries open, so an exclusive open is the
+        /// cheap question to ask first - and it is answered by Windows, which is where the folders
+        /// are large enough to be worth deleting at all.
+        /// </summary>
+        private static bool IsExtractionInUse(DirectoryInfo dir)
+        {
+            try
+            {
+                foreach (FileInfo file in dir.GetFiles("*.dll", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        using (file.Open(FileMode.Open, FileAccess.Read, FileShare.None)) { }
+                    }
+                    catch (IOException)
+                    {
+                        return true;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                // Cannot even look inside it - that is not a folder to start deleting.
+                Logger.Log($"IsExtractionInUse: could not read '{dir.FullName}': {e.Message}", true);
+                return true;
+            }
+
+            return false;
         }
     }
 }

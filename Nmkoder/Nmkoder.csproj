@@ -39,7 +39,12 @@
     <SelfContained>true</SelfContained>
     <EnableMsixTooling>true</EnableMsixTooling>
     <!-- Required by the App SDK's own single-file validation, which errors out without it. It
-         sweeps Content into the exe as well, which is why BinFiles below opts back out. -->
+         sweeps Content into the exe as well, which is why BinFiles below opts back out.
+
+         The release no longer publishes win-x64 single-file, so nothing shipped sets this any
+         more - see the matrix in release.yml for why. It stays because it is not the release's
+         to need: the README documents a single-file win-x64 publish, and that build fails
+         outright without this flag. -->
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 

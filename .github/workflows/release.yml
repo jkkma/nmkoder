@@ -29,10 +29,19 @@ jobs:
           # Windows builds the Windows-flavoured framework, which is the one carrying the Windows
           # App SDK and therefore real desktop notifications. It only exists on a Windows host, so
           # every other RID stays on plain net10.0 - see the csproj for why.
-          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0 }
-          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0 }
-          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0 }
-          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0 }
+          #
+          # win-x64 is also the one RID not published as a single file. The Windows App SDK's
+          # single-file validation demands IncludeAllContentForSelfExtract, which unpacks the whole
+          # bundle - runtime, App SDK, every assembly - into %TEMP%\.net\Nmkoder\{bundle-id} at
+          # every launch. The id is a per-build hash and .NET deletes none of them, so a machine
+          # collects ~140 MB per release it runs: 5.22 GB over 40 folders on the machine that
+          # reported this. The app is shipped as a folder in a zip with bin/ beside it either way,
+          # so the bundle bought nothing here - and that flag has already cost two shipped bugs,
+          # both recorded in CLAUDE.md.
+          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0, single: false }
+          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0, single: true }
+          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0, single: true }
+          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0, single: true }
 
     steps:
       - uses: actions/checkout@v4
@@ -64,8 +73,8 @@ jobs:
             -f ${{ matrix.tfm }} \
             -r ${{ matrix.rid }} \
             --self-contained \
-            -p:PublishSingleFile=true \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishSingleFile=${{ matrix.single }} \
+            -p:IncludeNativeLibrariesForSelfExtract=${{ matrix.single }} \
             -p:PublishTrimmed=false \
             -p:DebugType=none \
             -p:Version=${{ steps.ver.outputs.version }} \
