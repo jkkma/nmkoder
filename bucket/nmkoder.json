@@ -1,0 +1,42 @@
+{
+    "version": "2.8.26",
+    "description": "Video encoding, muxing and analysis GUI wrapping FFmpeg, FFprobe and av1an",
+    "homepage": "https://github.com/jkkma/nmkoder",
+    "license": {
+        "identifier": "GPL-3.0-only",
+        "url": "https://github.com/jkkma/nmkoder/blob/master/LICENSE"
+    },
+    "notes": [
+        "Settings, logs and temp files live in the app directory. 'data' and 'logs' are persisted, so they survive an update.",
+        "The external toolchain - ffmpeg, av1an, VapourSynth, the encoders and MKVToolNix - ships in 'bin' inside the app directory and is replaced wholesale on every update, so anything you put there yourself will not survive one. Tools in 'bin' take priority over tools on your PATH.",
+        "The bundled tools keep their own licences, recorded in 'bin\\THIRD-PARTY.txt'."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/jkkma/nmkoder/releases/download/v2.8.26/Nmkoder-2.8.26-win-x64.zip",
+            "hash": "1d8173fa6c2e042a97413914e56af3a6ed97083e044256744251915f968dd729"
+        }
+    },
+    "extract_dir": "Nmkoder",
+    "bin": "Nmkoder.exe",
+    "shortcuts": [
+        [
+            "Nmkoder.exe",
+            "Nmkoder"
+        ]
+    ],
+    "persist": [
+        "data",
+        "logs"
+    ],
+    "checkver": {
+        "github": "https://github.com/jkkma/nmkoder"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/jkkma/nmkoder/releases/download/v$version/Nmkoder-$version-win-x64.zip"
+            }
+        }
+    }
+}

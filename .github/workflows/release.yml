@@ -256,6 +256,14 @@ jobs:
 
             Unpack anywhere and run `Nmkoder`. No .NET install needed - the runtime is included.
 
+            On Windows, [Scoop](https://scoop.sh) can do that for you - this repository doubles as
+            a bucket, and updates in place from then on:
+
+            ```
+            scoop bucket add nmkoder https://github.com/jkkma/nmkoder
+            scoop install nmkoder
+            ```
+
             **Bundled tools.** Each archive lists exactly what it carries in
             `bin/THIRD-PARTY.txt`, with licences and sources. Bundling is best-effort:
             where a project publishes no binary for a platform, it is skipped rather than
@@ -339,3 +347,61 @@ jobs:
         run: |
           gh release edit "${{ steps.ver.outputs.tag }}" \
             --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+
+      # Point the Scoop bucket in this repo at the release that has just been published. The zip
+      # is already here as a build artifact, so hashing it costs nothing - Scoop's own autoupdate
+      # arrives at the same number by re-downloading 400-odd MB, and only whenever something next
+      # happens to run it. Doing it here means the manifest is never a release behind.
+      #
+      # A draft is not a release anyone can install, so it leaves the manifest where it is.
+      - name: Point the Scoop manifest at this release
+        if: steps.ver.outputs.draft == 'false'
+        shell: bash
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          zip="dist/Nmkoder-$v-win-x64.zip"
+
+          if [ ! -s "$zip" ]; then
+            echo "::error::$zip is missing, so the Scoop manifest cannot be updated"
+            exit 1
+          fi
+
+          hash="$(sha256sum "$zip" | cut -d' ' -f1)"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.ver.outputs.tag }}/Nmkoder-$v-win-x64.zip"
+
+          # The checkout above is at whatever ref triggered this - the tag itself on a tag push,
+          # which is a detached HEAD with nowhere to commit to. The manifest belongs on the
+          # default branch either way.
+          branch="${{ github.event.repository.default_branch }}"
+          git fetch origin "$branch"
+          git checkout -B "$branch" "origin/$branch"
+
+          jq --indent 4 --arg v "$v" --arg url "$url" --arg hash "$hash" \
+            '.version = $v | .architecture."64bit".url = $url | .architecture."64bit".hash = $hash' \
+            bucket/nmkoder.json > bucket/nmkoder.json.new
+          mv bucket/nmkoder.json.new bucket/nmkoder.json
+
+          if git diff --quiet -- bucket/nmkoder.json; then
+            echo "The Scoop manifest already describes $v - nothing to do."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Point the Scoop manifest at $v" -- bucket/nmkoder.json
+
+          # A push landing on the branch between the fetch above and this one is the one failure
+          # worth retrying: this commit touches a single file nothing else writes, so rebasing it
+          # onto whatever arrived and pushing again resolves it.
+          for attempt in 1 2 3; do
+            if git push origin "$branch"; then
+              echo "Scoop manifest updated to $v."
+              exit 0
+            fi
+            # Trailing `|| true` because the step runs under `set -e`: a failed fetch or rebase
+            # would otherwise end the run here, past the error message below.
+            git fetch origin "$branch" && git rebase "origin/$branch" || true
+          done
+
+          echo "::error::Could not push the updated Scoop manifest to $branch"
+          exit 1

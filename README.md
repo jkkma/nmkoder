@@ -19,6 +19,21 @@ toolchain in `bin/` - ffmpeg, av1an, VapourSynth, the encoders and MKVToolNix. T
 archives carry less and lean on your package manager; see
 [what a release bundles](#what-a-release-bundles).
 
+### Scoop
+
+On Windows, [Scoop](https://scoop.sh) can install and update it for you. This repository doubles as
+a bucket:
+
+```
+scoop bucket add nmkoder https://github.com/jkkma/nmkoder
+scoop install nmkoder
+```
+
+`scoop update nmkoder` moves to the newest release from then on, and the manifest is pointed at each
+one as it is published, so there is no lag. Settings and logs (`data` and `logs`) are persisted
+across updates; `bin` is not, being the bundled toolchain that every release replaces - anything you
+drop in there yourself belongs in a portable copy rather than a Scoop install.
+
 ## What's new since the fork
 
 ### The application
