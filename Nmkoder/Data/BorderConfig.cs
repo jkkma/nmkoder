@@ -101,40 +101,43 @@ namespace Nmkoder.Data
         /// One axis grown from <paramref name="input"/> towards <paramref name="ideal"/>, and where
         /// the picture then sits on it.
         /// <para/>
-        /// The growth is a multiple of four rather than of two, which is what makes the two bars come
-        /// out the same width *and* both edges land on the chroma grid: 4:2:0 stores one colour
-        /// sample per 2x2 block, so an odd frame is refused by every encoder here and an odd offset is
-        /// silently moved by ffmpeg's own pad filter - which would put the picture a pixel away from
-        /// the middle it was centred in. Half of a multiple of four is even, so both fall out of the
-        /// one rounding. It costs up to two pixels of accuracy in the ratio, against an aspect ratio
-        /// tolerance measured in whole percents.
+        /// Two roundings, and they are deliberately separate, because the frame and the offset answer
+        /// to different constraints. The frame is rounded to the nearest *even* size, which is the only
+        /// one it has - 4:2:0 stores one colour sample per 2x2 block of luma, so an odd frame is
+        /// refused by every encoder here - and rounding it any coarser is what stops the target being
+        /// reached at all. That is not hypothetical: a 4K film at 1.85:1 scales to 1920x1038, and 16:9
+        /// bars on that want exactly 42 pixels. 42 is not a multiple of four, so growth rounded to one
+        /// came out at 1920x1082 - two pixels past the 1920x1080 the setting names, and a frame that is
+        /// no longer the ratio it was asked to be.
         /// <para/>
-        /// Rounded to the nearest rather than up, and nothing at all under four pixels: two pixels a
-        /// side is not a bar, and adding one to a source that is already the target shape to within a
-        /// rounding is exactly the surprise this must not spring on a batch.
+        /// The offset is then rounded down to even on its own, because ffmpeg's own pad filter silently
+        /// moves an odd one - which would put the picture a pixel away from where this said it was. The
+        /// pixel that rounding leaves over goes onto the far bar, which <see cref="BorderPad.FarBar"/>
+        /// reports and the readout and the log both name. A pixel of asymmetry nobody can see is worth
+        /// a frame that is the shape it claims.
+        /// <para/>
+        /// Nothing at all under four pixels of growth: two pixels a side is not a bar, and adding one
+        /// to a source that is already the target shape to within a rounding is exactly the surprise
+        /// this must not spring on a batch.
         /// </summary>
         private static Axis PadAxis(int input, double ideal)
         {
             Axis axis = new Axis { Size = input, Offset = 0 };
-            double gap = ideal - input;
 
-            if (input < 1 || double.IsNaN(gap) || double.IsInfinity(gap) || gap < 4d)
+            // The upper bound is against the cast below, not against anything reachable: an out of
+            // range double converts to an unspecified int rather than to a large one, and a frame this
+            // size is refused by ResizeConfig.ExceedsFrameLimit long before it is refused here.
+            if (input < 1 || double.IsNaN(ideal) || double.IsInfinity(ideal) || ideal > int.MaxValue / 2)
                 return axis;
 
-            int add = (int)Math.Round(gap / 4d, MidpointRounding.AwayFromZero) * 4;
+            int size = (int)Math.Round(ideal / 2d, MidpointRounding.AwayFromZero) * 2;
+            int add = size - input;
 
             if (add < 4)
                 return axis;
 
-            axis.Size = input + add;
-            axis.Offset = add / 2;
-
-            // Everything that reaches this hands over an even frame - the mod-2 pad and every size a
-            // resize computes see to that - but an odd one would carry its oddness straight into the
-            // result, which no encoder takes. One pixel onto the far bar is the cheapest way out, and
-            // it costs only the symmetry that an odd frame could not have had in the first place.
-            if (axis.Size % 2 != 0)
-                axis.Size++;
+            axis.Size = size;
+            axis.Offset = add / 2 / 2 * 2;
 
             return axis;
         }
