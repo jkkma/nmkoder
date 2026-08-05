@@ -19,13 +19,27 @@
         <TextBlock x:Name="DetailsLabel" TextWrapping="Wrap" LineHeight="20" />
 
         <TextBlock x:Name="ExamplesHeader" Classes="h" Text="EXAMPLES" IsVisible="False" />
-        <ItemsControl x:Name="ExamplesList">
+        <!-- The value column sizes to the values rather than to a fixed 110, which cut off every
+             example that is a path - "/path/to/RPU.bin" arrived as "/path/to/RPU." - and there is
+             no reading a truncated example, the value being the thing to copy.
+
+             Shared across the rows so the explanations still line up: each row is its own Grid, so
+             an Auto column on its own would measure that row alone and leave the second column
+             starting at a different place on every line. Capped rather than unbounded, because
+             x265's master-display examples are 69 characters and would take the window; those wrap
+             inside the chip instead of squeezing the explanation beside them into nothing. -->
+        <ItemsControl x:Name="ExamplesList" Grid.IsSharedSizeScope="True">
           <ItemsControl.ItemTemplate>
             <DataTemplate>
-              <Grid ColumnDefinitions="110,*" Margin="0,0,0,6">
+              <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" SharedSizeGroup="ExampleValue" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
                 <Border Grid.Column="0" Background="{DynamicResource NmkoderSunken}" CornerRadius="4" Padding="6,2"
-                        HorizontalAlignment="Left" VerticalAlignment="Top">
-                  <TextBlock Text="{Binding Value}" FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
+                        MaxWidth="340" HorizontalAlignment="Left" VerticalAlignment="Top">
+                  <TextBlock Text="{Binding Value}" TextWrapping="Wrap"
+                             FontFamily="Consolas,Menlo,DejaVu Sans Mono,monospace" />
                 </Border>
                 <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" Margin="8,2,0,0" />
               </Grid>

@@ -234,8 +234,6 @@ namespace Nmkoder.Views
         #region Public control surface used by the task layer
 
         public TextBox FfmpegOutputBox => OutputPathBox;
-        public TextBox CustomArgsInBox => EncCustomArgsIn;
-        public TextBox CustomArgsOutBox => EncCustomArgsOut;
         public ComboBox Av1anColorsBox => Av1anColorSpaceBox;
 
         /// <summary>

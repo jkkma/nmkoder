@@ -118,8 +118,6 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
             ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
             ConfigParser.RestoreIndexIfSaved(EncAudChannelsBox);
-            ConfigParser.RestoreIfSaved(EncCustomArgsIn);
-            ConfigParser.RestoreIfSaved(EncCustomArgsOut);
             ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
             ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
 
@@ -161,8 +159,6 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
                 ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
                 ConfigParser.SaveComboxIndex(EncAudChannelsBox);
-                ConfigParser.SaveGuiElement(EncCustomArgsIn);
-                ConfigParser.SaveGuiElement(EncCustomArgsOut);
                 ConfigParser.SaveGuiElement(EncMetaApplyGrid);
                 ConfigParser.SaveComboxIndex(EncBordersBox);
                 ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);

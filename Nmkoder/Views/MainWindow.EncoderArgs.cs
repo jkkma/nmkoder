@@ -291,15 +291,10 @@ namespace Nmkoder.Views
             grid.Columns.Add(new DataGridTextColumn { Header = "Description, Possible Values", Binding = new Binding(nameof(EncoderArgRow.Description)), IsReadOnly = true, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             grid.CellEditEnded += (s, e) => section.Save();
 
-            // The description is one clipped line, and narrowing the window clips it further, so the
-            // row carries the whole of it as a tooltip - the ranges and defaults are the point of it.
-            // The name is spelled the way the encoder will be given it, which is not the same on the
-            // two tabs and not the same for every encoder on one of them.
-            grid.LoadingRow += (s, e) =>
-            {
-                if (e.Row.DataContext is EncoderArgRow row)
-                    ToolTip.SetTip(e.Row, $"{section.Spell(row.Argument)}\n{row.Description}\n\nRight-click for details and examples.");
-            };
+            // No per-row tooltip. It repeated the description the row is already showing, and it was
+            // drawn over the rows underneath the pointer - so moving down the list covered the very
+            // thing being read, on a grid whose whole job is to be scanned. The full text is a
+            // right-click away, which is what the heading above the grid says.
 
             // Right-clicking a row opens its long-form help. Handled on the grid rather than on each
             // row: rows are recycled as the list scrolls, so per-row subscriptions would stack up.
