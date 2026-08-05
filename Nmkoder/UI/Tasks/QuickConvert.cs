@@ -144,6 +144,10 @@ namespace Nmkoder.UI.Tasks
                 // each built more than once per run, and in Automatic mode answering the question can
                 // mean decoding a few hundred frames of the source.
                 await PrepareDeinterlacing(anyVideoStreams && !vCodec.DoesNotEncode, twoPass);
+                // Same argument, and settled in the same place: the burn-in's filter is built once per
+                // pass and this can mean dumping a file's attachments to disk. Almost always a no-op -
+                // see QuickConvertUi.PrepareBurnInFontsAsync.
+                await QuickConvertUi.PrepareBurnInFontsAsync();
                 string pipeIn = GetPipeInputArgs();
                 vsLogPath = QuickConvertUi.CurrentDeinterlace.UsesPipe ? GetVsLogPath() : "";
                 vsRuns = vsLogPath.IsEmpty() ? 0 : (twoPass ? 2 : 1);

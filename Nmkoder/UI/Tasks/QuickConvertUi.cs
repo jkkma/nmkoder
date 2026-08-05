@@ -45,6 +45,15 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static int DeinterlacePipeInput = -1;
 
+        /// <summary>
+        /// A folder of fonts dumped out of the burn-in source for libass to scan, or "" when this run
+        /// needs none - which is almost always, since ffmpeg reads a file's font attachments itself.
+        /// Settled once in <see cref="QuickConvert.Run"/> by <see cref="PrepareBurnInFontsAsync"/>,
+        /// beside the deinterlacing and for the same reason: the filter chain is built several times
+        /// over one run and this costs an ffmpeg call.
+        /// </summary>
+        public static string BurnInFontsDir = "";
+
         public static new void Init()
         {
             // Load video codecs
@@ -1365,10 +1374,20 @@ namespace Nmkoder.UI.Tasks
                 // arguments rather than assuming it is the first of them. Being an input of its own
                 // it is seeked along with the video, so it needs no timestamp correction.
                 filters.Add($"[{GetInputFileIndex(currFile)}:s:{subIndex}]overlay=shortest=1");
+                Logger.Log($"Burning in subtitle track {DescribeSubtitleTrack(currFile, subIndex)}. It is a bitmap track, " +
+                    $"so it is laid over the picture as it was authored, before anything moves the frame.", quiet);
                 return;
             }
 
             string burnIn = $"subtitles={FormatUtils.GetFilterPath(currFile.ImportPath)}:si={subIndex}";
+
+            // The rescue for a font ffmpeg will not recognise out of the file itself - see SubtitleFonts.
+            // Empty for every file whose attachments are tagged in a way it does know, which is the
+            // ordinary case, so nothing is added to the command line where nothing is wrong.
+            if (BurnInFontsDir.IsNotEmpty())
+                burnIn += $":fontsdir={FormatUtils.GetFilterPath(BurnInFontsDir)}";
+
+            LogTextBurnIn(currFile, subIndex, quiet);
 
             // This filter re-reads the source and picks its lines by frame timestamp. Seeking
             // the input restarts those timestamps at zero, so left alone it renders from the
@@ -1380,6 +1399,90 @@ namespace Nmkoder.UI.Tasks
                 burnIn = $"setpts=PTS+{seekOffset.ToStringDot()}/TB,{burnIn},setpts=PTS-{seekOffset.ToStringDot()}/TB";
 
             filters.Add(burnIn);
+        }
+
+        /// <summary> The burn-in dropdown's own wording for a track, built from the stream rather than
+        /// read back off the box - during a batch that box describes whichever file was loaded when it
+        /// was last refreshed, and the position it names is applied to each file in turn. </summary>
+        private static string DescribeSubtitleTrack(MediaFile file, int subIndex)
+        {
+            SubtitleStream stream = file.SubtitleStreams[subIndex];
+            bool zeroIdx = Config.GetBool(Config.Key.UseZeroIndexedStreams);
+            var parts = new List<string> { $"#{(zeroIdx ? subIndex : subIndex + 1).ToString().PadLeft(2, '0')}", stream.Language.ToUpper().Trunc(6), stream.Title.Trunc(25) };
+            return $"{string.Join(" - ", parts.Where(x => x.IsNotEmpty()))} ({Aliases.GetNicerCodecName(stream.Codec).Trunc(12)})";
+        }
+
+        /// <summary>
+        /// Says what a text burn-in takes from where, which nothing used to - every other filter in this
+        /// chain leaves a line and this one was silent. The clause about the attachments is the point of
+        /// it: a run that burns subtitles into an MP4 also logs "N attachment tracks left out: MP4 cannot
+        /// store attachment streams" a moment later, and read on its own that reads like the fonts having
+        /// been thrown away before the burn-in rather than after it.
+        /// </summary>
+        private static void LogTextBurnIn(MediaFile file, int subIndex, bool quiet)
+        {
+            int fonts = file.AttachmentStreams.Count(SubtitleFonts.IsFont);
+            string fontClause;
+
+            if (fonts < 1)
+                fontClause = "That file has no fonts attached, so any font the track names is taken from the system";
+            else if (BurnInFontsDir.IsNotEmpty())
+                fontClause = $"Its {fonts} attached font{(fonts == 1 ? " is" : "s are")} handed to the renderer from {Path.GetFileName(BurnInFontsDir)}";
+            else
+                fontClause = $"Its {fonts} attached font{(fonts == 1 ? "" : "s")} come out of that same file";
+
+            Logger.Log($"Burning in subtitle track {DescribeSubtitleTrack(file, subIndex)}. Its styling is rendered " +
+                $"from '{file.Name.Trunc(40)}' exactly as it sits there. {fontClause} - neither depends on what the " +
+                $"output container can store.", quiet);
+        }
+
+        /// <summary>
+        /// Settles <see cref="BurnInFontsDir"/> for the run that is starting. Only a text burn-in over a
+        /// file holding font attachments ffmpeg's own mimetype list does not cover reaches the extraction;
+        /// everything else leaves it empty, which is the state that changes nothing.
+        /// </summary>
+        public static async Task PrepareBurnInFontsAsync()
+        {
+            BurnInFontsDir = ""; // A batch runs this per file, and last file's folder is not this file's
+
+            MediaFile file = TrackList.current?.File;
+            int subIndex = file == null ? -1 : GetBurnInSubtitleIndex(file, quiet: true);
+
+            if (subIndex < 0 || file.SubtitleStreams[subIndex].Bitmap)
+                return;
+
+            List<AttachmentStream> skipped = SubtitleFonts.GetSkippedFonts(file);
+
+            if (skipped.Count < 1)
+                return;
+
+            // Split by *why* it is skipped, because only one of the two can be put right. A wrong
+            // mimetype is recoverable - the file is still there under a name, and "-dump_attachment"
+            // writes it out by that name. A missing filename tag is not: that tag is what ffmpeg names
+            // the output after, so there is nothing to extract it as, and saying "extracting them"
+            // over that one would be claiming a rescue that did not happen.
+            List<AttachmentStream> unnamed = skipped.Where(x => (x.Filename ?? "").Trim().IsEmpty()).ToList();
+            List<AttachmentStream> mistagged = skipped.Except(unnamed).ToList();
+
+            // Named rather than left to be inferred from the result: this is the one way a burn-in loses
+            // styling, and what it looks like - the right words in the right place in the wrong typeface
+            // - is not something anyone would trace back to a mimetype.
+            if (unnamed.Count > 0)
+                Logger.Log($"{unnamed.Count} of the fonts attached to '{file.Name.Trunc(40)}' carry no filename, which FFmpeg " +
+                    $"needs to name a font by - it will substitute {(unnamed.Count == 1 ? "it" : "them")}, and there is no way " +
+                    $"to recover {(unnamed.Count == 1 ? "it" : "them")} from here. Remux the file to give the attachments names.");
+
+            if (mistagged.Count < 1)
+                return;
+
+            string tags = string.Join(", ", mistagged.Select(x => (x.MimeType ?? "").Trim().IsEmpty() ? "nothing at all" : $"'{x.MimeType.Trim()}'").Distinct());
+            Logger.Log($"{mistagged.Count} of the fonts attached to '{file.Name.Trunc(40)}' are tagged {tags}, which FFmpeg's " +
+                $"subtitle renderer does not accept as a font - so it would substitute them. Extracting them instead.");
+
+            BurnInFontsDir = await SubtitleFonts.ExtractFontsAsync(file, GetInputFileIndex(file));
+
+            if (BurnInFontsDir.IsEmpty())
+                Logger.Log("Could not extract them, so the burn-in will use whatever fonts the system offers in their place.");
         }
 
         private static List<string> GetCustomFilters()

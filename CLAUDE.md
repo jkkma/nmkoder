@@ -1071,6 +1071,41 @@ before refusing a path again, count the parsers between the string and the thing
 away to rename it. Bitmap tracks never reached that check anyway - they are a filtergraph input mapped
 by stream index, with no filename in the graph.
 
+**Nothing in the burn-in strips styling, and the log now says so rather than leaving it to be
+inferred.** The `subtitles` filter opens the source file itself and hands the track to libass as it
+sits there, so the colours, the borders, the `\pos` and the font *names* survive whatever the output
+container can hold - the subtitle Codec box, `-sn` and the stream maps all act on the output and reach
+none of it. What made that worth a line is the message underneath it: a burn-in into MP4 logs "18
+attachment tracks left out: MP4 cannot store attachment streams" a moment later, and read on its own
+that is indistinguishable from the fonts having been thrown away *before* the render rather than after.
+Measured with the app's own chain - scale to 640x360, burn in, pad to 640x480 - against a plain SRT
+control and a no-burn-in control: every styled attribute present and correctly scaled.
+
+**The fonts are the one half that is not carried in the track, and ffmpeg finds them by mimetype and by
+nothing else.** `font_mimetypes[]` in `vf_subtitles.c` is the whole list - the same ten entries in 6.1
+and in current master - with no fallback on the file extension, and an attachment carrying no
+`filename` tag is skipped too. So a font tagged `application/octet-stream` is invisible to the renderer
+however plainly it is a font, and libass substitutes: the right words, in the right place, in the wrong
+typeface. That is the only way a burn-in here loses styling, and it looks exactly like the styling
+having been stripped, which is why `SubtitleFonts` names it in the log instead of letting it be
+discovered in the output. ffprobe is no help spotting it either - it derives an attachment's
+`codec_name` *from* the mimetype, so the broken ones come back as `unknown` rather than `ttf`.
+
+One of the two reasons is fixable rather than only reportable: libass scans a `fontsdir` of its own, so
+`PrepareBurnInFontsAsync` dumps the attachments into the session folder and the filter is given that
+directory. The *other* is not, and the two are kept apart for that reason - `-dump_attachment` names its
+output after the same `filename` tag ffmpeg wanted in the first place, so a nameless attachment has
+nothing to be written out as, and reporting one rescue over both would be claiming a fix that did not
+happen. Gated on there being a skipped font, so the ordinary file - mkvmerge writes mimetypes ffmpeg
+knows, which is every SubsPlease-shaped release - adds no ffmpeg run and no argument. Settled once in
+`QuickConvert.Run` beside the deinterlacing, for the reason written there: the chain is built once per
+pass. Measured with the system font removed, so only the attachment could supply it: unrecognised
+mimetype without `fontsdir` renders the fallback, with `fontsdir` the frame is byte-identical to the
+one rendered with the font installed, and a recognised mimetype is unchanged either way. The directory
+goes through `FormatUtils.GetFilterPath` like the filename beside it and was checked through the real
+code by reflection into the built assembly, over a folder called `It's a $HOME dir=1 [x]` - it is the
+same two parsers, so it is the same escaping.
+
 **The burn-in runs after the crop and the scale**, where it used to run before all of them: a crop
 taking black bars off took the subtitles in them with it, an anamorphic source came out with stretched
 text, and a downscale rendered the lines large and then shrank them. Before the borders, so they stay
