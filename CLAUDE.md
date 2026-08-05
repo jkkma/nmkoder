@@ -1511,3 +1511,127 @@ to Automatic. It read the Quick Convert tab's Deinterlace row until 2.8.6, on th
 the mode and the preset should be set in one place. That only holds for someone who uses both,
 and the defaults do not want to agree anyway: Automatic is right on a tab that encodes whatever
 it is given and wrong here, where doing nothing means writing a re-encoded copy for no reason.
+
+## Tone mapping
+
+**Both encode tabs hide the Tone Mapping row for a file that is not HDR**, and unlike the
+Deinterlace row above it, the setting behind it defaults to doing nothing. `ColorDataUtils.IsHdr`
+decides which a file is and reads the **transfer curve alone** - 16 (PQ) or 18 (HLG). Wide *gamut*
+is deliberately not enough: BT.2020 primaries under an ordinary BT.709 transfer is a colour space,
+not a dynamic range, and tone-mapping is a luminance operation with nothing to say about it.
+
+The default is Off because the other reason to load an HDR file is to re-encode it *as* HDR, which
+is most of what this app's 10-bit AV1 encoding is for. Deinterlacing an interlaced file is what
+almost everyone wants and that row opens armed; converting HDR to SDR is a choice, and an
+irreversible one. So the row's whole job at rest is to say the file is HDR and that it will stay
+that way. `ToneMapUi.ModeInEffect` reports Off whenever the row is off screen, which is what makes
+hiding it safe rather than merely tidy - a curve left selected behind a hidden row would otherwise
+convert a file nobody was looking at.
+
+**`MediaFile.ColorData` is now filled in when a file loads**, on a background task beside the
+interlace scan. Before this it was assigned in exactly one place - `Av1an.cs`, at encode time - so
+Quick Convert had no colour data at all and nothing outside that one method could ask whether a
+file was HDR.
+
+### The backend is zscale, and libplacebo was measured and rejected
+
+libplacebo is the better tone-mapper and the measurements say so: a smooth roll-off all the way to
+10000 nits where the zscale chain needs tuning to get there. Three things ruled it out. It will not
+create its own Vulkan device - without a global `-init_hw_device vulkan` it fails with "Found no
+suitable device, giving up", and that argument is one the AV1AN tab cannot reliably place, since
+av1an composes its own per-chunk ffmpeg command and this app only contributes filters through `-f`.
+It cannot be told a real GPU from a software one: against Mesa's lavapipe it initialises perfectly
+and then runs **63x slower than the zscale chain** (4.40s against 0.17s for the same 48 frames), so
+a check that merely asks "did it come up" passes and then destroys the encode's speed. And macOS
+has no Vulkan without MoltenVK. zscale is in the GPL ffmpeg this project bundles, needs no device,
+and cost 0.17s against 0.07s for a plain pixel format conversion.
+
+### npl is the number that decides everything, and the copied chain gets it wrong
+
+Every version of this chain on the internet uses `npl=100`, which is also what leaving it unset
+does. Measured, that **clips everything above about 374 nits to flat white**: on a 1000-nit HDR10
+master every specular highlight, practical light and window is gone.
+
+Where the clipping starts was measured rather than derived - PQ ramps built to peak at exactly
+1000, 4000 and 10000 nits, run at npl 100/200/400/1000/2000, with the level where the output
+reached 255 and stayed there coming out at 374/376/377, 743/746/749, 1509/1509, 3747/3777 and
+7568 nits. A constant **3.75x npl** across every source peak, which is what makes it a rule rather
+than a lookup table. `ToneMapConfig.GetNpl` is that rule, and it takes the peak from the file's own
+MaxCLL, else its mastering display's maximum luminance, else an assumed 1000.
+
+**It has to be worked out here because the filter will not read it off the file.** The same PQ ramp
+with and without a MaxCLL of 1000 and a 1000-nit mastering display tone-maps to byte-identical
+output, so tonemap's own peak detection never sees the container's metadata.
+
+The alternative parameterisation - `npl=100` with an explicit `peak=` - was measured head to head
+and is worse. It holds mid-tones brighter (100 nits at 181 against 110) and clips from 374 nits on
+a 1000-nit source, where scaling npl clips nothing. Against libplacebo as the reference on the same
+source - 22/54/129/170 at 1, 10, 100 and 203 nits - scaling npl gives 16/44/110/153 and the `peak=`
+form gives 25/65/181/230. Scaling npl is the closer of the two, and hable is the closest of the
+three curves; mobius and reinhard are offered because they are brighter and some sources want that.
+
+### setparams, and the option that looks like the answer
+
+The chain states its input colour with `setparams` rather than relying on what the decoder exposes.
+A file whose tags live only in the container is otherwise refused outright with "code 3074: no path
+between colorspaces" - and that is a state a Matroska file reaches easily, one written here reading
+`color_transfer=unknown` from `-show_streams` and `smpte2084` from `-show_frames` on the same file.
+
+**zscale's own `transferin`/`primariesin`/`matrixin` do not do this job.** They exist, they are
+documented, and measured they leave the same file failing with the same error. `setparams` fixes it.
+Stating tags that were already correct changes no pixel.
+
+### Where it sits in the chain
+
+Second, right after the deinterlacer and **before both subtitle burn-ins** - which on Quick Convert
+means ahead of the bitmap overlay, which has to precede all the geometry. Subtitles are graphics
+drawn to BT.709 white: composited into an HDR frame and tone-mapped afterwards they are dragged
+through a gamut conversion and a highlight roll-off written for the picture. Measured on yellow
+subtitle text, (240, 236, 95) burnt in before the tone-map against (232, 232, 71) after it - the
+blue channel a third higher, which is the yellow washing out.
+
+Ahead of the crop and the scale costs more than it needs to, this being the one filter here whose
+cost is per pixel. It is paid anyway: tone-mapping before and after a downscale was measured at a
+maximum difference of 3 code values out of 255, so the position is a subtitle question and not a
+picture one.
+
+### The output colour, and the trap on the AV1AN tab
+
+On Quick Convert nothing has to be said about the output at all. The final `zscale` retags the
+frames as it goes, so the file comes out tagged bt709/bt709/bt709 with the mastering-display and
+light-level side data dropped - verified in the real `-filter_complex`/`[vf]`/`-map`/`-pix_fmt`
+command shape, not just as a bare `-vf`.
+
+The AV1AN tab is the opposite: its encoders are *told* what they are encoding, as H.273 integers out
+of `MediaFile.ColorData`. Unaccounted for, a tone-mapped encode produces the worst possible outcome -
+SDR pixels in a file tagged PQ and BT.2020, which every player then expands again, and nothing about
+it looks wrong until it is played. `Av1an.Run` swaps the colour for `ToneMapConfig.GetOutputColorData`
+around the one `GetArgs` call and restores it immediately, rather than assigning it: the field means
+"the colour of this file" everywhere else, and `ToneMapUi.IsRowRelevant` reads it to decide whether to
+show the row, so leaving BT.709 behind would make an HDR file stop looking like one the moment it had
+been encoded once. There is no await between the two, so nothing can observe the swap.
+
+**The range is limited whatever the source was**, because the chain's last filter says `range=tv`
+unconditionally. Carried across from the source instead - which is what this did first - a
+full-range HDR master had SVT-AV1 told `--color-range 1` and x265 told `--range full` over pixels
+that are limited: the blacks lift and the whites clip on every player that believes the tag.
+Measured, a source ffprobe reads as `color_range=pc` comes out of this chain as `tv`.
+
+`GetVideoFilterArgs` on that tab therefore takes the source colour as a parameter rather than
+reading it off the file - the chain has to describe what is going in and the encoder arguments what
+is coming out, so the two cannot share a source.
+
+### What it does not cover
+
+A stream copy builds no filter chain, so the Quick Convert box is disabled for one and
+`ToneMapUi.GetQuickConvertConfig` reports Off - a copy of an HDR file is the one way to keep it
+exactly as it is, which is an ordinary thing to want, so the row stays on screen saying the file is
+HDR and only the curve is taken away. And av1an's target-quality probes never see this filter, the
+same as every other filter on that tab; the existing note covers it by counting the chain rather
+than by naming what is in it.
+
+Verified by running it rather than by reading it: 42 chains built by the real `ToneMapConfig` across
+9 colour-data shapes and all four modes, each run through ffmpeg in both tabs' command shapes, all
+parsing, all producing frames, all tagged bt709. A full chain - deinterlace, tone-map, fps, crop,
+mod-2 pad, scale, burn-in, borders - composes correctly on both tabs and lands on the frame size the
+geometry predicts. An SDR-to-PQ-and-back round trip returns every hue and every edge intact.

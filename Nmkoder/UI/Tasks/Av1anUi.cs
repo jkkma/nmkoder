@@ -33,6 +33,14 @@ namespace Nmkoder.UI.Tasks
         /// VapourSynth script cannot sit inside av1an's per-chunk filtering. </summary>
         public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
 
+        /// <summary> The tone-map this run is doing, snapshotted by <see cref="Av1an.Run"/> before the
+        /// first thing that reads it. Kept here rather than read from the box the way the rest of this
+        /// class reads its controls, for the reason the quality mode and the chunk method are
+        /// snapshotted: the tab stays editable across Run's awaits - the colour probe, the auto-crop
+        /// scan, av1an's --help - and three separate reads of the box could refuse one setting, tag the
+        /// output for a second and filter with a third. </summary>
+        public static ToneMapConfig CurrentToneMap = new ToneMapConfig();
+
         public static void Init()
         {
             // Load video codecs. SVT-AV1 rather than the first entry, and stated here rather than left
@@ -574,8 +582,14 @@ namespace Nmkoder.UI.Tasks
         /// <summary>
         /// The '-vf' argument for the encode, built from the geometry <see cref="ResolveFrameAsync"/>
         /// has already settled. Nothing here has to be measured, which is what lets it be synchronous.
+        /// <para/>
+        /// <paramref name="sourceColor"/> is passed in rather than read off the file for one reason: by
+        /// the time this runs, <see cref="Av1an.Run"/> may have swapped the file's colour for the one the
+        /// *encoder* is being told about, which for a tone-mapped encode is BT.709. The chain has to
+        /// describe what is going in, and the encoder arguments what is coming out, so the two cannot
+        /// share a source.
         /// </summary>
-        public static string GetVideoFilterArgs(Av1anFrame frame, CodecArgs codecArgs = null)
+        public static string GetVideoFilterArgs(Av1anFrame frame, VideoColorData sourceColor, CodecArgs codecArgs = null)
         {
             List<string> filters = new List<string>();
 
@@ -588,6 +602,24 @@ namespace Nmkoder.UI.Tasks
 
             if (deinterlace.IsNotEmpty())
                 filters.Add(deinterlace);
+
+            // Second, ahead of the geometry, as it is on Quick Convert - although the reason that settles
+            // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
+            // the two tabs cannot produce different pixels from the same settings.
+            //
+            // It runs inside av1an, once per chunk, rather than as a pass in front of it the way QTGMC
+            // does. It can: this is an ordinary ffmpeg filter chain with nothing for VapourSynth to
+            // evaluate, and it neither changes the frame count nor the frame size, so av1an's chunking
+            // has nothing to disagree with. What it does share with every other filter on this tab is
+            // that the target-quality probes never see it - see GetFilteredTargetQualityNote, which
+            // covers this one by counting the chain rather than by naming what is in it.
+            string toneMapFilter = CurrentToneMap.GetFilterArgs(sourceColor);
+
+            if (toneMapFilter.IsNotEmpty())
+            {
+                filters.Add(toneMapFilter);
+                Logger.Log(CurrentToneMap.GetNote(sourceColor));
+            }
 
             if (codecArgs != null && codecArgs.ForcedFilters != null)
                 filters.AddRange(codecArgs.ForcedFilters);

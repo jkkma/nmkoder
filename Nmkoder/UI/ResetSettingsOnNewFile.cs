@@ -13,6 +13,7 @@ namespace Nmkoder.UI
         public static bool ResetCrop { get; set; }
         public static bool ResetBorders { get; set; }
         public static bool ResetDeinterlace { get; set; }
+        public static bool ResetToneMap { get; set; }
         public static bool ResetCustomInArgs { get; set; }
         public static bool ResetCustomOutArgs { get; set; }
         public static bool ResetCustomFilters { get; set; }
@@ -28,6 +29,7 @@ namespace Nmkoder.UI
                 d.Add(nameof(ResetCrop), "Crop");
                 d.Add(nameof(ResetBorders), "Borders");
                 d.Add(nameof(ResetDeinterlace), "Deinterlace");
+                d.Add(nameof(ResetToneMap), "Tone Mapping");
                 d.Add(nameof(ResetCustomInArgs), "Custom Input Args");
                 d.Add(nameof(ResetCustomOutArgs), "Custom Output Args");
                 d.Add(nameof(ResetCustomFilters), "Custom Filters");
@@ -43,6 +45,7 @@ namespace Nmkoder.UI
             ResetCrop = false;
             ResetBorders = false;
             ResetDeinterlace = false;
+            ResetToneMap = false;
             ResetCustomInArgs = false;
             ResetCustomOutArgs = false;
             ResetCustomFilters = false;
@@ -58,6 +61,7 @@ namespace Nmkoder.UI
             if (ResetCrop) list.Add(NiceNames[nameof(ResetCrop)]);
             if (ResetBorders) list.Add(NiceNames[nameof(ResetBorders)]);
             if (ResetDeinterlace) list.Add(NiceNames[nameof(ResetDeinterlace)]);
+            if (ResetToneMap) list.Add(NiceNames[nameof(ResetToneMap)]);
             if (ResetCustomInArgs) list.Add(NiceNames[nameof(ResetCustomInArgs)]);
             if (ResetCustomOutArgs) list.Add(NiceNames[nameof(ResetCustomOutArgs)]);
             if (ResetCustomFilters) list.Add(NiceNames[nameof(ResetCustomFilters)]);
@@ -88,10 +92,10 @@ namespace Nmkoder.UI
             Config.Set(Config.Key.ResetSettingsList, string.Join(",", list));
         }
 
-        /// <summary> The ones that start out on. Every other setting here starts off: these three are
+        /// <summary> The ones that start out on. Every other setting here starts off: these four are
         /// the ones whose value is about the file that was just replaced rather than about how the
         /// user likes to encode, so carrying them to the next file is always wrong. </summary>
-        private static readonly string[] onByDefault = { nameof(ResetTrim), nameof(ResetCrop), nameof(ResetDeinterlace) };
+        private static readonly string[] onByDefault = { nameof(ResetTrim), nameof(ResetCrop), nameof(ResetDeinterlace), nameof(ResetToneMap) };
 
         /// <summary>
         /// Restores the list, defaulting anything it does not name.

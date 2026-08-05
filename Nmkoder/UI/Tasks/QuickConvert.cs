@@ -148,6 +148,23 @@ namespace Nmkoder.UI.Tasks
                 // pass and this can mean dumping a file's attachments to disk. Almost always a no-op -
                 // see QuickConvertUi.PrepareBurnInFontsAsync.
                 await QuickConvertUi.PrepareBurnInFontsAsync();
+
+                // Settled here for the same reason as the two above: the chain is built once per pass and
+                // this reads the source's colour off it. The race it closes is the one the deinterlace
+                // verdict had in 2.8.14 - the colour probe is fire-and-forget on file load, and a batch
+                // starts each encode the moment its file is loaded, so without this an HDR file whose
+                // probe had not landed reads as not-HDR, the row reports itself irrelevant, and the
+                // encode goes through untouched with nothing anywhere saying why.
+                await ToneMapUi.EnsureColorDataAsync(QuickConvertUi.GetVideoSourceFile());
+                QuickConvertUi.CurrentToneMap = ToneMapUi.GetQuickConvertConfig();
+                string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap);
+
+                if (toneMapProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(toneMapProblem);
+                    return;
+                }
+
                 string pipeIn = GetPipeInputArgs();
                 vsLogPath = QuickConvertUi.CurrentDeinterlace.UsesPipe ? GetVsLogPath() : "";
                 vsRuns = vsLogPath.IsEmpty() ? 0 : (twoPass ? 2 : 1);

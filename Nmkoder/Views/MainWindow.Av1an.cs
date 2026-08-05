@@ -193,6 +193,17 @@ namespace Nmkoder.Views
             DeinterlaceUi.RefreshInfo();
         }
 
+        /// <summary> The readout under the tone-mapping dropdown names the curve and the peak it is
+        /// built around, so it is rewritten whenever the box moves. Nothing is saved: the Video tab's
+        /// settings last as long as the session. </summary>
+        private void Av1anToneMap_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            ToneMapUi.RefreshInfo();
+        }
+
         private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // The handler tells a pick apart from a refill, which raises this event too

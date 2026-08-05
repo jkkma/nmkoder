@@ -52,6 +52,7 @@ namespace Nmkoder.UI
             f.MetadataRows.Clear();
             ThumbnailView.ClearUi();
             DeinterlaceUi.RefreshInfo(); // The readouts describe the loaded file, and there is none now
+            ToneMapUi.RefreshInfo();
 
             if (resetSettings)
                 ResetSettings();
@@ -97,6 +98,20 @@ namespace Nmkoder.UI
                 // resetSettings: false, so a stack of tapes keeps the engine picked for it.
                 DeinterlaceUi.ResetModes();
                 clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetDeinterlace)]);
+            }
+
+            if (resetAll || ResetSettingsOnNewFile.ResetToneMap)
+            {
+                // On by default beside the deinterlacer, and for the same test: a curve picked here
+                // describes the file that was just replaced. It is the gentler of the two - the row is
+                // hidden for anything that is not HDR and ToneMapUi.ModeInEffect answers Off while it is,
+                // so a curve left selected cannot reach an SDR file at all - but where the next file *is*
+                // also HDR it would convert it silently, and converting HDR to SDR is not undoable.
+                //
+                // Only where a *user* loaded the file, as above: a batch clears each one with
+                // resetSettings: false, so a queue of HDR files keeps the curve picked for it.
+                ToneMapUi.ResetModes();
+                clearedSettings.Add(ResetSettingsOnNewFile.NiceNames[nameof(ResetSettingsOnNewFile.ResetToneMap)]);
             }
 
             if (resetAll || ResetSettingsOnNewFile.ResetResize)
@@ -188,6 +203,9 @@ namespace Nmkoder.UI
             // Off the UI thread: a file whose container says nothing about its scan type has to have a
             // few hundred frames decoded before anything is known, and loading should not wait on it.
             DeinterlaceUi.AnalyzeInBackground(current.File);
+            // The same shape, and far cheaper - one ffprobe frame read rather than a few hundred decoded
+            // frames - but still not something a file load should block on.
+            ToneMapUi.AnalyzeInBackground(current.File);
 
             if (setWorking)
                 Program.MainWin.SetWorking(false);

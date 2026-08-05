@@ -38,6 +38,11 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
 
+        /// <summary> The tone-map this run is doing, snapshotted by <see cref="QuickConvert.Run"/>. The
+        /// chain is built once per pass and a two-pass encode must build the same one twice, so the box
+        /// is read once rather than on each build. </summary>
+        public static ToneMapConfig CurrentToneMap = new ToneMapConfig();
+
         /// <summary>
         /// Where the VapourSynth pipe sits among the '-i' arguments, or -1 when this run has none.
         /// QTGMC hands ffmpeg its frames on stdin, so the first video track is mapped from that input
@@ -425,12 +430,21 @@ namespace Nmkoder.UI.Tasks
             Form.EncCropModeBox.IsEnabled = !enc.DoesNotEncode;
             // A stream copy builds no filter chain at all, so the bars would go nowhere
             Form.EncBordersBox.IsEnabled = !enc.DoesNotEncode;
+            // Same reason, and it matters more here: a stream copy of an HDR file is the one way to keep
+            // it *exactly* as it is, which is a perfectly ordinary thing to want - so the row stays on
+            // screen saying the file is HDR, and only the curve is taken away. Left enabled it would be a
+            // setting that is picked, silently dropped by GetVideoFilterArgs' own stream-copy guard, and
+            // reported nowhere.
+            Form.EncToneMapModeBox.IsEnabled = !enc.DoesNotEncode;
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
             ValidateContainer();
+            // The tone-map row's readout depends on the codec as well as on the file - it reports Off for
+            // a stream copy - so it has to be rewritten when the codec moves, not only when its own box does.
+            ToneMapUi.RefreshInfo();
         }
 
         public static void AudEncoderSelected(int index)
@@ -1185,6 +1199,27 @@ namespace Nmkoder.UI.Tasks
 
             if (deinterlace.IsNotEmpty())
                 filters.Add(deinterlace);
+
+            // Second, so that everything below it is working in SDR - which is the whole reason it is up
+            // here rather than down beside the other colour handling. Two things read the frame rather
+            // than merely moving it, and both are graphics drawn to BT.709 white: the bitmap overlay
+            // immediately below, and the text burn-in further down. Composited into an HDR frame and
+            // tone-mapped afterwards, they are dragged through a BT.2020 -> BT.709 gamut conversion and a
+            // highlight roll-off that was written for the picture and not for them. Measured on yellow
+            // subtitle text against this chain: (240, 236, 95) burnt in before the tone-map against
+            // (232, 232, 71) after it - the blue channel a third higher, which is the yellow washing out.
+            //
+            // Ahead of the crop and the scale costs more than it needs to, since this is the one filter
+            // here whose cost is per pixel and the geometry below only ever removes pixels. It is paid
+            // anyway: tone-mapping before and after a downscale was measured at a maximum difference of 3
+            // code values out of 255, so the position is a subtitle question rather than a picture one.
+            string toneMapFilter = CurrentToneMap.GetFilterArgs(currFile.ColorData);
+
+            if (toneMapFilter.IsNotEmpty())
+            {
+                filters.Add(toneMapFilter);
+                Logger.Log(CurrentToneMap.GetNote(currFile.ColorData), quiet);
+            }
 
             VideoStream vs = currFile.VideoStreams.First();
             Fraction fps = GetUiFps();
