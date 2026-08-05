@@ -1,0 +1,274 @@
+[
+  [
+    "tune-content",
+    "",
+    "default, screen, film (default default) - screen enables palette and block copy; film synthesises grain at playback",
+    "Tuning & Quantization",
+    "Tells the encoder what kind of material it is looking at so it can enable tools suited to it. screen turns on palette mode and intra block copy, which code large flat colour areas and repeated UI elements far more cheaply than ordinary prediction - the difference on a desktop capture or a slide deck is dramatic.\n\nfilm is not a grain-preservation setting. It switches on AV1's film grain synthesis: the encoder denoises the picture, measures the grain it removed, and writes a parameter set so the decoder regenerates it at playback. That saves a great deal of bitrate, at the cost of grain that is statistically similar rather than identical.\n\ndefault suits ordinary camera footage. Those three are the only spellings libaom takes here - anything else, animation included, is refused and the encode does not start.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy film, with the grain synthesised at playback rather than coded."
+  ],
+  [
+    "tune",
+    "",
+    "psnr, ssim, ssimulacra2, iq, vmaf and its variants (default psnr) - Which metric the encoder optimises for",
+    "Tuning & Quantization",
+    "Selects the distortion metric the encoder's decisions are scored against, which changes where bits go rather than just what gets reported. psnr minimises squared error, ssim weights by structural similarity, and ssimulacra2 and the vmaf variants optimise against perceptual models. iq is an image-quality tune aimed at stills and all-intra work.\n\nssim generally produces a picture people prefer over psnr. The vmaf modes optimise directly for a metric widely used to judge streaming quality, which is useful if you are being measured on it and questionable if you are not - tuning for a metric tends to exploit it.\n\nTwo cautions specific to this build. butteraugli is not compiled in and is refused outright, so it is not on the list above. And every vmaf mode wants a model file at libvmaf's own default path: without one the encoder prints a single \"could not read model\" line and carries on encoding anyway, so a vmaf tune can look like it ran when it did not.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice.\nssimulacra2|A perceptual model, and the one that needs no external files.\niq|Image-quality tuning, aimed at stills and all-intra material."
+  ],
+  [
+    "dist-metric",
+    "",
+    "psnr, qm-psnr (default psnr) - Which distortion measure the mode search itself uses",
+    "Tuning & Quantization",
+    "Chooses the distortion measure used inside the encoder's own rate-distortion search, which is a separate question from the tune above: tune sets the goal, this sets the yardstick the block-level decisions are made with.\n\nqm-psnr weights the error by the quantisation matrix in force, so the search stops treating a high-frequency coefficient the matrix is about to throw away as though it mattered as much as a low-frequency one. That only means anything with enable-qm switched on.\n\nIt is cheap to try and its effect is confined to where bits land within a block, not to how many the frame gets.",
+    "psnr|The default; plain squared error in the search.\nqm-psnr|Error weighted by the quantisation matrix; pair it with enable-qm 1."
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-3 (default 0) - Adaptive quantisation: 0 off, 1 variance, 2 complexity, 3 cyclic refresh; 1 favours flat skies",
+    "Tuning & Quantization",
+    "Adaptive quantisation moves bits between blocks within a frame. Mode 1 distributes by variance, taking bits from busy areas where error is masked and giving them to flat ones where banding shows. Mode 2 works from a complexity estimate instead. Mode 3 is cyclic refresh, which refreshes part of each frame in turn and is aimed at low-bitrate streaming rather than file encoding.\n\nlibaom leaves this off by default because its other tools already handle much of the same problem, and the modes can hurt as often as they help on ordinary content.\n\nWorth trying on sources that band, and worth measuring rather than assuming.",
+    "0|The default; off.\n1|Variance-based, the usual choice if flat areas band.\n2|Complexity-based distribution.\n3|Cyclic refresh, for low-bitrate streaming."
+  ],
+  [
+    "deltaq-mode",
+    "",
+    "0-6 (default 1) - Varies the quantiser within a frame; 3 and 4 target visual rather than metric quality",
+    "Tuning & Quantization",
+    "Allows the quantiser to vary across a frame rather than staying fixed, so bits can follow what matters within the picture. Mode 1 optimises for an objective metric, mode 3 targets keyframe visual quality, and mode 4 uses a user-rating-derived visual model. Modes 5 and 6 are further variants this build accepts.\n\nThe objective default improves measured scores. The visual modes deliberately spend bits where people look rather than where error is largest, which is usually the better choice for material anyone will actually watch.\n\nIt depends on the temporal dependency model, so setting enable-tpl-model to 0 takes most of it away. Note also that HDR sources are already given a delta quantiser mode automatically, so a value set here replaces that rather than adding to it.",
+    "1|The default; objective optimisation.\n0|Off; a fixed quantiser across the frame.\n3|Targets keyframe visual quality.\n4|Visual quality from a user-rating model."
+  ],
+  [
+    "enable-qm",
+    "",
+    "0-1 (default 0) - Quantisation matrices; often improves detail retention at low bitrates, tuned via qm-min and qm-max",
+    "Tuning & Quantization",
+    "Quantisation matrices weight quantisation by frequency rather than applying one step size across the whole transform block, so high-frequency coefficients - fine texture and grain - can be kept or discarded independently of the low-frequency structure.\n\nTurning them on generally helps retain texture at a given bitrate and is a common recommendation for grainy or detailed sources. It pairs with the qm-min and qm-max range settings that control how aggressive the shaping is.\n\nIt is off by default and costs essentially nothing to try.",
+    "0|The default; uniform quantisation.\n1|Enables the matrices; commonly a gain on detailed or grainy sources."
+  ],
+  [
+    "qm-min",
+    "",
+    "0-15 (default 5) - Lowest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "With quantisation matrices enabled, the encoder picks a matrix per frame from a range of flatness levels. This sets the lowest level it may choose, where lower numbers mean a more aggressively shaped matrix that treats high frequencies differently from low ones.\n\nA shaped matrix keeps more of the fine texture that flat quantisation rounds away, which is why enabling matrices is a common recommendation for grainy and detailed sources.\n\nIt does nothing unless enable-qm is set to 1, and it should not exceed qm-max. Note that nothing on this path range-checks the number the way the aomenc command line does, so a value outside 0-15 is accepted and then means nothing.",
+    "5|The default.\n3|Allows more aggressive shaping, retaining more fine texture.\n0|The most steeply shaped extreme of the range.\n8|A narrower, more conservative floor."
+  ],
+  [
+    "qm-max",
+    "",
+    "0-15 (default 9) - Highest quantisation matrix flatness; needs enable-qm 1 to have any effect",
+    "Tuning & Quantization",
+    "The upper end of the quantisation matrix range the encoder may select from. Level 15 is effectively unshaped, treating all frequencies alike, so raising the maximum lets the encoder fall back to ordinary flat quantisation when shaping would not help.\n\nLowering it forces shaping to be applied even where the encoder would rather not, which retains texture more consistently and costs efficiency.\n\nLike qm-min it requires enable-qm 1, it should not fall below qm-min, and it is not range-checked here.",
+    "9|The default.\n15|Lets the encoder pick an effectively unshaped matrix.\n12|A mild widening of the default range.\n7|Forces shaping throughout, at a cost in efficiency."
+  ],
+  [
+    "sharpness",
+    "",
+    "0-7 (default 0) - Biases transform coefficient decisions towards sharpness at a cost in measured error",
+    "Tuning & Quantization",
+    "Biases the rate-distortion decisions made about transform coefficients towards keeping the ones that carry sharpness, rather than dropping them because they are expensive relative to the error they remove.\n\nHigher values retain more fine detail and edge definition, and cost both bitrate and measured quality, since the encoder is deliberately choosing something a plain error metric scores lower.\n\nIt is a milder tool than the psychovisual settings in x264 and x265, and it is worth a try on detailed sources that come out looking soft.",
+    "0|The default; no bias.\n2|A mild sharpness bias for detailed live action.\n4|Noticeably sharper, at a real bitrate cost.\n7|The maximum."
+  ],
+  [
+    "quant-b-adapt",
+    "",
+    "0-1 (default 0) - Adaptive use of the quantize_b path; small efficiency gain for a little extra encode time",
+    "Tuning & Quantization",
+    "Selects adaptively between the two entropy coding paths AV1 provides for transform coefficients, choosing per situation rather than using one throughout. The gain is small and comes entirely from more accurate coefficient coding, not from any change in what is encoded.\n\nIt costs a little encoding time and is off by default. On slow, quality-focused encodes it is a cheap fraction of a percent.",
+    "0|The default; off.\n1|Adaptive selection, a small gain on slow encodes."
+  ],
+  [
+    "enable-chroma-deltaq",
+    "",
+    "0-1 (default 0) - Lets the chroma planes take their own quantiser offset instead of following luma",
+    "Tuning & Quantization",
+    "The delta quantiser machinery normally moves the quantiser for a block as a whole. This lets the chroma planes be offset separately, so colour can be given more or fewer bits than the luminance it sits under.\n\nThe case for it is material where the colour is doing the work and the usual luma-led allocation starves it - saturated animation, strongly graded footage, anything where chroma noise or blocking shows before luma detail does. On ordinary camera video the default allocation is already close to right and this changes little.\n\nIt is off by default and costs no meaningful encode time, so it is one to try and measure rather than to reason about.",
+    "0|The default; chroma follows the luma quantiser.\n1|Chroma gets its own offset; worth trying on saturated or graded material."
+  ],
+  [
+    "enable-cdef",
+    "",
+    "0-3 (default 1) - CDEF deringing filter: 0 off, 1 on, 2 skip non-ref frames, 3 by qindex; off preserves fine grain",
+    "Filtering",
+    "The constrained directional enhancement filter is an in-loop deblocking and deringing stage that follows edge directions, so it cleans up ringing around edges without smearing the edge itself.\n\nIt is on by default and generally worth leaving on: without it, ringing artefacts around high-contrast edges persist into the reference frames and propagate.\n\nGrain-preservation setups sometimes disable it because it removes fine noise along with the ringing, but that only makes sense at bitrates high enough that there is no ringing to remove.",
+    "1|The default; leave it on for normal encoding.\n0|Grain preservation at high bitrates, accepting some ringing.\n2|Filters reference frames only, saving a little time.\n3|Applied selectively by quantiser."
+  ],
+  [
+    "enable-restoration",
+    "",
+    "0-1 (default 1) - The loop restoration filter, which repairs coding artefacts after deblocking",
+    "Filtering",
+    "Loop restoration is a filter that runs after deblocking and CDEF, fitting a correction to each region to bring the reconstructed picture back towards the source. It repairs ringing and general coding error that the earlier filters leave behind.\n\nIt is on by default and is generally worth keeping, because the repaired frame is what later frames predict from, so the benefit compounds.\n\nGrain-preserving setups sometimes disable it, since like CDEF it cannot distinguish fine noise from the artefacts it is removing.",
+    "1|The default; leave it on for normal encoding.\n0|Off, for grain retention at high bitrates."
+  ],
+  [
+    "loopfilter-control",
+    "",
+    "0-3 (default 1) - The deblocking filter: 0 off, 1 everywhere, 2 reference frames only, 3 by quantiser",
+    "Filtering",
+    "AV1's deblocking filter is the first of the three in-loop stages, smoothing the boundaries between transform blocks before CDEF and loop restoration run. This decides where it is applied rather than how hard - the strength is chosen by the encoder.\n\nModes 2 and 3 are speed settings dressed as quality ones: skipping non-reference frames, or skipping where the quantiser is low enough that there is nothing to deblock, saves time and leaves the frames that matter filtered. Mode 0 turns it off entirely, which is only defensible at bitrates high enough that no block edges are visible.\n\nTurning it off does preserve fine grain, and it also lets block edges into every frame that predicts from the result, so it is the most expensive of the three filters to switch off.",
+    "1|The default; deblocking everywhere.\n2|Reference frames only; a small speed gain.\n3|Applied by quantiser, skipping frames that do not need it.\n0|Off entirely, for grain retention at very high bitrates."
+  ],
+  [
+    "delta-lf-mode",
+    "",
+    "0-1 (default 0) - Lets the deblocking filter strength vary within a frame rather than being set per frame",
+    "Filtering",
+    "With this on, the loop filter level is signalled per superblock instead of once for the whole frame, so a busy region and a flat one can be deblocked differently.\n\nIt pairs naturally with a delta quantiser mode, because once the quantiser varies across the frame a single filter strength is wrong somewhere by construction - too strong where the quantiser is low and too weak where it is high.\n\nIt costs a small amount of signalling and a little encode time, and it is off by default.",
+    "0|The default; one filter level per frame.\n1|Per-superblock filter levels; a natural companion to a delta quantiser mode."
+  ],
+  [
+    "arnr-maxframes",
+    "",
+    "0-15 (default 7) - Frames the alt-ref temporal filter may use; fewer suits high motion, more smooths noisy sources",
+    "Filtering",
+    "How many neighbouring frames the alternate-reference filter may blend together when it builds an alt-ref frame. The alt-ref is a synthetic, denoised frame that other frames predict from, and averaging several frames is what removes the noise.\n\nMore frames means a cleaner alt-ref and better prediction for the frames referring to it, which saves bits - but also means grain and fine motion detail are averaged away more thoroughly.\n\nGrain-preserving setups lower this, sometimes to 0, accepting the bitrate cost to keep noise intact.",
+    "7|The default.\n3|Reduced blending, keeping more grain and fine motion.\n0|Disables the temporal filter entirely, for maximum grain retention.\n15|The maximum; cleanest alt-ref, at the cost of fine detail."
+  ],
+  [
+    "arnr-strength",
+    "",
+    "0-6 (default 5) - Strength of the alt-ref temporal filter; lower preserves grain, higher cleans up noisy sources",
+    "Filtering",
+    "How aggressively the alternate-reference filter blends the frames it has gathered. Where arnr-maxframes decides how many frames are involved, this decides how much of each survives.\n\nHigher values give a smoother, cleaner reference that predicts well and saves bitrate, at the cost of grain and fine detail being averaged out of the reference and therefore out of everything predicting from it.\n\nLowering it to 1 or 2 is the usual move on grainy film. Raising it is the half with less to show for itself: measured against this build, 4, 5 and 6 all produce byte-identical output, so the useful range in practice runs downwards from the default rather than up.",
+    "5|The default.\n2|Grainy film, keeping noise and texture.\n0|No filtering; maximum grain retention.\n3|A mild reduction, still noticeably cleaner than 2."
+  ],
+  [
+    "enable-keyframe-filtering",
+    "",
+    "0-2 (default 1) - Temporal filtering on keyframes; 2 adds an overlay frame but can break seeking in some players",
+    "Filtering",
+    "Applies the same temporal filtering used for alt-ref frames to keyframes as well, so a keyframe is built from several source frames rather than from one. A cleaner keyframe predicts better for everything that follows it.\n\nMode 2 additionally codes an overlay frame to correct the difference between the filtered keyframe and the actual source frame, which fixes the mismatch the filtering introduces.\n\nMode 2 is not compatible with all downstream pipelines and is best avoided unless you have reason to want it; grain-preserving encodes often set 0 for the same reasons they lower arnr strength.",
+    "1|The default; filtered keyframes.\n0|Unfiltered keyframes, for grain retention.\n2|Filtering with a correcting overlay frame."
+  ],
+  [
+    "denoise-noise-level",
+    "",
+    "0 off, or a strength (default 0) - Denoises the picture by this much and has the decoder synthesise matching grain",
+    "Filtering",
+    "AV1's film grain synthesis. The encoder denoises the picture by the amount given, measures the grain it took out, and writes a parameter set the decoder uses to regenerate grain at playback - so the grain costs a few bytes of description instead of a large share of the bitrate. On grainy film that is the single largest saving libaom can make.\n\nWhat comes back is statistically similar rather than identical, which is the trade. Values around 10 suit lightly grainy digital, 25 an ordinary film scan, and above 50 the denoising starts taking picture with it. 0, the default, leaves the source alone and codes whatever grain is in it.\n\nThe companion row below decides whether the denoised picture is the one that gets encoded. Both were measured against the bundled build: this parameter overrides the -denoise-noise-level 0 the tab sends for itself, so setting it here is what makes either row do anything.\n\nThe encoder may print \"Solving latest noise equation system failed\" on a source with no real grain in it, which is its noise model declining to fit rather than an error - the encode carries on.",
+    "0|Off; the grain in the source is coded as picture.\n10|Light denoising, for lightly grainy digital sources.\n25|An ordinary 35mm scan.\n50|Heavy grain, at the edge of what stays faithful."
+  ],
+  [
+    "enable-dnl-denoising",
+    "",
+    "0-1 (default 1) - Whether the grain-synthesis denoiser's clean picture is what actually gets encoded",
+    "Filtering",
+    "This is the second half of the noise level set on the Video tab. That setting measures the grain, denoises the picture and writes a grain parameter set for the decoder to regenerate at playback; this decides whether the denoised picture is the one handed to the encoder, or whether the grain table is written while the original frames are encoded as they are.\n\nOn by default, which is the arrangement that saves the bitrate: coding a clean picture is far cheaper than coding grain, and the decoder puts the grain back. Setting it to 0 keeps the real grain in the stream and writes the synthesis parameters alongside it, which is a great deal more expensive and preserves the actual noise rather than something statistically like it.\n\nIt does nothing at all unless a noise level is set, and the two are worth thinking about together - a high noise level with denoising off is asking to pay for the grain twice.",
+    "1|The default; encode the denoised picture and resynthesise the grain.\n0|Encode the grain as it is, with the synthesis parameters written alongside."
+  ],
+  [
+    "enable-tpl-model",
+    "",
+    "0-1 (default 1) - The temporal dependency model, which spends bits on frames other frames will predict from",
+    "Frames & Motion",
+    "Before encoding, libaom looks ahead and works out how much later frames depend on each earlier one, then lowers the quantiser on the frames that carry the most weight. A frame twenty others predict from is worth far more bits than one nothing refers to, and this is what discovers that.\n\nIt is the single biggest reason libaom's quality per bit holds up on long GOPs, and it is on by default. It is also what deltaq-mode leans on, so turning this off takes most of the delta quantiser modes away with it.\n\nThe only reason to disable it is speed, and it is an expensive way to buy speed compared with the encoder's own speed setting.",
+    "1|The default; leave it on.\n0|Off; faster, and measurably worse per bit."
+  ],
+  [
+    "max-reference-frames",
+    "",
+    "3-7 (default 7) - How many reference frames the encoder may choose between",
+    "Frames & Motion",
+    "AV1 lets a block predict from any of up to seven reference frames, and this caps how many of them the encoder will consider. Every one it may use is another candidate the motion search has to try, so the setting is a direct trade of encoding time against prediction quality.\n\nCutting it to 4 or 5 is a genuine speed lever on slow presets and costs little on material where the recent past is all that is worth referring to. It costs more on content that repeats - a locked-off shot, a panning background that comes back - which is exactly what the further references are for.\n\nThe minimum this build accepts is 3.",
+    "7|The default; all references available.\n5|A moderate speed gain, little loss on ordinary footage.\n4|Faster still; noticeable on repetitive or static content.\n3|The minimum."
+  ],
+  [
+    "gf-max-pyr-height",
+    "",
+    "0-5 (default 5) - Depth of the golden-frame pyramid, which sets how many layers of reference nesting are used",
+    "Frames & Motion",
+    "Frames between golden frames are arranged as a pyramid: a few high-level frames are coded well and the rest predict from them, layer by layer. This is how deep that nesting may go.\n\nA deeper pyramid is more efficient, because the frames nobody predicts from sit at the bottom and can be coded cheaply, and it is also more work and more latency. A shallower one flattens the structure, which costs compression and shortens the dependency chains.\n\nLowering it is occasionally worth doing on very short clips or high-motion material where deep prediction chains do not pay off, and it is otherwise best left alone.",
+    "5|The default; the deepest pyramid.\n3|A shallower structure; a little faster, a little worse.\n2|Shallow nesting, for short or high-motion clips.\n0|Flat; no pyramid at all."
+  ],
+  [
+    "max-gf-interval",
+    "",
+    "0-47 (default 0) - Longest run of frames between golden frames; 0 lets the encoder decide",
+    "Frames & Motion",
+    "Golden frames are the high-quality anchors the pyramid above is built around, and the encoder normally places them where the content suggests. This caps how far apart two of them may end up.\n\nForcing them closer together gives more anchors and so more places for prediction to restart cleanly, which helps on material that changes constantly and wastes bits on material that does not. Forcing them further apart is rarely useful, since the encoder was already free to space them out.\n\n0 means no cap, which is the default and almost always the right answer - the encoder's own placement is informed by the lookahead, and a fixed number is not.",
+    "0|The default; the encoder chooses.\n16|A firm cap, giving more frequent anchors.\n32|A loose cap, rarely binding.\n8|Very frequent golden frames; costly, and only for restless content."
+  ],
+  [
+    "enable-global-motion",
+    "",
+    "0-1 (default 1) - Whole-frame motion models, which code a pan or a zoom once instead of per block",
+    "Frames & Motion",
+    "Global motion estimates a single transform describing how the whole frame moved - a pan, a zoom, a rotation - and signals it once, so blocks that simply went along with the camera cost almost nothing to code.\n\nOn footage with real camera movement it is a clear win. On a locked-off shot there is no global motion to find and the estimation is time spent for nothing, which is the case for turning it off.\n\nIt is on by default and the estimation cost is modest, so switching it off is a speed decision rather than a quality one.",
+    "1|The default; leave it on for anything with camera movement.\n0|Off; a small speed gain on static shots."
+  ],
+  [
+    "enable-warped-motion",
+    "",
+    "0-1 (default 1) - Locally warped motion, which lets a block rotate or scale rather than only translate",
+    "Frames & Motion",
+    "Ordinary motion compensation can only shift a block. Warped motion fits a small affine transform per block instead, so a region that is rotating, scaling or shearing - a turning head, an object moving towards the camera - can be predicted properly rather than approximated by a shift and a large residual.\n\nIt is one of AV1's more expensive tools on both sides: it costs the encoder search time and the decoder real work. It earns that on footage with rotation and perspective change and earns much less on flat panning.\n\nOn by default, and a reasonable thing to turn off if decode complexity on weak hardware is a concern.",
+    "1|The default; leave it on.\n0|Off; faster to encode and cheaper to decode."
+  ],
+  [
+    "enable-obmc",
+    "",
+    "0-1 (default 1) - Overlapped block motion compensation, which blends predictions across block edges",
+    "Frames & Motion",
+    "OBMC predicts each block using its neighbours' motion vectors as well as its own and blends the results across the boundary, which softens the seams that block-based motion compensation leaves behind.\n\nIt removes a class of artefact that is otherwise hard to reach - visible block structure in smooth moving areas - and it costs both encode search time and decode time.\n\nOn by default. Turning it off is a speed or decoder-complexity decision, and the picture is measurably worse for it.",
+    "1|The default; leave it on.\n0|Off; faster, with more visible block structure in motion."
+  ],
+  [
+    "mv-cost-upd-freq",
+    "",
+    "0-3 (default 0) - Motion vector cost updates: 0 per superblock, 1 per SB row, 2 per tile, 3 off; higher is faster",
+    "Frames & Motion",
+    "How often the encoder recalculates the cost tables it uses to price motion vectors during the search. Recomputing them often keeps the prices accurate as the statistics change through a frame; recomputing them rarely saves time.\n\nHigher values update less often and encode faster, at a small cost in decision quality because the search is choosing vectors against slightly stale prices.\n\nIt is purely a speed dial and does not change what the format can express.",
+    "0|The default; most frequent updates and the most accurate decisions.\n1|Update per SB row, a reasonable compromise.\n2|Less frequent updates, noticeably faster.\n3|Least frequent; fastest, with the roughest cost estimates."
+  ],
+  [
+    "sb-size",
+    "",
+    "dynamic, 64, 128 (default dynamic) - Superblock size; 64 suits small frames and 128 large ones",
+    "Frames & Motion",
+    "The superblock is the largest unit the partition search starts from, and everything below it is a subdivision. 128 gives the encoder the option of covering a large flat area with one decision; 64 halves the search space and suits frames where such areas are rare.\n\ndynamic is the default and picks per encode from the frame size and the speed setting, which is the right answer nearly always - it lands on 64 for small frames and considers 128 for large ones.\n\nPinning it is worth doing only when measuring: 128 on 4K flat-heavy content, 64 when the picture is detailed everywhere and the large-block decisions never win.",
+    "dynamic|The default; chosen from the frame size and speed.\n64|Smaller superblocks; suits SD and busy, detailed frames.\n128|Larger superblocks; suits 4K and flat, uniform frames."
+  ],
+  [
+    "enable-palette",
+    "",
+    "0-1 (default 1) - Palette mode, which codes a block as an index into a short colour list",
+    "Frames & Motion",
+    "Palette mode represents a block as a small list of colours plus an index per pixel, which is dramatically cheaper than transform coding whenever a region really does contain only a handful of distinct colours - text, UI chrome, line art, charts.\n\nIt is on by default and the encoder only reaches for it where it pays, so the usual reason to touch this is to turn it off on photographic material where it will never be chosen and the search for it is wasted time.\n\nIt is also one of the two tools tune-content=screen exists to emphasise, so on screen capture this is a setting to leave well alone.",
+    "1|The default; leave it on, and especially for screen content.\n0|Off; a small speed gain on purely photographic sources."
+  ],
+  [
+    "min-cr",
+    "",
+    "0 or a ratio (default 0) - Minimum compression ratio, capping how large any one frame may be",
+    "Rate Control",
+    "A floor on how much the encoder must compress, expressed as a ratio against the uncompressed frame. Setting it to 20 tells the encoder no frame may exceed a twentieth of its raw size, whatever the rate control would otherwise have spent there.\n\nThe reason to want one is a downstream constraint rather than a picture one: a decoder or a delivery pipeline that cannot cope with a single enormous frame, which is what an intra frame on difficult material can become. It is a hard cap and the encoder meets it by raising the quantiser on the frames that would have breached it.\n\n0 is the default and means no constraint. Nothing on this path range-checks the value, so a number chosen carelessly simply binds tighter than intended.",
+    "0|The default; no constraint.\n20|A generous cap; only the largest frames are affected.\n50|A firm cap, visible on difficult intra frames.\n10|A loose constraint that will rarely bind."
+  ],
+  [
+    "max-intra-rate",
+    "",
+    "0 or a percentage (default 0) - Ceiling on an intra frame's size, as a percentage of the target frame size",
+    "Rate Control",
+    "Caps what a keyframe or other intra frame may spend, as a percentage of what an average frame at the target bitrate would cost. 300 means an intra frame may be three times the size of an ordinary one.\n\nIntra frames are naturally far larger than inter frames and the rate controller lets them be, which is usually right - a good keyframe pays for itself across everything predicting from it. It stops being right where a peak rate matters: a buffer to fill, a streaming ladder, a device with a bitrate ceiling it will not exceed.\n\n0 is the default and means no limit. It only applies where there is a bitrate target to be a percentage of, so it does nothing in constant quality mode.",
+    "0|The default; intra frames spend what they need.\n800|A generous ceiling, binding only on the worst cases.\n400|A moderate cap for constrained delivery.\n200|A tight cap; visible softening on keyframes."
+  ],
+  [
+    "max-inter-rate",
+    "",
+    "0 or a percentage (default 0) - Ceiling on an inter frame's size, as a percentage of the target frame size",
+    "Rate Control",
+    "The same cap as max-intra-rate applied to predicted frames instead. A value of 200 lets an inter frame reach twice the size of an average one and no further.\n\nInter frames are already small by comparison, so this binds far less often - it is the setting for the occasional frame after a hard cut or a flash where prediction fails and the encoder codes nearly everything afresh.\n\n0 is the default and means no limit, and like the intra ceiling it needs a bitrate target to mean anything at all.",
+    "0|The default; no ceiling.\n400|A generous ceiling for peak-rate control.\n200|A moderate cap, binding after hard cuts.\n120|A tight cap; the rate stays flat and hard frames suffer."
+  ],
+  [
+    "vbr-corpus-complexity-lap",
+    "",
+    "0-10000 (default 0) - Corpus-relative complexity for single-pass VBR; refuses any other rate control mode",
+    "Rate Control",
+    "Single-pass VBR has no second pass to tell it how hard this file is compared with everything else, so it treats every source as average. This supplies that number by hand: a value describing where this content sits against a corpus, which the rate controller then uses to decide whether the file deserves more or fewer bits than its target implies.\n\nIt is the one setting here that is worth reaching for only if you already have the number - it comes from measuring a body of similar content, not from taste. Left at 0 the feature is off and the ordinary single-pass behaviour applies.\n\nThe constraint is absolute and worth knowing before setting it: libaom accepts this only in single-pass VBR. Set it alongside constant quality, or with two-pass turned on, and the encoder refuses to open at all with \"VBR corpus complexity is supported only in the case of single pass VBR mode\" - immediately, before any encoding starts, but the run does not happen.",
+    "0|The default; the feature is off.\n30|A source below average complexity for its corpus.\n60|A source somewhat above average.\n100|Well above average; more bits than the target implies."
+  ]
+]

@@ -1,0 +1,266 @@
+[
+  [
+    "tune",
+    "",
+    "0-5 (default 1) - What it optimises for; 0 visual quality, 1 PSNR, 2 SSIM, 3 image quality, 4 MS-SSIM, 5 VMAF",
+    "Psychovisual & Sharpness",
+    "Tune picks the quality model the encoder optimises its internal decisions against, which changes rate-distortion choices, filtering and where bits land rather than just which score gets reported. 0 is visual quality, 1 PSNR, 2 SSIM, 3 still-image quality, 4 MS-SSIM and 5 VMAF.\n\nTune 1 is the metric-safe default. Tune 0 gives a sharper, more detailed picture for lower scores and more artefacts. Tune 5 applies an unsharp mask to the source before encoding, which the encoder announces as it starts - so it changes the picture rather than only the decisions made about it.\n\nTwo of them take other rows away from you. Tune 4 says outright that it overrides sharpness, the variance boost strength and curve, and enable-qm with its min and max levels; tune 3 overrides those plus max-tx-size and scm.\n\nTune 3 will not encode from this tab at all: it needs an all-intra or low-delay prediction structure, and the encode is refused with \"Tune IQ only supports all-intra and low delay\" before a frame is written. This is the mainline SVT-AV1 inside ffmpeg, so 5 is VMAF here rather than the film grain bundle the svt-av1-hdr build on the AV1AN tab offers.",
+    "1|The default, optimising for PSNR and the safe choice for general video.\n0|Live action or animation where visible detail matters more than metric scores.\n2|SSIM-driven decisions, a middle ground between 0 and 1.\n4|MS-SSIM, which also overrides sharpness, variance boost and the quantisation matrices.\n5|VMAF, which sharpens the source with an unsharp mask first."
+  ],
+  [
+    "ac-bias",
+    "",
+    "0.0-8.0 (default 0.0) - Psychovisual rate distortion biasing towards texture; raise for grainy, heavily detailed film",
+    "Psychovisual & Sharpness",
+    "Adds an energy-preserving term to the encoder's rate-distortion decisions. It compares the visual energy of the source block against the encoded block, so flattening texture is charged as a real cost instead of being rewarded as a reduction in error. This is the same idea as psy-rd in x264 and x265.\n\nThe higher the value, the more bits go to grain, noise and fine texture that a plain error metric would happily throw away. Around 1.0 to 1.5 keeps texture and motion acuity intact; 4.0 to 6.0 preserves grain and noise dramatically better, but costs a lot of bitrate and sinks metric scores.\n\nThe default here is 0, meaning the bias is off unless you set it - the svt-av1-hdr build on the AV1AN tab ships it at 1.0 instead, so an encode that looked right there needs the number typing in here.",
+    "0.0|The default in this build; no energy bias at all.\n1.0|A mild bias, retaining texture sharpness across general content.\n1.5|Detailed live action and scenes with complex motion.\n4.0|Grain retention on film scans, best alongside a lowered tf-strength.\n8.0|The maximum, for grain and noise preservation at a heavy bitrate cost."
+  ],
+  [
+    "sharpness",
+    "",
+    "-7 to 7 (default 0) - Deblocking sharpness bias, also affecting rate distortion; raise to keep fine detail",
+    "Psychovisual & Sharpness",
+    "Sharpness does two things at once. It sets the deblocking loop filter's sharpness level, so the filter smooths less across block edges, and it feeds the coefficient optimisation stage, where a higher value shrinks the rate term and leaves the encoder less willing to zero out small transform coefficients purely to save bits.\n\nHigher values keep fine detail and grain that would otherwise be filtered or quantised away, in exchange for bits and for more visible blocking and ringing where the deblocker no longer cleans up after the quantiser. Lower values give a cleaner, softer picture. Raise it for detailed live action and stills, lower it for animation, flat gradients or low bitrates.\n\nTunes 3 and 4 override it, so setting both is setting one.",
+    "0|The default in this build; neutral behaviour.\n-2|Animation or low-bitrate encodes that want the deblocker working harder.\n3|Detailed live action where deblocking is visibly softening texture.\n7|Maximum detail retention, mostly worthwhile on stills and very high fidelity encodes.\n-7|The softest, cleanest end of the range."
+  ],
+  [
+    "max-tx-size",
+    "",
+    "32 or 64 (default 64) - Caps the largest transform size; 32 holds fine texture better but costs efficiency",
+    "Psychovisual & Sharpness",
+    "AV1's 64-point transform has its 32 highest-frequency coefficients zeroed out by design, so any block coded with one loses its finest detail before quantisation even starts. Setting 32 stops the encoder considering 64-point transforms at all, and those coefficients survive.\n\nThe cost is speed and some efficiency: more, smaller transforms mean more overhead, and on flat or smooth material the 64-point transform was the right call. The gain shows on camera noise, fine film grain and detailed stills, where PSNR and SSIM do not register the blurring being traded away.\n\nThe encoder warns when you set 32, saying it may reduce coding efficiency at low to medium fidelity - which is the same trade read from the other side, and worth heeding if the CRF is high.",
+    "64|The default, and the right call on flat or clean sources where efficiency matters more.\n32|Camera noise and fine film grain that 64-point transforms visibly blur."
+  ],
+  [
+    "enable-variance-boost",
+    "",
+    "0-1 (default 0) - Master switch for variance boost; the strength, octile and curve rows do nothing while it is off",
+    "Quantization & Bit Allocation",
+    "Variance boost lowers the quantiser on 64x64 superblocks that measure low variance, so flat and delicately textured regions such as skin, cloud, fog and night interiors receive bits a fixed quantiser would have spent on high-contrast edges.\n\nIt is off in this build, which is the difference to know about between the SVT-AV1 compiled into ffmpeg and the svt-av1-hdr build the AV1AN tab drives, where it is on. Measured here, the three rows below - strength, octile and curve - produce a bit-identical file to leaving them alone until this is set to 1, so a value typed into any of them without this is doing nothing at all.\n\nSwitching it on costs bitrate and buys visible detail in the flat parts of the frame. It augments adaptive quantisation rather than replacing it.",
+    "0|The default in this build; variance boost off.\n1|Enables it, and with it the strength, octile and curve rows."
+  ],
+  [
+    "variance-boost-strength",
+    "",
+    "1-4 (default 2) - How hard low-contrast superblocks are boosted; 1 for smooth animation, 3 for mixed contrast",
+    "Quantization & Bit Allocation",
+    "This value selects how large the variance boost grows as measured variance falls. Stronger curves buy visible detail in flat and delicately textured regions but inflate bitrate and can make film grain retention uneven across a shot.\n\nStrength 1 suits flat animation, 2 handles most live action, 3 helps sources that swing between very bright and very dark, and 4 is worth it only when low-contrast detail outranks file size.\n\nIt does nothing unless enable-variance-boost is 1, and tunes 3 and 4 override it.",
+    "1|Flat cel animation or screen capture with little texture.\n2|The default; live action and animation with detailed texture.\n3|Horror and thriller material mixing very dark and very bright scenes.\n4|Archival work where low-contrast detail outranks file size."
+  ],
+  [
+    "variance-octile",
+    "",
+    "1-8 (default 5) - How much of a superblock must be low-contrast to boost it; higher is stricter, 4-7 advised",
+    "Quantization & Bit Allocation",
+    "Where strength decides how hard a superblock is boosted, the octile decides how many superblocks qualify. Each 64x64 superblock is split into 8x8 subblocks, their variances are ranked, and this value picks the point in that ranking which judges the block. At 1 an eighth of the block being low-contrast is enough to boost it; at 8 essentially all of it must be.\n\nLow values spill bits onto high-contrast areas that did not need them and inflate size. High values are stingier and can leave visibly poorer patches inside blocks that are only partly flat. Four to seven is the useful span: move down when detail is lost inside busy frames, up when bitrate climbs without a visible return.\n\nIt does nothing unless enable-variance-boost is 1.",
+    "3|Busy or grainy footage where flat patches hide inside detailed blocks.\n4|Slightly broader boosting than default for mixed-contrast live action.\n5|The default; balanced selectivity for most sources.\n7|Tighter selectivity when bitrate climbs without visible gain."
+  ],
+  [
+    "variance-boost-curve",
+    "",
+    "0-2 (default 0) - Boost curve shape; 1 an alternative allocation, 2 built for still images",
+    "Quantization & Bit Allocation",
+    "Selects the formula that converts a superblock's measured variance into a quantiser offset. The curves differ in where boosting starts and how steeply the offset grows, so they change both how bits are distributed and how the result looks. Curves 0 and 1 treat variance below 256 as low; curve 2 raises that threshold to 1024 and so boosts a far larger share of the frame.\n\nCurve 0 is the general-purpose choice and curve 1 shifts the tradeoff without changing the aim. Curve 2 is built for still images and spends noticeably more on flat regions.\n\nThis build stops at 2: the PQ HDR curve the svt-av1-hdr build offers as 3 is not here, and asking for it is refused outright. It does nothing unless enable-variance-boost is 1, and tunes 3 and 4 override it.",
+    "0|The default; general-purpose curve.\n1|An alternative allocation when curve 0 looks too soft or too costly.\n2|Still images, single-frame encodes and very flat material."
+  ],
+  [
+    "qp-scale-compress-strength",
+    "",
+    "0-3 (default 0) - Evens quality across temporal layers; raise for consistency at some cost in average score",
+    "Quantization & Bit Allocation",
+    "Within a mini-GOP the encoder normally spreads quantisers widely across temporal layers, giving reference frames much lower quantisers than the frames that depend on them. This setting squeezes that spread, so quality varies less from keyframe to leaf frame.\n\nConsistency is bought from average quality: with the layers pulled together, reference frames are relatively less clean and predict less well for their children, so mean scores usually fall even as frame-to-frame variation does. Raise it when pulsing between frame types is what you notice.\n\nAt very low CRF the compression can improve fidelity outright rather than trade it. Note the shape of the control here - a whole number from 0 to 3, where the svt-av1-hdr build on the AV1AN tab takes a decimal up to 8.0 and defaults to 1.0, so a value copied across from there is refused or means something else.",
+    "0|The default in this build; the widest spread and the best metric scores.\n1|A consistency gain at almost no cost, and what svt-av1-hdr defaults to.\n2|High-quality encodes where holding the layers together matters more.\n3|The maximum; very low CRF or maximum-fidelity work, where it can also aid fidelity."
+  ],
+  [
+    "luminance-qp-bias",
+    "",
+    "0-100 (default 0) - Shifts QP by average frame luminance, spending more bits on dark scenes prone to banding",
+    "Quantization & Bit Allocation",
+    "Shifts a frame's quantiser according to the average luma of that frame, so dark scenes are coded finer than their measured complexity alone would earn. Dark footage is cheap to code and cheap frames get starved, which is why banding and blocking surface first in night exteriors and shadowed interiors. This value scales how far that shift goes, and 0 disables it.\n\nBits moved into dark frames come out of the rest of the encode, so on mostly bright material the setting costs size for nothing. It earns its keep on sources with long dark stretches: night cinematography, horror, concert and stage footage, and anything heavily graded down.\n\nThe decision is made per frame from a whole-frame average, so a dark object inside a bright frame is not affected.",
+    "0|The default; no luminance-based adjustment.\n25|A light lift for material with occasional night scenes.\n50|Sustained dark cinematography where shadows band.\n100|Maximum bias for very dark sources where shadow detail is the priority."
+  ],
+  [
+    "aq-mode",
+    "",
+    "0-2 (default 2) - Adaptive quantisation; 0 off, 1 segmentation-based, 2 the per-block delta-q the encoder ships with",
+    "Quantization & Bit Allocation",
+    "Adaptive quantisation varies the quantiser within a frame rather than coding every block at the same step size, moving bits towards the parts of the picture where they show. Mode 2 is the delta-q path the encoder uses by default; mode 0 turns the variation off entirely and codes the frame flat.\n\nTurning it off is a metric-chasing move and usually a visible loss: the flat and dark regions AQ was protecting are the first things to band. It is worth trying only on material that is uniformly detailed, where there is nothing to move bits towards.\n\nMode 1 is the older segmentation-based path, and the encoder prints a warning when you select it saying it is supported only for demos, experimentation and further development. Take that at face value rather than as boilerplate.",
+    "2|The default; per-block delta quantisation.\n0|Off, coding each frame at one quantiser - metric-friendly, usually worse to look at.\n1|The segmentation-based mode, which the encoder itself flags as experimental."
+  ],
+  [
+    "enable-qm",
+    "",
+    "0-1 (default 0) - Quantisation matrices, which the qm-min, qm-max and chroma-qm rows all depend on",
+    "Quantization & Bit Allocation",
+    "Enables quantisation matrices, which weight quantisation by frequency instead of applying one step size across the whole transform block. That lets fine texture and grain be preserved or discarded independently of the underlying structure.\n\nThis is the switch the whole matrix family hangs off: qm-min, qm-max, chroma-qm-min and chroma-qm-max all have no effect while it is 0, which was measured here rather than assumed - all four produce a bit-identical file until this is set.\n\nIt is off in this build, where the svt-av1-hdr build the AV1AN tab drives has it on, so the four rows below are inert out of the box here. Tunes 3 and 4 override it along with its min and max levels.",
+    "0|The default in this build; uniform quantisation.\n1|Matrices enabled, and with them the four qm rows."
+  ],
+  [
+    "qm-min",
+    "",
+    "0-15 (default 8) - Lowest luma quantisation matrix flatness; needs enable-qm 1",
+    "Quantization & Bit Allocation",
+    "The lowest matrix flatness the encoder may select for luma, where lower numbers mean a more aggressively shaped matrix that treats high frequencies very differently from low ones. Level 15 is fully flat.\n\nAllowing a lower floor lets the encoder shape quantisation harder where that helps, keeping fine texture that flat quantisation would round away. It is the luma counterpart to chroma-qm-min, and the more impactful of the two, since luma carries most of the detail.\n\nIt requires enable-qm 1 and must not exceed qm-max. The encoder does not range-check this one: 16 and above are accepted at the command line and then produce no output at all, so keep it inside 0 to 15.",
+    "8|The default in this build.\n6|A slightly wider range, and what svt-av1-hdr defaults to.\n4|Allows aggressive shaping, retaining more fine texture.\n0|The most aggressive shaping available."
+  ],
+  [
+    "qm-max",
+    "",
+    "0-15 (default 15) - Highest luma quantisation matrix flatness; needs enable-qm 1",
+    "Quantization & Bit Allocation",
+    "The upper end of the luma matrix range. Level 15 is effectively unshaped, so the default lets the encoder fall back to ordinary flat quantisation wherever shaping would not help.\n\nLowering it forces shaping to be applied more consistently, which holds onto texture across the whole encode at some cost in efficiency.\n\nIt requires enable-qm 1 and must not fall below qm-min, and like qm-min it is not range-checked, so stay inside 0 to 15.",
+    "15|The default; permits a fully unshaped matrix.\n12|A light trim on how flat the matrix may become.\n10|A narrower range, and what svt-av1-hdr defaults to.\n8|Forces consistent shaping, at a cost in efficiency."
+  ],
+  [
+    "chroma-qm-min",
+    "",
+    "0-15 (default 8) - Floor on chroma quantisation matrix flatness; raise to protect chroma when starved",
+    "Quantization & Bit Allocation",
+    "This sets the lowest, least flat level the encoder may pick for the chroma planes. Level 15 is fully flat, so lower numbers mean stronger shaping: more fine chroma detail is discarded and the encode gets smaller.\n\nThe encoder chooses a level per frame by mapping that frame's quantiser into the span between this floor and chroma-qm-max, so lowering the floor widens how aggressive it is allowed to become. Drop it when chroma consumes bitrate you would rather give to luma; raise it towards 15 on saturated or heavily graded material where colour smearing shows first.\n\nIt requires enable-qm 1, and must not exceed chroma-qm-max.",
+    "8|The default.\n4|Aggressive chroma shaping for bitrate-constrained streaming encodes.\n10|Gentler shaping for saturated or heavily graded sources.\n15|Pins chroma matrices fully flat, with no frequency shaping on colour."
+  ],
+  [
+    "chroma-qm-max",
+    "",
+    "0-15 (default 15) - Ceiling on chroma quantisation matrix flatness; 15 leaves chroma unshaped at high bitrates",
+    "Quantization & Bit Allocation",
+    "The ceiling of the same chroma range: the flattest matrix the encoder may pick. At the default of 15 it can fall back to a fully flat matrix, leaving chroma coefficients unweighted at that end of the range.\n\nPulling this down forces some frequency shaping on chroma at all times rather than merely permitting it, which trims bitrate but caps how much fine colour detail can survive anywhere in the encode. It is the blunter of the two controls, so reach for it when you want a guaranteed chroma saving instead of a wider span for the encoder to work within.\n\nIt requires enable-qm 1, and must be at least chroma-qm-min.",
+    "15|The default; permits fully flat chroma matrices.\n12|A light trim for sources with noisy or oversampled chroma.\n10|A moderate ceiling that still leaves most chroma detail intact.\n8|Forces shaping on chroma throughout for a firm bitrate saving."
+  ],
+  [
+    "min-qp",
+    "",
+    "0-63 (default 0) - The best quantiser allowed; raise it to stop easy scenes soaking up bitrate",
+    "Rate Control",
+    "A floor on the quantiser, capping how many bits any one frame may receive. Lower quantisers mean higher quality, so this bounds how good the encode is allowed to get.\n\nRaising it stops easy scenes being encoded at a quality nobody would notice, which shrinks the file without touching the material that actually needs bits.\n\nIt must not exceed max-qp, and in constant quality encoding it only bites when the quality target sits below it - which is why a floor typed here can appear to do nothing until the quality box moves.",
+    "0|The default; no floor.\n15|Stops easy scenes spending more than they need.\n20|A firmer cap for constrained delivery."
+  ],
+  [
+    "max-qp",
+    "",
+    "0-63 (default 63) - The worst quantiser allowed; lower it to stop hard scenes collapsing",
+    "Rate Control",
+    "A ceiling on the quantiser, bounding how far quality may fall when the encoder runs short of bits.\n\nLowering it prevents the smearing and blocking difficult scenes show at constrained bitrates, at the cost of the encoder no longer being able to meet a bitrate target there - a quality floor and a size target cannot both be guaranteed.\n\nIt is a Target Bitrate setting in practice. In constant quality mode nothing is short of bits, so a ceiling above the chosen quality never comes into play - measured here, 50 and 40 both produced exactly the file the default did at a quality of 32.\n\nIt must not fall below min-qp.",
+    "63|The default; no ceiling.\n50|Prevents the worst collapse on hard scenes.\n40|A firm quality floor, at the cost of size predictability."
+  ],
+  [
+    "startup-qp-offset",
+    "",
+    "-63 to 63 (default 0) - Shifts the quantiser for the opening GOP, before the usual per-picture derivation",
+    "Rate Control",
+    "Adds an offset to the sequence quantiser for the start-up group of pictures, before the per-picture quantiser is worked out. It exists because the opening of a sequence has no history behind it, so the encoder's estimates there are at their least informed.\n\nA negative offset spends extra bits at the start, which gives everything predicting from those first frames a cleaner foundation and avoids the softness some encodes show for the first second.\n\nA positive one does the opposite, and is only worth it when the opening is a logo or a fade nobody is looking at.",
+    "0|The default; no offset.\n-4|Extra quality at the opening, for a cleaner foundation.\n-8|A strong start-up boost.\n4|Fewer bits at the start, if the opening is unimportant."
+  ],
+  [
+    "enable-dlf",
+    "",
+    "0-2 (default 1) - Deblocking loop filter; 2 is a slower, more accurate variant, 0 leaves block edges in place",
+    "Filtering",
+    "The deblocking loop filter smooths the edges between coded blocks before a frame is stored as a reference, so block boundaries do not persist and propagate into everything predicting from it. Mode 2 is a slower, more accurate variant of the same filter.\n\nLeaving it on is right for almost all encoding. The artefact it removes is the most recognisable failure mode of a block-based codec, and because the filtered frame is what later frames predict from, the benefit compounds.\n\nGrain-preservation setups occasionally turn it off at very high bitrates, where there is little blocking to remove and the filter costs fine detail. The sharpness row is the gentler way to ask for the same thing.",
+    "1|The default; the standard filter.\n2|The slower, more accurate variant for quality-focused encodes.\n0|Off; only sensible at very high bitrates, for grain retention."
+  ],
+  [
+    "enable-cdef",
+    "",
+    "-1 to 4 (default -1, the preset decides) - The ringing filter; 0 off, 1-4 pin how hard it searches, 1 the most thorough",
+    "Filtering",
+    "CDEF is an in-loop filter that removes ringing by filtering along the direction of an edge rather than across it, so it cleans up the halo around high-contrast detail without smearing the edge itself.\n\nLeft at -1 the speed preset picks a level, which is right for normal encoding: the filtered frame is what later frames predict from, so ringing left in place propagates. 0 turns it off, which grain-preserving setups sometimes do because it takes fine noise along with the ringing - though that only makes sense at bitrates high enough that there is little ringing to remove.\n\n1 to 4 pin the search rather than the strength, and the direction is not obvious from the numbers: measured on this build, 1 is the slowest and most thorough of the four and 3 the quickest, with each producing a different result. The preset's own choice came out smaller than all four on the same clip, so there is rarely a reason to override it.\n\nThis is not the svt-av1-hdr build's cdef-scaling, which is absent here - there is no way to soften CDEF rather than switch it off.",
+    "-1|The default; the speed preset chooses a level.\n0|Off, for grain retention at high bitrates.\n1|The most thorough search, pinned regardless of preset.\n4|A fast fixed level, for a predictable cost."
+  ],
+  [
+    "enable-restoration",
+    "",
+    "-1 to 1 (default -1, the preset decides) - The loop restoration filter, which repairs coding error after deblocking and CDEF",
+    "Filtering",
+    "Loop restoration runs after deblocking and CDEF, fitting a correction per region to bring the reconstruction back towards the source. It repairs the general coding error the earlier filters leave behind.\n\nLeft at -1 the speed preset decides, and on the clip measured here that came out bit-identical to forcing 1 - so the setting that changes anything is 0, which turns it off.\n\nLike CDEF it cannot distinguish fine noise from artefacts, so grain-preserving setups sometimes disable it. That is worth it only at bitrates high enough that the repair had little to do, since the repaired frame is what everything afterwards predicts from.",
+    "-1|The default; the speed preset chooses.\n1|Forces it on regardless of preset.\n0|Off, for maximum grain retention at high bitrates."
+  ],
+  [
+    "enable-tf",
+    "",
+    "0 or 1 (default 1) - Temporal filtering of alt-ref frames; 0 keeps grain and fine motion detail",
+    "Filtering",
+    "Temporal filtering builds alternate reference frames by blending several source frames together. The blend cancels noise, producing a clean frame that predicts unusually well, which is a substantial part of where AV1's efficiency comes from.\n\nThe cost is that grain and fine motion detail are averaged away in the reference, and everything predicting from it inherits the smoothing. Turning it off is a common move in grain-preserving setups, and it costs bitrate. tf-strength is the finer control and is worth reaching for first.\n\nOnly 0 and 1 are settings. Anything above 1 is accepted without complaint and then produces a different bitstream on every run of the same command - measured here, three runs at 2 gave three different files - so those values are not a mode, they are undefined behaviour. The svt-av1-hdr build's adaptive mode 2 does not exist here.",
+    "1|The default; standard temporal filtering.\n0|Off, for maximum grain and motion detail retention."
+  ],
+  [
+    "tf-strength",
+    "",
+    "0-4 (default 3) - Temporal filtering strength; lower keeps grain and fine motion, higher denoises and saves bits",
+    "Filtering",
+    "How hard the temporal filter blends when it constructs an alternate reference. Where enable-tf decides whether filtering happens at all, this decides how much of each contributing frame survives.\n\nLower values keep grain and fine motion detail in the reference, at the cost of a noisier reference that predicts less efficiently. Higher values denoise more thoroughly and save bits, flattening texture as they go.\n\nIt is the finer control of the two, and worth reaching for before disabling temporal filtering outright. The default here is 3, a good deal stronger than the 1 the svt-av1-hdr build on the AV1AN tab ships - so a grain-preserving encode has further to travel from the starting point on this tab.",
+    "3|The default in this build.\n0|The weakest setting, keeping the most grain.\n1|Light filtering, and what svt-av1-hdr defaults to.\n2|A middle ground between grain retention and efficiency.\n4|The strongest denoising, for genuinely noisy sources."
+  ],
+  [
+    "enable-kf-tf",
+    "",
+    "0-1 (default 1) - Temporal filtering on keyframes only; 0 keeps keyframe grain",
+    "Filtering",
+    "The same temporal filtering, switched separately for keyframes. Keyframes are treated on their own terms because they anchor everything until the next one, so a clean keyframe pays off across the whole interval.\n\nBecause a keyframe is displayed as well as referenced, filtering it too hard is visible directly: the picture softens at the cut and then sharpens as later frames add detail back, which reads as a pulse at every keyframe. Turning this off is what stops that, and it is a cheaper move than disabling temporal filtering across the board.\n\nThis build offers the switch only. The svt-av1-hdr build on the AV1AN tab has a kf-tf-strength dial in its place, so there is no way here to soften keyframe filtering without removing it.",
+    "1|The default; keyframes are temporally filtered.\n0|No keyframe filtering, for maximum grain retention at cuts."
+  ],
+  [
+    "film-grain",
+    "",
+    "0-50 (default 0) - Denoises by this much and synthesises matching grain at playback; masks banding on flat gradients",
+    "Film Grain & Noise",
+    "Synthesises film grain rather than coding it. Real grain is close to random, so it compresses appallingly badly - a grainy source can spend most of its bitrate reproducing noise. The number is the denoising strength used to measure the grain; the encoder then writes a parameter set and the decoder generates matching grain at playback, for almost no bits at all.\n\nThe trade is that the grain is statistically similar rather than identical, and it is applied after decoding, so it is not part of the picture anything else can act on.\n\nIt is also a practical fix for banding: a little grain on a flat gradient dithers the steps and hides them, which is why small values are worth trying on animation that has no grain to begin with.\n\nThe encoder warns that it is expensive above speed preset 6, which is most of the range this tab offers - expect the encode to slow down noticeably.",
+    "0|The default; no synthesis.\n6|A light texture, mainly to break up banding on animation and gradients.\n15|Moderate grain, close to a lightly grained digital source.\n25|Strong grain, for matching a visibly grainy film scan.\n50|The maximum this encoder accepts."
+  ],
+  [
+    "film-grain-denoise",
+    "",
+    "0-1 (default 0) - Whether the denoised picture is the one encoded, or the denoising is only a measurement",
+    "Film Grain & Noise",
+    "film-grain denoises the source in order to measure what grain to synthesise. This decides whether that denoised picture is what gets encoded, or whether the denoising was only a measurement and the original frames go to the encoder.\n\nLeft at 0 the grain is still in the picture being coded and the synthetic grain is laid on top of it at playback, which is doubling rather than replacing - the noise is paid for in bitrate exactly as before. Set to 1, the encoder is handed the clean picture, which is the whole point of the exercise and where the bitrate saving comes from.\n\nIt has no effect while film-grain is 0, and the encoder says so in a warning as it starts.",
+    "0|The default; the source is encoded as it is and grain is added on top at playback.\n1|Encodes the denoised picture, so the synthetic grain replaces the real grain."
+  ],
+  [
+    "adaptive-film-grain",
+    "",
+    "0-1 (default 1) - Scales the grain synthesis block size with resolution; 0 pins it to 32x32 at every size",
+    "Film Grain & Noise",
+    "Scales the block size that grain synthesis is applied over with the resolution of the video, so grain on a 4K encode is generated over larger blocks than on a 720p one and ends up looking like the same grain viewed at the same physical size.\n\nPinned off, synthesis always uses 32x32 blocks regardless of resolution, which makes the grain look progressively finer as resolution rises - the same pattern spread over more pixels.\n\nIt is on by default and is generally what you want unless you are matching a reference that was made without it. It only means anything when film-grain is above 0.",
+    "1|The default; block size scales with resolution.\n0|Fixed 32x32 blocks at every resolution."
+  ],
+  [
+    "scm",
+    "",
+    "0 off, 1 on, 2 detect (unset matches 0 here) - Palette mode and intra block copy for desktop capture and slides",
+    "Encoding Tools",
+    "Controls the screen content coding tools - palette mode and intra block copy - which code large flat colour areas and repeated on-screen elements far more cheaply than ordinary prediction. The difference on a desktop capture, a slide deck or a game UI is large.\n\nMode 2 asks the encoder to detect screen content and switch the tools on when it finds it. Do not rely on that here: measured on four sources including a two-tone synthetic pattern that is nothing but screen content, an encode with this row left blank came out bit-identical to scm=0 every time, at speed presets 2 and 6 alike. Forcing 1 is what actually turns the tools on.\n\nSo set 1 for anything synthetic and leave it alone otherwise. Tune 3 overrides it, and out-of-range numbers are not rejected, so a typo here fails quietly.",
+    "1|Force the tools on - desktop capture, slide decks, game UI, screen recordings.\n0|Explicitly off, for ordinary camera footage.\n2|Asks for detection, which did not fire on any source measured here."
+  ],
+  [
+    "fast-decode",
+    "",
+    "0-2 (default 0) - Avoids the tools that are most expensive to decode, for playback on weak hardware",
+    "Encoding Tools",
+    "Steers the encoder away from the coding tools that cost a decoder the most, producing a stream that plays back on hardware which would otherwise stutter. AV1 software decoding is demanding, and this is the setting that makes the difference on older machines.\n\nThe cost is compression: the tools being avoided are there because they help, so the same quality takes more bits. Only worth setting when you know the target struggles, since it gives up efficiency for a benefit nothing else will show.\n\nIt is resolution-gated, which is worth knowing before concluding it did nothing. Measured here, 1 and 2 changed nothing at all at 640x360 across speed presets 4, 6 and 8, and both changed the output at 1280x720 - which is roughly where a weak decoder starts struggling anyway.",
+    "0|The default; no decoder-cost restrictions.\n1|A moderate reduction in decoding cost.\n2|The strongest reduction, at a real compression cost."
+  ],
+  [
+    "enable-overlays",
+    "",
+    "0-1 (default 0) - Inserts overlay pictures as extra references for base-layer frames",
+    "Encoding Tools",
+    "Allows the encoder to insert overlay pictures, which act as additional reference frames for base layer pictures. They give the prediction stage another, better-matched frame to work from at the points where the reference structure is weakest.\n\nThe gain is a modest compression improvement on content with steady motion, and the cost is encoding time and a slightly more complex reference structure.\n\nIt is off by default and is one of the cheaper quality options to try on an offline encode.",
+    "0|The default; off.\n1|Enables overlay pictures, a small gain on steady motion."
+  ],
+  [
+    "lookahead",
+    "",
+    "0-120 (default is an automatic depth) - Frames looked ahead beyond the minigop, feeding filtering and rate control",
+    "Encoding Tools",
+    "How far ahead the encoder looks beyond what the mini-GOP structure, temporal filtering and rate control already require. Lookahead is what lets it place references well and distribute bits across a scene rather than reacting frame by frame.\n\nLeft alone the encoder derives a depth from the other settings, which is a sensible choice in most cases. Setting it explicitly is a way to buy better bit distribution at the cost of memory, or to cut it for low delay.\n\nThere is no way to ask for the automatic depth back. The standalone encoder spells it -1, and this parameter parser refuses a negative number outright - so a row here with anything in it pins the depth, and clearing the row is the only way to return to automatic.\n\nThat automatic depth is already generous, and lowering it is the change that does something. Measured on a 60-frame clip, everything from 32 up produced exactly the file the default did, and 0, 8, 16 and 31 each differed.",
+    "120|The maximum; the most information for rate control.\n60|A generous fixed depth for offline encoding.\n16|A shorter window, trading bit distribution for memory.\n0|No additional lookahead, for low delay."
+  ],
+  [
+    "hierarchical-levels",
+    "",
+    "0-5 (default 5) - Mini-GOP size as a power of two, so 5 is 32 frames and 3 is 8",
+    "Encoding Tools",
+    "Sets how deep the pyramid of temporal layers inside a mini-GOP goes, which is the same thing as how long the mini-GOP is: level 5 is 32 frames, 4 is 16, 3 is 8, and so on down.\n\nA deeper pyramid compresses better, because more frames are coded as cheap leaves predicting from a small number of well-spent references. What it costs is latency and memory, and a little responsiveness at scene changes, since the structure spans more of the video before it resets.\n\nThe default is the deepest, which is the right call for the offline encoding this tab does. Lower it only for a genuine low-delay requirement, or when a very short source is being swallowed whole by one mini-GOP.",
+    "5|The default; 32-frame mini-GOPs and the best compression.\n4|16-frame mini-GOPs, a mild step towards responsiveness.\n3|8-frame mini-GOPs, for shorter clips or tighter latency.\n0|The shallowest structure, for low-delay use."
+  ]
+]

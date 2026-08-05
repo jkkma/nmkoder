@@ -402,6 +402,7 @@ namespace Nmkoder.IO
             DefaultKeyIntSecs,
             DefaultOutputDir,
             EncCustomFilters,
+            EncEncoderArgs,
             EncResize,
             LastInputDir,
             LastOutputDir,

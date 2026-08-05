@@ -441,6 +441,7 @@ namespace Nmkoder.UI.Tasks
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
+            LoadAdvancedArgsGrid(enc);
             ValidateContainer();
             // The tone-map row's readout depends on the codec as well as on the file - it reports Off for
             // a stream copy - so it has to be rewritten when the codec moves, not only when its own box does.
@@ -524,6 +525,18 @@ namespace Nmkoder.UI.Tasks
             Form.EncVidColorsBox.SetItems(
                 (enc.ColorFormats ?? new List<PixelFormats>()).Select(p => (object)PixFmtUtils.GetFormat(p).FriendlyName),
                 enc.ColorFormats != null && enc.ColorFormats.Count > 0 ? enc.ColorFormatDefault : -1);
+        }
+
+        /// <summary>
+        /// The Advanced tab's argument grid, rebuilt for the encoder just selected and refilled with
+        /// whatever was last typed into that encoder's rows. An encoder with no list of its own - a
+        /// stream copy, an image sequence - simply gets an empty grid.
+        /// </summary>
+        static void LoadAdvancedArgsGrid(IEncoder enc)
+        {
+            EncoderArgs.Load(Form.EncArgRows, enc, EncoderArgs.FfmpegFolder, Config.Key.EncEncoderArgs);
+            Form.LoadArgCategoryTabs(Form.EncArgs);
+            Form.LoadArgPresets(Form.EncArgs, enc.Name);
         }
 
         #endregion
@@ -669,6 +682,10 @@ namespace Nmkoder.UI.Tasks
                 dict.Add("pixFmt", PixFmtUtils.GetFormat(enc.ColorFormats[Form.EncVidColorsBox.SelectedIndex]).Name);
 
             dict.Add("qMode", Form.EncQualModeBox.SelectedIndex.ToString());
+            // Bare "key=value" pairs. Each encoder re-spells them for itself, four of them into a
+            // single ":"-joined parameter option and the rest as AVOptions of their own - see
+            // FfmpegEncoderArgs, which is where that difference is stated.
+            dict.Add("advanced", EncoderArgs.BuildPairs(Form.EncArgRows));
 
             return dict;
         }
