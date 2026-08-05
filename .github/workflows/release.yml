@@ -261,8 +261,11 @@ jobs:
 
             ```
             scoop bucket add nmkoder https://github.com/jkkma/nmkoder
-            scoop install nmkoder
+            scoop install nmkoder-avalonia
             ```
+
+            (`nmkoder-avalonia`, not `nmkoder` - Scoop's `extras` bucket carries the
+            pre-fork WinForms Nmkoder under that name.)
 
             **Bundled tools.** Each archive lists exactly what it carries in
             `bin/THIRD-PARTY.txt`, with licences and sources. Bundling is best-effort:
@@ -378,17 +381,17 @@ jobs:
 
           jq --indent 4 --arg v "$v" --arg url "$url" --arg hash "$hash" \
             '.version = $v | .architecture."64bit".url = $url | .architecture."64bit".hash = $hash' \
-            bucket/nmkoder.json > bucket/nmkoder.json.new
-          mv bucket/nmkoder.json.new bucket/nmkoder.json
+            bucket/nmkoder-avalonia.json > bucket/nmkoder-avalonia.json.new
+          mv bucket/nmkoder-avalonia.json.new bucket/nmkoder-avalonia.json
 
-          if git diff --quiet -- bucket/nmkoder.json; then
+          if git diff --quiet -- bucket/nmkoder-avalonia.json; then
             echo "The Scoop manifest already describes $v - nothing to do."
             exit 0
           fi
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "Point the Scoop manifest at $v" -- bucket/nmkoder.json
+          git commit -m "Point the Scoop manifest at $v" -- bucket/nmkoder-avalonia.json
 
           # A push landing on the branch between the fetch above and this one is the one failure
           # worth retrying: this commit touches a single file nothing else writes, so rebasing it
