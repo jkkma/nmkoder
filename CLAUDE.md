@@ -726,13 +726,29 @@ is 1440. `Av1anFrame.Scaled` carries the pre-pad size, because three log lines m
 produced" rather than "what the encoder gets", and one of them names the aspect ratio the file will
 play at.
 
-The growth is a multiple of **four**, not two. Half of a multiple of four is even, so one rounding
-makes the frame even *and* both offsets land on the chroma grid - where ffmpeg's own pad filter would
-otherwise relocate an odd offset silently, putting the picture a pixel off the middle it was centred
-in. Nothing is added under four pixels: two a side is not a bar, and growing a source that is already
-the target shape to within a rounding is exactly the surprise a batch must not spring. The mod-2 pad
-above the scale is untouched and still needed - a letterbox only grows the height, so an odd width
-stays odd.
+**The frame is rounded to even and the offset to even, and they are two roundings rather than one.**
+The *growth* used to be rounded to a multiple of four, on the reasoning that half of a multiple of
+four is even, so a single rounding made the frame even *and* put both offsets on the chroma grid -
+where ffmpeg's own pad filter would otherwise relocate an odd offset silently, putting the picture a
+pixel off the middle it was centred in. What that misses is that the frame's own size is the thing
+being asked for. A 1.85:1 4K film scaled to 1080p is 1920x1038, and 16:9 bars on it want exactly 42
+pixels, which is not a multiple of four - so the entry that says "16:9" produced **1920x1082**, two
+pixels past the frame it names and a ratio that is no longer the one on the dropdown. That was
+reported against a 3840x2076 Blu-ray, which is the ordinary shape of a widescreen film rather than
+anything odd: any picture whose gap to the target is 2 mod 4 lands there.
+
+Rounding the frame to the nearest *even* size is always within a pixel of the ratio and exactly on it
+wherever the target size is even, which 1080 off a 1920 picture is. The offset is then rounded down to
+even on its own, and the pixel that leaves over goes onto the far bar - 20px above and 22px below -
+which `BorderPad.FarBar` already reported and which the readout and the encode log already name. A
+pixel of asymmetry nobody can see is worth a frame that is the shape it claims. The old odd-frame
+repair at the end of `PadAxis` is gone with it, being structural now rather than a fix-up: a size
+rounded to even cannot arrive odd.
+
+Nothing is added under four pixels still: two a side is not a bar, and growing a source that is
+already the target shape to within a rounding is exactly the surprise a batch must not spring. The
+mod-2 pad above the scale is untouched and still needed - a letterbox only grows the height, so an odd
+width stays odd.
 
 The frame handed to it is square-pixel almost everywhere, a resize and the de-squeeze that runs in its
 place both ending in `setsar=1:1`, but **not quite everywhere**, so the SAR is taken into account
@@ -760,12 +776,21 @@ abstains outright for one rather than naming a size that will not be the one.
 
 The geometry was checked by running it rather than by reading it. 141 pad filters rendered through
 ffmpeg across 32 source shapes and 5 targets, with the output size, the evenness, the centring and the
-blackness of the bars read back out of the frame; then 1152 chains built by the tab itself - 8 sources
-including two anamorphic DVDs and a genuinely odd 641x481, against crops, resize presets, exact
-pad/stretch, anamorphic correction off, a frame-rate resample, and every scale-box form - each run
-through ffmpeg and compared against the size the tab said the encoder would get. No mismatches. Note
-that x264 silently produces 640x480 for a 641x481 source, so the odd-frame case needs FFV1 to exist at
-all.
+blackness of the bars read back out of the frame; and again for the rounding above - 770 chains built
+by the real `ResizeConfig` and `BorderConfig`, 14 source shapes including two anamorphic DVDs and an
+odd 641x481, against 11 resize settings and all 5 targets, each rendered over a white source so that
+`cropdetect` reads the picture's own rectangle back out of the frame and can be compared with the `X`,
+`Y` and `Input` the code predicted, alongside the output size from ffprobe and the distance from the
+ratio the target names. No mismatches. And 1152 chains built by the tab itself - 8 sources including
+two anamorphic DVDs and a genuinely odd 641x481, against crops, resize presets, exact pad/stretch,
+anamorphic correction off, a frame-rate resample, and every scale-box form - each run through ffmpeg
+and compared against the size the tab said the encoder would get. No mismatches.
+
+The odd-frame case is the one that needs care in the harness rather than in the app, and it bites at
+both ends. x264 silently produces 640x480 for a 641x481 source, so the output has to be FFV1 for the
+case to exist at all; and 4:2:0 cannot carry an odd frame *going in* either, swscale rounding
+641x481 down to 640x480 before any filter in the chain runs - so the source has to be fed as 4:4:4,
+and a run that forgets reads as a pad that quietly lost two pixels.
 
 **Nothing on the AV1AN Video tab is saved.** The encoder, the container, the quality mode and its
 value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim,
