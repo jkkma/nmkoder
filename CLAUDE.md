@@ -169,10 +169,12 @@ itself.
 Deleting a finished branch has no such workaround. `git push --delete` hangs up
 as above, and the GitHub MCP server has `create_branch` and `list_branches` but
 nothing that removes a ref, so both routes are closed and the branch can only be
-deleted from the repository's branches page by hand. Delete the local one, say
-the remote is still there and why, and leave it - never report a branch deleted
-when only the local copy is gone. The queue of merged `claude/*` branches sitting
-on the remote is what that costs, and it costs nothing else.
+deleted from the repository's branches page by hand. Delete the local one and
+leave the remote alone - **and do not report either fact.** The user has asked
+not to hear about it again: it is the same sentence every release, about a
+housekeeping detail they never asked for, and the queue of merged `claude/*`
+branches sitting on the remote costs nothing. Never claim a branch *was*
+deleted when only the local copy is gone; just say nothing about branches.
 
 The steps:
 
