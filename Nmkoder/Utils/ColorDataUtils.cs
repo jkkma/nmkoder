@@ -152,6 +152,78 @@ namespace Nmkoder.Utils
             return Double.Parse(numStr, NumberStyles.Float, CultureInfo.InvariantCulture).ToString("0.#######", new CultureInfo("en-US"));
         }
 
+        /// <summary> H.273 transfer characteristics, the two that mean high dynamic range. 16 is PQ,
+        /// which HDR10, HDR10+ and Dolby Vision all sit on; 18 is HLG. Both are what ffprobe prints as
+        /// smpte2084 and arib-std-b67 and what <see cref="GetColorTransfer"/> turns back into these. </summary>
+        public const int TransferPq = 16, TransferHlg = 18;
+
+        /// <summary> H.273 colour primaries for BT.2020/BT.2100, and for BT.709. </summary>
+        public const int PrimariesBt2020 = 9, PrimariesBt709 = 1;
+
+        /// <summary> H.273 transfer and matrix for BT.709 - what a tone-mapped file becomes. </summary>
+        public const int TransferBt709 = 1, MatrixBt709 = 1;
+
+        /// <summary> Limited/TV range, in this app's own numbering rather than H.273's - see
+        /// <see cref="GetColorRange"/>, where 0 is unspecified, 1 is tv and 2 is pc. Every encoder that
+        /// is handed a range converts from these three, and none of them share the numbering. </summary>
+        public const int RangeLimited = 1;
+
+        /// <summary>
+        /// Whether this file's colour says it is HDR, which is the question behind the whole tone-mapping
+        /// row.
+        /// <para/>
+        /// The transfer curve decides it and nothing else does. Wide *gamut* is a different property -
+        /// BT.2020 primaries with an ordinary BT.709 transfer is a colour space, not a dynamic range, and
+        /// tone-mapping is a luminance operation with nothing to say about it. So primaries 9 on its own
+        /// is deliberately not enough; a gamut conversion for such a file is what the Color Format and
+        /// the encoders' own colour arguments are for.
+        /// </summary>
+        public static bool IsHdr(VideoColorData d)
+        {
+            return d != null && (d.ColorTransfer == TransferPq || d.ColorTransfer == TransferHlg);
+        }
+
+        /// <summary> "HDR10 (PQ)" or "HLG", with the gamut named when it is the wide one - the phrase the
+        /// tone-mapping row and its log lines both use, so a file is described one way everywhere. </summary>
+        public static string DescribeHdr(VideoColorData d)
+        {
+            if (!IsHdr(d))
+                return "";
+
+            string curve = d.ColorTransfer == TransferPq ? "HDR10 (PQ)" : "HLG";
+            return d.ColorPrimaries == PrimariesBt2020 ? $"{curve}, BT.2020" : curve;
+        }
+
+        /// <summary>
+        /// The peak brightness in nits the file itself declares, or 0 where it declares none.
+        /// <para/>
+        /// MaxCLL first, because it is a measurement of *this* content - the brightest pixel anyone
+        /// actually encoded - where the mastering display's maximum luminance only describes the monitor
+        /// the grade was checked on, and is very often a round 1000 or 4000 on content that never gets
+        /// near it. Either is far better than assuming, and both are already parsed by
+        /// <see cref="GetColorData"/> off ffprobe's frame side data and mkvinfo alike.
+        /// <para/>
+        /// This matters because **ffmpeg's own tone-mapper does not read either of them.** Measured
+        /// against a current BtbN master build: the same PQ ramp with and without a MaxCLL of 1000 and a
+        /// mastering display of 1000 nits tone-maps to byte-identical output, so the filter's automatic
+        /// peak detection is not reaching the container's metadata at all. A file's declared peak only
+        /// changes the result if it is passed in, which is what <see cref="Data.ToneMapConfig"/> does
+        /// with this.
+        /// </summary>
+        public static double GetDeclaredPeakNits(VideoColorData d)
+        {
+            if (d == null)
+                return 0;
+
+            foreach (string value in new[] { d.MaxCll, d.LumaMax })
+            {
+                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double nits) && nits > 0)
+                    return nits;
+            }
+
+            return 0;
+        }
+
         /// <summary>
         /// Muxes <paramref name="d"/> onto <paramref name="path"/> in place.
         /// <para/>

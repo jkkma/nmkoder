@@ -53,6 +53,21 @@ None of this existed before the fork - there was no deinterlacing in the app at 
 - **A Deinterlace Video utility** for when the deinterlaced file itself is what you want, with its
   own settings separate from either tab's.
 
+### HDR tone mapping
+
+- **HDR sources can be converted to SDR**, on both encode tabs. The row only appears for a file whose
+  transfer curve says PQ or HLG, and it defaults to doing nothing - the other reason to load an HDR
+  file is to re-encode it *as* HDR - so it exists to say the file is HDR and let you choose.
+- **The roll-off is built around the peak brightness the file declares** (MaxCLL, else its mastering
+  display), because FFmpeg's tone-mapper does not read either of them: measured, the same clip with
+  and without that metadata tone-maps identically. The widely-copied chain leaves this at its default,
+  which clips everything above about 374 nits to flat white - every highlight on a 1000-nit master.
+  The readout names the peak used and whether it was declared or assumed.
+- It runs **before any crop, scale or burnt-in subtitle**, so subtitles are not dragged through a
+  gamut conversion written for the picture, and the output is retagged BT.709 with the HDR metadata
+  dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would
+  otherwise write SDR pixels into a file tagged HDR.
+
 ### Framing: resize, crop, borders and trim
 
 - **Resize is a dropdown with presets** - 2160p through 360p as boxes the picture is fitted inside,
@@ -181,6 +196,8 @@ None of this existed before the fork - there was no deinterlacing in the app at 
 - Video Options: resample the frame rate, **resize** from presets or an exact size, manually or
   **automatically crop** black bars, pad out to a target **aspect ratio**, and **trim** to a section
   picked while watching the frame you are on
+- **HDR to SDR tone mapping** for PQ and HLG sources, with the roll-off built around the peak
+  brightness the file declares, and the output retagged BT.709
 - **Deinterlacing**, its row shown only for files whose fields warrant it - a tape, DVD or camcorder
   capture - and off screen entirely for a modern progressive download. Uses **QTGMC** through
   VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
@@ -201,6 +218,8 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   ffmpeg, which has nowhere to run a VapourSynth script, so picking QTGMC renders the video through it
   once beforehand - into a near-lossless intermediate that av1an then encodes, optionally at one frame
   per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
+- **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
+  conversion rather than the source
 - Set AV1 film **grain synthesis** (disabled for H.264/H.265/VP9 as this is exclusive to AV1)
 - **Advanced encoder arguments** in a grid grouped by category, each with a full explanation and
   example values on right-click, plus content presets for anime and for game capture

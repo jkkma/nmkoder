@@ -65,6 +65,10 @@ namespace Nmkoder.Views
         {
             UpdateDefaultStreamsUi();
             QuickConvertUi.LoadMetadataGrid();
+            // Which file Quick Convert takes its video from is decided by the checked streams, so the
+            // tone-map row is describing a different file after this - and in Muxing Mode possibly one
+            // whose colour has not been read yet.
+            ToneMapUi.AnalyzeInBackground(TrackList.current?.File);
         }
 
         public void UpdateDefaultStreamsUi()

@@ -94,6 +94,7 @@ namespace Nmkoder.UI.Tasks
             // Replaced below when the arguments come from the UI. A replayed command carries whatever
             // filters it was saved with, so nothing here may leak into it from an earlier run.
             Av1anUi.CurrentDeinterlace = new DeinterlacePlan();
+            Av1anUi.CurrentToneMap = new ToneMapConfig();
             string args = "";
             string inPath = "";
             // The file the user loaded, which a trim replaces inPath with a cut copy of. Kept apart
@@ -256,6 +257,21 @@ namespace Nmkoder.UI.Tasks
                     ValidatePath();
                     outPath = UiData.GetOutPath();
                     TrackList.current.File.ColorData = await ColorDataUtils.GetColorData(TrackList.current.File.SourcePath);
+                    ToneMapUi.RefreshInfo(); // The row's own answer to "is this file HDR" comes from what was just read
+
+                    // Asked before anything is built, because the alternative is av1an meeting "No such
+                    // filter: 'zscale'" once per chunk, having already split the file into them.
+                    // Read once, here, and every later use goes through the snapshot - see
+                    // Av1anUi.CurrentToneMap for why the box must not be read again further down.
+                    Av1anUi.CurrentToneMap = ToneMapUi.GetAv1anConfig();
+                    string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap);
+
+                    if (toneMapProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(toneMapProblem);
+                        return;
+                    }
+
                     // Kept rather than built inline: the pixel format the color format box resolved to is
                     // needed again below, to work out who should convert to it.
                     Dictionary<string, string> videoArgs = GetVideoArgsFromUi();
@@ -330,8 +346,34 @@ namespace Nmkoder.UI.Tasks
                     if (!frame.Encoded.IsEmpty)
                         videoArgs[CodecUtils.FrameSizeKey] = $"{frame.Encoded.Width}x{frame.Encoded.Height}";
 
-                    CodecArgs codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
-                    string vf = GetVideoFilterArgs(frame, codecArgs);
+                    // The encoders on this tab are *told* what colour they are encoding, as H.273
+                    // integers out of MediaFile.ColorData, where Quick Convert's read it off the frames
+                    // ffmpeg hands them. So a tone-map that is not accounted for here produces the worst
+                    // possible outcome: SDR pixels in a file tagged PQ and BT.2020, which every player
+                    // then expands again. Nothing about the picture would look wrong until it was played.
+                    //
+                    // Swapped for the one call rather than assigned, because the field means "the colour
+                    // of this file" everywhere else - ToneMapUi.IsRowRelevant reads it to decide whether
+                    // to show the row at all, and leaving BT.709 behind would make an HDR file stop
+                    // looking like one the moment it had been encoded once. There is no await between the
+                    // two, so nothing can observe the swap.
+                    VideoColorData sourceColor = TrackList.current.File.ColorData;
+                    bool toneMapping = Av1anUi.CurrentToneMap.Runs && ColorDataUtils.IsHdr(sourceColor);
+                    CodecArgs codecArgs;
+
+                    try
+                    {
+                        if (toneMapping)
+                            TrackList.current.File.ColorData = ToneMapConfig.GetOutputColorData(sourceColor);
+
+                        codecArgs = CodecUtils.GetCodec(vCodec).GetArgs(videoArgs, TrackList.current.File, Data.Codecs.Pass.OneOfOne);
+                    }
+                    finally
+                    {
+                        TrackList.current.File.ColorData = sourceColor;
+                    }
+
+                    string vf = GetVideoFilterArgs(frame, sourceColor, codecArgs);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
                     // audio track, and this tab has one bitrate and one channel count for all of them.

@@ -113,6 +113,7 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidColorsBox);
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
             ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
+            ConfigParser.RestoreIndexIfSaved(EncToneMapModeBox);
             ConfigParser.RestoreIfSaved(EncDeintPresetBox);
             ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
             ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
@@ -155,6 +156,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(EncVidFpsBox);
                 ConfigParser.SaveResize(Config.Key.EncResize, QuickConvertUi.CurrentResize);
                 ConfigParser.SaveComboxIndex(EncDeintModeBox);
+                ConfigParser.SaveComboxIndex(EncToneMapModeBox);
                 ConfigParser.SaveGuiElement(EncDeintPresetBox);
                 ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
                 ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
@@ -226,6 +228,17 @@ namespace Nmkoder.Views
                 return;
 
             DeinterlaceUi.RefreshInfo();
+            SaveQuickConvertSettings();
+        }
+
+        /// <summary> The readout under the tone-mapping dropdown names the curve and the peak it is
+        /// built around, so it is rewritten whenever the box moves. </summary>
+        private void EncToneMap_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            ToneMapUi.RefreshInfo();
             SaveQuickConvertSettings();
         }
 
