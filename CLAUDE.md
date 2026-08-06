@@ -2043,6 +2043,12 @@ the bundler being best-effort by design, and the only way to know is to look in 
 also went out with a fix for the wrong cause: the DLLs were a real requirement and not the reason the
 build was failing, which was only visible once the log was read rather than reasoned about.
 
+**The binary is copied by hand rather than through `install_binary`, and it is the only tool here that
+is.** That helper also takes every DLL sitting beside the binary it found, which is right for a
+downloaded release - those are its runtime libraries - and wrong for a cargo target directory, where
+they are the build's own proc-macros. 2.8.33 shipped seven of them, 11.5 MB of `clap_derive-22e3bdfb…`
+and friends that nothing ever loads.
+
 The DLLs go in before the smoke test, so what is tested is the layout that ships, and they are removed
 again with the binary if it still will not run: 168 MB of ffmpeg is dead weight in a zip whose reason
 for carrying it is absent. All of them are copied rather than a chosen few - which DLL pulls in which is

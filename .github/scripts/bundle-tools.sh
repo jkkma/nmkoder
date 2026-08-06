@@ -1473,10 +1473,26 @@ bundle_grav1synth() {
     return
   }
 
-  install_binary "$src/target/release" grav1synth "$BIN" || {
+  # Copied by hand rather than through install_binary, which is the only tool here that wants that.
+  # install_binary also takes every DLL sitting beside the binary it finds, which is right for a
+  # downloaded release - that is where its runtime libraries are - and wrong for a cargo target
+  # directory, where the DLLs are the build's own proc-macros. 2.8.33 shipped seven of them
+  # (clap_derive-22e3bdfb…, thiserror_impl-…, five more), 11.5 MB that nothing ever loads. The ffmpeg
+  # libraries this really does need are fetched deliberately, just below.
+  grav1synth_built="$(find "$src/target/release" -maxdepth 1 -type f \
+    \( -name "grav1synth" -o -name "grav1synth.exe" \) -print -quit)"
+
+  [ -n "$grav1synth_built" ] || {
     note_skip "grav1synth" "cargo reported success but no binary was produced"
     return
   }
+
+  cp "$grav1synth_built" "$BIN/" || {
+    note_skip "grav1synth" "the built binary could not be copied into $BIN"
+    return
+  }
+
+  chmod +x "$BIN/grav1synth$EXE" 2>/dev/null || true
 
   # Windows links against BtbN's *shared* ffmpeg, because that is the only build of it that ships
   # headers and import libraries at all - the plain win64-gpl zip is bin/, doc/ and presets/ and has
