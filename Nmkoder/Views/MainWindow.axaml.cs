@@ -89,6 +89,8 @@ namespace Nmkoder.Views
             GrainSynthUi.Init();
             UtilDeinterlace.LoadSettings(); // Its own, kept apart from the tabs' - see UtilDeinterlace.Settings
             UpdateDeinterlaceBtnText();
+            UtilFilmGrain.LoadSettings();
+            UpdateFilmGrainBtnText();
             LoadUiConfig();
 
             // The SelectionChanged handlers bail out until _initialized is set, so the initial

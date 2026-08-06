@@ -782,6 +782,17 @@
                   </StackPanel>
                 </Border>
 
+                <Border x:Name="UtilsFilmGrainPanel" Classes="card util" Tapped="SelectFilmGrain"
+                        ToolTip.Tip="grav1synth on its own, for the parts of a grain workflow that are not an encode: measuring a table off a source without committing to the encode that will use it, reading one back out of an encode somebody else made, or putting grain onto a finished AV1 file and taking it off again. For a grain-synthesised encode, the AV1AN tab's Grain Synthesis row does all of this in one run and this card is unnecessary.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Film Grain (AV1)" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsFilmGrainConfBtn" Content="Configure…" Click="UtilsFilmGrainConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Measures a grain table off any source, or reads, writes and strips the film grain in a finished AV1 file without re-encoding it." />
+                  </StackPanel>
+                </Border>
+
                 <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut"
                         ToolTip.Tip="Writes the section to a new file and stops there - nothing is loaded back into the file list. To encode part of a video rather than export it, use the Trim setting on the encode tab you are encoding from; this utility's section is its own and does not reach them.">
                   <StackPanel>

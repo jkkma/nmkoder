@@ -17,7 +17,7 @@ namespace Nmkoder.Main
 {
     public class RunTask
     {
-        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace };
+        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace, UtilFilmGrain };
 
         public enum FileListMode { Mux, Batch };
         public static FileListMode currentFileListMode;
@@ -311,7 +311,8 @@ namespace Nmkoder.Main
             }
 
             bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates
-                || task == TaskType.UtilOcr || task == TaskType.UtilCut || task == TaskType.UtilDeinterlace;
+                || task == TaskType.UtilOcr || task == TaskType.UtilCut || task == TaskType.UtilDeinterlace
+                || task == TaskType.UtilFilmGrain;
 
             if (loadedFileRequired && TrackList.current == null && (inBatch || currentFileListMode == FileListMode.Mux))
             {
@@ -359,6 +360,7 @@ namespace Nmkoder.Main
                 else if (task == TaskType.UtilCut) await UtilCut.Run();
                 else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
                 else if (task == TaskType.UtilDeinterlace) await UtilDeinterlace.Run();
+                else if (task == TaskType.UtilFilmGrain) await UtilFilmGrain.Run();
             }
             catch (Exception e)
             {
@@ -434,6 +436,7 @@ namespace Nmkoder.Main
                 case TaskType.UtilCut: return "Lossless cut";
                 case TaskType.PlotBitrate: return "Bitrate chart";
                 case TaskType.UtilDeinterlace: return "Deinterlace pass";
+                case TaskType.UtilFilmGrain: return "Film grain edit";
                 default: return "Task";
             }
         }

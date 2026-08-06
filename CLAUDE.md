@@ -2069,6 +2069,40 @@ arguments and nothing else - there is nowhere in it for a grain setting to live,
 describes the next encode rather than that one. It logs that rather than producing a file quietly
 without grain. Resuming *with current settings* rebuilds the command and works normally.
 
+### The Film Grain utility
+
+The card is the same tool with the encode taken out of it, for the workflow the row does not fit: a table
+measured off a source before committing to the encode that will use it, a table read back out of somebody
+else's encode, or grain written onto and stripped off a finished file. `UtilFilmGrain` holds the four
+operations; a utility that writes a file and stops, like Cut and Deinterlace Video beside it, with its own
+settings and nothing reaching the encode tabs.
+
+**One card and four operations rather than four cards.** Three of them take about as long as a remux, so a
+card each would give the Utilities tab three more rows for something almost nobody does twice, and they act
+on the same loaded file through the same binary.
+
+**Measure is the odd one out twice over.** It is the only operation that does not need an AV1 input - it
+diffs decoded frames, so it reads the grain off a ProRes master or a DVD rip perfectly well - and it is the
+only one that costs anything, which is why the dialog states the estimate for the loaded file before the
+operation is picked rather than after. The other three read and rewrite an AV1 bitstream and say so plainly
+when handed anything else.
+
+The denoised copy Measure produces goes to the session folder and is deleted, unless "Keep the denoised
+video too" is ticked, in which case it lands beside the table as `<name>_denoised.mkv`. Off by default,
+because it is lossless FFV1 and several times the size of the source and the table is what the operation is
+for; on, it is the other half of a hand-run pipeline - the file to encode, with the table to put back
+afterwards. The session folder rather than beside the source for the discarded case, so a run that dies
+partway does not leave a lossless copy of somebody's film behind.
+
+`ApplySource` is a `GrainSynthConfig` rather than three fields of the utility's own, because
+`Grav1synth.ApplyAsync` already reads one - two vocabularies for "where does this grain come from" is how
+they come to mean different things.
+
+All four were run against the real binary in the command shapes this builds: `diff` on a denoised pair,
+`inspect` round-tripping a table back out of an encode, `apply` from a table, from `--preset 16mm` and from
+`--iso 800 --chroma`, and `remove` taking a 758,560-byte grained encode back to 743,282 with `inspect`
+afterwards reporting no grain headers.
+
 ### What is not verified
 
 The `--fgs-table` path could not be exercised here: there is no SvtAv1EncApp in a web session, and the

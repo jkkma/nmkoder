@@ -154,6 +154,52 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
+        /// Reads the grain table out of an AV1 file that already carries one, and returns why it could
+        /// not - or "" when it did.
+        /// <para/>
+        /// **A file with no grain in it is the case to get right, and it is not an error.** The tool logs
+        /// "No film grain headers found--this video does not use grain synthesis", writes nothing at all,
+        /// and exits 0; from here that is indistinguishable from a failure unless the message is read. So
+        /// it is read, and reported as the ordinary answer it is.
+        /// </summary>
+        public static async Task<string> InspectAsync(string inPath, string tablePath)
+        {
+            IoUtils.TryDeleteIfExists(tablePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(tablePath));
+
+            string output = await Run($"inspect {inPath.Wrap()} -o {tablePath.Wrap()} -y", indeterminate: true);
+
+            if (RunTask.canceled)
+                return "";
+
+            if (output.Contains("No film grain headers"))
+                return $"'{Path.GetFileName(inPath)}' carries no film grain synthesis, so there is no table in it to " +
+                    $"read.\n\nA table can be measured off any source instead, with this utility's Measure operation " +
+                    $"or the AV1AN tab's Grain Synthesis row.";
+
+            if (!File.Exists(tablePath) || !GrainSynthConfig.LooksLikeGrainTable(tablePath))
+                return $"{ToolName} did not produce a grain table.\n\n{LastLines(output)}";
+
+            return "";
+        }
+
+        /// <summary> Strips every film grain header out of an AV1 file. Returns why it could not, or ""
+        /// when it did. </summary>
+        public static async Task<string> RemoveAsync(string inPath, string outPath)
+        {
+            IoUtils.TryDeleteIfExists(outPath);
+            string output = await Run($"remove {inPath.Wrap()} -o {outPath.Wrap()} -y", indeterminate: true);
+
+            if (RunTask.canceled)
+                return "";
+
+            if (!output.Contains(DoneMarker) || IoUtils.GetFilesize(outPath) < 1)
+                return $"{ToolName} could not strip the grain.\n\n{LastLines(output)}";
+
+            return "";
+        }
+
+        /// <summary>
         /// The built-in film stock tables the installed binary actually has, for the row's dropdown.
         /// <para/>
         /// Read out of the binary rather than hard-coded, because the list grew between the crates.io
