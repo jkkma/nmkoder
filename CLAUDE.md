@@ -64,6 +64,16 @@ window width down until the columns stopped sitting level, and the same walk is 
 judged: bounding the third column 1714 -> 1565, folding the deinterlace row into its own `WrapPanel`
 -> 1505, 115px labels -> 1480, right-sizing the dropdowns -> 1340.
 
+**A column that is wider than what it shows reads as a gap, not as a column.** The middle one was 360
+wide for two buttons - Crop's Configure and Trim's Clear - that are hidden unless you are using them,
+so a hundred pixels of it sat empty next to a 260px dropdown and the third column looked flung out to
+the right while the first two looked crowded. The groups were evenly spaced the whole time; it was
+the dead space inside one of them. Both rows are `WrapPanel`s now, so those buttons fold underneath
+when they appear instead of reserving room year-round, and the column is 300 like the third.
+
+The label column is 125 rather than 115 because "Grain Synthesis" measures 118 with its margin and was
+being clipped by the dropdown beside it. Measure the labels, do not eyeball them: it is three pixels.
+
 **A row label is centred in its cell, and that cell is the control *and* the readout under it** - so
 every label in that column sat below the dropdown it names, by half the readout, which on a wrapped
 three-line one is most of a row. `Grid.form > TextBlock.rowhead` puts it back on the control's own

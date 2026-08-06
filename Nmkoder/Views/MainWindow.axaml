@@ -224,7 +224,7 @@
                   <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
 
                     <!-- What is being encoded with -->
-                    <Grid Classes="form" ColumnDefinitions="115,200" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,200" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -244,7 +244,7 @@
                     <!-- What is going in. 360 rather than 320 because the Crop row is a 260 wide dropdown
                          and a Configure button beside it, which overflowed the old column and was only
                          ever invisible because the filler column it spilled into was empty. -->
-                    <Grid Classes="form" ColumnDefinitions="115,360" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Color Format" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anColorSpaceBox" Width="260" HorizontalAlignment="Left" />
 
@@ -287,7 +287,7 @@
                          WrapPanel. The deinterlace row is a WrapPanel for the same reason - three
                          controls wide, it was what the column's width was really being set by once the
                          text stopped setting it. -->
-                    <Grid Classes="form" ColumnDefinitions="115,300" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field rowhead" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
@@ -509,7 +509,7 @@
                   <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
 
                     <!-- What is being encoded with -->
-                    <Grid Classes="form" ColumnDefinitions="115,325" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,325" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -534,7 +534,7 @@
 
                     <!-- What is going in. 360 rather than 320 for the Crop row's Configure button, as on
                          the AV1AN tab. -->
-                    <Grid Classes="form" ColumnDefinitions="115,360" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Color Format" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidColorsBox" Width="260" HorizontalAlignment="Left" />
 
@@ -552,19 +552,19 @@
                       </StackPanel>
 
                       <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Trim" />
-                      <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
-                        <!-- Capped to keep the button beside it inside this column, as on the AV1AN tab -->
-                        <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="287" Click="EncTrimConf_Click" />
+                      <WrapPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
+                        <!-- Capped to keep the button inside this column, as on the AV1AN tab -->
+                        <Button x:Name="EncTrimConfBtn" Content="Configure…" MaxWidth="300" Click="EncTrimConf_Click" />
                         <Button x:Name="EncTrimClearBtn" Content="Clear" IsVisible="False" Click="EncTrimClear_Click"
                                 ToolTip.Tip="Remove the configured trim, so the whole video is encoded." />
-                      </StackPanel>
+                      </WrapPanel>
                     </Grid>
 
                     <!-- What is done to the picture - every row here has a readout under it, so the
                          control column is sized to its content and the text stays on one line. It is
                          rewritten on every file load, and a wrap would reflow the rows beneath it each
                          time a file is selected. -->
-                    <Grid Classes="form" ColumnDefinitions="115,300" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field rowhead" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
