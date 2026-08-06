@@ -110,7 +110,19 @@ namespace Nmkoder.Data.Codecs.Video
             
             string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from
 
-            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} --film-grain {grain} --film-grain-denoise {denoise} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+            // The Grain Synthesis row writes one of these two and never both - SVT takes --fgs-table over
+            // --film-grain and says so only in a warning nothing here reads, so sending a strength beside a
+            // table would be sending a number that is silently discarded. The denoise flag goes with the
+            // strength for the same reason: it is read only on the --film-grain path.
+            // The path is written bare rather than quoted: everything in here ends up inside av1an's own
+            // -v "…" string, which is split again before it reaches the encoder, and a quote of this app's
+            // own would be one more layer than that split accounts for. GrainSynthUi.ResolveDeliveryAsync
+            // keeps a path with a space in it away from this argument entirely for the same reason.
+            string grainArgs = encArgs.ContainsKey("fgsTable")
+                ? $"--fgs-table {encArgs["fgsTable"]}"
+                : $"--film-grain {grain} --film-grain-denoise {denoise}";
+
+            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} {grainArgs} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
 
         /// <summary>

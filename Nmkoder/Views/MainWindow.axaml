@@ -244,22 +244,15 @@
                     <!-- What is going in. 360 rather than 320 because the Crop row is a 260 wide dropdown
                          and a Configure button beside it, which overflowed the old column and was only
                          ever invisible because the filler column it spilled into was empty. -->
-                    <Grid Classes="form" ColumnDefinitions="130,360" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="130,360" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Color Format" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anColorSpaceBox" />
 
-                      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Grain Synthesis" />
-                      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                        <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
-                                       ValueChanged="Av1anGrainSynthStrength_ValueChanged" />
-                        <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" />
-                      </StackPanel>
+                      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Frame Rate" />
+                      <TextBox Grid.Row="1" Grid.Column="1" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
 
-                      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Frame Rate" />
-                      <TextBox Grid.Row="2" Grid.Column="1" x:Name="Av1anFpsBox" Classes="num" PlaceholderText="Keep original" />
-
-                      <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Crop" />
-                      <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Crop" />
+                      <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6">
                         <ComboBox x:Name="Av1anCropBox" Width="260" SelectionChanged="Av1anCrop_SelectionChanged">
                           <ComboBoxItem Content="Disabled" />
                           <ComboBoxItem Content="Automatic (detect black bars)" />
@@ -268,8 +261,8 @@
                         <Button x:Name="Av1anCropConfBtn" Content="Configure…" IsVisible="False" Click="Av1anCropConf_Click" />
                       </StackPanel>
 
-                      <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Trim" />
-                      <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                      <TextBlock Grid.Row="3" Grid.Column="0" Classes="field" Text="Trim" />
+                      <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                         <!-- Capped so the button beside it stays inside this column: a horizontal
                              StackPanel measures its children with no width limit, where the Grid cell the
                              button used to sit in directly imposed one. 360 - the Clear button (67) - the gap (6). -->
@@ -283,7 +276,7 @@
                          control column is sized to its content and the text stays on one line. It is
                          rewritten on every file load, and a wrap would reflow the rows beneath it each
                          time a file is selected. -->
-                    <Grid Classes="form" ColumnDefinitions="130,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="130,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
@@ -301,10 +294,58 @@
                         <TextBlock x:Name="Av1anBordersInfoLabel" Classes="hint" Text="" />
                       </StackPanel>
 
+                      <!-- Every way this app can put grain in an AV1 file, on one dropdown. It is in this
+                           column rather than beside the Color Format it used to sit under because it now has
+                           a readout, and a readout in a middle column draws over the column beside it - and
+                           because two of these modes denoise the picture before it is encoded, which is a
+                           filter on the video like the rest of this column. Only one of the five panels is
+                           ever visible; see GrainSynthUi.ApplyControlVisibility. -->
+                      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Grain Synthesis" />
+                      <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                          <ComboBox x:Name="Av1anGrainModeBox" Width="230" SelectionChanged="Av1anGrainMode_SelectionChanged"
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Measured from source denoises the file, measures what came out with grav1synth, and encodes the clean picture with the result: the accurate way, and an expensive one. The film stock presets and the photon noise are written into the finished encode instead, so they add grain without saving anything." />
+
+                          <StackPanel x:Name="Av1anGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
+                            <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
+                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="SVT-AV1's --film-grain, aomenc's --denoise-noise-level. Around 10 suits lightly grainy digital, 25 an ordinary film scan; above 50 the denoising starts taking picture with it." />
+                            <CheckBox x:Name="Av1anGrainSynthDenoiseBox" Content="Denoise" IsCheckedChanged="Av1anGrainSetting_Changed"
+                                      ToolTip.Tip="Encode the denoised picture rather than the original. This is where the bitrate saving comes from - left off, the grain is still in the frames being coded and the synthetic grain is laid on top of it." />
+                          </StackPanel>
+
+                          <StackPanel x:Name="Av1anGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <TextBlock Classes="dim" Text="Denoise" VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="Av1anGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
+                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="How hard the denoise pass runs, as a proportion of ffmpeg's own hqdn3d defaults - 4 is exactly those defaults. It decides both what the grain table measures and what the encoder is handed, so too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
+                          </StackPanel>
+
+                          <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <TextBox x:Name="Av1anGrainTableBox" Width="260" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
+                            <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
+                          </StackPanel>
+
+                          <StackPanel x:Name="Av1anGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <ComboBox x:Name="Av1anGrainPresetBox" Width="200" SelectionChanged="Av1anGrainPreset_SelectionChanged"
+                                      ToolTip.Tip="grav1synth's own built-in film stock tables, read out of the installed binary. The three format presets take a film stock modifier as a suffix - 16mm-3 is 16mm shot on Kodak Vision3 200T." />
+                          </StackPanel>
+
+                          <StackPanel x:Name="Av1anGrainIsoPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
+                            <NumericUpDown x:Name="Av1anGrainIsoUpDown" Classes="num" Minimum="1" Maximum="409600" Increment="100" Value="400"
+                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="The film speed the noise is modelled at: 100 to 6400 is the useful range, higher meaning more of it." />
+                            <CheckBox x:Name="Av1anGrainChromaBox" Content="Chroma" IsCheckedChanged="Av1anGrainSetting_Changed"
+                                      ToolTip.Tip="Put grain on the colour planes as well as luma. grav1synth's own default is luma only." />
+                          </StackPanel>
+                        </StackPanel>
+                        <TextBlock x:Name="Av1anGrainInfoLabel" Classes="hint" Text="" />
+                      </StackPanel>
+
                       <!-- Both halves of the row are hidden together, and only shown once the loaded file
                            is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
-                      <TextBlock Grid.Row="2" Grid.Column="0" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
-                      <StackPanel Grid.Row="2" Grid.Column="1" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
+                      <TextBlock Grid.Row="3" Grid.Column="0" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
+                      <StackPanel Grid.Row="3" Grid.Column="1" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                           <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
                                     ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
@@ -318,8 +359,8 @@
 
                       <!-- Hidden unless the loaded file's transfer curve says HDR - see ToneMapUi.RefreshInfo.
                            Both halves together, as the Deinterlace row above does it. -->
-                      <TextBlock Grid.Row="3" Grid.Column="0" x:Name="Av1anToneMapLabel" Classes="field" Text="Tone Mapping" IsVisible="False" />
-                      <StackPanel Grid.Row="3" Grid.Column="1" x:Name="Av1anToneMapPanel" Spacing="4" IsVisible="False">
+                      <TextBlock Grid.Row="4" Grid.Column="0" x:Name="Av1anToneMapLabel" Classes="field" Text="Tone Mapping" IsVisible="False" />
+                      <StackPanel Grid.Row="4" Grid.Column="1" x:Name="Av1anToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="Av1anToneMapModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="Av1anToneMap_SelectionChanged"
                                   ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Hable tracks the reference implementation most closely; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which." />
                         <TextBlock x:Name="Av1anToneMapInfoLabel" Classes="hint" Text="" />

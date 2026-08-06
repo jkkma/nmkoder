@@ -95,6 +95,7 @@ namespace Nmkoder.UI.Tasks
             // filters it was saved with, so nothing here may leak into it from an earlier run.
             Av1anUi.CurrentDeinterlace = new DeinterlacePlan();
             Av1anUi.CurrentToneMap = new ToneMapConfig();
+            Av1anUi.CurrentGrain = null;
             string args = "";
             string inPath = "";
             // The file the user loaded, which a trim replaces inPath with a cut copy of. Kept apart
@@ -272,6 +273,30 @@ namespace Nmkoder.UI.Tasks
                         return;
                     }
 
+                    // Settled here rather than where its passes run, because the encoder's arguments are
+                    // built on the next line and one of the things this decides is whether they carry
+                    // --fgs-table at all. The table's path has to be known by then too, which is why the
+                    // temp folder's name is worked out here and the folder itself created further down: a
+                    // measured table is written beside that folder, exactly as the trimmed and
+                    // deinterlaced inputs are, so a resume finds it rather than spending hours measuring
+                    // the same grain again.
+                    string plannedTempDir = GetTempDirPath(overrideTempDir, timestamp);
+                    GrainSynthConfig grainConfig = GrainSynthUi.GetAv1anConfig();
+                    string grainTablePath = grainConfig.Mode == GrainSynthMode.Measured
+                        ? Av1anUi.GetGrainTablePath(plannedTempDir)
+                        : grainConfig.TablePath;
+
+                    GrainDelivery grainDelivery = await GrainSynthUi.ResolveDeliveryAsync(grainConfig, vCodec, grainTablePath);
+                    string grainSetupProblem = await GrainSynthUi.GetProblemAsync(grainConfig, grainDelivery, vCodec, grainTablePath);
+
+                    if (grainSetupProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(grainSetupProblem);
+                        return;
+                    }
+
+                    Av1anUi.CurrentGrain = new GrainPlan { Config = grainConfig, Delivery = grainDelivery, TablePath = grainTablePath };
+
                     // Kept rather than built inline: the pixel format the color format box resolved to is
                     // needed again below, to work out who should convert to it.
                     Dictionary<string, string> videoArgs = GetVideoArgsFromUi();
@@ -388,7 +413,7 @@ namespace Nmkoder.UI.Tasks
                     if (hbdProblem.IsNotEmpty())
                         Logger.Log(hbdProblem);
 
-                    string grainProblem = GetGrainSynthProblem(vCodec);
+                    string grainProblem = GetGrainSynthProblem(vCodec, grainConfig, grainDelivery);
 
                     if (grainProblem.IsNotEmpty())
                         Logger.Log(grainProblem);
@@ -552,7 +577,7 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 tempDirName = overrideTempDir.IsNotEmpty() ? overrideTempDir : timestamp;
-                tempDir = Directory.CreateDirectory(Path.Combine(Paths.GetAv1anTempPath(), tempDirName)).FullName;
+                tempDir = Directory.CreateDirectory(GetTempDirPath(overrideTempDir, timestamp)).FullName;
                 AvProcess.lastTempDirAv1an = tempDir;
 
                 if (overrideArgs.IsEmpty()) // A replayed command already names the input it wants
@@ -586,6 +611,21 @@ namespace Nmkoder.UI.Tasks
 
                     if (deinterlaced.IsNotEmpty())
                         inPath = deinterlaced;
+
+                    // Last of the three input passes, and on whatever the first two left: the grain has to
+                    // be measured on the frames that will be encoded, so a trimmed section is measured
+                    // rather than the whole tape and a deinterlaced file rather than the interlaced one.
+                    string denoised = await RenderDenoisedInput(inPath, tempDir, resume);
+
+                    if (RunTask.canceled || RunTask.failed)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (denoised.IsNotEmpty())
+                        inPath = denoised;
 
                     args = $"-i {inPath.Wrap()} {args}";
                 }
@@ -656,6 +696,17 @@ namespace Nmkoder.UI.Tasks
             if (!succeeded && !RunTask.canceled)
             {
                 RunTask.Fail($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+            }
+
+            if (succeeded)
+            {
+                string applyProblem = await ApplyGrainToOutput(outPath);
+
+                if (applyProblem.IsNotEmpty())
+                {
+                    RunTask.Fail(applyProblem);
+                    succeeded = false;
+                }
             }
 
             if (succeeded)
@@ -855,6 +906,167 @@ namespace Nmkoder.UI.Tasks
             }
 
             return outPath;
+        }
+
+        /// <summary> Where a run's temp folder is, worked out without creating it. Stated once because
+        /// two callers need the answer at different times: the folder is made just before av1an is
+        /// started, and the grain table written beside it has to be named while the encoder's arguments
+        /// are still being built. </summary>
+        private static string GetTempDirPath(string overrideTempDir, string timestamp)
+        {
+            return Path.Combine(Paths.GetAv1anTempPath(), overrideTempDir.IsNotEmpty() ? overrideTempDir : timestamp);
+        }
+
+        /// <summary>
+        /// Renders the denoised copy the Measured grain mode needs, measures the grain between it and the
+        /// input with grav1synth, and hands back the denoised file for av1an to encode - or "" when the
+        /// mode is not in use or nothing usable came out.
+        /// <para/>
+        /// Both halves are here rather than in two places because neither is worth anything alone: the
+        /// denoised file exists to be measured against and then encoded, and the table describes exactly
+        /// the file this returns. Encoding the *source* with this table would be the mistake the whole
+        /// feature is meant to avoid - the grain would be coded and then synthesised on top of itself.
+        /// <para/>
+        /// It costs a lossless intermediate the length of the video and a single-threaded pass over every
+        /// pixel of it twice, which is why the row says so before the run and why this logs the estimate
+        /// again when it starts.
+        /// </summary>
+        private static async Task<string> RenderDenoisedInput(string inPath, string tempDir, bool resume)
+        {
+            GrainPlan plan = Av1anUi.CurrentGrain;
+
+            if (plan == null || !plan.NeedsDenoisePass)
+                return "";
+
+            string outPath = Av1anUi.GetDenoisedInputPath(tempDir);
+            string tablePath = plan.TablePath;
+
+            // Same reasoning as the deinterlaced input above: re-measuring an hour of grain to change a
+            // CRF would cost more than the encode being resumed. Only ever files this same encode wrote -
+            // a fresh run mints a temp folder from the clock, so there is never a pair sitting there
+            // already. Both halves or neither: a denoised file with no table beside it is half a run.
+            if (resume && IoUtils.GetFilesize(outPath) > 0 && GrainSynthConfig.LooksLikeGrainTable(tablePath))
+            {
+                Logger.Log($"Reusing the denoised file and grain table this encode was started from " +
+                    $"('{Path.GetFileName(outPath)}'). Neither is made again - delete them to redo the measurement.");
+                return outPath;
+            }
+
+            MediaFile file = TrackList.current?.File;
+            Logger.Log($"Denoising '{file?.Name.Trunc(40)}' with {plan.Config.GetDenoiseFilter()}, into " +
+                $"{DenoisePass.DescribeOutput()} that av1an will then encode. The grain taken out of it is what " +
+                $"grav1synth measures next, and the encoder is handed the clean picture plus the description.");
+
+            string problem = await DenoisePass.RunAsync(plan.Config, inPath, outPath);
+
+            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            {
+                IoUtils.TryDeleteIfExists(outPath);
+
+                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                    RunTask.Fail($"The denoise pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
+
+                return "";
+            }
+
+            Logger.Log($"Measuring the grain between the source and the denoised copy with grav1synth. It reads " +
+                $"every frame of both, single-threaded, and prints no progress of its own while this app is " +
+                $"collecting its output - so the bar below only says that it is still running.");
+
+            problem = await Grav1synth.DiffAsync(inPath, outPath, tablePath);
+
+            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            {
+                // The denoised file goes with the table: kept, it would be reused by the next resume as
+                // though it had been measured, and encoded with no grain description at all.
+                IoUtils.TryDeleteIfExists(outPath);
+                IoUtils.TryDeleteIfExists(tablePath);
+
+                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                    RunTask.Fail($"The grain measurement this encode needs did not finish, so av1an was not started." +
+                        $"\n\n{problem}");
+
+                return "";
+            }
+
+            Logger.Log($"Wrote the grain table to '{Path.GetFileName(tablePath)}'.");
+            return outPath;
+        }
+
+        /// <summary>
+        /// Writes the grain into the finished encode with grav1synth, for the deliveries the encoder could
+        /// not do itself - the film stock presets, the photon noise, and any table on a build without
+        /// <c>--fgs-table</c>. Returns why it could not be done, or "" including when there was nothing to
+        /// do.
+        /// <para/>
+        /// It writes beside the output and then replaces it, rather than in place, because this is a
+        /// bitstream rewrite of a file that may have taken hours: grav1synth is a young tool, it says
+        /// itself that some videos fail to take grain properly, and the failure that matters is the one
+        /// that leaves neither the original nor a working copy. The original is only removed once the
+        /// rewrite has been proved to have produced something.
+        /// </summary>
+        private static async Task<string> ApplyGrainToOutput(string outPath)
+        {
+            GrainPlan plan = Av1anUi.CurrentGrain;
+
+            // Null means this run replayed a saved command rather than building one, which is what a
+            // resume does when it is asked to run exactly what ran before. The saved command is av1an's
+            // arguments and nothing else, so it cannot say whether grain was to be written in afterwards -
+            // and the row on screen describes the next encode rather than that one. Said rather than
+            // guessed at, because the output would otherwise come out silently without the grain.
+            if (plan == null)
+            {
+                GrainSynthConfig row = GrainSynthUi.GetAv1anConfig();
+
+                if (row.Runs && GrainSynthUi.GetLikelyDelivery(row, GetCurrentCodecV()) == GrainDelivery.PostApply)
+                    Logger.Log($"Note: the Grain Synthesis row asks for grain to be written into the finished file, " +
+                        $"and this run replayed a saved av1an command - which carries no grain setting. " +
+                        $"'{Path.GetFileName(outPath)}' has none. Encode it from the tab rather than from a saved " +
+                        $"command to get it.");
+
+                return "";
+            }
+
+            if (!plan.IsPostApply)
+                return "";
+
+            string temp = $"{outPath}.grain{Path.GetExtension(outPath)}";
+            Logger.Log($"Writing the film grain into '{Path.GetFileName(outPath)}' with grav1synth. This rewrites the " +
+                $"AV1 headers and remuxes; it does not re-encode anything.");
+
+            string problem = await Grav1synth.ApplyAsync(plan.Config, outPath, temp, plan.TablePath);
+
+            if (RunTask.canceled)
+            {
+                IoUtils.TryDeleteIfExists(temp);
+                return "";
+            }
+
+            if (problem.IsNotEmpty())
+            {
+                IoUtils.TryDeleteIfExists(temp);
+                return $"{problem}\n\nThe encode itself finished and '{Path.GetFileName(outPath)}' is intact - it " +
+                    $"simply carries no synthesised grain.";
+            }
+
+            try
+            {
+                IoUtils.TryDeleteIfExists(outPath);
+                File.Move(temp, outPath);
+            }
+            catch (Exception e)
+            {
+                return $"The grain was written but '{Path.GetFileName(temp)}' could not replace the encode: {e.Message}";
+            }
+
+            // Said rather than left to be found: grav1synth carries video, audio, subtitles and chapters
+            // through its remux and drops attachments, which on this tab is a box the user may well have
+            // ticked. Only for a file that had some.
+            if ((TrackList.current?.File.AttachmentStreams.Count ?? 0) > 0 && Program.MainWin.CheckAv1anCopyAttachs.IsChecked == true)
+                Logger.Log($"Note: attachments (fonts, cover art) are not carried through the grain rewrite - grav1synth " +
+                    $"remuxes video, audio, subtitles and chapters only. Everything else in the file is unchanged.");
+
+            return "";
         }
 
         /// <summary>

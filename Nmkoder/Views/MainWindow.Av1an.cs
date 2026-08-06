@@ -125,14 +125,52 @@ namespace Nmkoder.Views
         private void Av1anOption_SelectionChanged(object sender, SelectionChangedEventArgs e) => SaveConfigAv1an();
         private void Av1anOption_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e) => SaveConfigAv1an();
 
-        /// <summary> Nothing to save - the Video tab restores nothing - but the Denoise box beside this
-        /// one does nothing at a strength of 0, so it is enabled from here. </summary>
+        /// <summary> Nothing to save - the Video tab restores nothing - but every one of these decides
+        /// what the row's readout says, and the strength also decides whether the Denoise box beside it
+        /// can do anything. One handler for all of the spinners, since they share both answers. </summary>
         private void Av1anGrainSynthStrength_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e)
         {
             if (!_initialized)
                 return;
 
-            Av1anUi.ApplyGrainDenoiseEnabled();
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
+        private void Av1anGrainSetting_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.RefreshInfo();
+        }
+
+        private void Av1anGrainMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
+        private void Av1anGrainPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.RefreshInfo();
+        }
+
+        private void Av1anGrainTable_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.RefreshInfo();
+        }
+
+        private async void Av1anGrainTableBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            await GrainSynthUi.PickTableAsync();
         }
 
         /// <summary> The Workers box is not the plain saved spinner the rest of the tab is: it shows the
