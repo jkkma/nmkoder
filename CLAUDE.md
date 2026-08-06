@@ -649,6 +649,60 @@ The `Value` on both `NumericUpDown`s in the XAML is a designer placeholder and a
 writes its default first, so what a user sees always comes from `GetDefaultThreadPlan`. A comment
 there says so; do not "reconcile" those literals with it.
 
+**Running out of memory does not report itself as running out of memory, and that is the whole reason
+`Av1anMemory` exists.** A worker is three processes - the source pipe, the ffmpeg applying this tab's
+`-f` chain, and the encoder - and when the machine cannot feed them all, the OS kills one of the first
+two. The encoder then reaches the end of a truncated stream, finishes normally and **exits 0**, and
+av1an counts its output and fails the chunk over the difference:
+
+```
+WARN encode_chunk: Encoder failed (on chunk 1):
+encoder crashed: exit code: 0
+stdout:
+        FRAME MISMATCH: chunk 1: 47/239 (actual/expected frames)
+source pipe stderr:
+        Error: fwrite() call failed when writing frame: 49, plane: 0, errno: 32
+```
+
+Not one word of which says memory. `errno 32` is EPIPE - the *downstream* process having gone - and
+"encoder crashed: exit code: 0" is av1an's phrase for a frame count it did not like, not for a crash.
+The chunk is retried to `--max-tries` and the run gives up hours in, each doomed chunk having been
+encoded several times first. Reported against a 4K HDR film cut to four minutes: four of the eleven
+in-flight chunks died inside 45 seconds. Reproduced rather than inferred - ten of these pipelines run
+at once on a host with less RAM than they want produced three short chunks, with the kernel logging
+`Out of memory: Killed process (ffmpeg)` and the encoder beside it exiting 0.
+
+**And none of it reached the screen.** Every encode logs through `LogMode.OnlyLastLine`, which rewrites
+the last row on each progress line, and `Logger`'s `Warning` is replaceable by design - a damaged source
+prints scores of them and pinning each would bury the log. So av1an's `Encoder failed (on chunk 1)` was
+overwritten within a fraction of a second, every time, and a run that had already lost four chunks read
+as a healthy one sitting at 4%. `Av1anOutputHandler.NoteChunkFailure` says what a short chunk means, once
+per run in a line that is not replaced, and `ReportChunkFailures` tallies the rest when the run ends.
+Short and long are opposite faults and kept apart: short is the frames stopping, long is a filter writing
+more than it read, which is what `--ignore-frame-mismatch` is for.
+
+**Every constant in `Av1anMemory` was measured**, by running the real process at three frame sizes and
+fitting a line through the peak RSS. The fits are near-straight - SVT-AV1 came out at 672, 678 and 623 MB
+per megapixel at 720p, 1080p and 1440p - so a base plus a slope is the whole model, and a third digit
+would be inventing one. The spread between encoders is the part worth knowing: **SVT-AV1 wants two to
+three times what the others do** (605 MB/MP against x264's 397, x265's 275 and VP9's 194, all 10-bit),
+which is the same fact `ApplyWorkerCount` already acts on by giving it two workers fewer. A float step in
+the chain is the other big term: a tone map converts to `gbrpf32le` at the *source's* size, 12 bytes a
+pixel against a 10-bit 4:2:0 frame's 3, measured at 508 MB for a 3840x2076 source against 160 MB for the
+same chain without it. The reported encode comes to 2.3 GB a worker and 24.8 GB for eleven.
+
+`RequiredHeadroom` is why it does not simply compare the two numbers. The estimate is a **floor**: the
+VapourSynth chunk methods hold a frame cache above the decoder that was measured, aomenc could not be
+measured at all, and what else the user has open is not this app's to know. Eleven workers at 24.8 GB
+against the 25.6 GB a 32 GB machine is credited with *passes* a bare comparison - and that is the run
+that failed. It warns rather than refusing, unlike the crop and frame-size checks beside it, because
+those state a certainty and this states an estimate; a run stopped by a wrong guess costs more than the
+one it would have saved. It names the worker count that fits, which is the only actionable thing in it.
+
+Do not reach for `MaxDefaultWorkers` as the fix for a report like this. That cap is a default and
+`Config.Get` consults a default only where the key is missing, so it reaches nobody who has already run
+the app once - which is everybody who can file the report.
+
 `--set-thread-affinity` is **not** what that box means, and there used to be a
 `Av1anUi.GetThreadAffArgs` building it that nothing called - so the flag has never reached av1an,
 and reinstating it is not a fix for anything above. Affinity *pins* each worker to N cores rather
@@ -2239,6 +2293,29 @@ MaxCLL, else its mastering display's maximum luminance, else an assumed 1000.
 **It has to be worked out here because the filter will not read it off the file.** The same PQ ramp
 with and without a MaxCLL of 1000 and a 1000-nit mastering display tone-maps to byte-identical
 output, so tonemap's own peak detection never sees the container's metadata.
+
+**A peak declared at 10000 nits is the format's ceiling, not a measurement, and taking one at face
+value crushed the whole picture.** `ColorDataUtils.GetDeclaredPeakNits` prefers MaxCLL because it
+measures *this* content where the mastering display only describes the monitor - and that argument
+stops holding at the top of the PQ curve, which is the largest number the field can hold and so what
+gets written when nobody measured. The case is an ordinary UHD Blu-ray rip: x265 wrote
+`cll=10000,258` beside `master-display … L(40000000,50)`, i.e. MaxCLL at the ceiling, a
+measured-looking MaxFALL of 258, and a 4000-nit mastering display - the brightest the grade can ever
+have been checked on. That put `npl` at 2666.7 and, measured on PQ patches through this app's own
+chain, **203 nits came out at 23.2% of the SDR range against 33.6%** off the mastering display's
+4000, with 100 nits at 17.2% against 25.2%. 203 is BT.2408's reference white, where the graded
+picture's white belongs. The top of the range was unreachable too: the file's own 4000-nit peak only
+reached 69.7%, so nearly a third of the output range went unused by a file that never exceeded its
+own mastering display.
+
+`PqCeilingNits` is the one statement of that, and it is applied to the mastering display as well as
+to MaxCLL - a monitor declared at 10000 nits does not exist, so that field is the same
+non-measurement under another name. With both at the ceiling it falls through to `AssumedPeakNits`,
+which is where it belongs: that constant's own note already argues that assuming 10000 crushes every
+mid-tone in the far commoner case, and this is that case arriving through the file rather than
+through the default. An honest MaxCLL still wins over the mastering display, 9999 is still trusted,
+and only the tone map reads any of it - `SetColorData` writes the file's own MaxCLL back out
+untouched.
 
 The alternative parameterisation - `npl=100` with an explicit `peak=` - was measured head to head
 and is worse. It holds mid-tones brighter (100 nits at 181 against 110) and clips from 374 nits on
