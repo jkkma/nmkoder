@@ -52,7 +52,7 @@ drop in there yourself belongs in a portable copy rather than a Scoop install.
 - **The window remembers itself**: size, position, open tab and log height, plus the last browsed
   folders and a recent-files list. **Neither encode tab's settings persist** - both start each session at
   their defaults, because a CRF, a resize or a QTGMC pass left armed from last week is expensive and
-  quiet. Quick Convert opens on SVT-AV1 at CRF 30, preset 4, with audio to Opus at 128 kbps stereo.
+  quiet. Quick Convert opens on SVT-AV1 into MKV at CRF 30, preset 4, with audio to Opus at 128 kbps stereo.
 
 ### Deinterlacing
 

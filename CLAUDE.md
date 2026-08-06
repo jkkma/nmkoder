@@ -818,7 +818,8 @@ and a run that forgets reads as a pad that quietly lost two pixels.
 value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim,
 the borders and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
 selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` restores none of them. It
-is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid; `LoadConfigAv1an`
+is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid - not the Advanced
+tab's argument grid, which stopped being saved when Quick Convert's did; `LoadConfigAv1an`
 keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a
 preference, and every way they go wrong is expensive and quiet: a QTGMC left armed spends hours and
 tens of gigabytes on a progressive source, a resize left on 720p halves a 4K encode nobody meant to
@@ -2065,7 +2066,18 @@ saved and never restored is one the next person to touch that method will restor
 and the setting then comes back from whatever session last happened to write it. Keys from before this
 are still sitting in existing config files - do not wire one back up on the strength of finding one there.
 
-**The Advanced grid loses its values on an encoder switch as well as between sessions**, and that is a
-real cost rather than an oversight. `EncoderArgs.Load` rebuilds the rows from the encoder's JSON every
-time one is selected, and the saved store was the only thing carrying typed values across that - so a
-null key costs both at once. The AV1AN tab still saves its own, that being one of the few things it keeps.
+The container is MKV, named there for the same reason the two codecs are: it is the one that takes every
+codec offered here, it is what the AV1AN tab opens on, and with nothing restored *some* container becomes
+the default whether or not anybody chooses one.
+
+**Neither tab's Advanced grid keeps its values, and they are lost on an encoder switch as well as between
+sessions.** That is a real cost rather than an oversight. `EncoderArgs.Load` rebuilds the rows from the
+encoder's JSON every time an encoder is selected, and the saved store was the only thing carrying typed
+values across that rebuild - so dropping it costs both at once. An advanced argument describes the encode
+in front of you, and one left over from another source is expensive to have applied and easy not to notice.
+
+The reading and writing were **deleted rather than left unused**: `EncoderArgs.Save` and `ReadSaved` are
+gone and `Load` no longer takes a `Config.Key` at all. A store still written and no longer read is exactly
+what somebody wires back up later, on the reasonable-looking grounds that the values are already there.
+The `Av1anEncoderArgs` and `EncEncoderArgs` entries are still in `Config.Key` and still in existing config
+files; nothing reads them.

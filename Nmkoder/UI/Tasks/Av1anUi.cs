@@ -292,7 +292,7 @@ namespace Nmkoder.UI.Tasks
 
         public static void LoadAdvancedArgsGrid(IEncoder enc)
         {
-            EncoderArgs.Load(Form.Av1anArgRows, enc, EncoderArgs.Av1anFolder, Config.Key.Av1anEncoderArgs);
+            EncoderArgs.Load(Form.Av1anArgRows, enc, EncoderArgs.Av1anFolder);
             Form.LoadArgCategoryTabs(Form.Av1anArgs);
             Form.LoadArgPresets(Form.Av1anArgs, enc.Name);
         }

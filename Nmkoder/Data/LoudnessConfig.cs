@@ -135,7 +135,7 @@ namespace Nmkoder.Data
             string convert = layout.IsEmpty() ? "" : $"aformat=channel_layouts={layout},";
 
             // Taken from the measurement rather than configured, so the loudness range can never be the
-            // reason this comes out dynamic - see WillBeLinear. Rounded up because the comparison is
+            // reason this comes out dynamic - see GainFitsUnderTruePeak. Rounded up because the comparison is
             // against the measured value and a target below it is what selects dynamic; clamped into the
             // range the option accepts.
             double lra = Math.Min(50, Math.Max(1, Math.Ceiling(m.InputLra) + 1));

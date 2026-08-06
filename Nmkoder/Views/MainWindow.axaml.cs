@@ -168,7 +168,6 @@ namespace Nmkoder.Views
                     // Nothing for Quick Convert: that tab starts every session at its defaults
                     TrySave(SaveConfigAv1an, "AV1AN options");
                     TrySave(SaveAv1anEncodeSettings, "AV1AN encode settings");
-                    TrySave(SaveAv1anAdvancedArgs, "AV1AN encoder arguments");
                 }
             }
             catch (Exception e)

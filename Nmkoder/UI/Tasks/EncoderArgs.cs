@@ -71,49 +71,27 @@ namespace Nmkoder.UI.Tasks
             return rows;
         }
 
-        /// <summary> The encoder's documented parameters, with whatever was last typed into them. </summary>
-        /// <param name="key">Where previously typed values are read back from, or null for a grid whose
-        /// values are not kept - which is Quick Convert's, that tab persisting nothing. A null loses them
-        /// across a switch between encoders as well as across a session, the saved store being the only
-        /// thing that carried them: the rows are rebuilt from the encoder's JSON every time one is
-        /// selected.</param>
-        public static void Load(ObservableCollection<EncoderArgRow> target, IEncoder enc, string folder, Config.Key? key)
+        /// <summary>
+        /// The encoder's documented parameters, blank.
+        /// <para/>
+        /// **Neither tab keeps what is typed into its grid**, so there is nothing to read back and no key
+        /// to read it from. The rows are rebuilt from the encoder's JSON every time an encoder is
+        /// selected, and a saved store used to carry the typed values across that rebuild - which is what
+        /// made them survive both an encoder switch and a restart. Both go together: an advanced argument
+        /// describes the encode in front of you, and one left over from another source is expensive to
+        /// have applied and easy not to notice.
+        /// <para/>
+        /// The reading and writing were deleted rather than left unused behind a null key. A store that is
+        /// still written and no longer read is precisely the thing somebody wires back up later, on the
+        /// reasonable-looking grounds that the values are already there. Existing config files still carry
+        /// the Av1anEncoderArgs and EncEncoderArgs entries; nothing reads them.
+        /// </summary>
+        public static void Load(ObservableCollection<EncoderArgRow> target, IEncoder enc, string folder)
         {
             target.Clear();
-            Dictionary<string, string> saved = null;
-
-            if (key != null)
-                ReadSaved(key.Value).TryGetValue(enc.Name, out saved);
 
             foreach (EncoderArgRow row in ReadRows(enc, folder))
-            {
-                if (saved != null && saved.TryGetValue(row.Argument, out string value))
-                    row.Value = value;
-
                 target.Add(row);
-            }
-        }
-
-        /// <summary>
-        /// Values typed into an advanced argument grid, kept per encoder. The rows themselves are
-        /// rebuilt from the encoder's JSON every time it is selected, which is what used to throw
-        /// the values away - on a restart and on every switch between encoders.
-        /// </summary>
-        public static void Save(IEnumerable<EncoderArgRow> rows, IEncoder enc, Config.Key key)
-        {
-            if (enc == null)
-                return;
-
-            Dictionary<string, Dictionary<string, string>> all = ReadSaved(key);
-            Dictionary<string, string> filled = Filled(rows);
-
-            // Blank rows are the normal state, and storing them would grow the config with nothing
-            if (filled.Count > 0)
-                all[enc.Name] = filled;
-            else
-                all.Remove(enc.Name);
-
-            Config.Set(key, JsonConvert.SerializeObject(all));
         }
 
         /// <summary> The rows the user has actually filled in, by argument name. </summary>
@@ -152,24 +130,5 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", Filled(rows).Select(x => $"{x.Key.TrimStart('-')}={x.Value}"));
         }
 
-        private static Dictionary<string, Dictionary<string, string>> ReadSaved(Config.Key key)
-        {
-            try
-            {
-                string json = Config.Get(key);
-
-                if (json.IsEmpty())
-                    return new Dictionary<string, Dictionary<string, string>>();
-
-                return JsonConvert.DeserializeObject<Dictionary<string, Dictionary<string, string>>>(json)
-                    ?? new Dictionary<string, Dictionary<string, string>>();
-            }
-            catch (Exception e)
-            {
-                // A hand-edited or truncated entry should cost the saved values, not the whole tab
-                Logger.Log($"Failed to read saved encoder arguments: {e.Message}", true);
-                return new Dictionary<string, Dictionary<string, string>>();
-            }
-        }
     }
 }

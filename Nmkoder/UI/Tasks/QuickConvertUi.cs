@@ -149,8 +149,12 @@ namespace Nmkoder.UI.Tasks
             // Load subtitle codecs
             Form.EncSubCodecBox.SetItems(Enum.GetValues<CodecUtils.SubtitleCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName), 0);
 
-            // Load containers
-            Form.FfmpegContainerBox.SetItems(Enum.GetNames<Containers.Container>().Select(c => (object)c.ToUpper()), 0);
+            // Load containers. MKV, which is the one that takes every codec offered here and the same
+            // container the AV1AN tab opens on - and, like the two codecs above, a default that has to be
+            // named rather than inherited now that nothing is restored. Looked up rather than written as a
+            // literal, so reordering the enum cannot quietly repoint it.
+            Form.FfmpegContainerBox.SetItems(Enum.GetNames<Containers.Container>().Select(c => (object)c.ToUpper()),
+                Array.IndexOf(Enum.GetValues<Containers.Container>(), Containers.Container.Mkv));
 
             // Filled once - the entries name a shape rather than a size, so a new file changes
             // nothing in them; what this file comes out as is on the line underneath. The saved
@@ -650,8 +654,7 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         static void LoadAdvancedArgsGrid(IEncoder enc)
         {
-            // No key: this tab keeps nothing between sessions, the advanced grid included
-            EncoderArgs.Load(Form.EncArgRows, enc, EncoderArgs.FfmpegFolder, null);
+            EncoderArgs.Load(Form.EncArgRows, enc, EncoderArgs.FfmpegFolder);
             Form.LoadArgCategoryTabs(Form.EncArgs);
             Form.LoadArgPresets(Form.EncArgs, enc.Name);
         }

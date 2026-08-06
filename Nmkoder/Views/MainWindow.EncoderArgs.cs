@@ -314,6 +314,13 @@ namespace Nmkoder.Views
         /// Also runs on close, where the edit has to be committed first: a cell the user is still
         /// typing in has not ended its edit, so nothing would have saved that last value.
         /// </summary>
+        /// <summary>
+        /// The AV1AN advanced grid, committed but not stored - as Quick Convert's is below, and for the
+        /// same reason: an advanced argument describes the encode in front of you, and one left over from
+        /// a different source is the kind of setting that is expensive to have applied and easy not to
+        /// notice. The commit still has to happen, a value typed into a cell and left without pressing
+        /// Enter being in the cell editor rather than in the row the encode reads.
+        /// </summary>
         public void SaveAv1anAdvancedArgs()
         {
             if (!_initialized)
@@ -321,8 +328,6 @@ namespace Nmkoder.Views
 
             foreach (DataGrid grid in Av1anArgs.Grids)
                 grid.CommitEdit();
-
-            EncoderArgs.Save(Av1anArgRows, CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()), Config.Key.Av1anEncoderArgs);
         }
 
         /// <summary>
