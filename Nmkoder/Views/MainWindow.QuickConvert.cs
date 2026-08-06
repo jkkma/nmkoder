@@ -19,7 +19,9 @@ namespace Nmkoder.Views
     {
         public void InitQuickConvert()
         {
-            EncAudChannelsBox.SelectedIndex = 0;
+            // Stereo rather than "keep original". Nothing on this tab is restored between sessions, so
+            // every default here is what someone gets every time they open it.
+            EncAudChannelsBox.SelectedIndex = 2;
             EncCropModeBox.SelectedIndex = 0;
         }
 
@@ -29,7 +31,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.VidEncoderSelected(EncVidCodecsBox.SelectedIndex);
-            SaveUiConfig();
         }
 
         private void EncAudCodec_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -38,7 +39,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.AudEncoderSelected(EncAudCodecBox.SelectedIndex);
-            SaveUiConfig();
         }
 
         private void Container_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -47,7 +47,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.ValidateContainer();
-            SaveUiConfig();
         }
 
         private void EncQualityMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -98,73 +97,35 @@ namespace Nmkoder.Views
         }
 
         /// <summary>
-        /// The Quick Convert encode settings, restored on top of the defaults the selected encoder
-        /// has just written into these controls - which is why this cannot run any earlier than it
-        /// does. Everything the loaded file decides is left out: subtitle burn-in and the metadata
-        /// sources list that file's own tracks, and crop is per-file by design, being one of the
-        /// settings Reset On New File clears and having a rectangle that is not saved either.
+        /// The Quick Convert tab's opening state.
+        /// <para/>
+        /// **Nothing on this tab is saved between sessions**, so this restores nothing - it fills the two
+        /// lists that have to hold entries before a file is ever loaded, and leaves everything else at the
+        /// defaults the selected encoder has just written into these controls. Which is why it still
+        /// cannot run any earlier than it does.
+        /// <para/>
+        /// The argument is the AV1AN Video tab's, carried across: these settings describe a *job* rather
+        /// than a preference, and every way they go wrong is expensive and quiet. A resize left on 720p
+        /// halves an encode nobody meant to shrink, a CRF picked for a grainy film is the wrong number for
+        /// line art, a target bitrate left over from one source is meaningless against the next. Reset On
+        /// New File already made that argument for Trim, Crop and Deinterlace; this carries it to the whole
+        /// tab and to the boundary that is easiest to lose track of, which is a session that ended days ago.
+        /// <para/>
+        /// Not writing them matters as much as not reading them: a value saved and never restored is one
+        /// the next person to touch this method will restore, reasonably enough, and the setting then comes
+        /// back from whatever session last happened to write it. Keys from before this are still sitting in
+        /// existing config files - do not wire one back up on the strength of finding it there.
         /// </summary>
         public void LoadQuickConvertSettings()
         {
-            ConfigParser.RestoreIndexIfSaved(EncQualModeBox);
-            ApplyEncQualityMode(useModeDefault: false); // The restored mode decides the range the value below is clamped into
-            ConfigParser.RestoreIfSaved(EncVidQualityBox);
-            ConfigParser.RestoreIfSaved(EncVidPresetBox);
-            ConfigParser.RestoreIfSaved(EncVidColorsBox);
-            ConfigParser.RestoreIfSaved(EncVidFpsBox);
-            ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
-            ConfigParser.RestoreIndexIfSaved(EncToneMapModeBox);
-            ConfigParser.RestoreIndexIfSaved(EncAudLoudnessBox);
-            ConfigParser.RestoreIfSaved(EncDeintPresetBox);
-            ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
-            ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
-            ConfigParser.RestoreIndexIfSaved(EncAudChannelsBox);
-            ConfigParser.RestoreIfSaved(EncMetaApplyGrid);
-            ConfigParser.LoadFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
-
-            // Restored like the resize beside it, and for the same reason: "everything I encode comes
-            // out 16:9" is a preference about output rather than a fact about the file that happens to
-            // be loaded. The selection has to be pushed back into the config object by hand - the box's
-            // own handler bails until _initialized, which is not set yet here.
-            ConfigParser.RestoreIndexIfSaved(EncBordersBox);
+            // The border list names shapes rather than sizes, so a new file changes nothing in it - but it
+            // has to hold its entries, and the configuration behind it has to agree with the box, before
+            // anything reads either. The box's own handler bails until _initialized, which is not set yet.
             QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
 
-            // The resize is an object rather than a control's value, so it is read straight into the
-            // configuration and the dropdown is then filled from it. Filling has to happen whether or
-            // not anything was saved: the list has to hold its entries before a file is ever loaded.
-            QuickConvertUi.CurrentResize = ConfigParser.LoadResize(Config.Key.EncResize);
+            // Same for the resize, which is an object rather than a control's value.
+            QuickConvertUi.CurrentResize = new ResizeConfig();
             QuickConvertUi.RefreshResizeBox();
-        }
-
-        public void SaveQuickConvertSettings()
-        {
-            if (!_initialized)
-                return;
-
-            // A filter typed into the grid and left without pressing Enter is still sitting in the
-            // cell editor rather than in the row behind it, and closing the window is exactly when
-            // that happens.
-            EncAdvancedFiltersGrid.CommitEdit();
-
-            using (Config.Batch())
-            {
-                ConfigParser.SaveComboxIndex(EncQualModeBox);
-                ConfigParser.SaveGuiElement(EncVidQualityBox);
-                ConfigParser.SaveGuiElement(EncVidPresetBox);
-                ConfigParser.SaveGuiElement(EncVidColorsBox);
-                ConfigParser.SaveGuiElement(EncVidFpsBox);
-                ConfigParser.SaveResize(Config.Key.EncResize, QuickConvertUi.CurrentResize);
-                ConfigParser.SaveComboxIndex(EncDeintModeBox);
-                ConfigParser.SaveComboxIndex(EncToneMapModeBox);
-                ConfigParser.SaveComboxIndex(EncAudLoudnessBox);
-                ConfigParser.SaveGuiElement(EncDeintPresetBox);
-                ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
-                ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
-                ConfigParser.SaveComboxIndex(EncAudChannelsBox);
-                ConfigParser.SaveGuiElement(EncMetaApplyGrid);
-                ConfigParser.SaveComboxIndex(EncBordersBox);
-                ConfigParser.SaveFilterRows(Config.Key.EncCustomFilters, EncFilterRows);
-            }
         }
 
         private void EncCropMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -181,7 +142,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.BorderPresetSelected(EncBordersBox.SelectedIndex);
-            SaveQuickConvertSettings();
         }
 
         private void EncResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -192,7 +152,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.ResizePresetSelected(EncResizeBox.SelectedIndex);
-            SaveQuickConvertSettings();
         }
 
         private async void EncResizeConf_Click(object sender, RoutedEventArgs e)
@@ -204,7 +163,6 @@ namespace Nmkoder.Views
                 // Configured by hand is the Custom entry, whichever preset it started from
                 resize.PresetKey = ResizePresets.CustomKey;
                 QuickConvertUi.CurrentResize = resize;
-                SaveQuickConvertSettings();
             }
 
             QuickConvertUi.UpdateResizeReadout();
@@ -226,11 +184,8 @@ namespace Nmkoder.Views
                 return;
 
             DeinterlaceUi.RefreshInfo();
-            SaveQuickConvertSettings();
         }
 
-        /// <summary> The readout under the tone-mapping dropdown names the curve and the peak it is
-        /// built around, so it is rewritten whenever the box moves. </summary>
         /// <summary> The readout under the loudness box says what it will do to the loaded file's
         /// tracks, so it is rewritten whenever the box moves. </summary>
         private void EncAudLoudness_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -239,7 +194,6 @@ namespace Nmkoder.Views
                 return;
 
             QuickConvertUi.UpdateLoudnessReadout();
-            SaveQuickConvertSettings();
         }
 
         private void EncToneMap_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -248,7 +202,6 @@ namespace Nmkoder.Views
                 return;
 
             ToneMapUi.RefreshInfo();
-            SaveQuickConvertSettings();
         }
 
         private async void EncCropConf_Click(object sender, RoutedEventArgs e)

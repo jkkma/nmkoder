@@ -325,8 +325,14 @@ namespace Nmkoder.Views
             EncoderArgs.Save(Av1anArgRows, CodecUtils.GetCodec(Av1anUi.GetCurrentCodecV()), Config.Key.Av1anEncoderArgs);
         }
 
-        /// <summary> As above, for Quick Convert. Kept apart because the values are: the two tabs' lists
-        /// name different things even where the encoder behind them has the same name. </summary>
+        /// <summary>
+        /// Quick Convert's advanced grid, which is committed but not stored - that tab persists nothing.
+        /// <para/>
+        /// The commit still has to happen: a value typed into a cell and left without pressing Enter is
+        /// sitting in the cell editor rather than in the row behind it, and the row is what the encode
+        /// reads. Only the write to the config file is gone. The AV1AN tab's equivalent above still saves,
+        /// its advanced arguments being one of the few things that tab does keep.
+        /// </summary>
         public void SaveEncAdvancedArgs()
         {
             if (!_initialized)
@@ -334,8 +340,6 @@ namespace Nmkoder.Views
 
             foreach (DataGrid grid in EncArgs.Grids)
                 grid.CommitEdit();
-
-            EncoderArgs.Save(EncArgRows, CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()), Config.Key.EncEncoderArgs);
         }
     }
 }

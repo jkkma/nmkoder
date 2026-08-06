@@ -2030,3 +2030,42 @@ would move the others to the wrong loudness.
 Verified by running it: six source/channel/target combinations through the real `LoudnessConfig`,
 measured and re-encoded through ffmpeg, every one landing within 0.01 dB of its target - the 5.1 to
 stereo downmix included.
+
+## Nothing on the Quick Convert tab is saved either
+
+The same rule the AV1AN Video tab has, widened to a whole tab: the codec, the container, the quality
+mode and its value, the preset, the colour format, the frame rate, the resize, the borders, the
+deinterlacer, the tone-map, the audio codec, bitrate, channels and loudness target, the subtitle codec,
+the metadata source and the Advanced tab's argument grid all start each session at their defaults.
+`LoadQuickConvertSettings` restores none of them, `SaveQuickConvertSettings` is gone rather than left
+returning early, and the Quick Convert block came out of `LoadUiConfig`/`SaveUiConfig` with it.
+
+The argument is the one already written out for the AV1AN tab. These settings describe a *job* rather
+than a preference, and every way they go wrong is expensive and quiet: a resize left on 720p halves an
+encode nobody meant to shrink, a CRF picked for a grainy film is the wrong number for line art, a target
+bitrate left over from one source is meaningless against the next. Reset On New File already made that
+argument for Trim, Crop and Deinterlace; this carries it to the whole tab and to the boundary that is
+easiest to lose track of, which is a session that ended days ago.
+
+**The defaults had to move rather than merely stop being restored**, and this is the part to be careful
+with - it is the same trap the AV1AN tab hit. What selected an encoder was `Config`'s default for the
+*saved* value, so dropping the restore on its own would have opened every session on the first entry of
+the enum, which for video is Copy Video Without Re-Encoding and for audio is Copy Audio Without
+Re-Encoding - a tab that encodes nothing - and dragged the quality, the preset and the colour formats
+with it, since all three are filled per encoder. `QuickConvertUi.Init` names SVT-AV1 and Opus where the
+boxes are filled instead, and that is now the only statement anywhere of what the tab opens as.
+
+The numbers those two pull in are the encoders' own: `LibSvtAv1.QDefault` is 30 and its `PresetDefault`
+is 4, `Opus.QDefault` is already 128, and `InitQuickConvert` puts the channel box on stereo. `LibSvtAv1`
+is Quick Convert's alone - the AV1AN tab drives SVT through `VideoEncodersBin.SvtAv1` - so moving those
+two numbers moves nothing on the other tab.
+
+Not writing them matters as much as not reading them, for the reason the AV1AN section gives: a value
+saved and never restored is one the next person to touch that method will restore, reasonably enough,
+and the setting then comes back from whatever session last happened to write it. Keys from before this
+are still sitting in existing config files - do not wire one back up on the strength of finding one there.
+
+**The Advanced grid loses its values on an encoder switch as well as between sessions**, and that is a
+real cost rather than an oversight. `EncoderArgs.Load` rebuilds the rows from the encoder's JSON every
+time one is selected, and the saved store was the only thing carrying typed values across that - so a
+null key costs both at once. The AV1AN tab still saves its own, that being one of the few things it keeps.

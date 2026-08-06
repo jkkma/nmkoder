@@ -50,8 +50,9 @@ drop in there yourself belongs in a portable copy rather than a Scoop install.
 - **The log is its own panel** - per-line severity colouring, copy, save, clear, and a button that
   opens the session's log folder, which also holds the raw ffmpeg, av1an and mkvmerge logs.
 - **The window remembers itself**: size, position, open tab and log height, plus the last browsed
-  folders and a recent-files list. Quick Convert's encode settings persist too. (The AV1AN Video tab
-  deliberately does not - a CRF, a resize or a QTGMC pass left armed from last week is expensive.)
+  folders and a recent-files list. **Neither encode tab's settings persist** - both start each session at
+  their defaults, because a CRF, a resize or a QTGMC pass left armed from last week is expensive and
+  quiet. Quick Convert opens on SVT-AV1 at CRF 30, preset 4, with audio to Opus at 128 kbps stereo.
 
 ### Deinterlacing
 

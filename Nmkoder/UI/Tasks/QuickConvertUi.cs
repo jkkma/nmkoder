@@ -122,28 +122,35 @@ namespace Nmkoder.UI.Tasks
 
         public static new void Init()
         {
-            // Load video codecs
-            Form.EncVidCodecsBox.SetItems(Enum.GetValues<CodecUtils.VideoCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
-            ConfigParser.LoadComboxIndex(Form.EncVidCodecsBox);
+            // Load video codecs.
+            //
+            // **The encoder is named here, and this is the only statement anywhere of what the tab opens
+            // as.** It used to come from Config's default for the *saved* value, so simply dropping the
+            // restore would have opened every session on the first entry of the enum - which is Copy
+            // Video Without Re-Encoding, a tab that encodes nothing - and dragged the quality, the preset
+            // and the colour formats with it, since all three are filled per encoder. The same trap the
+            // AV1AN tab hit when its own persistence went.
+            Form.EncVidCodecsBox.SetItems(Enum.GetValues<CodecUtils.VideoCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                Array.IndexOf(Enum.GetValues<CodecUtils.VideoCodec>(), CodecUtils.VideoCodec.LibSvtAv1));
 
             // Load quality modes
             Form.EncQualModeBox.SetItems(Enum.GetValues<QualityMode>()
                 .Select(qm => (object)qm.ToString().Replace("Crf", "CRF").Replace("TargetKbps", "Target Bitrate (Kbps)").Replace("TargetMbytes", "Target Filesize (MB)")), 0);
 
-            // Load audio codecs
-            Form.EncAudCodecBox.SetItems(Enum.GetValues<CodecUtils.AudioCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
-            ConfigParser.LoadComboxIndex(Form.EncAudCodecBox);
+            // Load audio codecs. Opus for the reason the encoder above is SVT-AV1: nothing is restored,
+            // so the first entry of the enum - Copy Audio Without Re-Encoding - is what would otherwise
+            // open every session. Its bitrate default is already 128, and Init below puts the channel box
+            // on stereo, so the three come out as one setting rather than three that happen to agree.
+            Form.EncAudCodecBox.SetItems(Enum.GetValues<CodecUtils.AudioCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                Array.IndexOf(Enum.GetValues<CodecUtils.AudioCodec>(), CodecUtils.AudioCodec.Opus));
 
-            // Before the saved settings, which are restored by index into this list
             InitLoudnessBox();
 
             // Load subtitle codecs
-            Form.EncSubCodecBox.SetItems(Enum.GetValues<CodecUtils.SubtitleCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
-            ConfigParser.LoadComboxIndex(Form.EncSubCodecBox);
+            Form.EncSubCodecBox.SetItems(Enum.GetValues<CodecUtils.SubtitleCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName), 0);
 
             // Load containers
-            Form.FfmpegContainerBox.SetItems(Enum.GetNames<Containers.Container>().Select(c => (object)c.ToUpper()));
-            ConfigParser.LoadComboxIndex(Form.FfmpegContainerBox);
+            Form.FfmpegContainerBox.SetItems(Enum.GetNames<Containers.Container>().Select(c => (object)c.ToUpper()), 0);
 
             // Filled once - the entries name a shape rather than a size, so a new file changes
             // nothing in them; what this file comes out as is on the line underneath. The saved
@@ -643,7 +650,8 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         static void LoadAdvancedArgsGrid(IEncoder enc)
         {
-            EncoderArgs.Load(Form.EncArgRows, enc, EncoderArgs.FfmpegFolder, Config.Key.EncEncoderArgs);
+            // No key: this tab keeps nothing between sessions, the advanced grid included
+            EncoderArgs.Load(Form.EncArgRows, enc, EncoderArgs.FfmpegFolder, null);
             Form.LoadArgCategoryTabs(Form.EncArgs);
             Form.LoadArgPresets(Form.EncArgs, enc.Name);
         }
