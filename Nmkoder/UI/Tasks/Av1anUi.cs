@@ -1797,14 +1797,22 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
-        /// Both suffixes, because a trimmed *and* deinterlaced run leaves one of each. </summary>
+        /// Every suffix, because a run can leave one of each - trimmed, then deinterlaced, then
+        /// denoised - and the grain table measured against the last of them.
+        /// <para/>
+        /// The denoised one is the reason to be careful here rather than the trimmed one: it is lossless
+        /// FFV1 and therefore the largest file this app ever writes, several times the size of the source.
+        /// It was left off this list when the grain modes were added, so every measured encode leaked one
+        /// of those onto the disk for good. </summary>
         private static IEnumerable<string> GetPreparedInputs(string tempDir)
         {
             try
             {
                 string name = Path.GetFileName(tempDir);
+                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.denoised.", $"{name}.grain." };
+
                 return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
-                    .Where(f => Path.GetFileName(f).StartsWith($"{name}.trim.") || Path.GetFileName(f).StartsWith($"{name}.deint.")).ToList();
+                    .Where(f => prefixes.Any(p => Path.GetFileName(f).StartsWith(p))).ToList();
             }
             catch (Exception e)
             {

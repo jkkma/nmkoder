@@ -2038,6 +2038,15 @@ and the difference between the two files there is a ghost rather than grain. It 
 denoiser ffmpeg has - nlmeans and bm3d both are - and it is the only one whose speed survives a whole
 film, which this pass has to.
 
+**The table is kept and the denoised copy is not.** `SaveMeasuredGrainTable` copies a measured table
+beside the encode as `<output>.grain.tbl` before the temp data goes, because it is the one thing in there
+worth more than the encode it belongs to: it took hours to measure, it is a few tens of kilobytes, and it
+describes the *source* rather than that encode - so it is the input to every later encode of the same
+film through the row's Grain table file mode. The denoised intermediate goes with the rest of the scratch
+data, and `GetPreparedInputs` had to be taught about it: it matched `.trim.` and `.deint.` only, so every
+measured encode leaked a lossless FFV1 copy of the whole video - the largest file this app writes - onto
+the disk for good.
+
 `ApplyGrainToOutput` runs after av1an and writes beside the output before replacing it, rather than in
 place: this is a bitstream rewrite of a file that may have taken hours, from a young tool that says
 itself that some videos fail to take grain properly, and the failure worth guarding against is the one

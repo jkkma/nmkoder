@@ -708,6 +708,7 @@ namespace Nmkoder.UI.Tasks
 
             if (succeeded)
             {
+                SaveMeasuredGrainTable(outPath);
                 string applyProblem = await ApplyGrainToOutput(outPath);
 
                 if (applyProblem.IsNotEmpty())
@@ -999,6 +1000,41 @@ namespace Nmkoder.UI.Tasks
 
             Logger.Log($"Wrote the grain table to '{Path.GetFileName(tablePath)}'.");
             return outPath;
+        }
+
+        /// <summary>
+        /// Keeps the table a Measured run produced, beside the output rather than beside the temp folder
+        /// it was measured into.
+        /// <para/>
+        /// The temp copy is deleted with the rest of the run's scratch data, and it is the one thing in
+        /// there worth more than the encode it belongs to: it took hours to measure, it is a few tens of
+        /// kilobytes, and it describes the *source* rather than this encode - so it is the input to every
+        /// later encode of the same film, through the row's Grain table file mode, at no further cost.
+        /// Throwing it away and re-measuring is a working day for a feature.
+        /// <para/>
+        /// Only for Measured: a table the user picked is already a file of theirs, and the generated modes
+        /// have no table at all.
+        /// </summary>
+        private static void SaveMeasuredGrainTable(string outPath)
+        {
+            GrainPlan plan = Av1anUi.CurrentGrain;
+
+            if (plan == null || plan.Config.Mode != GrainSynthMode.Measured || !GrainSynthConfig.LooksLikeGrainTable(plan.TablePath))
+                return;
+
+            try
+            {
+                string kept = IoUtils.GetAvailableFilename(Path.ChangeExtension(outPath, null) + ".grain.tbl");
+                File.Copy(plan.TablePath, kept, false);
+                Logger.Log($"Kept the measured grain table as '{Path.GetFileName(kept)}', beside the encode. Point the " +
+                    $"Grain Synthesis row's Grain table file mode at it to encode this source again without measuring " +
+                    $"it a second time.");
+            }
+            catch (Exception e)
+            {
+                // The encode is finished and correct; losing the table costs a re-measure, not the output.
+                Logger.Log($"Could not keep the measured grain table: {e.Message}", true);
+            }
         }
 
         /// <summary>
