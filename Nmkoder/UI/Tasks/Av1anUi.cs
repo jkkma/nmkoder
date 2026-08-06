@@ -1198,20 +1198,21 @@ namespace Nmkoder.UI.Tasks
         /// Why the Advanced grid's grain *retention* rows are pulling against the Grain Synthesis row, or
         /// "" when they are not.
         /// <para/>
-        /// This is the one collision the content presets can cause, and it is not an argument collision -
-        /// nothing here is overwritten and no warning is printed anywhere. The Grainy Film / 35mm Scan
-        /// preset sets <c>tune 5</c> and <c>noise-norm-strength</c> to make the encoder's filters and
-        /// transforms stop averaging the source's grain away, and its own description says it does not
-        /// touch this row because retention and synthesis are alternatives. That was a complete statement
-        /// while the row could only add grain on top of a picture that kept its own. It is not one now:
-        /// **Measured from source, and Encoder analysis with Denoise ticked, take that grain out of the
-        /// picture before it is coded** - so the retention rows spend bitrate and encoding time
-        /// protecting texture that is no longer in the frames, and the grain that comes back is the
-        /// synthesised description rather than the film's.
+        /// This is not an argument collision - nothing here is overwritten and no warning is printed
+        /// anywhere. Retention makes the encoder's filters and transforms stop averaging the source's own
+        /// grain away; synthesis takes that grain out of the picture and describes it instead. They are
+        /// alternatives, and **Measured from source, and Encoder analysis with Denoise ticked, take that
+        /// grain out before the picture is coded** - so retention rows set beside them spend bitrate and
+        /// encoding time protecting texture that is no longer in the frames, and the grain that comes back
+        /// is the synthesised description rather than the film's.
         /// <para/>
-        /// A note rather than a refusal, because the encode is not broken by it and somebody may want the
-        /// preset's other seven rows. <c>tune</c> is reported only at 5, its film grain bundle - the other
-        /// tunes are not retention settings and two of the three SVT presets set <c>tune 0</c>.
+        /// The SVT-AV1 Grainy Film / 35mm Scan preset was the one thing that could raise this by being
+        /// clicked, and it has been removed. What is left is a row typed by hand, and the Anime / Cel
+        /// Animation preset's <c>noise-adaptive-filtering</c>, which is on the same list.
+        /// <para/>
+        /// A note rather than a refusal, because the encode is not broken by it. <c>tune</c> is reported
+        /// only at 5, its film grain bundle - the other tunes are not retention settings and both
+        /// remaining SVT presets set <c>tune 0</c>.
         /// </summary>
         public static string GetGrainRetentionProblem(CodecUtils.Av1anCodec vCodec, GrainSynthConfig config)
         {
@@ -1284,8 +1285,8 @@ namespace Nmkoder.UI.Tasks
         /// sense the user can act on, and naming it would send someone to clear a row that agrees with
         /// the encode.
         /// <para/>
-        /// The Grainy Film preset sets tune 5 and none of the ten, so this cannot fire from a preset -
-        /// it is for a row typed by hand, which is the same division
+        /// No content preset sets <c>tune 5</c> - the one that did has been removed - so this cannot fire
+        /// from a preset at all. It is for a row typed by hand, which is the same division
         /// <see cref="GetUnsupportedAdvancedArgsProblem"/> draws.
         /// </summary>
         public static string GetFilmGrainTuneProblem(CodecUtils.Av1anCodec vCodec)

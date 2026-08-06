@@ -491,8 +491,8 @@ synthetic grain laid over the grain that was already there, which is the opposit
 
 `aomenc` is clean here: `AomAv1.json` carries no grain rows at all, and the grid is rebuilt per
 encoder, so only SVT-AV1 can be holding one. No content preset sets either of the two rows that
-collide - the Grainy Film one reaches into that group for `noise-norm-strength` and nothing else -
-so clicking one cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
+collide - SVT-AV1 has two presets and neither reaches into that group at all - so clicking one
+cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
 than a rival - `apply_denoise_2d` reads it directly - and `noise-chroma`, `noise-chroma-from-luma`
 and `noise-size` are `--noise`'s own satellites, reset with a warning when it is 0, so they are
 only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
@@ -507,9 +507,10 @@ deletes on a successful run: the same silence the grain collision above hides in
 inert with them rather than being overwritten - `cdef-scaling` (read only where `cdef_level` is not 0),
 `tf-strength` and `kf-tf-strength` (no temporal filtering left to strengthen) and
 `noise-adaptive-filtering` (it sets nothing but the two "back off on a noisy frame" flags for CDEF and
-restoration, and both filters are already off). So the Grainy Film preset sets `tune 5` and none of
-those ten. Read out of the fork's own source rather than its documentation, which describes the bundle
-without saying it is applied last.
+restoration, and both filters are already off). **No content preset sets `tune 5`** - the SVT-AV1
+Grainy Film / 35mm Scan one did and has been removed, see "Grain synthesis" below - so a 5 in that row
+was typed by hand. Read out of the fork's own source rather than its documentation, which describes the
+bundle without saying it is applied last.
 
 `Av1anUi.GetFilmGrainTuneProblem` is for the row typed by hand beside it, and it separates the two
 halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
@@ -1920,15 +1921,21 @@ file, `grav1synth apply --replace` overwrites every grain header the encode carr
 a grid `noise` or `fgs-table` just paid encoding time to produce. Nothing is overruled on the command
 line, so the other check cannot see it.
 
-**Retention against synthesis, which is the one a content preset can cause.** `GetGrainRetentionProblem`
-is for it. The Grainy Film / 35mm Scan preset sets `tune 5` and `noise-norm-strength` to stop the
-encoder's filters and transforms averaging the source's grain away, and its own description says it does
-not touch the Grain Synthesis row because retention and synthesis are alternatives. That was a complete
-statement while the row could only lay grain over a picture that kept its own. It is not one now:
-**Measured from source, and Encoder analysis with Denoise ticked, take that grain out before the picture
-is coded** - so those rows spend bitrate and encoding time protecting texture that is no longer in the
-frames. Reported only where the row actually denoises, and `tune` only at 5; a strength with Denoise
-unticked is *consistent* with retention and says nothing.
+**Retention against synthesis.** `GetGrainRetentionProblem` is for it. Retention makes the encoder's
+filters and transforms stop averaging the source's own grain away; synthesis takes that grain out of the
+picture and describes it instead. They are alternatives, and running both means spending bitrate and
+encoding time protecting texture that is no longer in the frames. Reported only where the row actually
+denoises - Measured from source, or Encoder analysis with Denoise ticked - and `tune` only at 5; a
+strength with Denoise unticked is *consistent* with retention and says nothing.
+
+**The SVT-AV1 Grainy Film / 35mm Scan preset is gone**, at the user's request, and it was the only thing
+that could raise that warning by being clicked: it set `tune 5` and `noise-norm-strength 2` for exactly
+the retention this row now offers to replace, and its own description said it did not touch the Grain
+Synthesis box - which was true of the arguments and no longer true of the intent. The check stays,
+because the rows can still be typed by hand and because the Anime / Cel Animation preset sets
+`noise-adaptive-filtering`, which is on the same list. The x264 and x265 presets of that name are
+untouched: neither encoder has grain synthesis at all, so the row is disabled beside them and there is
+nothing for retention to contradict.
 
 The retention list is `tune 5`, `noise-adaptive-filtering`, `noise-norm-strength` and `ac-bias` - this
 file's own account of which parameters are retention rather than synthesis, which is also why none of

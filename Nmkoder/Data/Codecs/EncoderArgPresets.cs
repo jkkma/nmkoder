@@ -290,59 +290,6 @@ namespace Nmkoder.Data.Codecs
                     // precisely where the default of 0 stops running mode decision at 10-bit.
                     { "hbd-mds", "1" },
                 }),
-
-            new EncoderArgPreset("Grainy Film / 35mm Scan",
-                "Heavily grained live action off a clean source - a 35mm feature from a Blu-ray or UHD " +
-                "disc, where the grain is the picture rather than damage to it. Keeps the grain that the " +
-                "encoder's filters and transforms are built to average away, and steadies it so it does " +
-                "not pulse from frame to frame. It is grain retention rather than synthesis, so nothing " +
-                "here touches the Video tab's Grain Synthesis box. Costs bitrate and encoding time.",
-                new Dictionary<string, string>
-                {
-                    // The row that does most of the work here, and the reason the rest of this preset is
-                    // short. Tune 5 is the fork's own film grain bundle: it turns temporal filtering,
-                    // CDEF and loop restoration off and sets ac-bias 4.00, tx-bias 1 and complex-hvs 1
-                    // itself. Those six are applied in set_param_based_on_input, which runs *after* the
-                    // command line has been parsed - so a grid row naming any of them beside this one is
-                    // overwritten with only an SVT_WARN nobody here ever sees, which is why none of them
-                    // are in this preset and why the neighbouring rows that depend on them
-                    // (cdef-scaling, tf-strength, kf-tf-strength, noise-adaptive-filtering) are not
-                    // either: their filters are switched off above them. SVT's own warning calls the
-                    // tune opinionated and aims it at 1080p and up, at CRF 20 to 40 on a slow preset -
-                    // this tab opens on CRF 35 and preset 4.
-                    { "tune", "5" },
-                    // AV1's 64-point transform has its 32 highest-frequency coefficients zeroed out by
-                    // design, so the finest grain in a block coded with one is gone before quantisation
-                    // begins. Not part of the bundle above, though the fork's own IQ tune reaches for
-                    // exactly this value at any quantiser of 45 or better.
-                    { "max-tx-size", "32" },
-                    // Lifts the AC coefficients that quantisation would otherwise round to zero in
-                    // finely textured areas, which is where grain turns into flat patches. This build's
-                    // own addition, and retention rather than a second synthesiser - so unlike the two
-                    // rows below it in the same category it does not collide with Grain Synthesis.
-                    { "noise-norm-strength", "2" },
-                    // Squeezes the quantiser spread across a mini-GOP's temporal layers. Grain is what
-                    // makes that spread visible: a leaf frame coarser than the reference it hangs off
-                    // reads as the grain breathing in and out at the length of the mini-GOP, which is
-                    // the same thing x265's rc-grain is set for in the preset of this name on the other
-                    // tab.
-                    { "qp-scale-compress-strength", "2.0" },
-                    // The tune above leaves deblocking as the only in-loop filter still running, so it
-                    // is worth its slower and more accurate variant.
-                    { "enable-dlf", "2" },
-                    // Dark frames are cheap to code and are starved for it, and a starved dark frame is
-                    // where grain gives out first - going blotchy rather than fine. A light lift, since
-                    // this preset is for grainy film generally; a feature that is dark for most of its
-                    // length can take considerably more.
-                    { "luminance-qp-bias", "25" },
-                    // Mode decision at full 10-bit precision, which the Color Format this tab defaults
-                    // to supplies. The default of 0 hands the choice to the encoder preset, which runs
-                    // 10-bit through preset 5 and tapers off above - so this changes nothing at the
-                    // preset the tab opens on, and pins it for anyone who moves the slider to get a
-                    // feature through. On an 8-bit Color Format SVT ignores it and
-                    // Av1anUi.GetHbdModeDecisionProblem says so.
-                    { "hbd-mds", "1" },
-                }),
         };
     }
 }
