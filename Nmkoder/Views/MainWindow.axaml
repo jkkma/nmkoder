@@ -528,7 +528,7 @@
               </TabItem>
 
               <TabItem Header="Audio">
-                <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="4">
+                <Grid Classes="form" ColumnDefinitions="130,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="4">
                   <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                   <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncAudCodecBox" SelectionChanged="EncAudCodec_SelectionChanged" />
 
@@ -552,6 +552,13 @@
                     <ComboBoxItem Content="6 (5.1 Surround)" />
                     <ComboBoxItem Content="8 (7.1 Surround)" />
                   </ComboBox>
+
+                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Loudness" />
+                  <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                    <ComboBox x:Name="EncAudLoudnessBox" Width="270" HorizontalAlignment="Left" SelectionChanged="EncAudLoudness_SelectionChanged"
+                              ToolTip.Tip="Brings every encoded audio track to a standard loudness (EBU R128). Each track is measured first and then encoded with one flat gain, so the mix keeps its dynamics - a single-pass normalization hits the same number by riding the gain instead, which lifts quiet passages by however much they were quiet. Measuring costs one pass over the audio per track. Not available for a copied track, which is not decoded." />
+                    <TextBlock x:Name="EncAudLoudnessInfoLabel" Classes="hint" Text="" />
+                  </StackPanel>
                 </Grid>
               </TabItem>
 

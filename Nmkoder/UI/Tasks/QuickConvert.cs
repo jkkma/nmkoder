@@ -157,6 +157,26 @@ namespace Nmkoder.UI.Tasks
                 // encode goes through untouched with nothing anywhere saying why.
                 await ToneMapUi.EnsureColorDataAsync(QuickConvertUi.GetVideoSourceFile());
                 QuickConvertUi.CurrentToneMap = ToneMapUi.GetQuickConvertConfig();
+
+                // The measuring pass, and the trim goes with it: measured over the whole file where only
+                // a section is being written, the numbers describe audio that is not in the output. On a
+                // source whose halves differ by 26 dB that is the whole error. The section is resolved
+                // here rather than taken from the command's own trim arguments, which are built further
+                // down and split across the input and output sides depending on the trim mode - loudness
+                // does not need the frame accuracy that split exists for, only the right span.
+                QuickConvertUi.CurrentLoudness = QuickConvertUi.GetLoudnessConfig();
+                string loudnessSpan = "";
+
+                if (QuickConvertUi.CurrentLoudness.Runs && QuickConvertUi.CurrentTrim != null && !QuickConvertUi.CurrentTrim.IsUnset)
+                {
+                    MediaFile spanFile = QuickConvertUi.GetVideoSourceFile() ?? TrackList.current.File;
+
+                    if (UtilCut.ResolveSection(QuickConvertUi.CurrentTrim, spanFile, out long startMs, out long durMs).IsEmpty())
+                        loudnessSpan = $"-ss {(startMs / 1000d).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
+                            $"-t {(durMs / 1000d).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}";
+                }
+
+                await QuickConvertUi.PrepareLoudnessAsync(TrackList.current?.File, loudnessSpan);
                 string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap);
 
                 if (toneMapProblem.IsNotEmpty())

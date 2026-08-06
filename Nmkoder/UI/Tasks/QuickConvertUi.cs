@@ -43,6 +43,67 @@ namespace Nmkoder.UI.Tasks
         /// is read once rather than on each build. </summary>
         public static ToneMapConfig CurrentToneMap = new ToneMapConfig();
 
+        /// <summary> The loudness target this run is normalizing to, snapshotted alongside the tone-map
+        /// and for the same reason. </summary>
+        public static LoudnessConfig CurrentLoudness = new LoudnessConfig();
+
+        /// <summary> What the measuring pass found, by position among the *ticked* audio tracks - which
+        /// is the same numbering the encoder arguments use, so a track that is not being written is not
+        /// measured and does not shift the ones that are. </summary>
+        private static Dictionary<int, LoudnessMeasurement> loudnessMeasurements = new Dictionary<int, LoudnessMeasurement>();
+
+        /// <summary> One track's measurement, or null where there is none - which is every track when no
+        /// target is selected, and any single track whose measuring pass came back empty. A null leaves
+        /// that track un-normalized rather than guessing at a gain for it. </summary>
+        public static LoudnessMeasurement GetLoudnessMeasurement(int indexAmongChecked)
+        {
+            return loudnessMeasurements.TryGetValue(indexAmongChecked, out LoudnessMeasurement m) ? m : null;
+        }
+
+        /// <summary>
+        /// Measures every ticked audio track, once, before the arguments that will carry the numbers are
+        /// built. Settled here rather than inside the argument builder for the reason the deinterlace
+        /// verdict and the burn-in fonts are: that builder runs once per pass, and this is an ffmpeg run
+        /// per track.
+        /// </summary>
+        public static async Task PrepareLoudnessAsync(MediaFile file, string trimArgs)
+        {
+            loudnessMeasurements.Clear();
+
+            if (!CurrentLoudness.Runs || file == null)
+                return;
+
+            List<AudioStream> all = TrackList.Items.Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio).Select(x => (AudioStream)x.Stream).ToList();
+            List<AudioStream> ticked = TrackList.CheckedItems.Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio).Select(x => (AudioStream)x.Stream).ToList();
+            List<AudioConfigurationEntry> conf = TrackList.currentAudioConfig != null ? TrackList.currentAudioConfig.GetConfig(file) : null;
+            bool perTrack = Form.EncAudConfModeBox.SelectedIndex == 1;
+            int overrideChannels = Form.EncAudChannelsBox.GetText().Split(' ')[0].Trim().GetInt();
+
+            for (int i = 0; i < ticked.Count; i++)
+            {
+                int channels = CodecUtils.GetOutputChannelCount(ticked[i], overrideChannels, perTrack ? conf : null, all.IndexOf(ticked[i]));
+                // Measured against the file the audio is mapped from, and by position among that file's
+                // own audio streams - which in Muxing Mode is not the same numbering as the output's.
+                MediaFile src = TrackList.CheckedItems.Where(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio).ElementAt(i).MediaFile ?? file;
+                int indexInSource = src.AudioStreams.IndexOf(ticked[i]);
+                LoudnessMeasurement m = await Loudnorm.MeasureAsync(src.ImportPath, Math.Max(0, indexInSource), channels, trimArgs, CurrentLoudness);
+
+                if (m == null)
+                    continue;
+
+                loudnessMeasurements[i] = m;
+                double gain = CurrentLoudness.GetGainDb(m);
+
+                // Says what was asked for, not what ffmpeg will decide - see GainFitsUnderTruePeak, which
+                // is a necessary condition for a flat gain and not a sufficient one.
+                Logger.Log($"Audio track {i + 1} measures {m.InputI:0.0} LUFS and is being brought to {CurrentLoudness.TargetLufs:0.#} " +
+                    $"({(gain >= 0 ? "+" : "")}{gain:0.0} dB), asking for one flat gain over the whole track." +
+                    (CurrentLoudness.GainFitsUnderTruePeak(m) ? "" :
+                        $" That much gain would push its true peak past {LoudnessConfig.TruePeakDb:0.#} dBTP, so FFmpeg will ride the gain instead " +
+                        $"of applying it flat: the loudness will be right and the quiet passages will come up with it."));
+            }
+        }
+
         /// <summary>
         /// Where the VapourSynth pipe sits among the '-i' arguments, or -1 when this run has none.
         /// QTGMC hands ffmpeg its frames on stdin, so the first video track is mapped from that input
@@ -72,6 +133,9 @@ namespace Nmkoder.UI.Tasks
             // Load audio codecs
             Form.EncAudCodecBox.SetItems(Enum.GetValues<CodecUtils.AudioCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
             ConfigParser.LoadComboxIndex(Form.EncAudCodecBox);
+
+            // Before the saved settings, which are restored by index into this list
+            InitLoudnessBox();
 
             // Load subtitle codecs
             Form.EncSubCodecBox.SetItems(Enum.GetValues<CodecUtils.SubtitleCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName));
@@ -457,8 +521,53 @@ namespace Nmkoder.UI.Tasks
 
             RefreshAudioChannelsEnabled();
             Form.EncAudQualUpDown.IsEnabled = enc.QDefault >= 0 && Math.Abs(enc.QMin - enc.QMax) > 0;
+            // A copied track is never decoded, so there is nothing to measure and nothing to re-level.
+            // Disabled rather than hidden, as the channel and bitrate controls beside it are for the same
+            // codec: the row still says what the setting would do, it just cannot be reached from here.
+            Form.EncAudLoudnessBox.IsEnabled = !enc.DoesNotEncode;
             LoadAudBitrate(enc);
             ValidateContainer();
+            UpdateLoudnessReadout();
+        }
+
+        /// <summary> Fills the loudness dropdown. Called from Init, before the saved index is restored
+        /// into it. </summary>
+        public static void InitLoudnessBox()
+        {
+            Form.EncAudLoudnessBox.SetItems(LoudnessConfig.AllTargets.Select(t => (object)LoudnessConfig.GetLabel(t)),
+                Array.IndexOf(LoudnessConfig.AllTargets, LoudnessTarget.Off));
+        }
+
+        /// <summary> What the box will do to this file, in one line. It cannot name the gain - that needs
+        /// the measuring pass, which runs at encode time and logs its own line per track - so it says what
+        /// will happen and what it costs instead. </summary>
+        public static void UpdateLoudnessReadout()
+        {
+            try
+            {
+                LoudnessConfig config = GetLoudnessConfig();
+                int tracks = TrackList.CheckedItems.Count(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio);
+
+                if (CodecUtils.GetCodec(GetCurrentCodecA()).DoesNotEncode)
+                {
+                    Form.EncAudLoudnessInfoLabel.Text = "Audio is being copied, so it keeps the loudness it has.";
+                    return;
+                }
+
+                if (!config.Runs)
+                {
+                    Form.EncAudLoudnessInfoLabel.Text = "Tracks keep whatever loudness they were mastered at.";
+                    return;
+                }
+
+                Form.EncAudLoudnessInfoLabel.Text = $"Each track is measured, then encoded with one flat gain to {config.TargetLufs:0.#} LUFS " +
+                    $"at up to {LoudnessConfig.TruePeakDb:0.#} dBTP · dynamics are kept · " +
+                    $"costs one measuring pass over {(tracks == 1 ? "the audio track" : $"each of the {Math.Max(1, tracks)} audio tracks")}";
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Failed to describe the loudness setting: {e.Message}", true);
+            }
         }
 
         /// <summary>
@@ -684,6 +793,17 @@ namespace Nmkoder.UI.Tasks
                 return BitrateCalculation.GetTargetSizeKbps(CodecUtils.GetCodec(GetCurrentCodecA()));
 
             return 0;
+        }
+
+        /// <summary> The loudness target the box is asking for - Off for a copied audio track, whatever
+        /// it says, since a stream copy is not decoded and there is nothing to measure or re-level. The box
+        /// is disabled for one too, so this is mostly about the readout. </summary>
+        public static LoudnessConfig GetLoudnessConfig()
+        {
+            if (CodecUtils.GetCodec(GetCurrentCodecA()).DoesNotEncode)
+                return new LoudnessConfig();
+
+            return new LoudnessConfig { Target = LoudnessConfig.AllTargets[Form.EncAudLoudnessBox.SelectedIndex.Clamp(0, LoudnessConfig.AllTargets.Length - 1)] };
         }
 
         public static Dictionary<string, string> GetAudioArgsFromUi()

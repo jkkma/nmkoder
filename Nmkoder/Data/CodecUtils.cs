@@ -8,6 +8,7 @@ using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.UI;
+using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
 using System;
 using System.Collections.Generic;
@@ -119,10 +120,16 @@ namespace Nmkoder.Data
             {
                 int indexTotal = allAudStreams.IndexOf(s);
                 int indexChecked = checkedAudStreams.IndexOf(s);
-                int ac = overrideChannels > 0 ? overrideChannels : s.Channels;
+                int ac = GetOutputChannelCount(s, overrideChannels, perTrack ? audioConf : null, indexTotal);
 
-                if (perTrack && audioConf != null && indexTotal >= 0 && indexTotal < audioConf.Count)
-                    ac = audioConf[indexTotal].ChannelCount;
+                // Before the bitrate and the channel count rather than after, only so the command reads
+                // in the order things happen. The loudness filter carries the channel conversion itself -
+                // see LoudnessConfig.GetFilter, where '-ac' running after the filter chain is the whole
+                // reason a normalized downmix used to come out several dB adrift.
+                string loudness = QuickConvertUi.CurrentLoudness.GetFilter(QuickConvertUi.GetLoudnessMeasurement(indexChecked), ac);
+
+                if (loudness.IsNotEmpty())
+                    args.Add($"-filter:a:{indexChecked} {loudness.Wrap()}");
 
                 if (baseBitrate > 0)
                 {
@@ -156,6 +163,22 @@ namespace Nmkoder.Data
             }
 
             return string.Join(" ", args);
+        }
+
+        /// <summary>
+        /// How many channels one track comes out with: its own per-track setting where one governs, else
+        /// the Audio tab's override, else whatever the source has.
+        /// <para/>
+        /// Its own method because two things need the same answer and must not drift apart - the encoder
+        /// arguments below, and the loudness measurement, which has to be made against the layout the
+        /// track will actually be written in or the target is missed by however much the downmix moved it.
+        /// </summary>
+        public static int GetOutputChannelCount(AudioStream s, int overrideChannels, List<AudioConfigurationEntry> audioConf, int indexTotal)
+        {
+            if (audioConf != null && indexTotal >= 0 && indexTotal < audioConf.Count)
+                return audioConf[indexTotal].ChannelCount;
+
+            return overrideChannels > 0 ? overrideChannels : s.Channels;
         }
 
         /// <summary>

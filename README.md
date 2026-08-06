@@ -126,6 +126,15 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   a space, a colon, an apostrophe, an `=`, a `$` or a backtick works on all three platforms; it
   previously failed on most of them, and on Windows on every path there is.
 
+### Audio
+
+- **Loudness normalization (EBU R128)** on the Quick Convert tab, to -14, -16 or -23 LUFS. Each track is
+  measured in a pass of its own and then encoded with a single flat gain, which is the part that matters:
+  ffmpeg's one-pass `loudnorm` hits the same number by riding the gain, and measured on a source whose
+  quiet passage sat 26 dB under its loud one it brought the two to within 1.3 dB of each other. The
+  channel conversion runs inside the same filter, because the app's own downmix would otherwise happen
+  afterwards and leave a 5.1 source 7.7 dB off the target it asked for.
+
 ### Utilities
 
 - **Cut Video** - keep a chosen section, copied out without re-encoding, picked in the same visual
@@ -203,6 +212,9 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
   per field so none of the motion is thrown away
 - Audio Options: set quality and channels/layout
+- **Loudness normalization** to a standard target (-14 / -16 / -23 LUFS, EBU R128), measured per track
+  first and then applied as one flat gain, so the mix keeps its dynamics - a single-pass normalization
+  reaches the same number by riding the gain, which lifts quiet passages by however much they were quiet
 - Subtitle Options: optionally **burn in** a subtitle track
 
 #### AV1AN Chunked Encoding
