@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.FilmGrainWindow"
+        Title="Configure Film Grain (AV1)"
+        Width="660" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="6">
+
+    <Border Classes="card">
+      <TextBlock TextWrapping="Wrap"
+                 Text="These are the parts of a grain workflow that are not an encode. If what you want is a grain-synthesised AV1 encode, the AV1AN tab's Grain Synthesis row does all of this in one run and you do not need this card." />
+    </Border>
+
+    <TextBlock Classes="h" Text="SOURCE" />
+    <TextBlock x:Name="SourceLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+
+    <TextBlock Classes="h" Text="OPERATION" />
+
+    <Grid ColumnDefinitions="150,*">
+      <TextBlock Grid.Column="0" Classes="field" Text="Do" />
+      <ComboBox Grid.Column="1" x:Name="OpBox" Width="340" HorizontalAlignment="Left" SelectionChanged="Op_SelectionChanged" />
+    </Grid>
+
+    <!-- Measure -->
+    <Grid x:Name="MeasureRow" ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" Classes="field" Text="Denoise strength" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+        <NumericUpDown x:Name="DenoiseBox" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4" ValueChanged="Option_ValueChanged"
+                       ToolTip.Tip="A proportion of ffmpeg's own hqdn3d defaults - 4 is exactly those defaults. The table describes the grain this takes out, so an encode using it wants the same number." />
+        <CheckBox x:Name="KeepDenoisedBox" Content="Keep the denoised video too" IsCheckedChanged="Option_Changed"
+                  ToolTip.Tip="The denoised copy is lossless FFV1 and several times the size of the source. Keep it if you mean to encode it yourself and put the table back afterwards; leave it off if the table is all you want." />
+      </StackPanel>
+    </Grid>
+
+    <!-- Apply -->
+    <Grid x:Name="ApplyRow" ColumnDefinitions="150,*" Margin="0,6,0,0">
+      <TextBlock Grid.Column="0" Classes="field" Text="Grain from" />
+      <StackPanel Grid.Column="1" Spacing="6">
+        <ComboBox x:Name="SourceBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Source_SelectionChanged" />
+
+        <StackPanel x:Name="TablePanel" Orientation="Horizontal" Spacing="6">
+          <TextBox x:Name="TableBox" Width="360" PlaceholderText="Path to a .tbl grain table" LostFocus="Option_Changed" />
+          <Button Content="…" Classes="icon" Click="Browse_Click" />
+        </StackPanel>
+
+        <ComboBox x:Name="PresetBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Option_Changed"
+                  ToolTip.Tip="grav1synth's own built-in film stock tables. The three format presets take a film stock modifier as a suffix - 16mm-3 is 16mm shot on Kodak Vision3 200T." />
+
+        <StackPanel x:Name="IsoPanel" Orientation="Horizontal" Spacing="10">
+          <NumericUpDown x:Name="IsoBox" Classes="num" Minimum="1" Maximum="409600" Increment="100" Value="400" ValueChanged="Option_ValueChanged"
+                         ToolTip.Tip="The film speed the photon noise is modelled at: 100 to 6400 is the useful range." />
+          <CheckBox x:Name="ChromaBox" Content="Chroma" IsCheckedChanged="Option_Changed"
+                    ToolTip.Tip="Put grain on the colour planes as well as luma. grav1synth's own default is luma only." />
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+
+    <TextBlock Classes="h" Text="RESULT" />
+    <TextBlock x:Name="ResultLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+    <TextBlock x:Name="WarningLabel" Classes="hint" TextWrapping="Wrap" Text="" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

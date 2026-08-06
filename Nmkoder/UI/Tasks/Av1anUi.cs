@@ -33,6 +33,12 @@ namespace Nmkoder.UI.Tasks
         /// VapourSynth script cannot sit inside av1an's per-chunk filtering. </summary>
         public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
 
+        /// <summary> The grain synthesis settled for the encode being built, resolved once in
+        /// <see cref="Av1an.Run"/> - which of the three arguments the encoder is given, or whether
+        /// grav1synth writes the grain into the finished file instead, and where the table is. Null
+        /// outside an encode, where <see cref="GrainSynthUi.GetPreviewPlan"/> answers instead. </summary>
+        public static GrainPlan CurrentGrain = null;
+
         /// <summary> The tone-map this run is doing, snapshotted by <see cref="Av1an.Run"/> before the
         /// first thing that reads it. Kept here rather than read from the box the way the rest of this
         /// class reads its controls, for the reason the quality mode and the chunk method are
@@ -93,6 +99,12 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 ValidateContainer();
+
+                // Outside the batch guard above, which is about not overwriting settings: this writes no
+                // setting at all. The Grain Synthesis readout names an hours-long estimate worked out from
+                // the loaded file's size and length, so it describes the wrong file until it is rewritten -
+                // and during a batch it is the only place that estimate is ever seen.
+                GrainSynthUi.RefreshInfo();
             }
             catch (Exception e)
             {
@@ -124,9 +136,7 @@ namespace Nmkoder.UI.Tasks
             IEncoder enc = CodecUtils.GetCodec(c);
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
-            bool av1 = c == CodecUtils.Av1anCodec.AomAv1 || c == CodecUtils.Av1anCodec.SvtAv1;
-            Form.Av1anGrainSynthStrengthUpDown.IsEnabled = av1; // Only AV1 has grain synth
-            ApplyGrainDenoiseEnabled(); // Follows the strength as well as the encoder
+            GrainSynthUi.ApplyControlVisibility(); // Only AV1 has grain synthesis, and each mode its own control
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
@@ -327,8 +337,23 @@ namespace Nmkoder.UI.Tasks
             if (enc.ColorFormats != null && Form.Av1anColorsBox.SelectedIndex >= 0)
                 dict.Add("pixFmt", PixFmtUtils.GetFormat(enc.ColorFormats[Form.Av1anColorsBox.SelectedIndex]).Name);
 
-            dict.Add("grainSynthStrength", Form.Av1anGrainSynthStrengthUpDown.Value.AsInt().ToString());
-            dict.Add("grainSynthDenoise", (Form.Av1anGrainSynthDenoiseBox.IsChecked == true).ToString());
+            // The row owns three different arguments and writes at most one of them, so which entries
+            // exist here is the plan's answer rather than the controls'. CurrentGrain is what the encode
+            // settled on a few lines above this being called, and is the only thing that should ever be
+            // read here; the row's own guess is a guard against a future caller that has not resolved one,
+            // and differs in that it has not asked the encoder binary about --fgs-table.
+            GrainPlan grain = CurrentGrain ?? GrainSynthUi.GetPreviewPlan();
+
+            if (grain.IsEncoderAnalysis)
+            {
+                dict.Add("grainSynthStrength", grain.Config.Strength.ToString());
+                dict.Add("grainSynthDenoise", grain.Config.Denoise.ToString());
+            }
+            else if (grain.IsEncoderTable)
+            {
+                dict.Add("grainTable", grain.TablePath);
+            }
+
             dict.Add("threads", Form.Av1anThreadsUpDown.Value.AsInt().ToString());
             dict.Add("custom", Form.Av1anCustomEncArgsBox.Text ?? "");
             dict.Add("advanced", BuildAdvancedArgs(Form.Av1anArgRows));
@@ -1052,23 +1077,6 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Grain Synthesis' Denoise box, enabled or not. It follows the strength beside it as well as
-        /// the encoder, because both AV1 encoders read the denoise flag only where they are
-        /// synthesising grain at all - aomenc's <c>--enable-dnl-denoising</c> applies "when
-        /// denoise-noise-level is enabled", and SVT-AV1 answers a denoise flag set against
-        /// <c>--film-grain 0</c> with "ignored when film grain is off". At a strength of 0 it was a
-        /// tickable box that did nothing.
-        /// <para/>
-        /// What it is ticked to is left alone rather than cleared: a strength dropped to 0 and put back
-        /// should bring the choice back with it, not silently lose it.
-        /// </summary>
-        public static void ApplyGrainDenoiseEnabled()
-        {
-            Form.Av1anGrainSynthDenoiseBox.IsEnabled = Form.Av1anGrainSynthStrengthUpDown.IsEnabled &&
-                Form.Av1anGrainSynthStrengthUpDown.Value.AsInt() > 0;
-        }
-
-        /// <summary>
         /// What the advanced grid holds for a parameter, matched without its dashes and without case,
         /// or "" where the row is absent or has not been filled in. The grid is preloaded with every
         /// documented parameter and edited in place, so a blank row and a missing one mean the same
@@ -1083,58 +1091,144 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Why the Grain Synthesis box will not do what it says, or "" if nothing is in its way.
+        /// The Advanced grid rows that keep the *source's* grain rather than replacing it, and are
+        /// therefore working against a Grain Synthesis mode that denoises the picture first.
         /// <para/>
-        /// That box is <c>--film-grain</c>, and the Advanced tab's Film Grain &amp; Noise group holds two
-        /// other ways to ask for the same thing. SVT-AV1 takes one of the three rather than combining
-        /// them: <c>--fgs-table</c> disables <c>--noise</c>, and either of them disables
-        /// <c>--film-grain</c>, each with a warning printed to the encoder's own stderr - which av1an
-        /// collects per chunk into a log this app deletes on a successful run, so from here the setting
-        /// simply had no effect.
-        /// <para/>
-        /// Denoise is the half worth naming, and the reason this is a note rather than a shrug. The
-        /// denoise flag is only read on the <c>--film-grain</c> path, so it is dropped with the
-        /// strength: neither of the other two touches the source, and the synthesised grain then lands
-        /// on top of the grain already in the picture instead of replacing it - the opposite of what
-        /// ticking the box asks for.
+        /// Read out of this file's own account of them: <c>noise-adaptive-filtering</c>,
+        /// <c>noise-norm-strength</c>, <c>ac-bias</c> and <c>tune 5</c> are grain retention, a different
+        /// mechanism from the two synthesisers - which is exactly why they never appeared in the collision
+        /// check above, and exactly why they need one of their own now that the row can denoise.
         /// </summary>
-        public static string GetGrainSynthProblem(CodecUtils.Av1anCodec vCodec)
+        private static readonly string[] GrainRetentionArgs =
         {
-            // aomenc's argument file carries no grain rows at all, and the grid is reloaded per
-            // encoder, so no other encoder can be carrying one of these.
-            if (vCodec != CodecUtils.Av1anCodec.SvtAv1)
+            "tune",
+            "noise-adaptive-filtering",
+            "noise-norm-strength",
+            "ac-bias",
+        };
+
+        /// <summary>
+        /// Why an Advanced grid row will not do what it says beside the Grain Synthesis row, or "" if
+        /// none is in its way.
+        /// <para/>
+        /// SVT-AV1 has three ways to be asked for film grain and takes exactly one of them, in this order:
+        /// <c>--fgs-table</c> switches <c>--noise</c> off, and either of them switches <c>--film-grain</c>
+        /// off - the first in <c>app_config.c</c>, the other two in <c>enc_handle.c</c>'s
+        /// <c>set_param_based_on_input</c>, each with an <c>SVT_WARN</c> printed to the encoder's own
+        /// stderr, which av1an collects per chunk into a log <c>HandleTempFolder</c> deletes on a
+        /// successful run. So from here the losing setting simply had no effect.
+        /// <para/>
+        /// **The Grain Synthesis row now owns two of those three**, which is most of why it became a mode
+        /// selector: the collision between <c>--film-grain</c> and <c>--fgs-table</c> can no longer be
+        /// expressed, because one control writes whichever of them the mode calls for and never both.
+        /// What is left is <c>--noise</c>, which lives only in the grid and sits in the middle of that
+        /// order - so it beats a strength and loses to a table - and the grid's own <c>fgs-table</c> row,
+        /// which is the same argument written twice.
+        /// <para/>
+        /// Denoise is the half worth naming wherever the row loses. SVT reads its denoise flag only on the
+        /// <c>--film-grain</c> path, so a row that displaces the strength drops the denoising with it: the
+        /// grain then lands on top of the grain already in the picture instead of replacing it, which is
+        /// the opposite of what ticking the box asks for.
+        /// </summary>
+        public static string GetGrainSynthProblem(CodecUtils.Av1anCodec vCodec, GrainSynthConfig config, GrainDelivery delivery)
+        {
+            // aomenc's argument list has no grain rows at all - its only grain control is the row itself -
+            // and the grid is reloaded per encoder, so no other encoder can be carrying one of these.
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1 || config == null || !config.Runs)
                 return "";
 
-            int strength = Form.Av1anGrainSynthStrengthUpDown.Value.AsInt();
+            string owned = config.GetOwnedEncoderArg(delivery);
 
-            if (strength < 1)
-                return "";
-
-            // --fgs-table is read first and switches --noise off in turn, so where both are set it is
-            // the one in force. Its value is a path rather than a number, so any of it counts.
+            // Its value is a path rather than a number, so any of it counts. There is deliberately no
+            // check for a grid row named film-grain: the shipped list has none, and the Argument column is
+            // read-only, so one cannot be typed either.
             bool table = GetAdvancedArgValue("fgs-table").IsNotEmpty();
             int noise = GetAdvancedArgValue("noise").GetInt();
 
-            if (!table && noise < 1)
+            // Every mode this row offers writes one of the two arguments, so there is nothing here that can
+            // be running without something for the grid to collide with. It was reachable while the row
+            // could also hand its grain to grav1synth after the encode; that is the utility's job now.
+            if (owned.IsEmpty())
                 return "";
 
-            // Both clauses end on the same point and only one of them can name SVT-AV1, which the
-            // other has already used.
-            string subject = table
-                ? "fgs-table applies a grain table from a file instead of analysing the source, and " +
-                    "SVT-AV1 takes one or the other rather than both"
-                : $"noise ({noise}) is SVT-AV1's own second grain synthesiser, and it takes one or the " +
-                    $"other rather than both";
+            // The same argument written twice: not two settings colliding so much as two spellings of one,
+            // and neither this app nor SVT's warning can say which the user meant.
+            if (owned == "fgs-table" && table)
+                return "Note: the Advanced tab has an fgs-table row filled in, and the Grain Synthesis row is " +
+                    "writing fgs-table for itself - so the two are both on the command line and which one wins " +
+                    "is not something this app decides. Clear that row and set the table on the Grain Synthesis row.";
 
-            string winner = table ? "the table" : "--noise";
+            if (noise < 1 && !(owned == "film-grain" && table))
+                return "";
 
-            string denoise = Form.Av1anGrainSynthDenoiseBox.IsChecked == true
+            // Precedence, not preference: fgs-table beats noise beats film-grain, so which of the two
+            // settings survives depends entirely on which pair has met.
+            bool tableWins = owned == "film-grain" && table;
+            string winner = tableWins ? "the table" : owned == "fgs-table" ? "the grain table" : "--noise";
+            string loser = tableWins || owned == "film-grain" ? $"Grain Synthesis {config.Strength}" : $"noise ({noise})";
+
+            string subject = tableWins
+                ? "fgs-table applies a grain table from a file instead of analysing the source, and SVT-AV1 " +
+                    "takes one of the three rather than several"
+                : $"noise ({noise}) is SVT-AV1's own second grain synthesiser, and it takes one of the three " +
+                    $"rather than several";
+
+            // Only where the strength is the thing being dropped: a table does not denoise either, but
+            // nothing about a table mode ever promised to.
+            string denoise = owned == "film-grain" && config.Denoise
                 ? $" Denoise goes with it: {winner} does not denoise the source, so the grain being " +
                     $"synthesised lands on top of the grain already in the picture rather than replacing it."
                 : "";
 
-            return $"Note: the Advanced tab's {subject} - so Grain Synthesis {strength} is dropped and " +
-                $"{winner} runs instead.{denoise} Clear whichever of the two you did not mean.";
+            return $"Note: the Advanced tab's {subject} - so {loser} is dropped and {winner} runs " +
+                $"instead.{denoise} Clear whichever of the two you did not mean.";
+        }
+
+        /// <summary>
+        /// Why the Advanced grid's grain *retention* rows are pulling against the Grain Synthesis row, or
+        /// "" when they are not.
+        /// <para/>
+        /// This is not an argument collision - nothing here is overwritten and no warning is printed
+        /// anywhere. Retention makes the encoder's filters and transforms stop averaging the source's own
+        /// grain away; synthesis takes that grain out of the picture and describes it instead. They are
+        /// alternatives, and **Measured from source, and Encoder analysis with Denoise ticked, take that
+        /// grain out before the picture is coded** - so retention rows set beside them spend bitrate and
+        /// encoding time protecting texture that is no longer in the frames, and the grain that comes back
+        /// is the synthesised description rather than the film's.
+        /// <para/>
+        /// The SVT-AV1 Grainy Film / 35mm Scan preset was the one thing that could raise this by being
+        /// clicked, and it has been removed. What is left is a row typed by hand, and the Anime / Cel
+        /// Animation preset's <c>noise-adaptive-filtering</c>, which is on the same list.
+        /// <para/>
+        /// A note rather than a refusal, because the encode is not broken by it. <c>tune</c> is reported
+        /// only at 5, its film grain bundle - the other tunes are not retention settings and both
+        /// remaining SVT presets set <c>tune 0</c>.
+        /// </summary>
+        public static string GetGrainRetentionProblem(CodecUtils.Av1anCodec vCodec, GrainSynthConfig config)
+        {
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1 || config == null || !config.DenoisesSource)
+                return "";
+
+            var set = GrainRetentionArgs
+                .Select(a => (Arg: a, Value: GetAdvancedArgValue(a)))
+                .Where(a => a.Value.IsNotEmpty() && (a.Arg != "tune" || a.Value == "5"))
+                .Select(a => $"{a.Arg} {a.Value}")
+                .ToList();
+
+            if (set.Count < 1)
+                return "";
+
+            // Which mechanism took the grain out, since the two look different from the user's side: a
+            // pass of this app's own that writes a file, or a flag the encoder acts on internally.
+            string what = config.NeedsDenoisePass
+                ? "the source is denoised before av1an sees it"
+                : "Denoise is ticked, so the encoder codes the denoised picture";
+
+            return $"Note: the Advanced tab is set to keep the source's own grain ({string.Join(", ", set)}), " +
+                $"and Grain Synthesis is replacing it - {what}. Those rows cost bitrate and encoding time " +
+                $"protecting texture that has been taken out of the frames, and the grain in the output is the " +
+                $"synthesised one either way. Retention and synthesis are alternatives: clear those rows, or " +
+                $"set Grain Synthesis to No grain synthesis.";
         }
 
         /// <summary>
@@ -1183,8 +1277,8 @@ namespace Nmkoder.UI.Tasks
         /// sense the user can act on, and naming it would send someone to clear a row that agrees with
         /// the encode.
         /// <para/>
-        /// The Grainy Film preset sets tune 5 and none of the ten, so this cannot fire from a preset -
-        /// it is for a row typed by hand, which is the same division
+        /// No content preset sets <c>tune 5</c> - the one that did has been removed - so this cannot fire
+        /// from a preset at all. It is for a row typed by hand, which is the same division
         /// <see cref="GetUnsupportedAdvancedArgsProblem"/> draws.
         /// </summary>
         public static string GetFilmGrainTuneProblem(CodecUtils.Av1anCodec vCodec)
@@ -1680,15 +1774,37 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.deint.mkv";
         }
 
+        /// <summary> The denoised copy the Measured grain mode encodes, and the table measured against it.
+        /// Beside the temp folder like the two inputs above, and for the same reasons: av1an empties its
+        /// own temp folder at startup, and a resume has to be able to find both rather than spend the
+        /// hours again. </summary>
+        public static string GetDenoisedInputPath(string tempDir)
+        {
+            return $"{tempDir}.denoised.mkv";
+        }
+
+        public static string GetGrainTablePath(string tempDir)
+        {
+            return $"{tempDir}.grain.tbl";
+        }
+
         /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
-        /// Both suffixes, because a trimmed *and* deinterlaced run leaves one of each. </summary>
+        /// Every suffix, because a run can leave one of each - trimmed, then deinterlaced, then
+        /// denoised - and the grain table measured against the last of them.
+        /// <para/>
+        /// The denoised one is the reason to be careful here rather than the trimmed one: it is lossless
+        /// FFV1 and therefore the largest file this app ever writes, several times the size of the source.
+        /// It was left off this list when the grain modes were added, so every measured encode leaked one
+        /// of those onto the disk for good. </summary>
         private static IEnumerable<string> GetPreparedInputs(string tempDir)
         {
             try
             {
                 string name = Path.GetFileName(tempDir);
+                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.denoised.", $"{name}.grain." };
+
                 return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
-                    .Where(f => Path.GetFileName(f).StartsWith($"{name}.trim.") || Path.GetFileName(f).StartsWith($"{name}.deint.")).ToList();
+                    .Where(f => prefixes.Any(p => Path.GetFileName(f).StartsWith(p))).ToList();
             }
             catch (Exception e)
             {

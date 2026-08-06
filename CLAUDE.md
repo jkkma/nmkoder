@@ -471,7 +471,9 @@ for. `enable-qm` was one and has been removed. Do not add one back. (Mainline de
 parameters are accepted and then quietly do nothing. That is not a thing to work around.)
 
 **SVT-AV1 has three ways to ask for film grain and takes exactly one of them.** The Video tab's
-Grain Synthesis box is `--film-grain`; the Advanced tab's Film Grain & Noise group holds `noise`,
+Grain Synthesis row now owns two of the three itself - see "Grain synthesis" below, which is why that
+row became a mode selector - so what is left to collide is a row typed by hand in the grid beside it.
+The row writes `--film-grain` or `--fgs-table`; the Advanced tab's Film Grain & Noise group holds `noise`,
 which is svt-av1-hdr's own second synthesiser (0-200, and its help says 50 is roughly a
 `--film-grain 50`), and `fgs-table`, which applies a table from a file. They do not compose.
 `--fgs-table` switches `--noise` off, and either of them switches `--film-grain` off - the first
@@ -489,8 +491,8 @@ synthetic grain laid over the grain that was already there, which is the opposit
 
 `aomenc` is clean here: `AomAv1.json` carries no grain rows at all, and the grid is rebuilt per
 encoder, so only SVT-AV1 can be holding one. No content preset sets either of the two rows that
-collide - the Grainy Film one reaches into that group for `noise-norm-strength` and nothing else -
-so clicking one cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
+collide - SVT-AV1 has two presets and neither reaches into that group at all - so clicking one
+cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
 than a rival - `apply_denoise_2d` reads it directly - and `noise-chroma`, `noise-chroma-from-luma`
 and `noise-size` are `--noise`'s own satellites, reset with a warning when it is 0, so they are
 only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
@@ -505,9 +507,10 @@ deletes on a successful run: the same silence the grain collision above hides in
 inert with them rather than being overwritten - `cdef-scaling` (read only where `cdef_level` is not 0),
 `tf-strength` and `kf-tf-strength` (no temporal filtering left to strengthen) and
 `noise-adaptive-filtering` (it sets nothing but the two "back off on a noisy frame" flags for CDEF and
-restoration, and both filters are already off). So the Grainy Film preset sets `tune 5` and none of
-those ten. Read out of the fork's own source rather than its documentation, which describes the bundle
-without saying it is applied last.
+restoration, and both filters are already off). **No content preset sets `tune 5`** - the SVT-AV1
+Grainy Film / 35mm Scan one did and has been removed, see "Grain synthesis" below - so a 5 in that row
+was typed by hand. Read out of the fork's own source rather than its documentation, which describes the
+bundle without saying it is applied last.
 
 `Av1anUi.GetFilmGrainTuneProblem` is for the row typed by hand beside it, and it separates the two
 halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
@@ -1844,6 +1847,266 @@ to Automatic. It read the Quick Convert tab's Deinterlace row until 2.8.6, on th
 the mode and the preset should be set in one place. That only holds for someone who uses both,
 and the defaults do not want to agree anyway: Automatic is right on a tab that encodes whatever
 it is given and wrong here, where doing nothing means writing a re-encoded copy for no reason.
+
+## Grain synthesis
+
+**The Grain Synthesis row is a mode selector that owns every way this app can put grain in an AV1
+file, and that ownership is the point of it.** It was a strength spinner and a Denoise box, and what
+made it worth changing was not that grav1synth exists - it is that there were already *three* ways to
+ask SVT-AV1 for grain and they silently overrode each other. `--film-grain` sat on the row while
+`--noise` and `--fgs-table` sat in the Advanced grid, and SVT takes exactly one of the three, in
+`set_param_based_on_input`, with an `SVT_WARN` that goes to the encoder's stderr - which av1an collects
+per chunk into a log `HandleTempFolder` deletes on a successful run. `GetGrainSynthProblem` existed to
+report that collision after the fact. One control that writes at most one of them cannot express it.
+
+The five modes are in `GrainSynthMode`, and what separates them is not how the grain looks:
+
+| Mode | Where the description comes from | Cost |
+|---|---|---|
+| Encoder analysis | the encoder, from a strength | one number |
+| Measured from source | grav1synth diffing the source against a denoised copy | a lossless intermediate and a full extra pass |
+| Grain table file | a table the user already has | nothing, or the denoise pass on request |
+
+**The row is what the encoder does while it encodes, and nothing else.** Grain written into a file that is
+already encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
+utility's job and is not on this row at all. That is the division CLAUDE.md already states for Cut and
+Deinterlace Video: utilities write a file, the tabs' own settings apply during an encode, and neither
+reads the other's. `GrainSynthConfig.EncodeModes` is the row's list; the enum keeps `Preset` and
+`PhotonNoise` because the utility uses this same class to say where its grain comes from.
+
+**The strength survived the rewrite, and dropping it would have been a regression rather than a
+simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
+does the libsvtav1 inside the bundled ffmpeg - where `--film-grain N` is on every build, costs no extra
+pass, and denoises the picture itself. It is the right answer for most people and it stays the cheap
+default.
+
+**`GrainDelivery` has two values and there is deliberately no third.** A mode either hands the encoder a
+strength or hands it a table; a table it cannot take is a **refusal**, naming the utility as the way to
+put that grain in afterwards. `GetTableDeliveryProblem` is where that is decided, and it has three
+reasons to say no: the encoder has no table parameter at all, its `--help` says this SVT-AV1 is mainline
+rather than the PSY line, or the path contains a space - everything sent to an av1an-driven encoder ends
+up inside one `-v "…"` string that av1an splits again on the way to the binary, and a value with a space
+does not survive that split, which is the same limit the Advanced grid has always had.
+
+An earlier cut of this quietly fell back to rewriting the finished file with grav1synth instead. It
+produced the right output and it was the wrong shape: the row would have been doing the utility's job
+without saying so, which is exactly what the Cut and Deinterlace division exists to stop. Refusing costs
+the user one extra step and tells them what happened.
+
+**A table the user brings can denoise too, and that tick is what makes a saved table worth keeping.**
+Table mode runs no pass by default - a table is often there to put grain onto a source that never had
+any, where denoising would be destroying picture for nothing. Ticking Denoise runs the same pass Measured
+runs, which is the second half of the staged workflow: measure once, keep `<output>.grain.tbl`, and every
+later encode of that source is Grain table file + Denoise at the same strength, with the hours of
+measuring already paid. Without the tick that second encode codes the source's grain and then synthesises
+more on top of it, which is the one shape of this feature that costs bitrate instead of saving it.
+
+No encoder will denoise for a table - SVT reads its denoise flag only on the `--film-grain` path - so
+this is `DenoisePass` either way, and `NeedsDenoisePass` and `NeedsMeasurement` are separate questions
+now: Table with the tick does the first and not the second.
+
+**The clause the readout exists for is the last one: grain synthesis only saves bitrate where the
+picture being coded has had the grain taken out of it.** Measured always does; Encoder analysis and
+Grain table file do it only when their Denoise is ticked, and from the outside all of them produce a
+grainy-looking AV1 file. Somebody who points the row at a table without ticking Denoise has coded the
+source's own grain and then put more on top. Measured on a 6-second 640x480 clip with heavy synthetic grain, SVT-AV1 preset 8 CRF
+35: the grainy source encodes to 977,071 bytes, the denoised copy to 743,275, and the table applied to
+that comes to 758,560 - a 22% saving with the grain back, against a post-apply on the grainy encode,
+which saves nothing at all by construction.
+
+### What can still collide, now that the row owns two of the three
+
+The row writes at most one encoder argument, so the collision it was built to end cannot be expressed.
+Three can, and each is reported separately because the fix differs:
+
+**Precedence, not preference.** `--fgs-table` beats `--noise` beats `--film-grain`, so which of a pair
+survives depends entirely on which pair has met. A strength on the row against a grid `noise` loses the
+strength; a *table* on the row against the same grid row loses the **grid's**, because the table is read
+first. `GetGrainSynthProblem` says which way round it went - it was written the wrong way round first,
+reporting `--noise` as the winner over a table, which is exactly backwards.
+
+**The same argument written twice.** A table on the row and an `fgs-table` row in the grid both reach
+the command line and nothing here decides which SVT reads. That one names the row to clear rather than
+predicting a winner.
+
+**Retention against synthesis.** `GetGrainRetentionProblem` is for it. Retention makes the encoder's
+filters and transforms stop averaging the source's own grain away; synthesis takes that grain out of the
+picture and describes it instead. They are alternatives, and running both means spending bitrate and
+encoding time protecting texture that is no longer in the frames. Reported only where the row actually
+denoises - Measured from source, or Encoder analysis with Denoise ticked - and `tune` only at 5; a
+strength with Denoise unticked is *consistent* with retention and says nothing.
+
+**The SVT-AV1 Grainy Film / 35mm Scan preset is gone**, at the user's request, and it was the only thing
+that could raise that warning by being clicked: it set `tune 5` and `noise-norm-strength 2` for exactly
+the retention this row now offers to replace, and its own description said it did not touch the Grain
+Synthesis box - which was true of the arguments and no longer true of the intent. The check stays,
+because the rows can still be typed by hand and because the Anime / Cel Animation preset sets
+`noise-adaptive-filtering`, which is on the same list. The x264 and x265 presets of that name are
+untouched: neither encoder has grain synthesis at all, so the row is disabled beside them and there is
+nothing for retention to contradict.
+
+The retention list is `tune 5`, `noise-adaptive-filtering`, `noise-norm-strength` and `ac-bias` - this
+file's own account of which parameters are retention rather than synthesis, which is also why none of
+them ever appeared in the collision check.
+
+Every combination was exercised headless through the real methods, with the grid rows set and the row's
+controls driven: the three above fire, and Encoder-without-Denoise beside `tune 5`, `tune 0` beside
+Measured, and a grid `noise` with the row Off correctly say nothing.
+
+### aomenc's half of it, measured against 3.8.2
+
+**aomenc has `--film-grain-table` and it works**, so both AV1 encoders take a table from the row and only
+the spelling differs - which matters more now that a table an encoder cannot take stops the encode. Measured: a table passed in comes back out of the encode intact, and an encode with
+both `--film-grain-table` and `--denoise-noise-level` produces a grain table byte-identical to the one
+with the table alone - the same precedence SVT has, so sending a strength beside a table would be sending
+a number that is silently discarded.
+
+That is a narrower question than the one `EncoderArgPresets.Av1anEncoderName` refuses to ask, and the
+distinction matters: that map refuses x264 because its `--help` is a short list with the rest behind
+`--longhelp`, so a grid-wide check would strip parameters the binary has. aomenc prints
+`--film-grain-table` in its own `--help` alongside everything else it takes. Asking one binary about one
+flag it demonstrably documents is sound; widening the grid-wide map is still not.
+
+**`--tune-content=film` is not grain synthesis, and `AomAv1.json` said it was.** Measured: an encode with
+nothing but that flag comes out carrying film grain parameters that are **entirely zero** - the
+signalling is on and there is no grain in it. What measures and describes the source's grain is
+`--denoise-noise-level`, which is what the row writes. The row's description has been corrected; it had
+been telling people that setting `tune-content=film` would denoise the picture and write a grain
+description, which would have sent someone to the grid for a job the Grain Synthesis row now owns.
+
+**The first attempt to measure that was invalid and nearly went in as fact.** It went through ffmpeg's
+libaom wrapper, which has no `tune-content` option at all - so the encode ran without it and produced no
+grain headers, which reads exactly like "the flag does nothing". ffmpeg said so in the line this project
+already knows to watch for: "Codec AVOption tune-content … has not been used for any stream". Install
+aomenc and ask aomenc.
+
+### grav1synth, and the three things measured about it
+
+`Media/Grav1synth.cs` runs it. Everything in that file was measured against a real build rather than
+read out of the README, which is a release behind its own source in several places:
+
+1. **Its prompts are interactive, so every call passes `-y`.** With the output already there and no
+   overwrite flag it calls `dialoguer::Confirm`, which from a redirected process - every process this
+   app starts - fails with `Error: IO error: not a terminal` and exit 1.
+2. **Exit 0 is not success.** `inspect` on a file with no grain logs "No film grain headers found" and
+   returns 0 having written nothing. Each call is judged by the artifact and by the tool's own
+   "Done, wrote…" line - the same argument this file already makes about ffmpeg and `File.Exists`.
+3. **Its progress bar is hidden whenever stderr is not a TTY** (`stderr().is_tty()` in its main), so a
+   redirected run prints no percentage ever. There is nothing to parse; the bar goes indeterminate and
+   the row says up front how long the run should take.
+
+**The diff runs at about 7.2 megapixels a second, single-threaded.** Measured both ways round: 96
+frames of 320x240 in 1.11s and 48 frames of 1920x1080 in 13.05s. That is 3.7 fps at 1080p, so a
+100-minute film is **about eleven hours** of measuring before av1an is started, and a 4K feature is a
+weekend. That is not a reason to hide the mode - short sources are where most people want a measured
+table - but it is every reason the readout states the estimate for the loaded file rather than letting
+it be discovered at hour two. `Grav1synth.EstimateDiffTime` is the one statement of that figure.
+
+**`apply` and `remove` carry video, audio, subtitles and chapters and drop attachments** - read out of
+its own stream mapping, which skips every medium but those three. On this tab that is a box the user
+may well have ticked, so a post-apply on a file with attachments logs the fact.
+
+**It has never cut a release, so `bundle-tools.sh` builds it**, which makes it the only tool here that
+needs a compiler on the runner. Two ways of doing that are wrong and both were tried:
+
+- `cargo install --git` fetches the repository's submodules, and grav1synth carries dav1d-test-data
+  from code.videolan.org - conformance clips the build never reads. A shallow clone of the pinned
+  commit takes no submodules and builds identically.
+- The crates.io release is not the same program. 0.2.0 has no film stock presets, no `--replace` and no
+  diff filters, and its frame reader assumes the decoder's stride equals the frame width - so `diff`
+  dies with "data length mismatch, expected 76800, found 92160" on an ordinary 320x240 clip. The pinned
+  commit copies plane by plane with the real stride.
+
+Pinned rather than tracking main, because this parses an AV1 bitstream and rewrites it: a regression
+upstream would be found in somebody's finished encode. The build is skipped, loudly, where the runner's
+architecture does not match the RID - compiling produces a host binary, so an osx-x64 job on the arm64
+macOS runner would otherwise ship an arm64 binary inside an Intel zip.
+
+### The passes, and where they sit
+
+`RenderDenoisedInput` is the third of the AV1AN tab's input passes, after the trim and the deinterlace
+and on whatever they left: the grain has to be measured on the frames that will be encoded. It writes
+`{tempDir}.denoised.mkv` and `{tempDir}.grain.tbl` beside the temp folder, exactly as the trimmed and
+deinterlaced inputs are and for the same reason - av1an empties its own temp folder at startup, and a
+resume must find both rather than spend the hours again. Both are deleted together on a failure: a
+denoised file with no table beside it would be reused by the next resume as though it had been
+measured, and encoded with no grain description at all.
+
+**`DenoisePass` is lossless where `DeinterlacePass` beside it is deliberately near-lossless, and the
+difference is what the output is for.** That pass writes a file to be looked at or encoded again, where
+x264 at CRF 12 is indistinguishable and a tenth of the size. This one writes a file to be *measured
+against*, and whatever a lossy codec adds is a difference between the two files that is not grain -
+grain being precisely the small high-frequency signal a quantiser disturbs first. Hence FFV1, and a
+temporary file larger than the source, which the row says before the run rather than a full disk saying
+it during one.
+
+**The denoiser is hqdn3d and spatial only**, its temporal halves pinned to 0. hqdn3d's temporal filter
+is not motion compensated, so on anything that moves it blends the previous frame into the current one
+and the difference between the two files there is a ghost rather than grain. It is not the best
+denoiser ffmpeg has - nlmeans and bm3d both are - and it is the only one whose speed survives a whole
+film, which this pass has to.
+
+**The table is kept and the denoised copy is not.** `SaveMeasuredGrainTable` copies a measured table
+beside the encode as `<output>.grain.tbl` before the temp data goes, because it is the one thing in there
+worth more than the encode it belongs to: it took hours to measure, it is a few tens of kilobytes, and it
+describes the *source* rather than that encode - so it is the input to every later encode of the same
+film through the row's Grain table file mode. The denoised intermediate goes with the rest of the scratch
+data, and `GetPreparedInputs` had to be taught about it: it matched `.trim.` and `.deint.` only, so every
+measured encode leaked a lossless FFV1 copy of the whole video - the largest file this app writes - onto
+the disk for good.
+
+`ApplyGrainToOutput` runs after av1an and writes beside the output before replacing it, rather than in
+place: this is a bitstream rewrite of a file that may have taken hours, from a young tool that says
+itself that some videos fail to take grain properly, and the failure worth guarding against is the one
+that leaves neither the original nor a working copy.
+
+**A resume that replays a saved av1an command cannot post-apply**, because the saved command is av1an's
+arguments and nothing else - there is nowhere in it for a grain setting to live, and the row on screen
+describes the next encode rather than that one. It logs that rather than producing a file quietly
+without grain. Resuming *with current settings* rebuilds the command and works normally.
+
+### The Film Grain utility
+
+The card is the same tool with the encode taken out of it, and it owns everything done to a file that is
+already encoded: a table measured off a source before committing to the encode that will use it, a table
+read back out of somebody else's encode, and grain written onto or stripped off a finished file - the film
+stock presets and the photon noise among them, which is why the row does not offer either. `UtilFilmGrain` holds the four
+operations; a utility that writes a file and stops, like Cut and Deinterlace Video beside it, with its own
+settings and nothing reaching the encode tabs.
+
+**One card and four operations rather than four cards.** Three of them take about as long as a remux, so a
+card each would give the Utilities tab three more rows for something almost nobody does twice, and they act
+on the same loaded file through the same binary.
+
+**Measure is the odd one out twice over.** It is the only operation that does not need an AV1 input - it
+diffs decoded frames, so it reads the grain off a ProRes master or a DVD rip perfectly well - and it is the
+only one that costs anything, which is why the dialog states the estimate for the loaded file before the
+operation is picked rather than after. The other three read and rewrite an AV1 bitstream and say so plainly
+when handed anything else.
+
+The denoised copy Measure produces goes to the session folder and is deleted, unless "Keep the denoised
+video too" is ticked, in which case it lands beside the table as `<name>_denoised.mkv`. Off by default,
+because it is lossless FFV1 and several times the size of the source and the table is what the operation is
+for; on, it is the other half of a hand-run pipeline - the file to encode, with the table to put back
+afterwards. The session folder rather than beside the source for the discarded case, so a run that dies
+partway does not leave a lossless copy of somebody's film behind.
+
+`ApplySource` is a `GrainSynthConfig` rather than three fields of the utility's own, because
+`Grav1synth.ApplyAsync` already reads one - two vocabularies for "where does this grain come from" is how
+they come to mean different things.
+
+All four were run against the real binary in the command shapes this builds: `diff` on a denoised pair,
+`inspect` round-tripping a table back out of an encode, `apply` from a table, from `--preset 16mm` and from
+`--iso 800 --chroma`, and `remove` taking a 758,560-byte grained encode back to 743,282 with `inspect`
+afterwards reporting no grain headers.
+
+### What is not verified
+
+The `--fgs-table` path could not be exercised here: there is no SvtAv1EncApp in a web session, and the
+libsvtav1 inside ffmpeg has no such option. What was measured end to end is the rest of the chain - the
+denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1 encode of the denoised file, `apply` with
+the resulting table, and an `inspect` round trip reading the grain back out. The table format is aom's
+own `filmgrn1`, which is what the parameter takes.
 
 ## Tone mapping
 

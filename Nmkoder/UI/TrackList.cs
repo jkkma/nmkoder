@@ -53,6 +53,7 @@ namespace Nmkoder.UI
             ThumbnailView.ClearUi();
             DeinterlaceUi.RefreshInfo(); // The readouts describe the loaded file, and there is none now
             ToneMapUi.RefreshInfo();
+            GrainSynthUi.RefreshInfo(); // Its Measured mode names an hours-long estimate for the loaded file
 
             if (resetSettings)
                 ResetSettings();

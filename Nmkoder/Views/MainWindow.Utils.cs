@@ -25,6 +25,7 @@ namespace Nmkoder.Views
         private void SelectBitratePlot(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.PlotBitrate);
         private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
         private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
+        private void SelectFilmGrain(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilFilmGrain);
 
         private async void UtilsDeinterlaceConf_Click(object sender, RoutedEventArgs e)
         {
@@ -35,6 +36,22 @@ namespace Nmkoder.Views
             // list. The dialog says as much where the source line would otherwise be.
             await DeinterlaceWindow.ShowAsync();
             UpdateDeinterlaceBtnText();
+        }
+
+        private async void UtilsFilmGrainConf_Click(object sender, RoutedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilFilmGrain);
+
+            // No file check, as the Deinterlace dialog does it: the operation and its grain source are
+            // just as configurable with an empty list, and the dialog says so where the source line goes.
+            await FilmGrainWindow.ShowAsync();
+            UpdateFilmGrainBtnText();
+        }
+
+        /// <summary> The Film Grain utility's button doubles as the readout of what is configured. </summary>
+        public void UpdateFilmGrainBtnText()
+        {
+            UtilsFilmGrainConfBtn.Content = UtilFilmGrain.DescribeSettings();
         }
 
         /// <summary> The Deinterlace utility's button doubles as the readout of what is configured, as
@@ -164,6 +181,7 @@ namespace Nmkoder.Views
                 { UtilsBitratePlotPanel, RunTask.TaskType.PlotBitrate },
                 { UtilsOcrPanel, RunTask.TaskType.UtilOcr },
                 { UtilsDeinterlacePanel, RunTask.TaskType.UtilDeinterlace },
+                { UtilsFilmGrainPanel, RunTask.TaskType.UtilFilmGrain },
             };
 
             foreach (var pair in panels)

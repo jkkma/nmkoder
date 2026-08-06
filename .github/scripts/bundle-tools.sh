@@ -1365,6 +1365,124 @@ EOF
   note_ok "THIRD-PARTY.txt"
 }
 
+# ─────────────────────────── grav1synth ───────────────────────────
+# Reads and writes the film grain description in an AV1 bitstream, which is what the AV1AN
+# tab's Grain Synthesis row needs for every mode but "Encoder analysis". Nmkoder runs it
+# out of bin/, like mkvmerge.
+#
+# **It is built from source, because it has never cut a release.** There are no assets to
+# fetch - not one tag, on a repository that has been going for years - so try_assets has
+# nothing to work with and this is the one tool here that needs a compiler.
+#
+# Two details that are not obvious and were both measured:
+#
+#   1. Do NOT use `cargo install --git`. Cargo fetches a git dependency's submodules, and
+#      grav1synth carries dav1d-test-data from code.videolan.org - hundreds of megabytes of
+#      conformance clips that the build itself never reads. A plain shallow clone takes no
+#      submodules and builds identically.
+#   2. Do NOT use the crates.io release either. 0.2.0 is far behind the source: it has no
+#      film stock presets, no --replace, no diff filters, and its frame reader assumes the
+#      decoder's stride equals the frame width - which is false for most widths, so `diff`
+#      dies with "data length mismatch, expected 76800, found 92160" on an ordinary 320x240
+#      clip. The commit below handles strides properly.
+#
+# Pinned rather than tracking main, because this parses an AV1 bitstream and rewrites it in
+# place: a regression upstream would be discovered in somebody's finished encode.
+GRAV1SYNTH_REPO="${GRAV1SYNTH_REPO:-https://github.com/rust-av/grav1synth}"
+GRAV1SYNTH_REV="${GRAV1SYNTH_REV:-1044228cd411672b565e5762a9b3597f4dd163b0}"
+
+# ffmpeg-the-third links against the system ffmpeg, so the build needs its headers and
+# import libraries - which is the whole reason this is per-platform. Linux and macOS have a
+# package for it; Windows has none, so the dev files come out of the same BtbN build the
+# app already ships, in its "shared" flavour, which carries include/ and lib/ beside bin/.
+grav1synth_ffmpeg_dev() {
+  case "$RID" in
+    linux-x64)
+      sudo apt-get update -qq >/dev/null 2>&1 || return 1
+      sudo apt-get install -y -qq --no-install-recommends \
+        libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libavfilter-dev libavdevice-dev >/dev/null 2>&1 || return 1
+      ;;
+    osx-x64|osx-arm64)
+      brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg >/dev/null 2>&1 || return 1
+      ;;
+    win-x64)
+      local url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip"
+      fetch "$url" "$WORK/ffdev.zip" || return 1
+      extract "$WORK/ffdev.zip" "$WORK/ffdev" || return 1
+      local root
+      root="$(find "$WORK/ffdev" -type d -name include -print -quit)" || return 1
+      [ -n "$root" ] || return 1
+      export FFMPEG_DIR="$(dirname "$root")"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Whether this runner can produce a binary for the RID being built. Compiling produces a
+# binary for the host, so an osx-x64 job on the arm64 macOS runner would quietly ship an
+# arm64 grav1synth inside an Intel zip - a skip that says so is far better than that.
+grav1synth_arch_matches() {
+  local host; host="$(uname -m 2>/dev/null || echo unknown)"
+
+  case "$RID" in
+    *-arm64) [ "$host" = "arm64" ] || [ "$host" = "aarch64" ] ;;
+    *-x64)   [ "$host" = "x86_64" ] || [ "$host" = "amd64" ] ;;
+    *)       return 1 ;;
+  esac
+}
+
+bundle_grav1synth() {
+  command -v cargo >/dev/null 2>&1 || {
+    note_skip "grav1synth" "no Rust toolchain on this runner - it has no prebuilt binaries and must be compiled"
+    return
+  }
+
+  grav1synth_arch_matches || {
+    note_skip "grav1synth" "this runner is $(uname -m) and $RID needs another architecture - it is compiled, not downloaded"
+    return
+  }
+
+  grav1synth_ffmpeg_dev || {
+    note_skip "grav1synth" "could not get ffmpeg development headers for $RID"
+    return
+  }
+
+  local src="$WORK/grav1synth"
+  # --depth 1 on the pinned commit rather than a full clone: the history is not wanted and
+  # neither, emphatically, are the submodules.
+  git init -q "$src" >/dev/null 2>&1 || { note_skip "grav1synth" "git init failed"; return; }
+  (
+    cd "$src" &&
+    git remote add origin "$GRAV1SYNTH_REPO" &&
+    git fetch -q --depth 1 origin "$GRAV1SYNTH_REV" &&
+    git checkout -q FETCH_HEAD
+  ) >/dev/null 2>&1 || { note_skip "grav1synth" "could not fetch $GRAV1SYNTH_REV from $GRAV1SYNTH_REPO"; return; }
+
+  ( cd "$src" && cargo build --release --locked ) || {
+    note_skip "grav1synth" "cargo build failed - see the log above"
+    return
+  }
+
+  install_binary "$src/target/release" grav1synth "$BIN" || {
+    note_skip "grav1synth" "cargo reported success but no binary was produced"
+    return
+  }
+
+  # Presence is not usability - the same lesson the VapourSynth plugins taught. A binary that
+  # cannot find its ffmpeg libraries at runtime prints nothing this app would see, so it is
+  # asked to do the one thing every mode needs it to do first.
+  "$BIN/grav1synth$EXE" presets >/dev/null 2>&1 || {
+    rm -f "$BIN/grav1synth$EXE"
+    note_skip "grav1synth" "the built binary could not run - most likely its ffmpeg libraries are not beside it"
+    return
+  }
+
+  note_ok "grav1synth ($GRAV1SYNTH_REV)"
+  note_licence "  grav1synth         MIT
+                     $GRAV1SYNTH_REPO
+                     Built from source at $GRAV1SYNTH_REV"
+}
+
 echo "Bundling external tools for $RID into $BIN"
 bundle_ffmpeg
 bundle_mkvtoolnix
@@ -1374,6 +1492,7 @@ bundle_svtav1
 bundle_msys2_encoders
 bundle_vpxenc
 bundle_vmaf_models
+bundle_grav1synth
 # A tool that skipped may have left its (now empty) destination folder behind.
 find "$BIN" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 write_notice
