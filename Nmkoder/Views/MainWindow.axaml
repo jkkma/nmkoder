@@ -221,7 +221,7 @@
                        The order is deliberate: everything with a readout under it is in the last column,
                        where the text has the rest of the window to run into. A readout in a middle column
                        would be drawing over the column beside it. -->
-                  <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4" HorizontalAlignment="Center">
 
                     <!-- What is being encoded with -->
                     <Grid Classes="form" ColumnDefinitions="125,200" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
@@ -506,7 +506,7 @@
                   <!-- Three columns in a WrapPanel, the same shape and for the same reasons as the AV1AN
                        tab's Video tab - see the comment there. Every row with a readout under it is in
                        the last column, where the text has the rest of the window to run into. -->
-                  <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4" HorizontalAlignment="Center">
 
                     <!-- What is being encoded with -->
                     <Grid Classes="form" ColumnDefinitions="125,325" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
