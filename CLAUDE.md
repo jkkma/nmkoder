@@ -46,19 +46,29 @@ off style classes (`field`, `dim`, `hint`, `h`, `card`, `panel`, `num`, `icon`,
 `accent`, `danger`, `subtle`, `log`, `mono`); a control type used in more than
 one window gets a base rule there so its metrics line up.
 
-**The readouts wrap inside their column, and that is what decides where the three columns fit.** They
-were one line and unbounded, which made *them* the column's width rather than the controls: measured on
-the AV1AN tab with a 4K HDR file and borders on, the longest was 644px against the 500 the widest
-control row needs, so the third column measured 774 and the `WrapPanel` dropped it onto a line of its
-own on any window under **1714px**. Bounding that column to 320 and wrapping the text in it, folding
-the three-control deinterlace row into its own `WrapPanel`, and taking the label columns from 130 to
-115 brings the three columns abreast down to a **1480px** window - measured by walking the window width
-down until they stopped sitting level, not by arithmetic on the parts.
+**Every control is sized to what it can actually show, and that is what decides where the three columns
+fit.** The columns were fixed at 320 and 360 and the boxes stretched to fill them, so "MKV" sat in a
+320px dropdown while the Resize box, which needs 291 for `1080p (Full HD) — 1920x1038`, was set to 260
+and quietly clipping. Measure each box against every item it can hold and the numbers come out
+elsewhere: 197 for the encoder list, 199 for the quality modes, 153 for the containers, 260 for the
+colour formats, 323 for Quick Convert's codec list - which was in a 320 column, also clipping.
 
-The cost is real and was the old comment's reason for one line: a readout is rewritten on every file
-load, and a two-line one reflows the rows beneath it. Three columns on an ordinary window is worth more
-than that, which is the whole reason the panel wraps at all. Both tabs carry the same numbers; they are
-the same layout and they must land in the same place.
+The readouts were the other half. One line and unbounded, they made *themselves* the column's width
+rather than the controls: with a 4K HDR file and borders on, the longest measured 644px, the third
+column came to 774, and the `WrapPanel` dropped it onto a line of its own on any window under
+**1714px**. They wrap now, at the width of the boxes above them, so a readout and its dropdown share a
+right edge - checked by translating both to window coordinates and comparing, not by eye.
+
+Three columns are abreast down to a **1340px** window, from 1714. That was measured by walking the
+window width down until the columns stopped sitting level, and the same walk is how each step was
+judged: bounding the third column 1714 -> 1565, folding the deinterlace row into its own `WrapPanel`
+-> 1505, 115px labels -> 1480, right-sizing the dropdowns -> 1340.
+
+The cost is the old comment's reason for one line: a readout is rewritten on every file load, and a
+two-line one reflows the rows beneath it. Three columns on an ordinary window is worth more than that,
+which is the whole reason the panel wraps at all. A row carrying a second control - Resize's Configure
+button, the grain mode's contextual panel, the deinterlacer's preset and checkbox - is a `WrapPanel`
+so that control folds under rather than setting the column's width for everyone.
 
 **Both Video tabs are three columns in a `WrapPanel`, and the wrapping is the
 whole responsive behaviour.** They were one six-column `Grid` - two label/control
