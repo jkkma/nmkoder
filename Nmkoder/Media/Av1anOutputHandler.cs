@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static Nmkoder.Media.AvProcess;
 
@@ -46,6 +47,9 @@ namespace Nmkoder.Media
             stopProgressLoop = false;
             currentQueueSize = 0; // Static, so it has to be cleared or the next encode inherits this one's chunk count
             currentTotalFrames = 0;
+            chunkFailures = 0; // Static for the same reason - a batch would otherwise carry one file's failures onto the next
+            explainedChunkFailure = false;
+            reportedChunkFailures = false;
             int workers = ParseWorkerCount(av1anArgs);
             currentLogReaderTask = Task.Run(() => ParseProgressLoop(workers));
         }
@@ -69,6 +73,7 @@ namespace Nmkoder.Media
         public static void StopProgressLoop()
         {
             stopProgressLoop = true;
+            ReportChunkFailures(); // Called twice per run by AvProcess, which is what the guard inside is for
         }
 
         /// <summary> Sleeps in small steps so the loop notices the encode ending. False = stop looping. </summary>
@@ -104,8 +109,84 @@ namespace Nmkoder.Media
             Logger.Log(line, hidden, replaceLastLine, "av1an",
                 fatal ? Logger.Level.Error : LooksLikeTrouble(line) ? Logger.Level.Warning : Logger.Level.Info);
 
+            NoteChunkFailure(line);
+
             if (fatal)
                 RunTask.Cancel($"Error: {line}");
+        }
+
+        /// <summary> Chunks av1an has failed this run, and whether the first has been explained. </summary>
+        static int chunkFailures;
+        static bool explainedChunkFailure;
+        static bool reportedChunkFailures;
+
+        static readonly Regex frameMismatch = new Regex(@"FRAME MISMATCH: chunk (\d+): (\d+)/(\d+)");
+
+        /// <summary>
+        /// Says what a failed chunk means, once, in a line that survives.
+        /// <para/>
+        /// It has to be written by this app because av1an's own account of it says nothing a user can
+        /// act on - "encoder crashed: exit code: 0", a frame count, and a source pipe reporting errno 32
+        /// - and because <b>nothing about it reached the screen at all</b>. Every encode logs through
+        /// <see cref="LogMode.OnlyLastLine"/>, which rewrites the last row on each progress line, and a
+        /// Warning is replaceable by design (a damaged source prints scores of them and pinning each
+        /// would bury the log) - so av1an's "Encoder failed (on chunk 1)" was overwritten within a
+        /// fraction of a second, every time, and a run that had already lost four chunks read as a
+        /// healthy one sitting at 4%. This is levelled the same way and simply not replaced: it is
+        /// written once per run however many chunks fail, so it cannot bury anything either.
+        /// <para/>
+        /// A retried chunk is still not a failure - av1an's exit code decides that, exactly as ffmpeg's
+        /// does - which is why this explains rather than cancelling.
+        /// </summary>
+        static void NoteChunkFailure(string line)
+        {
+            Match match = frameMismatch.Match(line);
+
+            if (!match.Success)
+                return;
+
+            chunkFailures++;
+
+            if (explainedChunkFailure)
+                return;
+
+            explainedChunkFailure = true;
+            int actual = match.Groups[2].Value.GetInt();
+            int expected = match.Groups[3].Value.GetInt();
+
+            // Short and long are opposite faults and the fix for one is no use against the other. Short
+            // means the frames stopped arriving: the encoder reached the end of a truncated stream,
+            // finished normally and exited 0, so the only process that actually went wrong is one av1an
+            // does not report the death of. Long means something in the chain wrote more frames than it
+            // read, which is the case --ignore-frame-mismatch exists for and Av1an.Run already sends it
+            // for - so reaching here means a filter changed the count without this app knowing.
+            string explanation = actual < expected
+                ? $"chunk {match.Groups[1].Value} came out {expected - actual} frames short of the {expected} it was " +
+                  $"given. That is the frames stopping rather than the encoder going wrong - it reads until the stream " +
+                  $"ends and exits 0 on whatever arrived - and the commonest reason is the machine running out of memory " +
+                  $"and killing the process feeding it. Lower Workers on the Av1an Options tab and run it again."
+                : $"chunk {match.Groups[1].Value} came out {actual - expected} frames longer than the {expected} it was " +
+                  $"given, so something in the filter chain is writing more frames than it reads. Check the custom " +
+                  $"filters on this tab - a filter that changes the frame count needs av1an's --ignore-frame-mismatch, " +
+                  $"which is only sent for the Frame Rate box.";
+
+            Logger.LogWarn($"AV1AN failed a chunk: {explanation} av1an retries a failed chunk a few times and then " +
+                $"gives up on the whole encode, so this is worth acting on rather than waiting out.", "av1an");
+        }
+
+        /// <summary> The tally, once the run is over. Separate from the explanation above because the
+        /// count is only interesting at the end - during the run it is a number that keeps changing on a
+        /// row nobody is watching. </summary>
+        static void ReportChunkFailures()
+        {
+            if (reportedChunkFailures || chunkFailures < 1)
+                return;
+
+            reportedChunkFailures = true;
+
+            if (chunkFailures > 1)
+                Logger.LogWarn($"AV1AN failed {chunkFailures} chunks during this run - see the reason above. Each one " +
+                    $"was encoded and thrown away, so the run took longer than it needed to whether or not it finished.", "av1an");
         }
 
         /// <summary>

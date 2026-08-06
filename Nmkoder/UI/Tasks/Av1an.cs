@@ -450,6 +450,19 @@ namespace Nmkoder.UI.Tasks
                     string ffFilters = vf.IsNotEmpty() ? $"-f \" {vf} \" " : ""; // Omit rather than pass av1an a blank filter string
                     string pixFmtConverter = await GetPixelFormatConverterArgs(pixFmt, ffFilters.IsNotEmpty(), chunkMethod);
 
+                    // Said before the run rather than discovered during it. Workers is the memory axis -
+                    // each one holds an encoder, a decoder and, where this tab sets any filters, the
+                    // ffmpeg applying them - and a machine that cannot hold them all does not fail in a
+                    // way anybody can read: see Av1anMemory for what av1an prints instead, which names
+                    // neither memory nor the box to change. Everything the estimate needs is settled by
+                    // here - the encoder, the frame it is handed, the source it comes from and the chain
+                    // in between.
+                    string memoryProblem = Av1anMemory.GetProblem(form.Av1anOptsWorkerCountUpDown.Value.AsInt(),
+                        vCodec, frame.Encoded, frame.Source, vf);
+
+                    if (memoryProblem.IsNotEmpty())
+                        Logger.LogWarn(memoryProblem);
+
                     // The input is not named here. A trim has to cut its section out first, and where
                     // that copy goes is only settled once this run's temp folder is, so the '-i' is
                     // put in front of all of this below, after the cut has run.
