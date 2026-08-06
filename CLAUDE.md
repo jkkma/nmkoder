@@ -504,10 +504,18 @@ which goes to the encoder's stderr, which av1an collects per chunk into a log `H
 deletes on a successful run: the same silence the grain collision above hides in. Four more rows go
 inert with them rather than being overwritten - `cdef-scaling` (read only where `cdef_level` is not 0),
 `tf-strength` and `kf-tf-strength` (no temporal filtering left to strengthen) and
-`noise-adaptive-filtering` (it backs CDEF and restoration off, and both are already off). So the
-Grainy Film preset sets `tune 5` and none of those ten, and a row typed by hand beside it is the case
-nothing here catches. Read out of the fork's own source rather than its documentation, which describes
-the bundle without saying it is applied last.
+`noise-adaptive-filtering` (it sets nothing but the two "back off on a noisy frame" flags for CDEF and
+restoration, and both filters are already off). So the Grainy Film preset sets `tune 5` and none of
+those ten. Read out of the fork's own source rather than its documentation, which describes the bundle
+without saying it is applied last.
+
+`Av1anUi.GetFilmGrainTuneProblem` is for the row typed by hand beside it, and it separates the two
+halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
+a user told the wrong one will go looking for the wrong thing. A row set to what the tune sets anyway
+is **not** reported - `ac-bias 4` against the tune's `4.00` is agreement, not a collision, and sending
+someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` is in the
+message but not in the check: the tune sets it and the parameter list has no row for it, so there is
+nothing to overwrite.
 
 **The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
