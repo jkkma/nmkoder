@@ -2029,11 +2029,19 @@ is `bin/`, `doc/` and `presets/`, with nothing to link against - so a Windows gr
 against DLLs and cannot start without them beside it. `install_binary` could not have brought them: it
 copies DLLs sitting next to the binary it found, and a cargo build's target directory has none.
 
-2.8.31 is what that looks like when it is missed: the binary built perfectly on the Windows runner and
-was then rejected by the `grav1synth presets` smoke test, so that release shipped Windows without the
-tool. The check did its job - what it caught would otherwise have been a binary that fails to start in
-front of a user - but the release went out with three of the row's four modes unavailable on the
-platform most people use. **Presence is not usability, and neither is a successful compile.**
+**The dev headers are pinned to FFmpeg 7.1, and that is the part that actually kept Windows broken.**
+`ffmpeg-the-third`, the crate grav1synth binds through, does not compile against FFmpeg 8: eleven
+errors, the first being `no associated item named V410 found for AVCodecID`. BtbN's `master-latest` is
+FFmpeg 8, and that is what this pointed at, so the Windows build failed at `cargo build` and 2.8.31 and
+2.8.32 both shipped without the tool. Linux and macOS were never aimed at a rolling upstream - Ubuntu's
+dev packages are 6.1 and Homebrew's are 7.x - so both compiled by accident of their package manager.
+
+Reproduced locally rather than inferred, against BtbN's *Linux* shared builds, which carry the same
+headers as the Windows ones: master (avutil 61) fails with that exact error, `n7.1-latest` (avutil 59)
+builds clean. **A green release is not evidence the tool shipped** - both of those releases were green,
+the bundler being best-effort by design, and the only way to know is to look in the archive. 2.8.32
+also went out with a fix for the wrong cause: the DLLs were a real requirement and not the reason the
+build was failing, which was only visible once the log was read rather than reasoned about.
 
 The DLLs go in before the smoke test, so what is tested is the layout that ships, and they are removed
 again with the binary if it still will not run: 168 MB of ffmpeg is dead weight in a zip whose reason

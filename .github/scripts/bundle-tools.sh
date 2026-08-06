@@ -1406,7 +1406,17 @@ grav1synth_ffmpeg_dev() {
       brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg >/dev/null 2>&1 || return 1
       ;;
     win-x64)
-      local url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip"
+      # **Pinned to 7.1 rather than master, and that is the whole reason this ever worked.** BtbN's
+      # master-latest is FFmpeg 8, and ffmpeg-the-third - the crate grav1synth binds through - does not
+      # compile against it: eleven errors, of which the first is `no associated item named V410 found
+      # for AVCodecID`. Reproduced locally against both of BtbN's Linux shared builds, which carry the
+      # same headers: master (avutil 61) fails identically, n7.1 (avutil 59) builds clean.
+      #
+      # The other two platforms only worked by accident of their package managers - Ubuntu's dev
+      # packages are 6.1 and Homebrew's are 7.x - so Windows was the one platform aimed at a rolling
+      # upstream, and it broke on the version of it that happened to be current. A pinned major is the
+      # fix; within it BtbN's own -latest is fine, ABI being what a major number promises.
+      local url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip"
       fetch "$url" "$WORK/ffdev.zip" || return 1
       extract "$WORK/ffdev.zip" "$WORK/ffdev" || return 1
       local root
@@ -1472,8 +1482,11 @@ bundle_grav1synth() {
   # headers and import libraries at all - the plain win64-gpl zip is bin/, doc/ and presets/ and has
   # nothing to link against. So the exe needs those DLLs beside it, and install_binary cannot have
   # brought them: it copies DLLs sitting next to the binary it found, and a cargo build's target
-  # directory has none. Without this the binary is built perfectly and cannot start, which is what
-  # 2.8.31 shipped - or rather did not ship, the check below having caught it.
+  # directory has none.
+  #
+  # They are 7.1's - avutil-59, avcodec-61, avformat-61 - and the ones already in av1an/enc/ are
+  # FFmpeg 8's, from MSYS2. That is not a collision: Windows resolves an import by file name, the two
+  # sets are named apart by their soname, and grav1synth is launched with bin/ as its own directory.
   #
   # It costs about 168 MB uncompressed on a Windows download that is already large, and that is the
   # deliberate trade: the alternative is --features ffmpeg_static, which builds ffmpeg from source on
