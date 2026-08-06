@@ -212,6 +212,10 @@ namespace Nmkoder.Utils
         /// near it. Either is far better than assuming, and both are already parsed by
         /// <see cref="GetColorData"/> off ffprobe's frame side data and mkvinfo alike.
         /// <para/>
+        /// Either is skipped where it sits on <see cref="PqCeilingNits"/>, which is where the argument
+        /// above stops holding: a number at the top of the format is not a measurement of anything. See
+        /// that constant for what trusting one costs.
+        /// <para/>
         /// This matters because **ffmpeg's own tone-mapper does not read either of them.** Measured
         /// against a current BtbN master build: the same PQ ramp with and without a MaxCLL of 1000 and a
         /// mastering display of 1000 nits tone-maps to byte-identical output, so the filter's automatic
@@ -226,12 +230,45 @@ namespace Nmkoder.Utils
 
             foreach (string value in new[] { d.MaxCll, d.LumaMax })
             {
-                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double nits) && nits > 0)
+                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double nits)
+                    && nits > 0 && nits < PqCeilingNits)
+                {
                     return nits;
+                }
             }
 
             return 0;
         }
+
+        /// <summary>
+        /// The top of the PQ curve, and so the largest number either field can hold - which is exactly
+        /// what makes a value sitting on it useless. **A peak declared at the ceiling is the format's
+        /// maximum, not a measurement**, so it is skipped and the next candidate answers instead.
+        /// <para/>
+        /// The case this was written for is an ordinary UHD Blu-ray rip: x265 wrote
+        /// <c>cll=10000,258</c> beside <c>master-display … L(40000000,50)</c> - MaxCLL at the ceiling,
+        /// MaxFALL a measured-looking 258, and a mastering display of 4000 nits, which is the brightest
+        /// the grade can ever have been checked on. Taken at face value that put <c>npl</c> at 2666.7
+        /// and **crushed the whole picture**: measured on PQ patches through this app's own chain, 203
+        /// nits - BT.2408's SDR reference white, where the graded picture's white belongs - came out at
+        /// 23.2% of the SDR range against 33.6% off the mastering display's 4000, and 100 nits at 17.2%
+        /// against 25.2%. The top of the output range was simply unreachable: the file's own 4000-nit
+        /// peak only reached 69.7%, so nearly a third of the range went unused on a file that never
+        /// exceeded its own mastering display.
+        /// <para/>
+        /// It applies to <see cref="VideoColorData.LumaMax"/> as well as MaxCLL, and deliberately: a
+        /// mastering display declared at 10000 nits is a monitor that does not exist, so that field is
+        /// the same non-measurement under another name. With both at the ceiling the run falls through
+        /// to <see cref="Data.ToneMapConfig.AssumedPeakNits"/>, which is the right place to land - that
+        /// constant's own note already argues that assuming 10000 crushes every mid-tone in the far
+        /// commoner case, and this is that case arriving through the file rather than through the
+        /// default.
+        /// <para/>
+        /// Only the tone map reads this. What gets *written* back out by
+        /// <see cref="SetColorData"/> is the field itself, so a file's own MaxCLL is still carried
+        /// across untouched - this decides what to roll off to, not what the file says.
+        /// </summary>
+        public const double PqCeilingNits = 10000;
 
         /// <summary>
         /// Muxes <paramref name="d"/> onto <paramref name="path"/> in place.

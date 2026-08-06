@@ -2261,6 +2261,29 @@ MaxCLL, else its mastering display's maximum luminance, else an assumed 1000.
 with and without a MaxCLL of 1000 and a 1000-nit mastering display tone-maps to byte-identical
 output, so tonemap's own peak detection never sees the container's metadata.
 
+**A peak declared at 10000 nits is the format's ceiling, not a measurement, and taking one at face
+value crushed the whole picture.** `ColorDataUtils.GetDeclaredPeakNits` prefers MaxCLL because it
+measures *this* content where the mastering display only describes the monitor - and that argument
+stops holding at the top of the PQ curve, which is the largest number the field can hold and so what
+gets written when nobody measured. The case is an ordinary UHD Blu-ray rip: x265 wrote
+`cll=10000,258` beside `master-display … L(40000000,50)`, i.e. MaxCLL at the ceiling, a
+measured-looking MaxFALL of 258, and a 4000-nit mastering display - the brightest the grade can ever
+have been checked on. That put `npl` at 2666.7 and, measured on PQ patches through this app's own
+chain, **203 nits came out at 23.2% of the SDR range against 33.6%** off the mastering display's
+4000, with 100 nits at 17.2% against 25.2%. 203 is BT.2408's reference white, where the graded
+picture's white belongs. The top of the range was unreachable too: the file's own 4000-nit peak only
+reached 69.7%, so nearly a third of the output range went unused by a file that never exceeded its
+own mastering display.
+
+`PqCeilingNits` is the one statement of that, and it is applied to the mastering display as well as
+to MaxCLL - a monitor declared at 10000 nits does not exist, so that field is the same
+non-measurement under another name. With both at the ceiling it falls through to `AssumedPeakNits`,
+which is where it belongs: that constant's own note already argues that assuming 10000 crushes every
+mid-tone in the far commoner case, and this is that case arriving through the file rather than
+through the default. An honest MaxCLL still wins over the mastering display, 9999 is still trusted,
+and only the tone map reads any of it - `SetColorData` writes the file's own MaxCLL back out
+untouched.
+
 The alternative parameterisation - `npl=100` with an explicit `peak=` - was measured head to head
 and is worse. It holds mid-tones brighter (100 nits at 181 against 110) and clips from 374 nits on
 a 1000-nit source, where scaling npl clips nothing. Against libplacebo as the reference on the same
