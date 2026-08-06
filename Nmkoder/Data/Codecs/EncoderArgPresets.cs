@@ -250,8 +250,9 @@ namespace Nmkoder.Data.Codecs
                 }),
 
             new EncoderArgPreset("Game Capture / Gameplay",
-                "Raw gameplay capture at 1080p and up, 60fps or faster: sustained fast motion, hard-edged " +
-                "HUD text, and synthetic skies, fog and volumetrics that band badly. Keeps the screen " +
+                "Raw gameplay capture at 60fps or faster, at whatever size it is being encoded to - a 4K " +
+                "capture scaled down to 1080p or 720p included: sustained fast motion, hard-edged HUD " +
+                "text, and synthetic skies, fog and volumetrics that band badly. Keeps the screen " +
                 "content tools from misfiring on a HUD and taking a whole chunk with them.",
                 new Dictionary<string, string>
                 {
@@ -261,8 +262,15 @@ namespace Nmkoder.Data.Codecs
                     // wants. That advice is about desktop and menu recording. On rendered 3D the
                     // detector can misfire on a HUD, and its verdict is taken from the last I-frame and
                     // then carried to every picture after it - so under av1an, where a chunk begins at
-                    // every scene cut, one bad call colours the whole chunk. Menu-heavy captures are
-                    // the exception and want 3 instead.
+                    // every scene cut, one bad call colours the whole chunk. What that call costs is
+                    // more than palette coding: a screen content I-slice at preset 6 or slower turns
+                    // intra block copy on, and intra block copy gates off both the deblocking filter
+                    // and loop restoration for that frame - so the chunk's own anchor frame is the one
+                    // that loses them. This is also the row whose worth depends on the frame being
+                    // encoded rather than the file: the default of 2 runs no detection at all above
+                    // 1080p, so a capture encoded at its native 4K never reaches the misfire and this
+                    // value changes nothing, where the same capture scaled down to 1080p or 720p does
+                    // and it does. Menu-heavy captures are the exception and want 3 instead.
                     { "scm", "0" },
                     // Boosts a superblock once part of it is low contrast rather than nearly all of it,
                     // which is what fog, haze and god-rays look like. Inside the documented 4-7 band.
