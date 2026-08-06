@@ -46,6 +46,20 @@ off style classes (`field`, `dim`, `hint`, `h`, `card`, `panel`, `num`, `icon`,
 `accent`, `danger`, `subtle`, `log`, `mono`); a control type used in more than
 one window gets a base rule there so its metrics line up.
 
+**The readouts wrap inside their column, and that is what decides where the three columns fit.** They
+were one line and unbounded, which made *them* the column's width rather than the controls: measured on
+the AV1AN tab with a 4K HDR file and borders on, the longest was 644px against the 500 the widest
+control row needs, so the third column measured 774 and the `WrapPanel` dropped it onto a line of its
+own on any window under **1714px**. Bounding that column to 320 and wrapping the text in it, folding
+the three-control deinterlace row into its own `WrapPanel`, and taking the label columns from 130 to
+115 brings the three columns abreast down to a **1480px** window - measured by walking the window width
+down until they stopped sitting level, not by arithmetic on the parts.
+
+The cost is real and was the old comment's reason for one line: a readout is rewritten on every file
+load, and a two-line one reflows the rows beneath it. Three columns on an ordinary window is worth more
+than that, which is the whole reason the panel wraps at all. Both tabs carry the same numbers; they are
+the same layout and they must land in the same place.
+
 **Both Video tabs are three columns in a `WrapPanel`, and the wrapping is the
 whole responsive behaviour.** They were one six-column `Grid` - two label/control
 pairs and a filler - which ran the settings off the bottom of the tab into a

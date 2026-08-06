@@ -224,7 +224,7 @@
                   <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
 
                     <!-- What is being encoded with -->
-                    <Grid Classes="form" ColumnDefinitions="130,320" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="115,320" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anCodecBox" SelectionChanged="Av1anCodec_SelectionChanged" />
 
@@ -244,7 +244,7 @@
                     <!-- What is going in. 360 rather than 320 because the Crop row is a 260 wide dropdown
                          and a Configure button beside it, which overflowed the old column and was only
                          ever invisible because the filler column it spilled into was empty. -->
-                    <Grid Classes="form" ColumnDefinitions="130,360" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="115,360" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Color Format" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anColorSpaceBox" />
 
@@ -272,11 +272,22 @@
                       </StackPanel>
                     </Grid>
 
-                    <!-- What is done to the picture - every row here has a readout under it, so the
-                         control column is sized to its content and the text stays on one line. It is
-                         rewritten on every file load, and a wrap would reflow the rows beneath it each
-                         time a file is selected. -->
-                    <Grid Classes="form" ColumnDefinitions="130,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <!-- What is done to the picture - every row here has a readout under it. Those
+                         readouts used to be one line and unbounded, which made *them* the width of the
+                         column: the longest was 644px against the 500 the widest control row needs, so
+                         the column measured 774 and the WrapPanel dropped it onto a line of its own on
+                         any window under 1714px. They wrap inside the column now, so the column is as
+                         wide as it is told to be and no wider - which is what took the three columns
+                         from needing a 1714px window down to 1480, measured by walking the window
+                         width down until they stopped sitting abreast.
+
+                         The cost is the one the old comment named: a readout is rewritten on every file
+                         load, and a two-line one reflows the rows beneath it. That is worth three
+                         columns abreast on an ordinary window, which is the whole reason this is a
+                         WrapPanel. The deinterlace row is a WrapPanel for the same reason - three
+                         controls wide, it was what the column's width was really being set by once the
+                         text stopped setting it. -->
+                    <Grid Classes="form" ColumnDefinitions="115,320" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
@@ -284,14 +295,14 @@
                                     ToolTip.Tip="Each target is a box the picture is fitted inside, so the source's aspect ratio is kept whatever it is. The size beside each one is what this file comes out as." />
                           <Button x:Name="Av1anResizeConfBtn" Content="Configure…" IsVisible="False" Click="Av1anResizeConf_Click" />
                         </StackPanel>
-                        <TextBlock x:Name="Av1anResizeInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="Av1anResizeInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Borders" />
                       <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                         <ComboBox x:Name="Av1anBordersBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Av1anBorders_SelectionChanged"
                                   ToolTip.Tip="Adds black bars around the picture until the frame is the shape you pick, without scaling anything. Which bars are needed is worked out per file: a 2.39:1 film is wider than 16:9 and gets them along the top and bottom, a 4:3 capture is narrower and gets them down the sides, and a source already that shape gets none. The bars go on after the crop and the resize, so they are added to the finished picture rather than scaled along with it." />
-                        <TextBlock x:Name="Av1anBordersInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="Av1anBordersInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <!-- Every way this app can put grain in an AV1 file, on one dropdown. It is in this
@@ -315,7 +326,7 @@
                           </StackPanel>
 
                           <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <TextBox x:Name="Av1anGrainTableBox" Width="230" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
+                            <TextBox x:Name="Av1anGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
                             <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
                             <CheckBox x:Name="Av1anGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="Av1anGrainTableDenoise_Changed"
                                       ToolTip.Tip="Take the grain out of the picture before encoding it, with the same pass the Measured mode runs. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is. Set the strength to whatever the table was measured at." />
@@ -330,22 +341,22 @@
                           </StackPanel>
 
                         </StackPanel>
-                        <TextBlock x:Name="Av1anGrainInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="Av1anGrainInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <!-- Both halves of the row are hidden together, and only shown once the loaded file
                            is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
                       <TextBlock Grid.Row="3" Grid.Column="0" x:Name="Av1anDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                       <StackPanel Grid.Row="3" Grid.Column="1" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="Av1anDeintModeBox" Width="200" SelectionChanged="Av1anDeintMode_SelectionChanged"
                                     ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
                           <ComboBox x:Name="Av1anDeintPresetBox" Width="125" SelectionChanged="Av1anDeintPreset_SelectionChanged"
                                     ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC's noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
                           <CheckBox x:Name="Av1anDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Av1anDeintRate_Changed"
                                     ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Only offered for QTGMC: it runs before av1an, so the doubled rate is simply the rate of the file av1an is given, where a filter inside av1an emitting one frame per field would write twice the frames its chunking expects." />
-                        </StackPanel>
-                        <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" Text="" />
+                        </WrapPanel>
+                        <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <!-- Hidden unless the loaded file's transfer curve says HDR - see ToneMapUi.RefreshInfo.
@@ -354,7 +365,7 @@
                       <StackPanel Grid.Row="4" Grid.Column="1" x:Name="Av1anToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="Av1anToneMapModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="Av1anToneMap_SelectionChanged"
                                   ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Hable tracks the reference implementation most closely; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which." />
-                        <TextBlock x:Name="Av1anToneMapInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="Av1anToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
                     </Grid>
                   </WrapPanel>
@@ -498,7 +509,7 @@
                   <WrapPanel Orientation="Horizontal" ItemSpacing="40" LineSpacing="10" Margin="4">
 
                     <!-- What is being encoded with -->
-                    <Grid Classes="form" ColumnDefinitions="130,320" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="115,320" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Codec" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidCodecsBox" SelectionChanged="EncVidCodec_SelectionChanged" />
 
@@ -523,7 +534,7 @@
 
                     <!-- What is going in. 360 rather than 320 for the Crop row's Configure button, as on
                          the AV1AN tab. -->
-                    <Grid Classes="form" ColumnDefinitions="130,360" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="115,360" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Color Format" />
                       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncVidColorsBox" />
 
@@ -553,7 +564,7 @@
                          control column is sized to its content and the text stays on one line. It is
                          rewritten on every file load, and a wrap would reflow the rows beneath it each
                          time a file is selected. -->
-                    <Grid Classes="form" ColumnDefinitions="130,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="115,320" RowDefinitions="Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
@@ -561,29 +572,29 @@
                                     ToolTip.Tip="Each target is a box the picture is fitted inside, so the source's aspect ratio is kept whatever it is. The size beside each one is what this file comes out as." />
                           <Button x:Name="EncResizeConfBtn" Content="Configure…" IsVisible="False" Click="EncResizeConf_Click" />
                         </StackPanel>
-                        <TextBlock x:Name="EncResizeInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="EncResizeInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Borders" />
                       <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                         <ComboBox x:Name="EncBordersBox" Width="260" HorizontalAlignment="Left" SelectionChanged="EncBorders_SelectionChanged"
                                   ToolTip.Tip="Adds black bars around the picture until the frame is the shape you pick, without scaling anything. Which bars are needed is worked out per file: a 2.39:1 film is wider than 16:9 and gets them along the top and bottom, a 4:3 capture is narrower and gets them down the sides, and a source already that shape gets none. The bars go on after the crop and the resize, so they are added to the finished picture rather than scaled along with it." />
-                        <TextBlock x:Name="EncBordersInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="EncBordersInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <!-- Both halves of the row are hidden together, and only shown once the loaded file
                            is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
                       <TextBlock Grid.Row="2" Grid.Column="0" x:Name="EncDeintLabel" Classes="field" Text="Deinterlace" IsVisible="False" />
                       <StackPanel Grid.Row="2" Grid.Column="1" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="EncDeintModeBox" Width="200" SelectionChanged="EncDeintMode_SelectionChanged"
                                     ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />
                           <ComboBox x:Name="EncDeintPresetBox" Width="125" SelectionChanged="EncDeintPreset_SelectionChanged"
                                     ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC's noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
                           <CheckBox x:Name="EncDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="EncDeintRate_Changed"
                                     ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Untick to get one frame out per source frame instead." />
-                        </StackPanel>
-                        <TextBlock x:Name="EncDeintInfoLabel" Classes="hint" Text="" />
+                        </WrapPanel>
+                        <TextBlock x:Name="EncDeintInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
                       <!-- Hidden unless the file the video is mapped from has an HDR transfer curve - see
@@ -592,7 +603,7 @@
                       <StackPanel Grid.Row="3" Grid.Column="1" x:Name="EncToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="EncToneMapModeBox" Width="200" HorizontalAlignment="Left" SelectionChanged="EncToneMap_SelectionChanged"
                                   ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR. Hable tracks the reference implementation most closely; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which. Runs before any crop, scale or burnt-in subtitle, so everything after it is working in SDR." />
-                        <TextBlock x:Name="EncToneMapInfoLabel" Classes="hint" Text="" />
+                        <TextBlock x:Name="EncToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
                     </Grid>
                   </WrapPanel>
