@@ -2020,7 +2020,27 @@ needs a compiler on the runner. Two ways of doing that are wrong and both were t
 Pinned rather than tracking main, because this parses an AV1 bitstream and rewrites it: a regression
 upstream would be found in somebody's finished encode. The build is skipped, loudly, where the runner's
 architecture does not match the RID - compiling produces a host binary, so an osx-x64 job on the arm64
-macOS runner would otherwise ship an arm64 binary inside an Intel zip.
+macOS runner would otherwise ship an arm64 binary inside an Intel zip. **osx-x64 therefore has no
+grav1synth**, and that is the trade rather than an oversight.
+
+**The Windows build ships ffmpeg's shared libraries beside it, all 168 MB of them.** BtbN's *shared* zip
+is the only build of ffmpeg that carries headers and import libraries at all - the plain `win64-gpl` one
+is `bin/`, `doc/` and `presets/`, with nothing to link against - so a Windows grav1synth is linked
+against DLLs and cannot start without them beside it. `install_binary` could not have brought them: it
+copies DLLs sitting next to the binary it found, and a cargo build's target directory has none.
+
+2.8.31 is what that looks like when it is missed: the binary built perfectly on the Windows runner and
+was then rejected by the `grav1synth presets` smoke test, so that release shipped Windows without the
+tool. The check did its job - what it caught would otherwise have been a binary that fails to start in
+front of a user - but the release went out with three of the row's four modes unavailable on the
+platform most people use. **Presence is not usability, and neither is a successful compile.**
+
+The DLLs go in before the smoke test, so what is tested is the layout that ships, and they are removed
+again with the binary if it still will not run: 168 MB of ffmpeg is dead weight in a zip whose reason
+for carrying it is absent. All of them are copied rather than a chosen few - which DLL pulls in which is
+a property of how BtbN configured that build, not something this script can know, and a missing one is
+an exe that will not start. `--features ffmpeg_static` is the alternative and was rejected: it builds
+ffmpeg from source on every release.
 
 ### The passes, and where they sit
 

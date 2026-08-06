@@ -1468,19 +1468,52 @@ bundle_grav1synth() {
     return
   }
 
+  # Windows links against BtbN's *shared* ffmpeg, because that is the only build of it that ships
+  # headers and import libraries at all - the plain win64-gpl zip is bin/, doc/ and presets/ and has
+  # nothing to link against. So the exe needs those DLLs beside it, and install_binary cannot have
+  # brought them: it copies DLLs sitting next to the binary it found, and a cargo build's target
+  # directory has none. Without this the binary is built perfectly and cannot start, which is what
+  # 2.8.31 shipped - or rather did not ship, the check below having caught it.
+  #
+  # It costs about 168 MB uncompressed on a Windows download that is already large, and that is the
+  # deliberate trade: the alternative is --features ffmpeg_static, which builds ffmpeg from source on
+  # every release. All of them go rather than a chosen few - which DLL pulls in which is a property of
+  # how BtbN configured that build, not something this script can know, and a missing one is an exe
+  # that will not start.
+  grav1synth_dlls() {
+    [ "$RID" = "win-x64" ] || return 0
+    [ -n "${FFMPEG_DIR:-}" ] && [ -d "$FFMPEG_DIR/bin" ] || return 1
+    find "$FFMPEG_DIR/bin" -maxdepth 1 -name '*.dll' -exec cp {} "$BIN/" \; 2>/dev/null
+
+    # Checked by naming one of them rather than by "are there any DLLs in bin/" - MKVToolNix installs
+    # its own there, so the loose test would pass on a copy that had done nothing.
+    ls "$BIN"/avformat*.dll >/dev/null 2>&1
+  }
+
+  grav1synth_dlls || {
+    rm -f "$BIN/grav1synth$EXE"
+    note_skip "grav1synth" "its ffmpeg DLLs could not be copied beside it, and it cannot start without them"
+    return
+  }
+
   # Presence is not usability - the same lesson the VapourSynth plugins taught. A binary that
   # cannot find its ffmpeg libraries at runtime prints nothing this app would see, so it is
   # asked to do the one thing every mode needs it to do first.
+  # Run *after* the DLLs are in place, so what is tested is the layout that ships rather than the one
+  # the runner happens to have. Everything this tool put in bin/ goes with it on a failure: 168 MB of
+  # ffmpeg DLLs are dead weight in the zip if the binary they are for is not there.
   "$BIN/grav1synth$EXE" presets >/dev/null 2>&1 || {
     rm -f "$BIN/grav1synth$EXE"
-    note_skip "grav1synth" "the built binary could not run - most likely its ffmpeg libraries are not beside it"
+    [ "$RID" = "win-x64" ] && [ -n "${FFMPEG_DIR:-}" ] && [ -d "$FFMPEG_DIR/bin" ] &&
+      find "$FFMPEG_DIR/bin" -maxdepth 1 -name '*.dll' -exec sh -c 'rm -f "$1/$(basename "$2")"' _ "$BIN" {} \; 2>/dev/null
+    note_skip "grav1synth" "the built binary could not run even with its libraries beside it"
     return
   }
 
   note_ok "grav1synth ($GRAV1SYNTH_REV)"
   note_licence "  grav1synth         MIT
                      $GRAV1SYNTH_REPO
-                     Built from source at $GRAV1SYNTH_REV"
+                     Built from source at $GRAV1SYNTH_REV$([ "$RID" = "win-x64" ] && printf '\n                     Ships the FFmpeg shared libraries it links against (GPL-3.0, see FFmpeg above)')"
 }
 
 echo "Bundling external tools for $RID into $BIN"
