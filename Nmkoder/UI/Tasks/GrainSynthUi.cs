@@ -37,33 +37,16 @@ namespace Nmkoder.UI.Tasks
 
         public static void Init()
         {
-            Form.Av1anGrainModeBox.SetItems(GrainSynthConfig.AllModes.Select(m => (object)GrainSynthConfig.GetLabel(m)),
-                Array.IndexOf(GrainSynthConfig.AllModes, DefaultMode));
-            FillPresetBox();
+            Form.Av1anGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)),
+                Array.IndexOf(GrainSynthConfig.EncodeModes, DefaultMode));
             ApplyControlVisibility();
-
-            // The binary's own list, which grew between its last crates.io release and the source this
-            // bundles from. Fire-and-forget: the fallback list is already in the box, and a name that is
-            // merely missing from an older build would be refused by it with the whole command.
-            _ = Task.Run(async () =>
-            {
-                await Grav1synth.LoadPresetsAsync();
-                Avalonia.Threading.Dispatcher.UIThread.Post(FillPresetBox);
-            });
-        }
-
-        private static void FillPresetBox()
-        {
-            string picked = Form.Av1anGrainPresetBox.GetText();
-            int index = Math.Max(0, Array.IndexOf(GrainSynthConfig.Presets, picked));
-            Form.Av1anGrainPresetBox.SetItems(GrainSynthConfig.Presets.Select(p => (object)p), index);
         }
 
         /// <summary> The mode the box is asking for, floored the way every other index read on this tab is
         /// - a box with nothing selected is the default rather than an exception. </summary>
         private static GrainSynthMode GetMode()
         {
-            return GrainSynthConfig.AllModes[Form.Av1anGrainModeBox.SelectedIndex.Clamp(0, GrainSynthConfig.AllModes.Length - 1)];
+            return GrainSynthConfig.EncodeModes[Form.Av1anGrainModeBox.SelectedIndex.Clamp(0, GrainSynthConfig.EncodeModes.Length - 1)];
         }
 
         /// <summary>
@@ -89,9 +72,6 @@ namespace Nmkoder.UI.Tasks
                     : Form.Av1anGrainSynthDenoiseBox.IsChecked == true,
                 DenoiseStrength = Form.Av1anGrainDenoiseStrengthUpDown.Value.AsInt(),
                 TablePath = (Form.Av1anGrainTableBox.Text ?? "").Trim(),
-                Preset = Form.Av1anGrainPresetBox.GetText(),
-                Iso = Form.Av1anGrainIsoUpDown.Value.AsInt(),
-                Chroma = Form.Av1anGrainChromaBox.IsChecked == true,
             };
         }
 
@@ -124,8 +104,6 @@ namespace Nmkoder.UI.Tasks
             // in a row reads as two settings.
             Form.Av1anGrainDenoiseLabel.IsVisible = mode == GrainSynthMode.Measured;
             Form.Av1anGrainTablePanel.IsVisible = mode == GrainSynthMode.Table;
-            Form.Av1anGrainPresetPanel.IsVisible = mode == GrainSynthMode.Preset;
-            Form.Av1anGrainIsoPanel.IsVisible = mode == GrainSynthMode.PhotonNoise;
 
             // The Denoise box follows the strength beside it as well as the encoder: both AV1 encoders
             // read their denoise flag only where they are synthesising grain at all - aomenc's
@@ -153,13 +131,7 @@ namespace Nmkoder.UI.Tasks
             if (!config.Runs || !IsRowRelevant(codec))
                 return GrainDelivery.None;
 
-            if (config.Mode == GrainSynthMode.Encoder)
-                return GrainDelivery.EncoderAnalysis;
-
-            if (config.UsesTable && !HasSpace(config.TablePath) && GetTableFlag(codec).IsNotEmpty())
-                return GrainDelivery.EncoderTable;
-
-            return GrainDelivery.PostApply;
+            return config.Mode == GrainSynthMode.Encoder ? GrainDelivery.EncoderAnalysis : GrainDelivery.EncoderTable;
         }
 
         /// <summary>
@@ -185,16 +157,9 @@ namespace Nmkoder.UI.Tasks
         /// The delivery the encode will really use, which needs the encoder binary's own answer about
         /// <c>--fgs-table</c>.
         /// <para/>
-        /// Only the two AV1 encoders are asked, and only about their own table flag. That is narrower than
-        /// it looks and is the reason it is sound: <see cref="EncoderArgPresets.Av1anEncoderName"/> refuses
-        /// to ask x264 anything because its <c>--help</c> is a short list with the rest behind
-        /// <c>--longhelp</c>, where SvtAv1EncApp prints its whole token table - and aomenc, measured,
-        /// prints <c>--film-grain-table</c> in its own <c>--help</c> alongside every other parameter it
-        /// takes. This asks one binary about one flag it demonstrably documents; it is not the grid-wide
-        /// check, and that map should still not be widened.
-        /// <para/>
-        /// A "no" here is not a failure - the table simply goes in through
-        /// <see cref="GrainDelivery.PostApply"/> instead, which is the same grain in the same output.
+        /// There are two answers, not three: this row is what the encoder does while it encodes. Whether the
+        /// encoder can take the table at all is <see cref="GetTableDeliveryProblem"/>'s question, and a "no"
+        /// there stops the encode rather than routing round it.
         /// </summary>
         public static async Task<GrainDelivery> ResolveDeliveryAsync(GrainSynthConfig config, CodecUtils.Av1anCodec codec, string tablePath)
         {
@@ -204,13 +169,34 @@ namespace Nmkoder.UI.Tasks
             if (config.Mode == GrainSynthMode.Encoder)
                 return GrainDelivery.EncoderAnalysis;
 
+            return GrainDelivery.EncoderTable;
+        }
+
+        /// <summary>
+        /// Whether the encoder in front of us will take the table, and why not when it will not.
+        /// <para/>
+        /// This used to have somewhere to fall back to and now does not, which is the point: a table the
+        /// encoder cannot be handed is a refusal, naming the Film Grain utility as the way to put that
+        /// grain into the output afterwards. Quietly rewriting the finished file instead would be this row
+        /// doing the utility's job without saying so.
+        /// </summary>
+        private static async Task<string> GetTableDeliveryProblem(GrainSynthConfig config, CodecUtils.Av1anCodec codec, string tablePath)
+        {
             string flag = GetTableFlag(codec);
 
-            if (config.UsesTable && flag.IsNotEmpty() && !HasSpace(tablePath) &&
-                await AvProcess.EncoderKnowsFlagOrIsUnknown(codec == CodecUtils.Av1anCodec.SvtAv1 ? "svt-av1" : "aom", flag))
-                return GrainDelivery.EncoderTable;
+            if (flag.IsEmpty())
+                return $"{CodecUtils.GetCodec(codec).FriendlyName} cannot be handed a grain table.";
 
-            return GrainDelivery.PostApply;
+            if (HasSpace(tablePath))
+                return "the grain table's path contains a space, and everything this app sends an av1an-driven " +
+                    "encoder goes inside one quoted string that av1an splits again on the way to the binary - a " +
+                    "value with a space in it does not survive that split. Move the table somewhere without one";
+
+            if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(codec == CodecUtils.Av1anCodec.SvtAv1 ? "svt-av1" : "aom", flag))
+                return $"this SVT-AV1 build has no {flag} - it is a parameter of the PSY line (svt-av1-hdr), which " +
+                    $"is what this project bundles, and not of mainline SVT-AV1";
+
+            return "";
         }
 
         /// <summary>
@@ -246,23 +232,28 @@ namespace Nmkoder.UI.Tasks
             if (problem.IsNotEmpty())
                 return problem;
 
-            if (config.NeedsGrav1synth(delivery) && !Grav1synth.IsAvailable())
+            // Nothing on the row can select a utility-only mode, so this is a guard against one arriving
+            // from somewhere else rather than something a user can see.
+            if (config.IsUtilityOnly)
+                return $"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, which is the " +
+                    $"Film Grain utility's job rather than an encode setting. Use the Utilities tab.";
+
+            if (config.NeedsGrav1synth() && !Grav1synth.IsAvailable())
                 return Grav1synth.DescribeMissing();
 
-            // A table mode that came out as post-apply is worth a line either way, because both reasons
-            // for it are invisible from the UI: an SVT-AV1 without --fgs-table is a mainline build rather
-            // than the PSY line this project bundles, and a path with a space in it cannot be written into
-            // av1an's encoder arguments at all. Neither stops the encode - the grain still reaches the
-            // output - so this is a note rather than a refusal.
-            if (config.UsesTable && delivery == GrainDelivery.PostApply && codec == CodecUtils.Av1anCodec.SvtAv1)
-                Logger.Log(HasSpace(tablePath)
-                    ? $"The grain table's path contains a space, which cannot be passed through av1an's encoder " +
-                        $"arguments - so grav1synth writes the grain into the finished encode instead."
-                    : $"This SVT-AV1 build has no --fgs-table, so the grain table is written into the finished " +
-                        $"encode by grav1synth instead of being applied by the encoder. That is a mainline build; the " +
-                        $"one this project bundles is the PSY line, which has it.");
+            if (!config.UsesTable)
+                return "";
 
-            return await Task.FromResult("");
+            string cannot = await GetTableDeliveryProblem(config, codec, tablePath);
+
+            if (cannot.IsEmpty())
+                return "";
+
+            return $"This encode cannot be given the grain table, because {cannot}.\n\nEncode without grain " +
+                $"synthesis, then put the table into the finished file with the Film Grain utility on the " +
+                $"Utilities tab - that is the same grain in the same output, applied afterwards instead of by " +
+                $"the encoder. Encoder analysis is the other way round: it needs no table and works on every " +
+                $"AV1 build.";
         }
 
         /// <summary> Brings the readout up to date and enables or disables the row. Touches nothing that

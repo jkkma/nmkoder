@@ -27,17 +27,25 @@ namespace Nmkoder.Data
         /// <summary> A grain table file the user already has. </summary>
         Table,
 
-        /// <summary> One of grav1synth's built-in film stock tables. </summary>
+        /// <summary> One of grav1synth's built-in film stock tables. **Utility only** - it is written into
+        /// a finished file, which is not something an encoder can be asked to do. </summary>
         Preset,
 
         /// <summary> Photon noise at a given ISO, synthesised by grav1synth from the frame size and the
-        /// transfer curve. </summary>
+        /// transfer curve. **Utility only**, for the same reason as Preset. </summary>
         PhotonNoise,
     }
 
     /// <summary>
     /// How a grain description reaches the output, which is not something the user picks - it is decided
     /// from what the encoder in front of them can actually do.
+    /// <para/>
+    /// There are only two, and there is deliberately no third for "grav1synth rewrites the finished file".
+    /// **This row is what the encoder does while it encodes; the Film Grain utility is what is done to a
+    /// file afterwards** - the same division Cut and Deinterlace Video draw against the encode tabs' own
+    /// Trim and Deinterlace settings. A mode that can only be delivered by rewriting the output is not a
+    /// mode this row should offer, and a table an encoder cannot take is a refusal here rather than a
+    /// silent detour through another tool.
     /// </summary>
     public enum GrainDelivery
     {
@@ -47,15 +55,9 @@ namespace Nmkoder.Data
         /// <summary> The encoder analyses the source itself, from a strength. </summary>
         EncoderAnalysis,
 
-        /// <summary> The encoder is handed the table: SVT-AV1's <c>--fgs-table</c>. Preferred wherever it
-        /// exists, because the grain is described in the bitstream from the first chunk and nothing has to
-        /// touch the finished file. </summary>
+        /// <summary> The encoder is handed the table: SVT-AV1's <c>--fgs-table</c>, aomenc's
+        /// <c>--film-grain-table</c>. </summary>
         EncoderTable,
-
-        /// <summary> grav1synth rewrites the finished AV1 bitstream. Works on every AV1 encode whatever
-        /// the encoder is, which is what makes the presets and the photon noise reachable at all - and
-        /// what rescues the table modes on a mainline SVT-AV1 binary, which has no <c>--fgs-table</c>. </summary>
-        PostApply,
     }
 
     /// <summary>
@@ -76,9 +78,10 @@ namespace Nmkoder.Data
     /// one number and no extra pass, and denoises the picture itself - which is where the bitrate saving
     /// actually comes from. It is the right answer for most people and it stays the cheap default.
     /// <para/>
-    /// What the other modes add is the accuracy (a table measured off this scan rather than an encoder's
-    /// guess at it), the presets, and photon noise - and, through <see cref="GrainDelivery.PostApply"/>,
-    /// a route to all of them that needs nothing of the encoder at all.
+    /// What the other two modes add is accuracy: a table measured off this scan rather than an encoder's
+    /// guess at it, or one measured earlier and kept. Grain written into a *finished* file - the film stock
+    /// presets, the photon noise - is not here at all; that is the Film Grain utility, because this row is
+    /// what the encoder does while it encodes.
     /// </summary>
     public class GrainSynthConfig
     {
@@ -155,7 +158,15 @@ namespace Nmkoder.Data
             }
         }
 
-        public static readonly GrainSynthMode[] AllModes = (GrainSynthMode[])Enum.GetValues(typeof(GrainSynthMode));
+        /// <summary>
+        /// What the AV1AN tab's row offers, which is every mode an encoder can actually carry out while it
+        /// encodes. <see cref="GrainSynthMode.Preset"/> and <see cref="GrainSynthMode.PhotonNoise"/> are
+        /// missing on purpose: both are grav1synth writing grain into a finished bitstream, which is the
+        /// Film Grain utility's job and not an encode setting. The enum keeps them because that utility
+        /// uses this same class to say where its grain comes from.
+        /// </summary>
+        public static readonly GrainSynthMode[] EncodeModes =
+            { GrainSynthMode.Off, GrainSynthMode.Encoder, GrainSynthMode.Measured, GrainSynthMode.Table };
 
         /// <summary> Whether anything happens at all. Encoder mode at a strength of 0 is Off spelled
         /// differently - both encoders read 0 as "leave the source alone" - so it is reported as such
@@ -197,11 +208,12 @@ namespace Nmkoder.Data
             get { return Runs && Mode == GrainSynthMode.Measured; }
         }
 
-        /// <summary> Whether grav1synth has to be present for this mode to run at all. Encoder mode never
-        /// needs it; a table the user supplies only needs it where the encoder cannot take one. </summary>
-        public bool NeedsGrav1synth(GrainDelivery delivery)
+        /// <summary> Whether grav1synth has to be present for this mode to run at all, which on this row is
+        /// exactly the mode that measures: everything else either needs no tool or is handed a table that
+        /// already exists. </summary>
+        public bool NeedsGrav1synth()
         {
-            return Runs && (Mode == GrainSynthMode.Measured || delivery == GrainDelivery.PostApply);
+            return Runs && Mode == GrainSynthMode.Measured;
         }
 
         /// <summary>
@@ -219,6 +231,14 @@ namespace Nmkoder.Data
                 return "film-grain";
 
             return delivery == GrainDelivery.EncoderTable ? "fgs-table" : "";
+        }
+
+        /// <summary> Whether this mode is one the Film Grain utility owns rather than the encode row -
+        /// grain written into a finished file. Nothing on the row can select one; it is checked so that a
+        /// config or a caller from elsewhere cannot smuggle one in. </summary>
+        public bool IsUtilityOnly
+        {
+            get { return Mode == GrainSynthMode.Preset || Mode == GrainSynthMode.PhotonNoise; }
         }
 
         /// <summary>
@@ -326,19 +346,7 @@ namespace Nmkoder.Data
                     parts.Add($"Table '{Path.GetFileName(TablePath)}'" +
                         (Denoise ? $", source denoised ({GetDenoiseFilter()}) to match it" : ""));
                     break;
-                case GrainSynthMode.Preset:
-                    parts.Add($"grav1synth's '{Preset}' film stock");
-                    break;
-                case GrainSynthMode.PhotonNoise:
-                    parts.Add($"Photon noise, ISO {Iso}, {(Chroma ? "luma and chroma" : "luma only")}");
-                    break;
             }
-
-            // Only the odd one out is named. Being applied by the encoder is what every mode that can be
-            // does, so saying so on each of them costs a clause and tells nobody anything; a rewrite of the
-            // finished file is the one that changes what happens after the encode.
-            if (delivery == GrainDelivery.PostApply)
-                parts.Add("written in afterwards by grav1synth");
 
             parts.Add(DenoisesSource
                 ? "the picture is coded clean, so the grain costs bytes instead of bitrate"
@@ -378,8 +386,6 @@ namespace Nmkoder.Data
         public bool IsEncoderTable { get { return Delivery == GrainDelivery.EncoderTable && TablePath.IsNotEmpty(); } }
 
         /// <summary> Whether grav1synth rewrites the finished file. </summary>
-        public bool IsPostApply { get { return Delivery == GrainDelivery.PostApply; } }
-
         /// <summary> Whether a denoised copy has to be rendered before av1an starts. </summary>
         public bool NeedsDenoisePass { get { return Config.NeedsDenoisePass; } }
 

@@ -1866,8 +1866,13 @@ The five modes are in `GrainSynthMode`, and what separates them is not how the g
 | Encoder analysis | the encoder, from a strength | one number |
 | Measured from source | grav1synth diffing the source against a denoised copy | a lossless intermediate and a full extra pass |
 | Grain table file | a table the user already has | nothing, or the denoise pass on request |
-| Film stock preset | grav1synth's built-in tables | a remux-speed pass over the output |
-| Photon noise (ISO) | grav1synth, from the frame size and transfer curve | the same |
+
+**The row is what the encoder does while it encodes, and nothing else.** Grain written into a file that is
+already encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
+utility's job and is not on this row at all. That is the division CLAUDE.md already states for Cut and
+Deinterlace Video: utilities write a file, the tabs' own settings apply during an encode, and neither
+reads the other's. `GrainSynthConfig.EncodeModes` is the row's list; the enum keeps `Preset` and
+`PhotonNoise` because the utility uses this same class to say where its grain comes from.
 
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
@@ -1875,22 +1880,18 @@ does the libsvtav1 inside the bundled ffmpeg - where `--film-grain N` is on ever
 pass, and denoises the picture itself. It is the right answer for most people and it stays the cheap
 default.
 
-**Which of two deliveries carries the grain is not a setting.** `GrainDelivery` is resolved per encode
-from what the binary in front of it can do: `EncoderTable` where SVT-AV1's own `--help` shows
-`--fgs-table`, and `PostApply` - grav1synth rewriting the finished bitstream - everywhere else. That
-fallback is what makes the presets and the photon noise reachable at all, since no encoder here can
-generate either, and it is also what rescues a *table* on a mainline binary. Only SVT-AV1 is asked, and
-only about that one flag, for the reason `EncoderArgPresets.Av1anEncoderName` already records: its
-`--help` prints the whole token table where the other encoders print a short list. aomenc has
-`--film-grain-table` and is deliberately not given it - it cannot be confirmed against the binary from
-here, and the post-apply route reaches the same output without having to.
+**`GrainDelivery` has two values and there is deliberately no third.** A mode either hands the encoder a
+strength or hands it a table; a table it cannot take is a **refusal**, naming the utility as the way to
+put that grain in afterwards. `GetTableDeliveryProblem` is where that is decided, and it has three
+reasons to say no: the encoder has no table parameter at all, its `--help` says this SVT-AV1 is mainline
+rather than the PSY line, or the path contains a space - everything sent to an av1an-driven encoder ends
+up inside one `-v "…"` string that av1an splits again on the way to the binary, and a value with a space
+does not survive that split, which is the same limit the Advanced grid has always had.
 
-**A table's path with a space in it goes the post-apply way too**, and that is a limit rather than a
-preference. Everything sent to an av1an-driven encoder ends up inside one `-v "…"` string that av1an
-splits again on the way to the binary, and a value with a space does not survive that split - the same
-limit the Advanced grid has always had. A table is the first setting here whose value is a path, so it
-is the first to meet it in ordinary use; grav1synth takes the path as one argument of its own and needs
-no splitting, so nothing is lost by routing it there.
+An earlier cut of this quietly fell back to rewriting the finished file with grav1synth instead. It
+produced the right output and it was the wrong shape: the row would have been doing the utility's job
+without saying so, which is exactly what the Cut and Deinterlace division exists to stop. Refusing costs
+the user one extra step and tells them what happened.
 
 **A table the user brings can denoise too, and that tick is what makes a saved table worth keeping.**
 Table mode runs no pass by default - a table is often there to put grain onto a source that never had
@@ -1905,10 +1906,10 @@ this is `DenoisePass` either way, and `NeedsDenoisePass` and `NeedsMeasurement` 
 now: Table with the tick does the first and not the second.
 
 **The clause the readout exists for is the last one: grain synthesis only saves bitrate where the
-picture being coded has had the grain taken out of it.** Two of the five modes denoise and three do
-not, and from the outside all five produce a grainy-looking AV1 file. Somebody who picks a film stock
-preset expecting what `--film-grain` would have given them has coded the source's own grain and then
-put more on top. Measured on a 6-second 640x480 clip with heavy synthetic grain, SVT-AV1 preset 8 CRF
+picture being coded has had the grain taken out of it.** Measured always does; Encoder analysis and
+Grain table file do it only when their Denoise is ticked, and from the outside all of them produce a
+grainy-looking AV1 file. Somebody who points the row at a table without ticking Denoise has coded the
+source's own grain and then put more on top. Measured on a 6-second 640x480 clip with heavy synthetic grain, SVT-AV1 preset 8 CRF
 35: the grainy source encodes to 977,071 bytes, the denoised copy to 743,275, and the table applied to
 that comes to 758,560 - a 22% saving with the grain back, against a post-apply on the grainy encode,
 which saves nothing at all by construction.
@@ -1916,7 +1917,7 @@ which saves nothing at all by construction.
 ### What can still collide, now that the row owns two of the three
 
 The row writes at most one encoder argument, so the collision it was built to end cannot be expressed.
-Four can, and each is reported separately because the fix differs:
+Three can, and each is reported separately because the fix differs:
 
 **Precedence, not preference.** `--fgs-table` beats `--noise` beats `--film-grain`, so which of a pair
 survives depends entirely on which pair has met. A strength on the row against a grid `noise` loses the
@@ -1927,11 +1928,6 @@ reporting `--noise` as the winner over a table, which is exactly backwards.
 **The same argument written twice.** A table on the row and an `fgs-table` row in the grid both reach
 the command line and nothing here decides which SVT reads. That one names the row to clear rather than
 predicting a winner.
-
-**A post-apply throwing away what the encoder synthesised.** With the grain written into the finished
-file, `grav1synth apply --replace` overwrites every grain header the encode carries - including the ones
-a grid `noise` or `fgs-table` just paid encoding time to produce. Nothing is overruled on the command
-line, so the other check cannot see it.
 
 **Retention against synthesis.** `GetGrainRetentionProblem` is for it. Retention makes the encoder's
 filters and transforms stop averaging the source's own grain away; synthesis takes that grain out of the
@@ -1953,14 +1949,14 @@ The retention list is `tune 5`, `noise-adaptive-filtering`, `noise-norm-strength
 file's own account of which parameters are retention rather than synthesis, which is also why none of
 them ever appeared in the collision check.
 
-All twelve combinations were exercised headless through the real methods, with the grid rows set and the
-row's controls driven: the four above fire, and Encoder-without-Denoise beside `tune 5`, `tune 0` beside
+Every combination was exercised headless through the real methods, with the grid rows set and the row's
+controls driven: the three above fire, and Encoder-without-Denoise beside `tune 5`, `tune 0` beside
 Measured, and a grid `noise` with the row Off correctly say nothing.
 
 ### aomenc's half of it, measured against 3.8.2
 
 **aomenc has `--film-grain-table` and it works**, so both AV1 encoders take a table from the row and only
-the spelling differs. Measured: a table passed in comes back out of the encode intact, and an encode with
+the spelling differs - which matters more now that a table an encoder cannot take stops the encode. Measured: a table passed in comes back out of the encode intact, and an encode with
 both `--film-grain-table` and `--denoise-noise-level` produces a grain table byte-identical to the one
 with the table alone - the same precedence SVT has, so sending a strength beside a table would be sending
 a number that is silently discarded.
@@ -2071,9 +2067,10 @@ without grain. Resuming *with current settings* rebuilds the command and works n
 
 ### The Film Grain utility
 
-The card is the same tool with the encode taken out of it, for the workflow the row does not fit: a table
-measured off a source before committing to the encode that will use it, a table read back out of somebody
-else's encode, or grain written onto and stripped off a finished file. `UtilFilmGrain` holds the four
+The card is the same tool with the encode taken out of it, and it owns everything done to a file that is
+already encoded: a table measured off a source before committing to the encode that will use it, a table
+read back out of somebody else's encode, and grain written onto or stripped off a finished file - the film
+stock presets and the photon noise among them, which is why the row does not offer either. `UtilFilmGrain` holds the four
 operations; a utility that writes a file and stops, like Cut and Deinterlace Video beside it, with its own
 settings and nothing reaching the encode tabs.
 

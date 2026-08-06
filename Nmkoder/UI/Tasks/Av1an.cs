@@ -707,16 +707,7 @@ namespace Nmkoder.UI.Tasks
             }
 
             if (succeeded)
-            {
                 SaveMeasuredGrainTable(outPath);
-                string applyProblem = await ApplyGrainToOutput(outPath);
-
-                if (applyProblem.IsNotEmpty())
-                {
-                    RunTask.Fail(applyProblem);
-                    succeeded = false;
-                }
-            }
 
             if (succeeded)
                 RunTask.ReportOutput(new[] { inPath }, outPath);
@@ -1045,82 +1036,6 @@ namespace Nmkoder.UI.Tasks
                 // The encode is finished and correct; losing the table costs a re-measure, not the output.
                 Logger.Log($"Could not keep the measured grain table: {e.Message}", true);
             }
-        }
-
-        /// <summary>
-        /// Writes the grain into the finished encode with grav1synth, for the deliveries the encoder could
-        /// not do itself - the film stock presets, the photon noise, and any table on a build without
-        /// <c>--fgs-table</c>. Returns why it could not be done, or "" including when there was nothing to
-        /// do.
-        /// <para/>
-        /// It writes beside the output and then replaces it, rather than in place, because this is a
-        /// bitstream rewrite of a file that may have taken hours: grav1synth is a young tool, it says
-        /// itself that some videos fail to take grain properly, and the failure that matters is the one
-        /// that leaves neither the original nor a working copy. The original is only removed once the
-        /// rewrite has been proved to have produced something.
-        /// </summary>
-        private static async Task<string> ApplyGrainToOutput(string outPath)
-        {
-            GrainPlan plan = Av1anUi.CurrentGrain;
-
-            // Null means this run replayed a saved command rather than building one, which is what a
-            // resume does when it is asked to run exactly what ran before. The saved command is av1an's
-            // arguments and nothing else, so it cannot say whether grain was to be written in afterwards -
-            // and the row on screen describes the next encode rather than that one. Said rather than
-            // guessed at, because the output would otherwise come out silently without the grain.
-            if (plan == null)
-            {
-                GrainSynthConfig row = GrainSynthUi.GetAv1anConfig();
-
-                if (row.Runs && GrainSynthUi.GetLikelyDelivery(row, GetCurrentCodecV()) == GrainDelivery.PostApply)
-                    Logger.Log($"Note: the Grain Synthesis row asks for grain to be written into the finished file, " +
-                        $"and this run replayed a saved av1an command - which carries no grain setting. " +
-                        $"'{Path.GetFileName(outPath)}' has none. Encode it from the tab rather than from a saved " +
-                        $"command to get it.");
-
-                return "";
-            }
-
-            if (!plan.IsPostApply)
-                return "";
-
-            string temp = $"{outPath}.grain{Path.GetExtension(outPath)}";
-            Logger.Log($"Writing the film grain into '{Path.GetFileName(outPath)}' with grav1synth. This rewrites the " +
-                $"AV1 headers and remuxes; it does not re-encode anything.");
-
-            string problem = await Grav1synth.ApplyAsync(plan.Config, outPath, temp, plan.TablePath);
-
-            if (RunTask.canceled)
-            {
-                IoUtils.TryDeleteIfExists(temp);
-                return "";
-            }
-
-            if (problem.IsNotEmpty())
-            {
-                IoUtils.TryDeleteIfExists(temp);
-                return $"{problem}\n\nThe encode itself finished and '{Path.GetFileName(outPath)}' is intact - it " +
-                    $"simply carries no synthesised grain.";
-            }
-
-            try
-            {
-                IoUtils.TryDeleteIfExists(outPath);
-                File.Move(temp, outPath);
-            }
-            catch (Exception e)
-            {
-                return $"The grain was written but '{Path.GetFileName(temp)}' could not replace the encode: {e.Message}";
-            }
-
-            // Said rather than left to be found: grav1synth carries video, audio, subtitles and chapters
-            // through its remux and drops attachments, which on this tab is a box the user may well have
-            // ticked. Only for a file that had some.
-            if ((TrackList.current?.File.AttachmentStreams.Count ?? 0) > 0 && Program.MainWin.CheckAv1anCopyAttachs.IsChecked == true)
-                Logger.Log($"Note: attachments (fonts, cover art) are not carried through the grain rewrite - grav1synth " +
-                    $"remuxes video, audio, subtitles and chapters only. Everything else in the file is unchanged.");
-
-            return "";
         }
 
         /// <summary>

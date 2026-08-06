@@ -8,6 +8,7 @@ using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
+using Nmkoder.Media;
 using Nmkoder.OS;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
@@ -91,6 +92,11 @@ namespace Nmkoder.Views
             UpdateDeinterlaceBtnText();
             UtilFilmGrain.LoadSettings();
             UpdateFilmGrainBtnText();
+            // grav1synth's own film stock list, for the Film Grain utility's dialog. Fire-and-forget: the
+            // fallback list is already in GrainSynthConfig.Presets, and this only replaces it where the
+            // installed binary answers. Read here rather than when the dialog opens, so the first open
+            // does not wait on a process launch.
+            _ = Grav1synth.LoadPresetsAsync();
             LoadUiConfig();
 
             // The SelectionChanged handlers bail out until _initialized is set, so the initial

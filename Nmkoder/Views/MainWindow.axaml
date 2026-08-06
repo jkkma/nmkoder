@@ -304,7 +304,7 @@
                       <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
                           <ComboBox x:Name="Av1anGrainModeBox" Width="230" SelectionChanged="Av1anGrainMode_SelectionChanged"
-                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Measured from source denoises the file, measures what came out with grav1synth, and encodes the clean picture with the result: the accurate way, and an expensive one. The film stock presets and the photon noise are written into the finished encode instead, so they add grain without saving anything." />
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Measured from source denoises the file, measures what came out with grav1synth, and encodes the clean picture with the result: the accurate way, and an expensive one. Grain table file takes a table measured earlier, and denoises to match it if you tick the box. To put grain into a file that is already encoded - a film stock preset, photon noise, or a table - use the Film Grain utility on the Utilities tab instead." />
 
                           <StackPanel x:Name="Av1anGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
                             <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
@@ -329,18 +329,6 @@
                                            ToolTip.Tip="How hard the denoise pass runs, as a proportion of ffmpeg's own hqdn3d defaults - 4 is exactly those defaults. It decides both what the grain table measures and what the encoder is handed, so too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
                           </StackPanel>
 
-                          <StackPanel x:Name="Av1anGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <ComboBox x:Name="Av1anGrainPresetBox" Width="200" SelectionChanged="Av1anGrainPreset_SelectionChanged"
-                                      ToolTip.Tip="grav1synth's own built-in film stock tables, read out of the installed binary. The three format presets take a film stock modifier as a suffix - 16mm-3 is 16mm shot on Kodak Vision3 200T." />
-                          </StackPanel>
-
-                          <StackPanel x:Name="Av1anGrainIsoPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
-                            <NumericUpDown x:Name="Av1anGrainIsoUpDown" Classes="num" Minimum="1" Maximum="409600" Increment="100" Value="400"
-                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
-                                           ToolTip.Tip="The film speed the noise is modelled at: 100 to 6400 is the useful range, higher meaning more of it." />
-                            <CheckBox x:Name="Av1anGrainChromaBox" Content="Chroma" IsCheckedChanged="Av1anGrainSetting_Changed"
-                                      ToolTip.Tip="Put grain on the colour planes as well as luma. grav1synth's own default is luma only." />
-                          </StackPanel>
                         </StackPanel>
                         <TextBlock x:Name="Av1anGrainInfoLabel" Classes="hint" Text="" />
                       </StackPanel>

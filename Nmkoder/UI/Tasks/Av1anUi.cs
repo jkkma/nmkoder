@@ -1145,21 +1145,11 @@ namespace Nmkoder.UI.Tasks
             bool table = GetAdvancedArgValue("fgs-table").IsNotEmpty();
             int noise = GetAdvancedArgValue("noise").GetInt();
 
+            // Every mode this row offers writes one of the two arguments, so there is nothing here that can
+            // be running without something for the grid to collide with. It was reachable while the row
+            // could also hand its grain to grav1synth after the encode; that is the utility's job now.
             if (owned.IsEmpty())
-            {
-                // The mode writes nothing to the encoder, so nothing of its can be overruled - but it
-                // rewrites the finished file's grain headers with --replace, and that is where the grid's
-                // own synthesiser ends up. The encoder runs it, av1an muxes it, and grav1synth writes over
-                // it: paid for in encoding time, gone from the output, with nothing anywhere saying so.
-                if (delivery != GrainDelivery.PostApply || (!table && noise < 1))
-                    return "";
-
-                string ran = table ? "fgs-table" : $"noise ({noise})";
-
-                return $"Note: Grain Synthesis writes its grain into the finished file, which replaces every grain " +
-                    $"header the encode carries - so the Advanced tab's {ran} is applied by the encoder and then " +
-                    $"thrown away. Clear that row, or pick a Grain Synthesis mode the encoder itself can apply.";
-            }
+                return "";
 
             // The same argument written twice: not two settings colliding so much as two spellings of one,
             // and neither this app nor SVT's warning can say which the user meant.

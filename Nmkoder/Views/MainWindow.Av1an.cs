@@ -163,14 +163,6 @@ namespace Nmkoder.Views
             GrainSynthUi.ApplyControlVisibility();
         }
 
-        private void Av1anGrainPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (!_initialized)
-                return;
-
-            GrainSynthUi.RefreshInfo();
-        }
-
         private void Av1anGrainTable_Changed(object sender, RoutedEventArgs e)
         {
             if (!_initialized)
