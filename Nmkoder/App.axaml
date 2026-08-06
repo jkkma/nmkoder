@@ -392,6 +392,20 @@
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
+    <!-- A label heading a row whose cell holds a control *and* a readout under it. Centred, the label
+         lands halfway down both, which is below the control it names - by half the readout, and a
+         wrapped readout is three lines on the Grain Synthesis row. Top plus half the control's height
+         puts it back on the control's own centre line - 6, measured against the rendered rows rather than
+         worked out from the two heights, which came out two pixels low.
+
+         It has to sit *after* the rule above rather than beside the "field" one, which is where it was
+         first written and did nothing at all: both match a direct child of Grid.form, so the later
+         wins, and that was the one setting Center. -->
+    <Style Selector="Grid.form > TextBlock.rowhead">
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,7,8,6" />
+    </Style>
+
     <!-- Inputs that only ever hold a few characters get sized to their content -->
     <Style Selector="NumericUpDown.num">
       <Setter Property="Width" Value="120" />

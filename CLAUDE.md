@@ -64,6 +64,19 @@ window width down until the columns stopped sitting level, and the same walk is 
 judged: bounding the third column 1714 -> 1565, folding the deinterlace row into its own `WrapPanel`
 -> 1505, 115px labels -> 1480, right-sizing the dropdowns -> 1340.
 
+**A row label is centred in its cell, and that cell is the control *and* the readout under it** - so
+every label in that column sat below the dropdown it names, by half the readout, which on a wrapped
+three-line one is most of a row. `Grid.form > TextBlock.rowhead` puts it back on the control's own
+centre line.
+
+Where that rule *sits* is the part worth remembering. Written as `TextBlock.field.rowhead` next to the
+`.field` style it looks right and does nothing at all: `Grid.form > :is(Control)` further down the file
+sets `VerticalAlignment` on every direct child of a form grid, and between two matching styles the
+later one wins. The check that caught it was printing the label's runtime `VerticalAlignment` and
+`Margin` rather than trusting the selector - both classes were on the control and neither of its own
+setters had been applied. The 7px top margin is measured against the rendered rows too; the arithmetic
+answer of (32 - 17) / 2 came out two pixels low.
+
 The cost is the old comment's reason for one line: a readout is rewritten on every file load, and a
 two-line one reflows the rows beneath it. Three columns on an ordinary window is worth more than that,
 which is the whole reason the panel wraps at all. A row carrying a second control - Resize's Configure
