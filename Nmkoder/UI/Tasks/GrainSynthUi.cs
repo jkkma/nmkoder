@@ -143,22 +143,45 @@ namespace Nmkoder.UI.Tasks
             if (config.Mode == GrainSynthMode.Encoder)
                 return GrainDelivery.EncoderAnalysis;
 
-            if (config.UsesTable && codec == CodecUtils.Av1anCodec.SvtAv1 && !HasSpace(config.TablePath))
+            if (config.UsesTable && !HasSpace(config.TablePath) && GetTableFlag(codec).IsNotEmpty())
                 return GrainDelivery.EncoderTable;
 
             return GrainDelivery.PostApply;
         }
 
         /// <summary>
+        /// What the encoder calls its "apply this grain table" parameter, or "" where it has none.
+        /// <para/>
+        /// Both AV1 encoders av1an drives have one and they are spelled differently, which is the only
+        /// reason this exists. aomenc's was measured against 3.8.2 rather than assumed: a table passed
+        /// through <c>--film-grain-table</c> comes back out of the encode intact, and beats
+        /// <c>--denoise-noise-level</c> where both are set. SVT-AV1's is PSY-line only, which is what the
+        /// help check below is for - mainline has no such parameter and refuses the whole command over it.
+        /// </summary>
+        private static string GetTableFlag(CodecUtils.Av1anCodec codec)
+        {
+            switch (codec)
+            {
+                case CodecUtils.Av1anCodec.SvtAv1: return "--fgs-table";
+                case CodecUtils.Av1anCodec.AomAv1: return "--film-grain-table";
+                default: return "";
+            }
+        }
+
+        /// <summary>
         /// The delivery the encode will really use, which needs the encoder binary's own answer about
         /// <c>--fgs-table</c>.
         /// <para/>
-        /// Only SVT-AV1 is asked, and only about that flag, for the reason
-        /// <see cref="EncoderArgPresets.Av1anEncoderName"/> already records: SvtAv1EncApp's <c>--help</c>
-        /// prints its whole token table where the others print a short list, so a missing flag means
-        /// something there and nothing anywhere else. aomenc has <c>--film-grain-table</c> and is
-        /// deliberately not given it here - this app cannot confirm the flag against the binary the way it
-        /// can for SVT, and the post-apply route reaches the same output without having to.
+        /// Only the two AV1 encoders are asked, and only about their own table flag. That is narrower than
+        /// it looks and is the reason it is sound: <see cref="EncoderArgPresets.Av1anEncoderName"/> refuses
+        /// to ask x264 anything because its <c>--help</c> is a short list with the rest behind
+        /// <c>--longhelp</c>, where SvtAv1EncApp prints its whole token table - and aomenc, measured,
+        /// prints <c>--film-grain-table</c> in its own <c>--help</c> alongside every other parameter it
+        /// takes. This asks one binary about one flag it demonstrably documents; it is not the grid-wide
+        /// check, and that map should still not be widened.
+        /// <para/>
+        /// A "no" here is not a failure - the table simply goes in through
+        /// <see cref="GrainDelivery.PostApply"/> instead, which is the same grain in the same output.
         /// </summary>
         public static async Task<GrainDelivery> ResolveDeliveryAsync(GrainSynthConfig config, CodecUtils.Av1anCodec codec, string tablePath)
         {
@@ -168,8 +191,10 @@ namespace Nmkoder.UI.Tasks
             if (config.Mode == GrainSynthMode.Encoder)
                 return GrainDelivery.EncoderAnalysis;
 
-            if (config.UsesTable && codec == CodecUtils.Av1anCodec.SvtAv1 && !HasSpace(tablePath) &&
-                await AvProcess.EncoderKnowsFlagOrIsUnknown("svt-av1", "--fgs-table"))
+            string flag = GetTableFlag(codec);
+
+            if (config.UsesTable && flag.IsNotEmpty() && !HasSpace(tablePath) &&
+                await AvProcess.EncoderKnowsFlagOrIsUnknown(codec == CodecUtils.Av1anCodec.SvtAv1 ? "svt-av1" : "aom", flag))
                 return GrainDelivery.EncoderTable;
 
             return GrainDelivery.PostApply;

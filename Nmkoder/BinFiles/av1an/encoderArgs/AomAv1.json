@@ -2,10 +2,10 @@
   [
     "tune-content",
     "",
-    "default, screen, film (default default) - screen enables palette and block copy; film synthesises grain at playback",
+    "default, screen, film (default default) - screen enables palette and block copy; film signals film grain but synthesises none on its own",
     "Tuning & Quantization",
-    "Tells the encoder what kind of material it is looking at so it can enable tools suited to it. screen turns on palette mode and intra block copy, which code large flat colour areas and repeated UI elements far more cheaply than ordinary prediction - the difference on a desktop capture or a slide deck is dramatic.\n\nfilm is not a grain-preservation setting. It switches on AV1's film grain synthesis: the encoder denoises the picture, measures the grain it removed, and writes a parameter set so the decoder regenerates it at playback. That saves a great deal of bitrate, at the cost of grain that is statistically similar rather than identical.\n\ndefault suits ordinary camera footage.",
-    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy film, with the grain synthesised at playback rather than coded."
+    "Tells the encoder what kind of material it is looking at so it can enable tools suited to it. screen turns on palette mode and intra block copy, which code large flat colour areas and repeated UI elements far more cheaply than ordinary prediction - the difference on a desktop capture or a slide deck is dramatic.\n\nfilm is not a grain-preservation setting, and it is not grain synthesis either, though it is widely described as both. Measured against aomenc 3.8.2: an encode with nothing but --tune-content=film comes out carrying film grain parameters that are entirely zero - the signalling is switched on and there is no grain in it. What actually measures and describes the source's grain is --denoise-noise-level, which the Video tab's Grain Synthesis row owns, and setting that is what makes this row's film mode mean anything.\n\nIt does change the picture beside that: with a denoise level set as well, the output's grain table differs from the same encode without it, the tune having moved the quantisation the noise model is fitted against.",
+    "default|Ordinary live action and animation.\nscreen|Desktop capture, slides and UI recordings.\nfilm|Grainy film - pair it with the Grain Synthesis row, which supplies the grain itself."
   ],
   [
     "aq-mode",

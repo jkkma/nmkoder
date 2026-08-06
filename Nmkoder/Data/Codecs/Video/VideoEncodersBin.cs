@@ -58,10 +58,18 @@ namespace Nmkoder.Data.Codecs.Video
             // flag in without its value would make aomenc read the next argument as the interval.
             string kf = $"--disable-kf{(g.IsNotEmpty() ? $" --kf-min-dist=12 --kf-max-dist={g}" : "")}";
 
+            // The same one-of-two the SVT-AV1 branch below makes, in aomenc's own spelling. Measured
+            // against aomenc 3.8.2: --film-grain-table beats --denoise-noise-level outright - an encode
+            // with both carries a grain table byte-identical to the one with the table alone - so sending
+            // a strength beside a table would be sending a number that is silently discarded.
+            string grainArgs = encArgs.ContainsKey("grainTable")
+                ? $"--film-grain-table={encArgs["grainTable"]}"
+                : $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain}";
+
             // --end-usage=q stays even in the target quality modes: av1an's search only injects
             // --cq-level, which aomenc ignores unless constant quality rate control is selected.
             return new CodecArgs($" -e aom -v \" --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
-                    $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+                    $"{grainArgs} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
         }
     }
 
@@ -118,8 +126,8 @@ namespace Nmkoder.Data.Codecs.Video
             // -v "…" string, which is split again before it reaches the encoder, and a quote of this app's
             // own would be one more layer than that split accounts for. GrainSynthUi.ResolveDeliveryAsync
             // keeps a path with a space in it away from this argument entirely for the same reason.
-            string grainArgs = encArgs.ContainsKey("fgsTable")
-                ? $"--fgs-table {encArgs["fgsTable"]}"
+            string grainArgs = encArgs.ContainsKey("grainTable")
+                ? $"--fgs-table {encArgs["grainTable"]}"
                 : $"--film-grain {grain} --film-grain-denoise {denoise}";
 
             return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} {grainArgs} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");

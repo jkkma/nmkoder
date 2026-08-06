@@ -418,6 +418,14 @@ namespace Nmkoder.UI.Tasks
                     if (grainProblem.IsNotEmpty())
                         Logger.Log(grainProblem);
 
+                    // Separate from the check above because it is a different kind of clash: nothing is
+                    // overwritten and no argument loses, the grid is simply protecting grain the row has
+                    // just removed. It is also the only one a content preset can cause.
+                    string retentionProblem = GetGrainRetentionProblem(vCodec, grainConfig);
+
+                    if (retentionProblem.IsNotEmpty())
+                        Logger.Log(retentionProblem);
+
                     string tuneProblem = GetFilmGrainTuneProblem(vCodec);
 
                     if (tuneProblem.IsNotEmpty())

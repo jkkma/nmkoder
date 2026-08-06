@@ -1900,6 +1900,71 @@ put more on top. Measured on a 6-second 640x480 clip with heavy synthetic grain,
 that comes to 758,560 - a 22% saving with the grain back, against a post-apply on the grainy encode,
 which saves nothing at all by construction.
 
+### What can still collide, now that the row owns two of the three
+
+The row writes at most one encoder argument, so the collision it was built to end cannot be expressed.
+Four can, and each is reported separately because the fix differs:
+
+**Precedence, not preference.** `--fgs-table` beats `--noise` beats `--film-grain`, so which of a pair
+survives depends entirely on which pair has met. A strength on the row against a grid `noise` loses the
+strength; a *table* on the row against the same grid row loses the **grid's**, because the table is read
+first. `GetGrainSynthProblem` says which way round it went - it was written the wrong way round first,
+reporting `--noise` as the winner over a table, which is exactly backwards.
+
+**The same argument written twice.** A table on the row and an `fgs-table` row in the grid both reach
+the command line and nothing here decides which SVT reads. That one names the row to clear rather than
+predicting a winner.
+
+**A post-apply throwing away what the encoder synthesised.** With the grain written into the finished
+file, `grav1synth apply --replace` overwrites every grain header the encode carries - including the ones
+a grid `noise` or `fgs-table` just paid encoding time to produce. Nothing is overruled on the command
+line, so the other check cannot see it.
+
+**Retention against synthesis, which is the one a content preset can cause.** `GetGrainRetentionProblem`
+is for it. The Grainy Film / 35mm Scan preset sets `tune 5` and `noise-norm-strength` to stop the
+encoder's filters and transforms averaging the source's grain away, and its own description says it does
+not touch the Grain Synthesis row because retention and synthesis are alternatives. That was a complete
+statement while the row could only lay grain over a picture that kept its own. It is not one now:
+**Measured from source, and Encoder analysis with Denoise ticked, take that grain out before the picture
+is coded** - so those rows spend bitrate and encoding time protecting texture that is no longer in the
+frames. Reported only where the row actually denoises, and `tune` only at 5; a strength with Denoise
+unticked is *consistent* with retention and says nothing.
+
+The retention list is `tune 5`, `noise-adaptive-filtering`, `noise-norm-strength` and `ac-bias` - this
+file's own account of which parameters are retention rather than synthesis, which is also why none of
+them ever appeared in the collision check.
+
+All twelve combinations were exercised headless through the real methods, with the grid rows set and the
+row's controls driven: the four above fire, and Encoder-without-Denoise beside `tune 5`, `tune 0` beside
+Measured, and a grid `noise` with the row Off correctly say nothing.
+
+### aomenc's half of it, measured against 3.8.2
+
+**aomenc has `--film-grain-table` and it works**, so both AV1 encoders take a table from the row and only
+the spelling differs. Measured: a table passed in comes back out of the encode intact, and an encode with
+both `--film-grain-table` and `--denoise-noise-level` produces a grain table byte-identical to the one
+with the table alone - the same precedence SVT has, so sending a strength beside a table would be sending
+a number that is silently discarded.
+
+That is a narrower question than the one `EncoderArgPresets.Av1anEncoderName` refuses to ask, and the
+distinction matters: that map refuses x264 because its `--help` is a short list with the rest behind
+`--longhelp`, so a grid-wide check would strip parameters the binary has. aomenc prints
+`--film-grain-table` in its own `--help` alongside everything else it takes. Asking one binary about one
+flag it demonstrably documents is sound; widening the grid-wide map is still not.
+
+**`--tune-content=film` is not grain synthesis, and `AomAv1.json` said it was.** Measured: an encode with
+nothing but that flag comes out carrying film grain parameters that are **entirely zero** - the
+signalling is on and there is no grain in it. What measures and describes the source's grain is
+`--denoise-noise-level`, which is what the row writes. The row's description has been corrected; it had
+been telling people that setting `tune-content=film` would denoise the picture and write a grain
+description, which would have sent someone to the grid for a job the Grain Synthesis row now owns.
+
+**The first attempt to measure that was invalid and nearly went in as fact.** It went through ffmpeg's
+libaom wrapper, which has no `tune-content` option at all - so the encode ran without it and produced no
+grain headers, which reads exactly like "the flag does nothing". ffmpeg said so in the line this project
+already knows to watch for: "Codec AVOption tune-content … has not been used for any stream". Install
+aomenc and ask aomenc.
+
 ### grav1synth, and the three things measured about it
 
 `Media/Grav1synth.cs` runs it. Everything in that file was measured against a real build rather than
