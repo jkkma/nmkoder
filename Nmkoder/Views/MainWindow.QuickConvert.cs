@@ -114,6 +114,7 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(EncVidFpsBox);
             ConfigParser.RestoreIndexIfSaved(EncDeintModeBox);
             ConfigParser.RestoreIndexIfSaved(EncToneMapModeBox);
+            ConfigParser.RestoreIndexIfSaved(EncAudLoudnessBox);
             ConfigParser.RestoreIfSaved(EncDeintPresetBox);
             ConfigParser.RestoreIfSaved(EncDeintDoubleRateBox);
             ConfigParser.RestoreIfSaved(EncAudQualUpDown, allowFloat: false);
@@ -155,6 +156,7 @@ namespace Nmkoder.Views
                 ConfigParser.SaveResize(Config.Key.EncResize, QuickConvertUi.CurrentResize);
                 ConfigParser.SaveComboxIndex(EncDeintModeBox);
                 ConfigParser.SaveComboxIndex(EncToneMapModeBox);
+                ConfigParser.SaveComboxIndex(EncAudLoudnessBox);
                 ConfigParser.SaveGuiElement(EncDeintPresetBox);
                 ConfigParser.SaveGuiElement(EncDeintDoubleRateBox);
                 ConfigParser.SaveGuiElement(EncAudQualUpDown, ConfigParser.StringMode.Int);
@@ -229,6 +231,17 @@ namespace Nmkoder.Views
 
         /// <summary> The readout under the tone-mapping dropdown names the curve and the peak it is
         /// built around, so it is rewritten whenever the box moves. </summary>
+        /// <summary> The readout under the loudness box says what it will do to the loaded file's
+        /// tracks, so it is rewritten whenever the box moves. </summary>
+        private void EncAudLoudness_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            QuickConvertUi.UpdateLoudnessReadout();
+            SaveQuickConvertSettings();
+        }
+
         private void EncToneMap_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)

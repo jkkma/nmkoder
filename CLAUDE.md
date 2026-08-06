@@ -1982,3 +1982,51 @@ Verified by running it rather than by reading it: 42 chains built by the real `T
 parsing, all producing frames, all tagged bt709. A full chain - deinterlace, tone-map, fps, crop,
 mod-2 pad, scale, burn-in, borders - composes correctly on both tabs and lands on the frame size the
 geometry predicts. An SDR-to-PQ-and-back round trip returns every hue and every edge intact.
+
+## Loudness normalization
+
+**Quick Convert can bring every encoded audio track to a standard loudness, and it is two-pass because
+one-pass is a compressor.** ffmpeg's `loudnorm` run in a single pass normalizes *dynamically*, riding
+the gain as the programme goes: measured against a source whose quiet passage sits 26 dB under its loud
+one, it brought the two to within **1.3 dB of each other** - the quiet half lifted by nearly 30 dB -
+while reporting that it had hit the target exactly. The same source through the two-pass path kept all
+26 dB. Both land on the requested LUFS, so the number gives nothing away. The first pass measures each
+track, the second is the encode with those numbers handed back in and `linear=true`.
+
+`Loudnorm.MeasureAsync` is the first pass, one ffmpeg run per ticked audio track, and
+`LoudnessConfig.GetFilter` is the `-filter:a:N` value the encode carries.
+
+**The channel conversion has to be inside that filter, ahead of loudnorm.** The app's own channel
+control is `-ac:a:N`, which ffmpeg applies *after* the filter chain - so loudnorm normalizes the source
+layout and the downmix then moves the level out from under it. Measured on a 5.1 source asked for -16
+LUFS: **-23.67 came out, 7.7 dB adrift, silently.** With `aformat=channel_layouts=` in the chain the same
+source lands on -16.01, and the true-peak ceiling then applies to the signal actually written rather
+than to one that gets mixed down afterwards. `CodecUtils.GetOutputChannelCount` is shared by the
+measurement and the encoder arguments so the two cannot drift apart.
+
+**The LRA target is derived from the measurement, not configured.** loudnorm drops to dynamic when the
+target is under the track's own loudness range, and ffmpeg's default of 7 would force that on any film
+mix, which routinely runs 10 to 25 LU. Taking it from the first pass and rounding up takes the loudness
+range off the table, leaving the true-peak ceiling as the only thing that can rule a flat gain out.
+
+**`GainFitsUnderTruePeak` is a necessary condition, not a sufficient one**, and the log says only what
+that supports. A gain that would breach -1 dBTP certainly cannot be applied flat; the reverse does not
+follow - measured, two sources whose gain fitted comfortably still came out dynamic, both perfectly
+stationary noise measuring an LRA of exactly 0.00. Real programme material has not been seen to hit it,
+but nothing here claims which mode ffmpeg chose.
+
+**The trim goes with the measurement.** Measured over the whole file where only a section is written,
+the numbers describe audio that is not in the output: the test source reads -19.2 LUFS whole and -45.2
+for its quiet half alone. `QuickConvert.Run` resolves the section itself rather than reusing the
+command's own trim arguments, which are split across the input and output sides by trim mode - loudness
+does not need that frame accuracy, only the right span.
+
+Stream copy is not decoded, so the box is disabled for one and `GetLoudnessConfig` reports Off. **The
+AV1AN tab does not offer this**, and not by oversight: its audio arguments are deliberately unindexed -
+av1an's own `-map 0` carries every track and the tab has one bitrate and one channel count for all of
+them - so there is nowhere to put per-track measurements, and one track's numbers applied to all of them
+would move the others to the wrong loudness.
+
+Verified by running it: six source/channel/target combinations through the real `LoudnessConfig`,
+measured and re-encoded through ffmpeg, every one landing within 0.01 dB of its target - the 5.1 to
+stereo downmix included.
