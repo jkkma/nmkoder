@@ -11,6 +11,7 @@ using Nmkoder.Utils;
 using Nmkoder.Views;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -1134,6 +1135,113 @@ namespace Nmkoder.UI.Tasks
 
             return $"Note: the Advanced tab's {subject} - so Grain Synthesis {strength} is dropped and " +
                 $"{winner} runs instead.{denoise} Clear whichever of the two you did not mean.";
+        }
+
+        /// <summary>
+        /// What SVT-AV1's tune 5 assigns for itself, and the values it assigns. Read out of the fork's
+        /// own source rather than its documentation, which describes the bundle without saying when it
+        /// is applied - <c>set_param_based_on_input</c>, after the whole command line has been parsed,
+        /// so the order the flags are written in cannot save a row set beside it.
+        /// <para/>
+        /// It sets <c>complex-hvs 1</c> too, which is not here because the parameter list has no row for
+        /// it - there is nothing for the tune to overwrite.
+        /// </summary>
+        private static readonly (string Arg, string Value)[] FilmGrainTuneOverrides =
+        {
+            ("enable-tf", "0"),
+            ("enable-cdef", "0"),
+            ("enable-restoration", "0"),
+            ("ac-bias", "4.00"),
+            ("tx-bias", "1"),
+        };
+
+        /// <summary>
+        /// The rows tune 5 leaves alone and strands. Each only acts on a filter the tune has switched
+        /// off: <c>cdef-scaling</c> scales a CDEF strength that is never computed, <c>tf-strength</c>
+        /// and <c>kf-tf-strength</c> scale a temporal filter that does not run, and
+        /// <c>noise-adaptive-filtering</c> backs CDEF and loop restoration off on noisy frames, both
+        /// being off already.
+        /// </summary>
+        private static readonly string[] FilmGrainTuneInert =
+        {
+            "cdef-scaling",
+            "tf-strength",
+            "kf-tf-strength",
+            "noise-adaptive-filtering",
+        };
+
+        /// <summary>
+        /// Why rows set beside SVT-AV1's tune 5 will not do what they say, or "" if none are.
+        /// <para/>
+        /// Tune 5 is a bundle rather than a preference, and it wins: the six values it sets are assigned
+        /// after the command line has been read, so a grid row naming one of them is overwritten with
+        /// only an <c>SVT_WARN</c> to say so - and that goes to the encoder's stderr, which av1an
+        /// collects per chunk into a log <c>HandleTempFolder</c> deletes on a successful run. Four more
+        /// rows survive the bundle and are stranded by it, their filters having been switched off.
+        /// <para/>
+        /// A row set to what the tune sets anyway is not reported. It is not being overruled in any
+        /// sense the user can act on, and naming it would send someone to clear a row that agrees with
+        /// the encode.
+        /// <para/>
+        /// The Grainy Film preset sets tune 5 and none of the ten, so this cannot fire from a preset -
+        /// it is for a row typed by hand, which is the same division
+        /// <see cref="GetUnsupportedAdvancedArgsProblem"/> draws.
+        /// </summary>
+        public static string GetFilmGrainTuneProblem(CodecUtils.Av1anCodec vCodec)
+        {
+            // The grid is reloaded per encoder, so no other encoder can be holding these rows.
+            if (vCodec != CodecUtils.Av1anCodec.SvtAv1)
+                return "";
+
+            if (GetAdvancedArgValue("tune") != "5")
+                return "";
+
+            var overwritten = FilmGrainTuneOverrides
+                .Select(o => (o.Arg, o.Value, Set: GetAdvancedArgValue(o.Arg)))
+                .Where(o => o.Set.IsNotEmpty() && !IsSameArgValue(o.Set, o.Value))
+                .Select(o => $"{o.Arg} {o.Set}")
+                .ToList();
+
+            var inert = FilmGrainTuneInert.Where(a => GetAdvancedArgValue(a).IsNotEmpty()).ToList();
+
+            if (overwritten.Count < 1 && inert.Count < 1)
+                return "";
+
+            string s = "Note: tune is set to 5, SVT-AV1's film grain bundle, which sets enable-tf 0, " +
+                "enable-cdef 0, enable-restoration 0, complex-hvs 1, ac-bias 4.00 and tx-bias 1 for " +
+                "itself - and it does so after the whole command line has been read, so a row beside it " +
+                "does not win.";
+
+            if (overwritten.Count > 0)
+            {
+                bool one = overwritten.Count == 1;
+                s += $" {string.Join(", ", overwritten)} {(one ? "is" : "are")} therefore overwritten and " +
+                    $"{(one ? "does" : "do")} nothing.";
+            }
+
+            if (inert.Count > 0)
+            {
+                bool one = inert.Count == 1;
+                s += $" {string.Join(", ", inert)} {(one ? "is" : "are")} left as set, but {(one ? "it" : "each")} " +
+                    $"only acts on a filter the tune has switched off, so {(one ? "it does" : "they do")} " +
+                    $"nothing either.";
+            }
+
+            return s + $" Clear {(overwritten.Count + inert.Count == 1 ? "that row" : "those rows")}, or pick another tune.";
+        }
+
+        /// <summary>
+        /// Whether two argument values ask for the same thing. Compared as text first, then as numbers
+        /// where both are numbers, so 4 and 4.00 are one value - the tune above is stated to two decimal
+        /// places and nobody types it that way.
+        /// </summary>
+        private static bool IsSameArgValue(string a, string b)
+        {
+            if (a.Trim() == b.Trim())
+                return true;
+
+            return float.TryParse(a.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+                float.TryParse(b.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float y) && x == y;
         }
 
         /// <summary>

@@ -488,12 +488,34 @@ other two paths touches the source. Someone who asked for "denoise, then synthes
 synthetic grain laid over the grain that was already there, which is the opposite of the setting.
 
 `aomenc` is clean here: `AomAv1.json` carries no grain rows at all, and the grid is rebuilt per
-encoder, so only SVT-AV1 can be holding one. Neither content preset touches that group either,
+encoder, so only SVT-AV1 can be holding one. No content preset sets either of the two rows that
+collide - the Grainy Film one reaches into that group for `noise-norm-strength` and nothing else -
 so clicking one cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
 than a rival - `apply_denoise_2d` reads it directly - and `noise-chroma`, `noise-chroma-from-luma`
 and `noise-size` are `--noise`'s own satellites, reset with a warning when it is 0, so they are
 only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
 `ac-bias` and `tune 5` are grain *retention*, a different mechanism, and do not conflict.
+
+**`tune 5` is a bundle that overwrites six other rows, and it wins over whatever they hold.** It sets
+`enable-tf 0`, `enable-cdef 0`, `enable-restoration 0`, `complex-hvs 1`, `ac-bias 4.00` and `tx-bias 1`
+- in `set_param_based_on_input`, which runs *after* the whole command line has been parsed, so the
+order the flags are written in cannot save a row set beside it. The only notice is an `SVT_WARN`,
+which goes to the encoder's stderr, which av1an collects per chunk into a log `HandleTempFolder`
+deletes on a successful run: the same silence the grain collision above hides in. Four more rows go
+inert with them rather than being overwritten - `cdef-scaling` (read only where `cdef_level` is not 0),
+`tf-strength` and `kf-tf-strength` (no temporal filtering left to strengthen) and
+`noise-adaptive-filtering` (it sets nothing but the two "back off on a noisy frame" flags for CDEF and
+restoration, and both filters are already off). So the Grainy Film preset sets `tune 5` and none of
+those ten. Read out of the fork's own source rather than its documentation, which describes the bundle
+without saying it is applied last.
+
+`Av1anUi.GetFilmGrainTuneProblem` is for the row typed by hand beside it, and it separates the two
+halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
+a user told the wrong one will go looking for the wrong thing. A row set to what the tune sets anyway
+is **not** reported - `ac-bias 4` against the tune's `4.00` is agreement, not a collision, and sending
+someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` is in the
+message but not in the check: the tune sets it and the parameter list has no row for it, so there is
+nothing to overwrite.
 
 **The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
