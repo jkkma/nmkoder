@@ -72,10 +72,18 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> The encoder's documented parameters, with whatever was last typed into them. </summary>
-        public static void Load(ObservableCollection<EncoderArgRow> target, IEncoder enc, string folder, Config.Key key)
+        /// <param name="key">Where previously typed values are read back from, or null for a grid whose
+        /// values are not kept - which is Quick Convert's, that tab persisting nothing. A null loses them
+        /// across a switch between encoders as well as across a session, the saved store being the only
+        /// thing that carried them: the rows are rebuilt from the encoder's JSON every time one is
+        /// selected.</param>
+        public static void Load(ObservableCollection<EncoderArgRow> target, IEncoder enc, string folder, Config.Key? key)
         {
             target.Clear();
-            ReadSaved(key).TryGetValue(enc.Name, out Dictionary<string, string> saved);
+            Dictionary<string, string> saved = null;
+
+            if (key != null)
+                ReadSaved(key.Value).TryGetValue(enc.Name, out saved);
 
             foreach (EncoderArgRow row in ReadRows(enc, folder))
             {

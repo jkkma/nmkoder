@@ -233,12 +233,15 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "AV1 (SVT-AV1)";
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6", "7", "8" };
-        public int PresetDefault { get; } = 7;
+        // 4 rather than 7. This is the encoder Quick Convert opens on and the tab restores nothing, so
+        // these two numbers are what every session starts at - which makes them worth setting to what
+        // someone would actually encode with rather than to something fast enough to demonstrate.
+        public int PresetDefault { get; } = 4;
         public List<PixelFormats> ColorFormats { get; } = new List<PixelFormats>() { PixelFormats.Yuv420P8, PixelFormats.Yuv420P10 };
         public int ColorFormatDefault { get; } = 1;
         public int QMin { get; } = 0;
         public int QMax { get; } = 63;
-        public int QDefault { get; } = 24;
+        public int QDefault { get; } = 30;
         public string QInfo { get; } = "CRF (0-50 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 

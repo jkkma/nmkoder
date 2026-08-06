@@ -165,8 +165,7 @@ namespace Nmkoder.Views
                     // got far enough to fill the task UI in.
                     TrySave(SaveLayout, "window layout");
                     TrySave(SaveUiConfig, "selected codecs");
-                    TrySave(SaveQuickConvertSettings, "Quick Convert settings");
-                    TrySave(SaveEncAdvancedArgs, "Quick Convert encoder arguments");
+                    // Nothing for Quick Convert: that tab starts every session at its defaults
                     TrySave(SaveConfigAv1an, "AV1AN options");
                     TrySave(SaveAv1anEncodeSettings, "AV1AN encode settings");
                     TrySave(SaveAv1anAdvancedArgs, "AV1AN encoder arguments");
@@ -198,12 +197,10 @@ namespace Nmkoder.Views
             {
                 ConfigParser.LoadComboxIndex(FileListModeBox);
                 ConfigParser.LoadGuiElement(BatchNameTemplateBox);
-                // Quick Convert
-                ConfigParser.LoadGuiElement(FfmpegContainerBox);
-                ConfigParser.LoadComboxIndex(EncVidCodecsBox);
-                ConfigParser.LoadComboxIndex(EncAudCodecBox);
-                ConfigParser.LoadComboxIndex(EncSubCodecBox);
-                ConfigParser.LoadComboxIndex(EncMetaCopySource);
+                // No Quick Convert block here any more: that tab restores nothing, and the codec,
+                // container and metadata-source boxes went with the rest of it. See
+                // LoadQuickConvertSettings, and note that not *writing* them is half the point - a key
+                // still being saved is one somebody later restores on the strength of finding it.
 
                 LoadConfigAv1an();
                 LoadGeneralSettings();
@@ -220,12 +217,6 @@ namespace Nmkoder.Views
             {
                 ConfigParser.SaveComboxIndex(FileListModeBox);
                 ConfigParser.SaveGuiElement(BatchNameTemplateBox);
-                // Quick Convert
-                ConfigParser.SaveGuiElement(FfmpegContainerBox);
-                ConfigParser.SaveComboxIndex(EncVidCodecsBox);
-                ConfigParser.SaveComboxIndex(EncAudCodecBox);
-                ConfigParser.SaveComboxIndex(EncSubCodecBox);
-                ConfigParser.SaveComboxIndex(EncMetaCopySource);
             }
         }
 
