@@ -88,6 +88,33 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would
   otherwise write SDR pixels into a file tagged HDR.
 
+### Film grain synthesis
+
+AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which on
+grainy film is the single largest saving there is - but only where the picture being coded has had the
+grain taken out of it first. Before the fork this was one spinner writing one encoder flag.
+
+- **The Grain Synthesis row is now a mode selector**, and that is not cosmetic: SVT-AV1 has *three*
+  ways to be asked for grain (`--film-grain`, `--noise`, `--fgs-table`) and takes exactly one of them,
+  discarding the others with a warning that goes to a log the app deletes on success. One control that
+  writes at most one of them cannot express that collision. What can still collide - a parameter typed
+  into the Advanced grid beside it - is reported before the encode, naming which of the two wins.
+- **A grain table can be measured off your own source** rather than guessed at by the encoder. The file
+  is denoised, [grav1synth](https://github.com/rust-av/grav1synth) measures the difference, the encoder
+  is handed the clean picture and the table, and the grain comes back at playback. Measured on a test
+  clip at CRF 35: 977 KB encoding the grainy source, 743 KB encoding the denoised one, 759 KB with the
+  grain described back into it.
+- **The measured table is kept** beside the encode, because it is expensive to make, a few tens of
+  kilobytes to store, and describes the *source* rather than that encode - so every later encode of the same
+  film can reuse it through the Grain table file mode, denoising to match at the same strength.
+- **What it costs is stated before you press Run.** grav1synth's diff runs at about 7.2 megapixels a
+  second, single-threaded, so a feature film at 1080p is around eleven hours of measuring on top of a
+  lossless intermediate the length of the video. The row names the estimate for the file you have
+  loaded rather than letting you find out at hour two.
+- **The row is what the encoder does while it encodes.** Grain written into a file that is *already*
+  encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
+  utility's job instead, the same division Cut and Deinterlace Video already draw.
+
 ### Framing: resize, crop, borders and trim
 
 - **Resize is a dropdown with presets** - 2160p through 360p as boxes the picture is fitted inside,
@@ -252,7 +279,11 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
 - **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
   conversion rather than the source
-- Set AV1 film **grain synthesis** (disabled for H.264/H.265/VP9 as this is exclusive to AV1)
+- **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
+  encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
+  denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
+  optionally denoising to match it. The readout says whether the picture being coded is clean, which is
+  what decides whether any of this saves bitrate or merely adds grain
 - **Advanced encoder arguments** in a grid grouped by category, each with a full explanation and
   example values on right-click, plus content presets for anime and for game capture
 - Av1an Options: change the splitting method, chunk creation method, number of workers, and more
@@ -271,6 +302,11 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   is loaded back into the file list, and you do not need it in order to encode an interlaced source,
   since both encode tabs deinterlace on their way through. Has its own Deinterlace settings, under
   Configure on its card, separate from either tab's
+- **Film Grain (AV1)**: the parts of a grain workflow that are not an encode. **Measure** a grain table
+  off any source, whatever its codec - it compares decoded frames - or, on an AV1 file, **extract** the
+  table it already carries, **apply** grain to it (from a table, one of grav1synth's film stock presets,
+  or photon noise at an ISO), or **remove** every grain header from it. The last three rewrite the AV1
+  headers and remux; nothing is re-encoded and the picture is untouched
 - **Cut Video**: keep only a chosen section, copied out without re-encoding, with the start and end
   points picked while watching the frame you are on
 - **Concatenate Into Single MKV**: merge any amount of any compatible video format into a single MKV
@@ -294,14 +330,36 @@ Portable builds are produced by `.github/workflows/release.yml`. Push a `v*` tag
 release, or run the workflow manually to get a draft. `.github/scripts/bundle-tools.sh` stages the
 external tools into `bin/`:
 
-| | ffmpeg / ffprobe | MKVToolNix | av1an | VapourSynth | SVT-AV1 | aomenc, x264, x265 | vpxenc | VMAF models |
-|---|---|---|---|---|---|---|---|---|
-| win-x64 | bundled | bundled | bundled | bundled | bundled | bundled | bundled | bundled |
-| linux-x64 | bundled | use package manager | bundled | use package manager | bundled | use package manager | use package manager | bundled |
-| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `cargo install av1an` | `brew install vapoursynth` | build from source, see below | `brew install aom x264 x265` | `brew install libvpx` | bundled |
+| | ffmpeg / ffprobe | MKVToolNix | av1an | VapourSynth | SVT-AV1 | aomenc, x264, x265 | vpxenc | VMAF models | grav1synth |
+|---|---|---|---|---|---|---|---|---|---|
+| win-x64 | bundled | bundled | bundled | bundled | bundled | bundled | bundled | bundled | built from source |
+| linux-x64 | bundled | use package manager | bundled | use package manager | bundled | use package manager | use package manager | bundled | built from source |
+| osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `cargo install av1an` | `brew install vapoursynth` | build from source, see below | `brew install aom x264 x265` | `brew install libvpx` | bundled | arm64 only, see below |
 
 Tool downloads are best-effort: an unreachable upstream is reported and skipped rather than failing
 the release, and the workflow's job summary lists exactly what each build shipped.
+
+### grav1synth is compiled, not downloaded
+
+[grav1synth](https://github.com/rust-av/grav1synth) is what reads and writes the film grain
+description inside an AV1 bitstream, and the Grain Synthesis row needs it for anything but the
+encoder's own analysis. It has never cut a release - there is not one tag on the repository - so
+there is no binary to fetch and the release workflow builds it from a pinned commit, which is the
+only tool here that needs a compiler on the runner.
+
+Two consequences worth knowing:
+
+- **osx-x64 does not get it.** Compiling produces a binary for the host, and GitHub's macOS runners
+  are arm64, so an osx-x64 build would ship an arm64 binary inside an Intel archive. The bundler
+  skips it and says so rather than doing that. `cargo install --git https://github.com/rust-av/grav1synth`
+  puts one on your `PATH` if you want it there.
+- **The Windows archive carries FFmpeg's shared libraries because of it**, about 168 MB uncompressed.
+  The only FFmpeg build that ships headers and import libraries is the shared one, so a Windows
+  grav1synth links against DLLs and cannot start without them beside it. They are copied in before the
+  build is smoke-tested, and removed again with it if it still will not run.
+
+Without it, everything else still works: the encoder's own grain synthesis needs no tool at all, and
+the modes and the utility that do name the missing binary and why rather than failing mid-encode.
 
 ### SVT-AV1 comes from the PSY line
 
@@ -358,6 +416,9 @@ bin/av1an/vsynth/vship/      Vship's NVIDIA + AMD builds, parked; the app stages
                              machine's GPU passes into vs-plugins, and unstages both when none does
 bin/av1an/enc/               SvtAv1EncApp, aomenc, vpxenc, x264 and x265
 ```
+
+grav1synth is not part of that tree - it sits in `bin/` beside ffmpeg and mkvmerge, which is where the
+app looks for it, with FFmpeg's shared libraries next to it on Windows.
 
 `vsynth` and `enc` are prepended to av1an's `PATH`, so nothing needs installing system-wide.
 
