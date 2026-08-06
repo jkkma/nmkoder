@@ -111,12 +111,20 @@ namespace Nmkoder.Data
 
         /// <summary>
         /// grav1synth's built-in film stock tables, in the order its own <c>presets</c> subcommand prints
-        /// them - the three format presets first, then the two standalones. The list is read out of the
+        /// them: the two standalones, then each format preset bare and with its three film stock
+        /// modifiers - <c>16mm-3</c> being 16mm shot on Kodak Vision3 200T. The list is read out of the
         /// binary at startup where one is present (<see cref="Media.Grav1synth.LoadPresetsAsync"/>) and
         /// falls back to this, so a build older or newer than the one this was written against still
-        /// fills the dropdown rather than emptying it.
+        /// fills the dropdown rather than emptying it. A name the binary does not know is refused along
+        /// with the whole command, which is why this is a copy of one build's output rather than a guess.
         /// </summary>
-        public static readonly string[] FallbackPresets = { "16mm", "Classic35", "Modern35", "Super8", "MaxMid" };
+        public static readonly string[] FallbackPresets =
+        {
+            "Super8", "MaxMid",
+            "16mm", "16mm-1", "16mm-2", "16mm-3",
+            "Classic35", "Classic35-1", "Classic35-2", "Classic35-3",
+            "Modern35", "Modern35-1", "Modern35-2", "Modern35-3",
+        };
 
         public static string[] Presets = FallbackPresets;
 
