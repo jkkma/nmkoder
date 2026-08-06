@@ -1865,7 +1865,7 @@ The five modes are in `GrainSynthMode`, and what separates them is not how the g
 |---|---|---|
 | Encoder analysis | the encoder, from a strength | one number |
 | Measured from source | grav1synth diffing the source against a denoised copy | a lossless intermediate and a full extra pass |
-| Grain table file | a table the user already has | nothing |
+| Grain table file | a table the user already has | nothing, or the denoise pass on request |
 | Film stock preset | grav1synth's built-in tables | a remux-speed pass over the output |
 | Photon noise (ISO) | grav1synth, from the frame size and transfer curve | the same |
 
@@ -1891,6 +1891,18 @@ splits again on the way to the binary, and a value with a space does not survive
 limit the Advanced grid has always had. A table is the first setting here whose value is a path, so it
 is the first to meet it in ordinary use; grav1synth takes the path as one argument of its own and needs
 no splitting, so nothing is lost by routing it there.
+
+**A table the user brings can denoise too, and that tick is what makes a saved table worth keeping.**
+Table mode runs no pass by default - a table is often there to put grain onto a source that never had
+any, where denoising would be destroying picture for nothing. Ticking Denoise runs the same pass Measured
+runs, which is the second half of the staged workflow: measure once, keep `<output>.grain.tbl`, and every
+later encode of that source is Grain table file + Denoise at the same strength, with the hours of
+measuring already paid. Without the tick that second encode codes the source's grain and then synthesises
+more on top of it, which is the one shape of this feature that costs bitrate instead of saving it.
+
+No encoder will denoise for a table - SVT reads its denoise flag only on the `--film-grain` path - so
+this is `DenoisePass` either way, and `NeedsDenoisePass` and `NeedsMeasurement` are separate questions
+now: Table with the tick does the first and not the second.
 
 **The clause the readout exists for is the last one: grain synthesis only saves bitrate where the
 picture being coded has had the grain taken out of it.** Two of the five modes denoise and three do

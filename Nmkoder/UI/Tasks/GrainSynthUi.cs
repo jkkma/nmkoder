@@ -81,7 +81,12 @@ namespace Nmkoder.UI.Tasks
             {
                 Mode = GetMode(),
                 Strength = Form.Av1anGrainSynthStrengthUpDown.Value.AsInt(),
-                Denoise = Form.Av1anGrainSynthDenoiseBox.IsChecked == true,
+                // Two controls, because they sit in two panels and mean two mechanisms - the encoder's own
+                // denoise flag under Encoder, this app's denoise pass under Table. Read per mode so a tick
+                // left in the panel that is off screen cannot reach the encode.
+                Denoise = GetMode() == GrainSynthMode.Table
+                    ? Form.Av1anGrainTableDenoiseBox.IsChecked == true
+                    : Form.Av1anGrainSynthDenoiseBox.IsChecked == true,
                 DenoiseStrength = Form.Av1anGrainDenoiseStrengthUpDown.Value.AsInt(),
                 TablePath = (Form.Av1anGrainTableBox.Text ?? "").Trim(),
                 Preset = Form.Av1anGrainPresetBox.GetText(),
@@ -109,7 +114,15 @@ namespace Nmkoder.UI.Tasks
 
             Form.Av1anGrainModeBox.IsEnabled = relevant;
             Form.Av1anGrainEncoderPanel.IsVisible = mode == GrainSynthMode.Encoder;
-            Form.Av1anGrainMeasuredPanel.IsVisible = mode == GrainSynthMode.Measured;
+            // The strength belongs to the pass, and the pass runs for Measured always and for Table on
+            // request - so it follows the pass rather than the mode.
+            Form.Av1anGrainMeasuredPanel.IsVisible = mode == GrainSynthMode.Measured ||
+                (mode == GrainSynthMode.Table && Form.Av1anGrainTableDenoiseBox.IsChecked == true);
+
+            // The strength names itself in Measured, where nothing else on the row says what it is. Under
+            // Table the tickbox immediately to its left is already labelled Denoise, and two of the word
+            // in a row reads as two settings.
+            Form.Av1anGrainDenoiseLabel.IsVisible = mode == GrainSynthMode.Measured;
             Form.Av1anGrainTablePanel.IsVisible = mode == GrainSynthMode.Table;
             Form.Av1anGrainPresetPanel.IsVisible = mode == GrainSynthMode.Preset;
             Form.Av1anGrainIsoPanel.IsVisible = mode == GrainSynthMode.PhotonNoise;

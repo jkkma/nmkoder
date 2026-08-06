@@ -314,16 +314,19 @@
                                       ToolTip.Tip="Encode the denoised picture rather than the original. This is where the bitrate saving comes from - left off, the grain is still in the frames being coded and the synthetic grain is laid on top of it." />
                           </StackPanel>
 
+                          <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <TextBox x:Name="Av1anGrainTableBox" Width="230" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
+                            <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
+                            <CheckBox x:Name="Av1anGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="Av1anGrainTableDenoise_Changed"
+                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same pass the Measured mode runs. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is. Set the strength to whatever the table was measured at." />
+                          </StackPanel>
+
+                          <!-- Shared by Measured and by Table with Denoise ticked: it is the same pass. -->
                           <StackPanel x:Name="Av1anGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <TextBlock Classes="dim" Text="Denoise" VerticalAlignment="Center" />
+                            <TextBlock x:Name="Av1anGrainDenoiseLabel" Classes="dim" Text="Denoise" VerticalAlignment="Center" />
                             <NumericUpDown x:Name="Av1anGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
                                            ValueChanged="Av1anGrainSynthStrength_ValueChanged"
                                            ToolTip.Tip="How hard the denoise pass runs, as a proportion of ffmpeg's own hqdn3d defaults - 4 is exactly those defaults. It decides both what the grain table measures and what the encoder is handed, so too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
-                          </StackPanel>
-
-                          <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <TextBox x:Name="Av1anGrainTableBox" Width="260" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
-                            <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
                           </StackPanel>
 
                           <StackPanel x:Name="Av1anGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">

@@ -1228,7 +1228,9 @@ namespace Nmkoder.UI.Tasks
             if (set.Count < 1)
                 return "";
 
-            string what = config.Mode == GrainSynthMode.Measured
+            // Which mechanism took the grain out, since the two look different from the user's side: a
+            // pass of this app's own that writes a file, or a flag the encoder acts on internally.
+            string what = config.NeedsDenoisePass
                 ? "the source is denoised before av1an sees it"
                 : "Denoise is ticked, so the encoder codes the denoised picture";
 

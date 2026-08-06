@@ -88,12 +88,23 @@ namespace Nmkoder.Data
         /// aomenc's <c>--denoise-noise-level</c>. </summary>
         public int Strength = 0;
 
-        /// <summary> <see cref="GrainSynthMode.Encoder"/>: whether the encoder codes the denoised picture
-        /// rather than laying synthetic grain over the grain that is already there. </summary>
+        /// <summary>
+        /// Whether the picture being encoded has the source's grain taken out of it first, which is where
+        /// the bitrate saving comes from and is a different mechanism in each of the two modes that offer
+        /// it. Under <see cref="GrainSynthMode.Encoder"/> it is the encoder's own denoise flag; under
+        /// <see cref="GrainSynthMode.Table"/> it is this app's denoise pass, the same one
+        /// <see cref="GrainSynthMode.Measured"/> runs, because no encoder will denoise for a table.
+        /// <para/>
+        /// Off by default under Table, and it has to be: a table the user brings may well be there to put
+        /// grain onto a source that never had any, where denoising would be destroying picture for
+        /// nothing. Ticking it is what makes a saved table reproduce the encode it was measured for.
+        /// </summary>
         public bool Denoise = false;
 
-        /// <summary> <see cref="GrainSynthMode.Measured"/>: how hard the denoise pass in front of the diff
-        /// runs. See <see cref="GetDenoiseFilter"/> for what the number means. </summary>
+        /// <summary> How hard this app's own denoise pass runs, for the two modes that use it. See
+        /// <see cref="GetDenoiseFilter"/> for what the number means - and note that a table measured at
+        /// one strength describes grain that was removed at that strength, so reusing it wants the same
+        /// number. </summary>
         public int DenoiseStrength = 4;
 
         /// <summary> <see cref="GrainSynthMode.Table"/>: a grain table the user already has. </summary>
@@ -165,7 +176,25 @@ namespace Nmkoder.Data
         /// between saving bitrate and merely adding grain - see <see cref="GetNote"/>. </summary>
         public bool DenoisesSource
         {
-            get { return Runs && (Mode == GrainSynthMode.Measured || (Mode == GrainSynthMode.Encoder && Denoise)); }
+            get
+            {
+                return Runs && (Mode == GrainSynthMode.Measured ||
+                    ((Mode == GrainSynthMode.Encoder || Mode == GrainSynthMode.Table) && Denoise));
+            }
+        }
+
+        /// <summary> Whether a denoised copy has to be rendered before av1an starts, which is the half of
+        /// <see cref="DenoisesSource"/> this app does itself - the encoder's own denoise flag needs no
+        /// pass and no intermediate. </summary>
+        public bool NeedsDenoisePass
+        {
+            get { return Runs && (Mode == GrainSynthMode.Measured || (Mode == GrainSynthMode.Table && Denoise)); }
+        }
+
+        /// <summary> Whether grav1synth has to measure a table, as against being handed one. </summary>
+        public bool NeedsMeasurement
+        {
+            get { return Runs && Mode == GrainSynthMode.Measured; }
         }
 
         /// <summary> Whether grav1synth has to be present for this mode to run at all. Encoder mode never
@@ -294,7 +323,8 @@ namespace Nmkoder.Data
                     parts.Add($"Denoised ({GetDenoiseFilter()}) and measured by grav1synth");
                     break;
                 case GrainSynthMode.Table:
-                    parts.Add($"Table '{Path.GetFileName(TablePath)}'");
+                    parts.Add($"Table '{Path.GetFileName(TablePath)}'" +
+                        (Denoise ? $", source denoised ({GetDenoiseFilter()}) to match it" : ""));
                     break;
                 case GrainSynthMode.Preset:
                     parts.Add($"grav1synth's '{Preset}' film stock");
@@ -351,6 +381,9 @@ namespace Nmkoder.Data
         public bool IsPostApply { get { return Delivery == GrainDelivery.PostApply; } }
 
         /// <summary> Whether a denoised copy has to be rendered before av1an starts. </summary>
-        public bool NeedsDenoisePass { get { return Config.Mode == GrainSynthMode.Measured && Config.Runs; } }
+        public bool NeedsDenoisePass { get { return Config.NeedsDenoisePass; } }
+
+        /// <summary> Whether that copy also has to be measured against the source. </summary>
+        public bool NeedsMeasurement { get { return Config.NeedsMeasurement; } }
     }
 }

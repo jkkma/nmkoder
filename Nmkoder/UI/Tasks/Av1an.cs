@@ -950,21 +950,28 @@ namespace Nmkoder.UI.Tasks
             string outPath = Av1anUi.GetDenoisedInputPath(tempDir);
             string tablePath = plan.TablePath;
 
-            // Same reasoning as the deinterlaced input above: re-measuring an hour of grain to change a
-            // CRF would cost more than the encode being resumed. Only ever files this same encode wrote -
-            // a fresh run mints a temp folder from the clock, so there is never a pair sitting there
-            // already. Both halves or neither: a denoised file with no table beside it is half a run.
-            if (resume && IoUtils.GetFilesize(outPath) > 0 && GrainSynthConfig.LooksLikeGrainTable(tablePath))
+            // Same reasoning as the deinterlaced input above: re-denoising an hour of video to change a
+            // CRF would cost more than the encode being resumed, and re-measuring it costs far more than
+            // that. Only ever files this same encode wrote - a fresh run mints a temp folder from the
+            // clock, so there is never a pair sitting there already. Both halves or neither where both
+            // were made: a denoised file with no table beside it is half a measured run.
+            if (resume && IoUtils.GetFilesize(outPath) > 0 &&
+                (!plan.NeedsMeasurement || GrainSynthConfig.LooksLikeGrainTable(tablePath)))
             {
-                Logger.Log($"Reusing the denoised file and grain table this encode was started from " +
-                    $"('{Path.GetFileName(outPath)}'). Neither is made again - delete them to redo the measurement.");
+                Logger.Log($"Reusing the denoised file this encode was started from ('{Path.GetFileName(outPath)}')" +
+                    $"{(plan.NeedsMeasurement ? " and the grain table measured against it" : "")}. It is not made " +
+                    $"again - delete it to redo the pass.");
                 return outPath;
             }
 
             MediaFile file = TrackList.current?.File;
             Logger.Log($"Denoising '{file?.Name.Trunc(40)}' with {plan.Config.GetDenoiseFilter()}, into " +
-                $"{DenoisePass.DescribeOutput()} that av1an will then encode. The grain taken out of it is what " +
-                $"grav1synth measures next, and the encoder is handed the clean picture plus the description.");
+                $"{DenoisePass.DescribeOutput()} that av1an will then encode. " +
+                (plan.NeedsMeasurement
+                    ? "The grain taken out of it is what grav1synth measures next, and the encoder is handed the " +
+                        "clean picture plus the description."
+                    : "The encoder is handed the clean picture, and the grain table supplies the grain that was " +
+                        "taken out - so the strength here wants to be the one the table was measured at."));
 
             string problem = await DenoisePass.RunAsync(plan.Config, inPath, outPath);
 
@@ -977,6 +984,9 @@ namespace Nmkoder.UI.Tasks
 
                 return "";
             }
+
+            if (!plan.NeedsMeasurement)
+                return outPath; // A table the user brought: the pass was only ever the denoising half
 
             Logger.Log($"Measuring the grain between the source and the denoised copy with grav1synth. It reads " +
                 $"every frame of both, single-threaded, and prints no progress of its own while this app is " +
