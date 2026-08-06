@@ -488,12 +488,26 @@ other two paths touches the source. Someone who asked for "denoise, then synthes
 synthetic grain laid over the grain that was already there, which is the opposite of the setting.
 
 `aomenc` is clean here: `AomAv1.json` carries no grain rows at all, and the grid is rebuilt per
-encoder, so only SVT-AV1 can be holding one. Neither content preset touches that group either,
+encoder, so only SVT-AV1 can be holding one. No content preset sets either of the two rows that
+collide - the Grainy Film one reaches into that group for `noise-norm-strength` and nothing else -
 so clicking one cannot cause this. `adaptive-film-grain` is a genuine companion to the box rather
 than a rival - `apply_denoise_2d` reads it directly - and `noise-chroma`, `noise-chroma-from-luma`
 and `noise-size` are `--noise`'s own satellites, reset with a warning when it is 0, so they are
 only reachable *through* the collision above. `noise-adaptive-filtering`, `noise-norm-strength`,
 `ac-bias` and `tune 5` are grain *retention*, a different mechanism, and do not conflict.
+
+**`tune 5` is a bundle that overwrites six other rows, and it wins over whatever they hold.** It sets
+`enable-tf 0`, `enable-cdef 0`, `enable-restoration 0`, `complex-hvs 1`, `ac-bias 4.00` and `tx-bias 1`
+- in `set_param_based_on_input`, which runs *after* the whole command line has been parsed, so the
+order the flags are written in cannot save a row set beside it. The only notice is an `SVT_WARN`,
+which goes to the encoder's stderr, which av1an collects per chunk into a log `HandleTempFolder`
+deletes on a successful run: the same silence the grain collision above hides in. Four more rows go
+inert with them rather than being overwritten - `cdef-scaling` (read only where `cdef_level` is not 0),
+`tf-strength` and `kf-tf-strength` (no temporal filtering left to strengthen) and
+`noise-adaptive-filtering` (it backs CDEF and restoration off, and both are already off). So the
+Grainy Film preset sets `tune 5` and none of those ten, and a row typed by hand beside it is the case
+nothing here catches. Read out of the fork's own source rather than its documentation, which describes
+the bundle without saying it is applied last.
 
 **The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
