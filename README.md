@@ -19,7 +19,8 @@ toolchain in `bin/` - ffmpeg, av1an, VapourSynth, the encoders and MKVToolNix. T
 archives carry less and lean on your package manager; see
 [what a release bundles](#what-a-release-bundles).
 
-### Scoop
+<details>
+<summary><b>Scoop</b></summary>
 
 On Windows, [Scoop](https://scoop.sh) can install and update it for you. This repository doubles as
 a bucket:
@@ -38,9 +39,14 @@ one as it is published, so there is no lag. Settings and logs (`data` and `logs`
 across updates; `bin` is not, being the bundled toolchain that every release replaces - anything you
 drop in there yourself belongs in a portable copy rather than a Scoop install.
 
+</details>
+
 ## What's new since the fork
 
-### The application
+Each heading below expands.
+
+<details>
+<summary><b>The application</b></summary>
 
 - **Ported from WinForms to Avalonia on .NET 10**, with native builds for `win-x64`, `linux-x64`,
   `osx-x64` and `osx-arm64`. Linux and macOS are first-class rather than a WINE suggestion.
@@ -54,7 +60,10 @@ drop in there yourself belongs in a portable copy rather than a Scoop install.
   their defaults, because a CRF, a resize or a QTGMC pass left armed from last week is expensive and
   quiet. Quick Convert opens on SVT-AV1 into MKV at CRF 30, preset 4, with audio to Opus at 128 kbps stereo.
 
-### Deinterlacing
+</details>
+
+<details>
+<summary><b>Deinterlacing</b></summary>
 
 None of this existed before the fork - there was no deinterlacing in the app at all.
 
@@ -73,7 +82,10 @@ None of this existed before the fork - there was no deinterlacing in the app at 
 - **A Deinterlace Video utility** for when the deinterlaced file itself is what you want, with its
   own settings separate from either tab's.
 
-### HDR tone mapping
+</details>
+
+<details>
+<summary><b>HDR tone mapping</b></summary>
 
 - **HDR sources can be converted to SDR**, on both encode tabs. The row only appears for a file whose
   transfer curve says PQ or HLG, and it defaults to doing nothing - the other reason to load an HDR
@@ -88,7 +100,10 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would
   otherwise write SDR pixels into a file tagged HDR.
 
-### Film grain synthesis
+</details>
+
+<details>
+<summary><b>Film grain synthesis</b></summary>
 
 AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which on
 grainy film is the single largest saving there is - but only where the picture being coded has had the
@@ -115,7 +130,43 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
   utility's job instead, the same division Cut and Deinterlace Video already draw.
 
-### Framing: resize, crop, borders and trim
+</details>
+
+<details>
+<summary><b>Using film grain synthesis</b></summary>
+
+Which of these you want depends on what you have and what you are willing to spend.
+
+**Just encode with grain, cheaply** — AV1AN tab → Grain Synthesis → *Encoder analysis*, pick a strength
+(10 for lightly grainy digital, 25 for an ordinary film scan) and **tick Denoise**. The encoder does
+the whole thing itself: no extra tool, no extra pass. Untick Denoise and you get grain *added* to grain
+already in the picture, which costs bitrate rather than saving it - that is what the readout means when
+it says the source's own grain is coded too.
+
+**Encode with grain measured from this source** — Grain Synthesis → *Measured from source*. The file is
+denoised, grav1synth measures the difference, and av1an encodes the clean picture with the table. More
+accurate than the encoder's own guess, and much slower: the readout gives the estimate for the file you
+have loaded, and it is hours for a feature. The table is kept beside the output as
+`<name>.grain.tbl`.
+
+**Encode the same source again** — Grain Synthesis → *Grain table file*, point it at that kept `.tbl`,
+and **tick Denoise at the same strength it was measured with**. This is the measured result without the
+measuring, so it costs no more than an ordinary encode. Leave Denoise unticked only if the table is
+there to add grain to a source that never had any.
+
+**Work on a file that is already encoded** — Utilities → *Film Grain (AV1)*. Measure a table without
+committing to an encode (any codec), extract the table an AV1 file already carries, apply grain to one
+from a table, a film stock preset or an ISO, or strip its grain entirely. The last three rewrite the
+AV1 headers and remux - nothing is re-encoded and the picture is untouched.
+
+Only *Measured from source* and the utility need grav1synth; *Encoder analysis* works on every AV1
+build with nothing installed, and a mode that needs the tool says so by name rather than failing
+partway through an encode.
+
+</details>
+
+<details>
+<summary><b>Framing: resize, crop, borders and trim</b></summary>
 
 - **Resize is a dropdown with presets** - 2160p through 360p as boxes the picture is fitted inside,
   75/50/25% proportions, and a Custom dialog for exact sizes with letterbox or stretch - replacing
@@ -136,7 +187,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   keyframe, exact time, frame numbers - land where they say they do, and a section that does not fit
   the file is caught before the encode rather than producing an empty output.
 
-### The AV1AN tab
+</details>
+
+<details>
+<summary><b>The AV1AN tab</b></summary>
 
 - **Target SSIMULACRA2, Target Butteraugli and Target XPSNR** quality modes alongside Target VMAF,
   each checked up front against what the installed av1an and its plugins can actually score.
@@ -159,7 +213,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   folder instead of beside the binary, and a target-quality mode meeting a filter chain says so
   (av1an's probes never see the filters).
 
-### Quick Convert
+</details>
+
+<details>
+<summary><b>Quick Convert</b></summary>
 
 - **The command is built in one place, in an order that holds together**: stream maps that know
   whether a filtergraph exists, per-input trim arguments, `-metadata:s:N` indices that count the
@@ -173,7 +230,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   a space, a colon, an apostrophe, an `=`, a `$` or a backtick works on all three platforms; it
   previously failed on most of them, and on Windows on every path there is.
 
-### Audio
+</details>
+
+<details>
+<summary><b>Audio</b></summary>
 
 - **Loudness normalization (EBU R128)** on the Quick Convert tab, to -14, -16 or -23 LUFS. Each track is
   measured in a pass of its own and then encoded with a single flat gain, which is the part that matters:
@@ -182,7 +242,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   channel conversion runs inside the same filter, because the app's own downmix would otherwise happen
   afterwards and leave a 5.1 source 7.7 dB off the target it asked for.
 
-### Utilities
+</details>
+
+<details>
+<summary><b>Utilities</b></summary>
 
 - **Cut Video** - keep a chosen section, copied out without re-encoding, picked in the same visual
   dialog as the trim.
@@ -191,7 +254,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
 - **OCR Bitmap Subtitles** is now a card on the Utilities tab; the code was there before but nothing
   in the UI reached it.
 
-### While a job runs
+</details>
+
+<details>
+<summary><b>While a job runs</b></summary>
 
 - **Pause actually pauses**, freezing the whole process tree rather than the launcher, and Stop ends
   a run cleanly.
@@ -207,7 +273,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   (`{name}`, `{codec}`, `{crf}`, `{index}`, `{date}` and more) - a batch overwrites the output box
   per file, so the template is the only say you get in what twelve files are called.
 
-### Fixes worth naming
+</details>
+
+<details>
+<summary><b>Fixes worth naming</b></summary>
 
 - The Metrics utility had been passing the VMAF model file as libvmaf's *log path*, which scored
   every run against the built-in default and overwrote the bundled model with an XML log - which
@@ -221,9 +290,14 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   temp path.
 - Animated GIF could not be produced at all unless some other filter happened to be configured.
 
+</details>
+
 ## Features
 
-#### Input
+Each heading below expands.
+
+<details>
+<summary><b>Input</b></summary>
 
 - Supports all formats that ffmpeg can decode
 - Either use **"Muxing Mode"** to convert a single file or merge multiple files into one, or
@@ -232,13 +306,19 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   (FPS needs to be set manually)
 - Drag and drop anywhere in the window, an "Add Folder" button, and a recent-files list
 
-#### Track List
+</details>
+
+<details>
+<summary><b>Track List</b></summary>
 
 - View codec, language, title and more (depending on stream type) of the selected media stream
 - Enable or disable streams with checkboxes - disabled streams are not included when encoding/muxing
 - Re-order streams, and set the default audio and subtitle track
 
-#### Quick Convert (FFmpeg)
+</details>
+
+<details>
+<summary><b>Quick Convert (FFmpeg)</b></summary>
 
 - Encode video using ffmpeg and its encoder plugins
 - Video Formats: **H.264 (x264 or NVENC), H.265 (x265 or NVENC), VP9, AV1 (SVT-AV1 or AOM)**
@@ -264,7 +344,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   reaches the same number by riding the gain, which lifts quiet passages by however much they were quiet
 - Subtitle Options: optionally **burn in** a subtitle track
 
-#### AV1AN Chunked Encoding
+</details>
+
+<details>
+<summary><b>AV1AN Chunked Encoding</b></summary>
 
 - Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
 - Video Formats: **AV1 (SVT-AV1 or AOM), H.265 (x265), H.264 (x264), VP9 (VPX)**
@@ -290,7 +373,10 @@ grain taken out of it first. Before the fork this was one spinner writing one en
 - Encodes can be paused and resumed live, or stopped entirely and picked up again later from the
   finished chunks
 
-#### Utilities
+</details>
+
+<details>
+<summary><b>Utilities</b></summary>
 
 - Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
 - **Read Bitrates**: calculates stream size and average bitrate for each stream
@@ -314,6 +400,8 @@ grain taken out of it first. Before the fork this was one spinner writing one en
 - **Show Bitrate Chart**: samples the bitrate across the entire video and plots it, so you can see
   where bitrate is higher or lower
 - **OCR Bitmap Subtitles**: converts selected bitmap-based subtitle tracks into text subtitles
+
+</details>
 
 ## Compatibility
 
@@ -339,7 +427,8 @@ external tools into `bin/`:
 Tool downloads are best-effort: an unreachable upstream is reported and skipped rather than failing
 the release, and the workflow's job summary lists exactly what each build shipped.
 
-### grav1synth is compiled, not downloaded
+<details>
+<summary><b>grav1synth is compiled, not downloaded</b></summary>
 
 [grav1synth](https://github.com/rust-av/grav1synth) is what reads and writes the film grain
 description inside an AV1 bitstream, and the Grain Synthesis row needs it for anything but the
@@ -361,7 +450,10 @@ Two consequences worth knowing:
 Without it, everything else still works: the encoder's own grain synthesis needs no tool at all, and
 the modes and the utility that do name the missing binary and why rather than failing mid-encode.
 
-### SVT-AV1 comes from the PSY line
+</details>
+
+<details>
+<summary><b>SVT-AV1 comes from the PSY line</b></summary>
 
 Nmkoder bundles the [svt-av1-hdr](https://github.com/juliobbv-p/svt-av1-hdr) build, which continues
 the SVT-AV1-PSY line, and the AV1AN tab's content presets are written for the parameters only that
@@ -371,7 +463,10 @@ svt-av1-hdr from source and put `SvtAv1EncApp` on your `PATH` to get the presets
 is deliberately no mainline fallback: a substituted binary under the same filename is worse than a
 visible skip.
 
-### VapourSynth, and what needs it
+</details>
+
+<details>
+<summary><b>VapourSynth, and what needs it</b></summary>
 
 The portable VapourSynth build is Windows-only, and it is what QTGMC deinterlacing and the
 VapourSynth chunk methods run on. On Linux and macOS, install VapourSynth through your package
@@ -399,7 +494,10 @@ stopped up front with the working alternatives named. The staged copy carries nm
 any other - is recognised as yours: the app withdraws its own copy and never touches your file. Where
 there is no bundled plugin folder to manage (Linux/macOS), the app only warns.
 
-### The staged layout
+</details>
+
+<details>
+<summary><b>The staged layout</b></summary>
 
 The AV1AN tab's toolchain is staged in the layout the app runs it from:
 
@@ -424,7 +522,10 @@ app looks for it, with FFmpeg's shared libraries next to it on Windows.
 
 DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV install.
 
-### Overriding the sources
+</details>
+
+<details>
+<summary><b>Overriding the sources</b></summary>
 
 Binaries are resolved from each project's releases at build time, except SvtAv1EncApp, aomenc, x264
 and x265, which upstream does not publish for Windows and so come from MSYS2's mingw64 packages.
@@ -433,7 +534,10 @@ Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`, `VAPOURSYNTH_REPO`, 
 `VSHIP_REPO`, `VSHIP_TAG`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN`
 and `MKVTOOLNIX_VERSION` environment variables.
 
-### vpxenc has no upstream Windows build
+</details>
+
+<details>
+<summary><b>vpxenc has no upstream Windows build</b></summary>
 
 No project publishes a prebuilt Windows vpxenc: the WebM project ships source only,
 ShiftMediaProject builds the library rather than the CLI, and MSYS2's `libvpx` package leaves the
@@ -462,12 +566,17 @@ fallback, or set it empty (`VPXENC_URL=`) to skip that route entirely. Without v
 VP9 entry has no encoder behind it; the Quick Convert tab's VP9 support goes through the bundled
 ffmpeg and is unaffected either way.
 
-### Data files
+</details>
+
+<details>
+<summary><b>Data files</b></summary>
 
 `bin/iso639.csv`, the language table that names audio and subtitle tracks, is not downloaded - it
 lives in `Nmkoder/BinFiles` and every build copies it into `bin`. Regenerate it with
 `.github/scripts/gen-iso639.py` when the ISO registers move. The same folder carries the AV1AN tab's
 per-encoder argument lists (`BinFiles/av1an/encoderArgs`).
+
+</details>
 
 ## Building
 
