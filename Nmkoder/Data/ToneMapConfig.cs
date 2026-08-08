@@ -61,43 +61,65 @@ namespace Nmkoder.Data
         /// The peak a PQ grade is assumed to reach when it does not say. 1000 nits is the commonest
         /// HDR10 mastering display by a wide margin, and it is the value the roll-off is least wrong
         /// about either way: a 4000-nit grade tone-mapped as though it were 1000 loses only its
-        /// brightest specular highlights, where assuming 10000 for everything crushes every mid-tone in
-        /// the far commoner case.
+        /// brightest specular highlights, where assuming 10000 for everything spends the top of the
+        /// output range on highlights the far commoner file does not have - 104 of 255 at 100 nits
+        /// against 126.
         /// </summary>
         public const double AssumedPeakNits = 1000;
 
         /// <summary>
-        /// How far above <c>npl</c> ffmpeg's tonemap filter keeps rolling off before it clips, measured
-        /// rather than derived: PQ ramps built to peak at exactly 1000, 4000 and 10000 nits were run
-        /// through this chain at npl 100, 200, 400, 1000 and 2000, and the level where the output
-        /// reached 255 and stayed there came out at 374/376/377, 743/746/749, 1509/1509, 3747/3777 and
-        /// 7568 nits - a constant 3.75x npl across every source peak, which is what makes it a usable
-        /// rule rather than a lookup table.
+        /// zscale's nominal peak luminance: the luminance linear 1.0 stands for going into the roll-off,
+        /// which is what sets how bright the mid-tones come out. **It is a constant, and that is the
+        /// design** - the file's own peak goes to <see cref="GetTonemapPeak"/> instead.
+        /// <para/>
+        /// It used to be the file's peak divided by a headroom figure, and that is the fault this pair
+        /// replaces: npl scales the *whole* signal, so a brighter declared peak darkened the picture
+        /// end to end rather than only compressing its highlights. Measured on PQ patches through this
+        /// chain, 100 nits came out at 112 of 255 for a grade declaring 1000 and at **71 for one
+        /// declaring 4000** - the same picture at 63% of the luminance for a number that describes its
+        /// highlights. Reported on an ordinary UHD Blu-ray rip, which is where a 4000-nit mastering
+        /// display is the commonest thing in the world.
+        /// <para/>
+        /// 266.667 is what the old chain already used for a grade declaring nothing, so the file
+        /// everybody has is anchored where it always was, and it is the value measured closest to
+        /// libplacebo - the reference implementation - on a 1000-nit source: 126/169 at 100 and 203
+        /// nits against its 129/170, where an anchor of 100 gives 173/214 and one of 150 gives 140/203.
         /// </summary>
-        private const double HighlightHeadroom = 3.75;
+        public const double AnchorNits = 266.667;
 
         /// <summary>
-        /// zscale's nominal peak luminance, which is the single number that decides what this chain
-        /// produces - and the one every copied-and-pasted version of it gets wrong.
+        /// The tonemap filter's own <c>peak</c>: where the roll-off ends, in units of
+        /// <see cref="AnchorNits"/>. The curve maps it to SDR white, so this is the one number the
+        /// file's declared peak is allowed to move, and everything above it clips.
         /// <para/>
-        /// Left unset the filter uses 100, and measured, that clips **everything above about 374 nits to
-        /// flat white**: on a 1000-nit HDR10 master every specular highlight, every practical light and
-        /// every window is gone. Set from the content's own peak through the 3.75x above, the same
-        /// source clips nothing at all and lands within a few code values of libplacebo, which is the
-        /// reference implementation - 16/44/110/153 against its 22/54/129/170 at 1, 10, 100 and 203
-        /// nits.
+        /// It has to be passed because **the filter will not read it off the file**: the same PQ ramp
+        /// with and without a MaxCLL of 10000 and a 4000-nit mastering display tone-maps to
+        /// byte-identical output. The reason is worth knowing, because it looks like a bug in the
+        /// metadata and is not - by the time tonemap runs, the frame in front of it has been retagged
+        /// <c>linear</c> by the zscale above, so the filter takes its fallback for a non-PQ transfer,
+        /// which is a flat 10. That is what the chain was silently running on: a white point of ten
+        /// times npl, i.e. 2.667x whatever peak had been declared.
         /// <para/>
-        /// It has to be worked out here because **the filter will not read it off the file**: the same
-        /// PQ ramp with and without a MaxCLL of 1000 and a 1000-nit mastering display tone-maps to
-        /// byte-identical output, so tonemap's own peak detection never sees the container's metadata.
+        /// Measured through this chain, 100 and 203 nits against a declared peak of
+        /// 1000/2000/4000/9999: 126/169, 115/153, 108/144, 104/139. A peak the file overstates now
+        /// costs a few code values where it used to cost half the picture.
+        /// <para/>
+        /// Floored at 1 - a white point below the anchor - because under it this stops being a roll-off
+        /// at all and starts being an exposure boost: measured, a declared 203 nits puts BT.2408
+        /// reference white at 252 and a declared 100 puts 100 nits itself at 235, which is a picture
+        /// blown out on the strength of a number that was probably never measured.
         /// <see cref="ColorDataUtils.GetDeclaredPeakNits"/> is where the file's answer comes from.
-        /// <para/>
-        /// Floored at 100 so this can only ever be gentler than the filter's default, never harsher: a
-        /// file declaring some implausibly low peak should not end up with a chain that crushes it.
         /// </summary>
-        public static double GetNpl(double peakNits)
+        public static double GetTonemapPeak(double peakNits)
         {
-            return Math.Max(100, (peakNits > 0 ? peakNits : AssumedPeakNits) / HighlightHeadroom);
+            return Math.Max(1, (peakNits > 0 ? peakNits : AssumedPeakNits) / AnchorNits);
+        }
+
+        /// <summary> The luminance that comes out as SDR white, which is the declared peak wherever the
+        /// floor above has not taken over - so it is also the level everything clips from. </summary>
+        public static double GetWhitePointNits(double peakNits)
+        {
+            return GetTonemapPeak(peakNits) * AnchorNits;
         }
 
         /// <summary>
@@ -141,11 +163,12 @@ namespace Nmkoder.Data
         /// Stating tags that were already there changes no pixel.</item>
         /// <item><c>zscale=transfer=linear</c> undoes the transfer curve, because tone-mapping is an
         /// operation on light and PQ code values are not light. <c>npl</c> is what scales it -
-        /// see <see cref="GetNpl"/>.</item>
+        /// see <see cref="AnchorNits"/>.</item>
         /// <item><c>format=gbrpf32le</c> because the tonemap filter takes float RGB and nothing else.</item>
         /// <item><c>zscale=primaries=bt709</c> does the gamut conversion in linear light, where it belongs,
         /// ahead of the curve rather than after it.</item>
-        /// <item><c>tonemap</c> is the roll-off itself. <c>desat</c> is left at the filter's own default:
+        /// <item><c>tonemap</c> is the roll-off itself, and <c>peak</c> is where it ends - see
+        /// <see cref="GetTonemapPeak"/>. <c>desat</c> is left at the filter's own default:
         /// it was measured to change even a neutral ramp, so it is not the no-op on greyscale that its
         /// name suggests, and there is no reading of the result that says this app knows better than the
         /// default.</item>
@@ -167,21 +190,22 @@ namespace Nmkoder.Data
             if (stated.IsNotEmpty())
                 chain.Add(stated);
 
-            // HLG keeps the filter's own nominal peak and PQ does not, because the two curves mean
-            // different things by their top end. PQ is absolute - a code value names a luminance, and the
-            // grade's own peak is the number the roll-off has to be built around. HLG is relative and was
-            // designed to be watchable on an SDR display as it stands, which is measurable here: at the
-            // default the HLG ramp comes through close to unchanged with a gentle roll-off over the top
-            // of it, where forcing the same npl PQ wants darkened every mid-tone of it. An HLG grade
-            // carries no per-file peak to read either, so there would be nothing to derive one from.
-            string npl = src.ColorTransfer == ColorDataUtils.TransferPq
-                ? $":npl={GetNpl(ColorDataUtils.GetDeclaredPeakNits(src)).ToString("0.###", CultureInfo.InvariantCulture)}"
-                : "";
+            // Both halves are PQ's, and HLG keeps the filter's own defaults for both, because the two
+            // curves mean different things by their top end. PQ is absolute - a code value names a
+            // luminance, so the grade's peak is a real number and the roll-off can be built around it.
+            // HLG is relative and was designed to be watchable on an SDR display as it stands, which is
+            // measurable here: at the defaults the HLG ramp comes through close to unchanged with a
+            // gentle roll-off over the top of it, where forcing PQ's exposure on it darkened every
+            // mid-tone. An HLG grade carries no per-file peak to read either, so there would be nothing
+            // to derive one from.
+            bool pq = src.ColorTransfer == ColorDataUtils.TransferPq;
+            string npl = pq ? $":npl={Fmt(AnchorNits)}" : "";
+            string peak = pq ? $":peak={Fmt(GetTonemapPeak(ColorDataUtils.GetDeclaredPeakNits(src)))}" : "";
 
             chain.Add($"zscale=transfer=linear{npl}");
             chain.Add("format=gbrpf32le");
             chain.Add("zscale=primaries=bt709");
-            chain.Add($"tonemap=tonemap={Mode.ToString().ToLowerInvariant()}");
+            chain.Add($"tonemap=tonemap={Mode.ToString().ToLowerInvariant()}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
 
             return string.Join(",", chain);
@@ -281,7 +305,14 @@ namespace Nmkoder.Data
             double declared = ColorDataUtils.GetDeclaredPeakNits(src);
             string peak = declared > 0 ? $"{declared:0} nits, declared" : $"{AssumedPeakNits:0} nits, assumed";
 
-            return $"{what} to SDR BT.709 · {curve} · peak {peak} · highlights above {GetNpl(declared) * HighlightHeadroom:0} nits clip to white";
+            return $"{what} to SDR BT.709 · {curve} · peak {peak} · highlights above {GetWhitePointNits(declared):0} nits clip to white";
+        }
+
+        /// <summary> A filter argument's number. Invariant culture, because a comma decimal separator
+        /// would end the filter's option list where a point continues it. </summary>
+        private static string Fmt(double value)
+        {
+            return value.ToString("0.###", CultureInfo.InvariantCulture);
         }
     }
 }
