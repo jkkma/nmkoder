@@ -364,7 +364,7 @@
                       <TextBlock Grid.Row="4" Grid.Column="0" x:Name="Av1anToneMapLabel" Classes="field rowhead" Text="Tone Mapping" IsVisible="False" />
                       <StackPanel Grid.Row="4" Grid.Column="1" x:Name="Av1anToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="Av1anToneMapModeBox" Width="300" HorizontalAlignment="Left" SelectionChanged="Av1anToneMap_SelectionChanged"
-                                  ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Hable tracks the reference implementation most closely; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which." />
+                                  ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Spline is the best of them and needs a GPU - it is libplacebo's own curve, and without one it falls back to Hable. Of the rest, Hable is the closest to the reference; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which." />
                         <TextBlock x:Name="Av1anToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
                     </Grid>
@@ -602,7 +602,7 @@
                       <TextBlock Grid.Row="3" Grid.Column="0" x:Name="EncToneMapLabel" Classes="field rowhead" Text="Tone Mapping" IsVisible="False" />
                       <StackPanel Grid.Row="3" Grid.Column="1" x:Name="EncToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="EncToneMapModeBox" Width="300" HorizontalAlignment="Left" SelectionChanged="EncToneMap_SelectionChanged"
-                                  ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR. Hable tracks the reference implementation most closely; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which. Runs before any crop, scale or burnt-in subtitle, so everything after it is working in SDR." />
+                                  ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR. Spline is the best of them and needs a GPU - it is libplacebo's own curve, and without one it falls back to Hable. Of the rest, Hable is the closest to the reference; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which. Runs before any crop, scale or burnt-in subtitle, so everything after it is working in SDR." />
                         <TextBlock x:Name="EncToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
                     </Grid>

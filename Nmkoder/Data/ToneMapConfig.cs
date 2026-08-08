@@ -8,11 +8,20 @@ using System.Linq;
 namespace Nmkoder.Data
 {
     /// <summary>
-    /// What the Tone Mapping dropdown offers: off, or one of ffmpeg's three roll-off curves. Saved by
-    /// index on the Quick Convert tab, so entries may be appended but never reordered - a saved index
-    /// would otherwise start meaning a different curve.
+    /// What the Tone Mapping dropdown offers: off, or a roll-off curve.
+    /// <para/>
+    /// The first three are ffmpeg's own <c>tonemap</c> filter's, and libplacebo has all three under the
+    /// same names, so those entries mean one thing whichever backend runs. <see cref="Spline"/> is
+    /// libplacebo's alone - it is the curve its <c>auto</c> selects, measured identical to it - and it
+    /// is the brightest and closest to the reference of the set: 129/152 at 100 and 203 nits against
+    /// hable's 115/143. There is nothing like it in the <c>tonemap</c> filter, so on a machine without
+    /// a usable GPU it falls back to hable, which is the closest of the three, and the log says so.
+    /// <para/>
+    /// Neither tab saves this now, so nothing depends on the order - but the entries are still only
+    /// ever appended, since the same enum is what both boxes are filled from and what
+    /// <see cref="GetLibplaceboArgs"/> spells its curve name out of.
     /// </summary>
-    public enum ToneMapMode { Off, Hable, Mobius, Reinhard }
+    public enum ToneMapMode { Off, Hable, Mobius, Reinhard, Spline }
 
     /// <summary>
     /// Converting an HDR source to SDR, which is a luminance operation and a gamut conversion together:
@@ -86,9 +95,27 @@ namespace Nmkoder.Data
             switch (mode)
             {
                 case ToneMapMode.Off: return "No tone mapping";
+                // Named for what it needs rather than left to look like a fourth equal choice: it is the
+                // one entry that cannot run everywhere, and a curve that quietly becomes another curve on
+                // half the machines is worth one word of warning in the box itself.
+                case ToneMapMode.Spline: return "Spline (GPU)";
                 default: return mode.ToString();
             }
         }
+
+        /// <summary> The curve's name as its backend spells it. They agree for the three ffmpeg has, and
+        /// <see cref="ToneMapMode.Spline"/> is libplacebo's alone - see the enum for what the zscale
+        /// chain does with it instead. </summary>
+        private string GetCurveName(bool libplacebo)
+        {
+            ToneMapMode curve = !libplacebo && Mode == ToneMapMode.Spline ? ToneMapMode.Hable : Mode;
+            return curve.ToString().ToLowerInvariant();
+        }
+
+        /// <summary> Whether this run asked for a curve its backend does not have, which is the one way
+        /// a picked curve is not the curve that runs. Read by
+        /// <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/>, which is where it gets said. </summary>
+        public bool FallsBackToAnotherCurve { get { return Mode == ToneMapMode.Spline && !UseLibplacebo; } }
 
         public static readonly ToneMapMode[] AllModes = (ToneMapMode[])Enum.GetValues(typeof(ToneMapMode));
 
@@ -243,7 +270,7 @@ namespace Nmkoder.Data
             chain.Add($"zscale=transfer=linear{npl}");
             chain.Add("format=gbrpf32le");
             chain.Add("zscale=primaries=bt709");
-            chain.Add($"tonemap=tonemap={Mode.ToString().ToLowerInvariant()}{peak}");
+            chain.Add($"tonemap=tonemap={GetCurveName(libplacebo: false)}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
 
             return string.Join(",", chain);
@@ -285,7 +312,7 @@ namespace Nmkoder.Data
             if (stated.IsNotEmpty())
                 chain.Add(stated);
 
-            chain.Add($"libplacebo=tonemapping={Mode.ToString().ToLowerInvariant()}:peak_detect=0" +
+            chain.Add($"libplacebo=tonemapping={GetCurveName(libplacebo: true)}:peak_detect=0" +
                 ":colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv");
 
             return string.Join(",", chain);
@@ -377,6 +404,8 @@ namespace Nmkoder.Data
             if (!Runs)
                 return $"This file is {what} · encoded as it is, keeping its colour";
 
+            // What was picked, not what will run: the backend is not settled until the encode
+            // starts, and the readout is drawn on file load. ResolveBackendAsync logs the swap.
             string curve = Mode.ToString().ToLowerInvariant();
 
             if (src.ColorTransfer == ColorDataUtils.TransferHlg)
