@@ -21,20 +21,15 @@ namespace Nmkoder.Data
     /// <para/>
     /// **Everything here was measured against a current BtbN master build rather than read off a wiki**,
     /// because the chain everyone copies is wrong for real HDR10 in a way that only shows on content
-    /// bright enough to matter. See <see cref="GetNpl"/> for the number that decides it.
+    /// bright enough to matter. See <see cref="AnchorNits"/> and <see cref="GetTonemapPeak"/> for the
+    /// pair of numbers that decides it.
     /// <para/>
-    /// The backend is zscale + tonemap, on the CPU, and deliberately not libplacebo - which is the better
-    /// tone-mapper and was measured to be so (a smooth roll-off to 10000 nits where this chain needs
-    /// tuning to get there). Three things ruled it out. It needs a Vulkan device, which it will not
-    /// create for itself: without a global <c>-init_hw_device vulkan</c> it fails with "Found no suitable
-    /// device, giving up", and that argument is one the AV1AN tab cannot reliably place, since av1an
-    /// composes its own per-chunk ffmpeg command and this app only contributes filters through
-    /// <c>-f</c>. It cannot be told a real GPU from a software one: measured against Mesa's lavapipe,
-    /// libplacebo initialises perfectly and then runs **63x slower than this chain** (4.40s against
-    /// 0.17s for the same 48 frames), so a check that merely asks "did it come up" passes and then
-    /// destroys the encode's speed. And macOS has no Vulkan at all without MoltenVK. zscale is in the
-    /// GPL ffmpeg this project bundles, needs no device, and cost 0.17s against 0.07s for a plain pixel
-    /// format conversion - which next to any real encode is nothing.
+    /// **There are two backends and the machine picks.** libplacebo is the better tone-mapper and runs
+    /// wherever <see cref="Media.ToneMap.GetLibplaceboProblem"/> can find a real GPU behind it; the
+    /// zscale + tonemap chain below is what every other machine gets, on the CPU, needing no device and
+    /// costing 0.17s against 0.07s for a plain pixel format conversion - which next to any real encode
+    /// is nothing. <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> settles which, once per encode,
+    /// and says so in the log.
     /// </summary>
     public class ToneMapConfig
     {
