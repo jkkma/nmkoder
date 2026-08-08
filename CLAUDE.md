@@ -2292,18 +2292,69 @@ interlace scan. Before this it was assigned in exactly one place - `Av1an.cs`, a
 Quick Convert had no colour data at all and nothing outside that one method could ask whether a
 file was HDR.
 
-### The backend is zscale, and libplacebo was measured and rejected
+### There are two backends, and the machine picks
 
-libplacebo is the better tone-mapper and the measurements say so: a smooth roll-off all the way to
-10000 nits where the zscale chain needs tuning to get there. Three things ruled it out. It will not
-create its own Vulkan device - without a global `-init_hw_device vulkan` it fails with "Found no
-suitable device, giving up", and that argument is one the AV1AN tab cannot reliably place, since
-av1an composes its own per-chunk ffmpeg command and this app only contributes filters through `-f`.
-It cannot be told a real GPU from a software one: against Mesa's lavapipe it initialises perfectly
-and then runs **63x slower than the zscale chain** (4.40s against 0.17s for the same 48 frames), so
-a check that merely asks "did it come up" passes and then destroys the encode's speed. And macOS
-has no Vulkan without MoltenVK. zscale is in the GPL ffmpeg this project bundles, needs no device,
-and cost 0.17s against 0.07s for a plain pixel format conversion.
+libplacebo is the better tone-mapper and is used wherever a real GPU is behind it;
+`ToneMapConfig`'s zscale chain is the fallback and is what every machine without one still gets.
+`ToneMapUi.ResolveBackendAsync` settles which, once, at the start of each encode - the answer is a
+property of the machine rather than a preference, and one decided halfway through would be a
+different picture in the second half of the file. It is logged either way, because from the outside
+a fallback is invisible: the same settings simply produce a slightly different picture than they did
+on another machine.
+
+Measured on PQ patches against a file declaring a 4000-nit mastering display, at 100 and 203 nits:
+libplacebo's `hable` gives 115/143 where the zscale chain gives 108/144, and its top lands on **235**
+- the nominal white of a limited-range signal - where the zscale chain runs to 247 and spends its
+brightest highlights in the superwhite a player clips. **The curve names map straight across** -
+libplacebo has `hable`, `mobius` and `reinhard` under those names - so the row means the same thing
+whichever backend it lands on, and needs no new entry. Its own default curve (`auto`, a spline) is
+brighter again at 125/154, and is not offered, because a row that says Hable should run hable.
+
+**`peak_detect` is turned off**, which throws away libplacebo's headline feature on purpose. On, it
+measures each frame instead of believing the file, which is what makes a MaxCLL of 10000 harmless;
+measured with the reported file's metadata the two came out 125/154 against 129/152 for the default
+curve and byte-identical for `hable`, so what it costs here is very little. What it buys is
+determinism, and the AV1AN tab is why: **the chain runs once per chunk**, in an ffmpeg av1an starts
+and stops around each one, so a detector whose history restarts at every chunk boundary can hand
+neighbouring chunks different exposures. This build has no `src_max` to pin it with instead.
+
+**The probe is `ToneMap.GetLibplaceboProblem`, and asking only whether the device came up is not
+enough.** Three things have to hold. The filter has to be in this ffmpeg - BtbN's builds carry it,
+a distribution's may not. A Vulkan device has to come up, which libplacebo will not arrange for
+itself: without `-init_hw_device vulkan` it fails with "Found no suitable device, giving up" and
+then "Failed creating Vulkan device!", and **ffmpeg carries on and exits 0 having written nothing**.
+And that device has to be a real GPU - measured against Mesa's lavapipe, libplacebo initialises
+perfectly and then takes 8.4-13.1s over 48 frames of 1080p where the zscale chain takes 0.9-1.8s and
+a plain pixel format conversion takes 0.27s. A software rasteriser passes every check except the one
+that matters, and the cost lands hours into an encode.
+
+ffmpeg's own Vulkan setup prints what it chose at verbose level - `Device 0 selected: llvmpipe (LLVM
+20.1.2, 256 bits) (software) (0x0)`, where the parenthesised word is `VK_PHYSICAL_DEVICE_TYPE_CPU`
+spelled out - so the probe reads that rather than timing itself, which would need a threshold that
+holds on every machine this runs on. Positive evidence is required in both directions: a device line
+that cannot be found is a "no", since falling back wrongly costs the chain this app shipped with
+where going ahead wrongly costs the 10x. The frame is checked too, by muxing it to `md5`, because
+the failure being guarded against exits 0 - an exit code proves nothing and neither would a file's
+existence.
+
+**One thing this file used to give as a blocker is not one.** `-init_hw_device vulkan` is a global
+option, and the note here said the AV1AN tab could not place it because av1an composes its own
+per-chunk command with this app contributing only what goes inside `-f`. Measured, ffmpeg accepts it
+**after the `-i`**, which is exactly where av1an splices those arguments in - so both tabs prepend it
+to their own filter argument through `ToneMapConfig.GetDeviceArgs`, and the probe places it in the
+same position so that what is tested is what ships. What is *not* verified is av1an's own handling of
+it: there is no av1an in a web session, so the tokens have been shown to reach ffmpeg correctly and
+not to survive av1an's splitting of the `-f` string.
+
+macOS remains the platform with no Vulkan at all without MoltenVK, and bundles no ffmpeg either - the
+probe simply answers "no" there and the zscale chain runs, which is what those users already had.
+
+Verified by running it: every chain the real `ToneMapConfig` builds for both backends across four
+colour-data shapes and all three curves - 24 of them - rendered through ffmpeg in both tabs' command
+shapes, composed with a crop, a scale and a pad, each landing on the predicted frame size and tagged
+bt709/bt709/bt709 limited. libplacebo hands software frames back to the filters after it, so the
+geometry needs no `hwdownload` and none is emitted. The probe itself was run through the real code
+against lavapipe and correctly refused it.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 

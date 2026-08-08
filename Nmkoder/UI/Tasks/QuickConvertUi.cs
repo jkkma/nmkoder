@@ -1538,7 +1538,11 @@ namespace Nmkoder.UI.Tasks
             // a '$' or a backtick anywhere in that path was expanded, and the second of those ran what
             // was between them. Single quotes leave the graph alone, and every filter path inside it is
             // quoted again at ffmpeg's own level by FormatUtils.GetFilterPath.
-            return $"-filter_complex {Shell.WrapArg(filterChain)}";
+            // The Vulkan device libplacebo needs goes in front, and "" for every chain that does not use
+            // it. It is a global option, and this string lands after the '-i' arguments, which is a
+            // position ffmpeg accepts one in - the same placement the AV1AN tab is stuck with and the
+            // one the probe tests.
+            return $"{CurrentToneMap.GetDeviceArgs(currFile?.ColorData)}-filter_complex {Shell.WrapArg(filterChain)}";
         }
 
         /// <summary> The burnt-in subtitle track's filter, if one is selected and this file has it.

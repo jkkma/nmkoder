@@ -177,6 +177,10 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 await QuickConvertUi.PrepareLoudnessAsync(TrackList.current?.File, loudnessSpan);
+
+                // Which tone-mapper runs, settled before the check below because the check is about the
+                // zscale chain's filters and libplacebo names none of them.
+                await ToneMapUi.ResolveBackendAsync(QuickConvertUi.CurrentToneMap, QuickConvertUi.GetVideoSourceFile()?.ColorData);
                 string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap);
 
                 if (toneMapProblem.IsNotEmpty())

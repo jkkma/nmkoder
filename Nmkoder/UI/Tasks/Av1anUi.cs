@@ -609,10 +609,13 @@ namespace Nmkoder.UI.Tasks
 
             filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
 
-            if (filters.Count > 0)
-                return $"-vf {string.Join(",", filters)}";
-            else
+            if (filters.Count < 1)
                 return "";
+
+            // The Vulkan device libplacebo needs, in front of the filters and inside the same '-f'
+            // string - av1an splices the lot in after its own '-i', which is a position ffmpeg accepts
+            // a global option in. "" for every chain that does not use libplacebo.
+            return $"{CurrentToneMap.GetDeviceArgs(sourceColor)}-vf {string.Join(",", filters)}";
         }
 
         private static List<string> GetCustomFilters()
