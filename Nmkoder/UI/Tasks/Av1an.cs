@@ -265,6 +265,10 @@ namespace Nmkoder.UI.Tasks
                     // Read once, here, and every later use goes through the snapshot - see
                     // Av1anUi.CurrentToneMap for why the box must not be read again further down.
                     Av1anUi.CurrentToneMap = ToneMapUi.GetAv1anConfig();
+
+                    // Which tone-mapper runs, settled before the check below because the check is about
+                    // the zscale chain's filters and libplacebo names none of them.
+                    await ToneMapUi.ResolveBackendAsync(Av1anUi.CurrentToneMap, TrackList.current.File.ColorData);
                     string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap);
 
                     if (toneMapProblem.IsNotEmpty())

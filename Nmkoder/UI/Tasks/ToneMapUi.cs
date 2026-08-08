@@ -215,7 +215,38 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static async Task<string> GetProblem(ToneMapConfig config)
         {
-            return config != null && config.Runs ? await ToneMap.GetProblem() : "";
+            // Only the zscale chain's filters are worth refusing over. Where libplacebo is doing the
+            // work, zscale and tonemap are not in the command at all - which is the case an ffmpeg
+            // built without libzimg lands in, and it used to be told it could not tone-map by a check
+            // that was asking about filters its chain would never name.
+            if (config == null || !config.Runs || config.UseLibplacebo)
+                return "";
+
+            return await ToneMap.GetProblem();
+        }
+
+        /// <summary>
+        /// Settles which backend this encode tone-maps with, and says so. Called by both tabs before
+        /// anything is built, for the reason <see cref="ToneMapConfig.UseLibplacebo"/> gives: the
+        /// answer is a property of the machine, and one answer has to hold for the whole run.
+        /// <para/>
+        /// It is stated in the log either way rather than only on the fallback. Which tone-mapper
+        /// produced a file is the first thing anybody comparing two encodes needs to know, and on this
+        /// tab the fallback is invisible from the outside - the picture simply differs a little from
+        /// the one the same settings gave on another machine.
+        /// </summary>
+        public static async Task ResolveBackendAsync(ToneMapConfig config, VideoColorData src)
+        {
+            if (config == null || !config.RunsOn(src))
+                return;
+
+            string problem = await ToneMap.GetLibplaceboProblem();
+            config.UseLibplacebo = problem.IsEmpty();
+
+            if (config.UseLibplacebo)
+                Logger.Log("Tone mapping with libplacebo on the GPU.");
+            else
+                Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
         }
     }
 }

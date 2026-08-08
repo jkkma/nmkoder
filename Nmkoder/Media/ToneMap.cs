@@ -1,5 +1,6 @@
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Nmkoder.Media
@@ -49,6 +50,90 @@ namespace Nmkoder.Media
             }
 
             return "";
+        }
+
+        /// <summary> The probe's verdict, cached for the session: "" once libplacebo has been shown to
+        /// work here, the reason it will not otherwise, and null until it has been asked. A GPU does not
+        /// appear halfway through a session, and the probe costs a process launch. </summary>
+        private static string libplaceboProblem = null;
+
+        /// <summary>
+        /// Whether libplacebo can tone-map on this machine, or why not - the fallback to the zscale
+        /// chain being silent otherwise, and a fallback nobody is told about is one nobody can fix.
+        /// <para/>
+        /// **Three things have to be true and the third is the one that matters.** The filter has to be
+        /// in this ffmpeg, which BtbN's builds have and a distribution's may not. A Vulkan device has to
+        /// come up, which libplacebo will not arrange for itself. And that device has to be a **real
+        /// GPU**: measured against Mesa's lavapipe, libplacebo initialises perfectly and then takes
+        /// 8.4-13.1s over 48 frames of 1080p where the zscale chain takes 0.9-1.8s and a plain pixel
+        /// format conversion takes 0.27s. So a check that asks only "did it come up" passes on a
+        /// software rasteriser and then costs an order of magnitude - discovered, on this tab, hours
+        /// into an encode.
+        /// <para/>
+        /// ffmpeg's own Vulkan setup prints what it chose at verbose level - <c>Device 0 selected:
+        /// llvmpipe (LLVM 20.1.2, 256 bits) (software) (0x0)</c> - and the parenthesised word is
+        /// <c>VK_PHYSICAL_DEVICE_TYPE_CPU</c> spelled out. Reading that beats timing the probe: it is
+        /// exact, it costs nothing, and a timing threshold would have to hold across every machine this
+        /// runs on.
+        /// <para/>
+        /// **Positive evidence is required, in both directions.** A device line that cannot be found at
+        /// all is a "no", not a shrug - the cost of wrongly falling back is the chain this app shipped
+        /// with, and the cost of wrongly going ahead is the 10x above. The frame is checked too, by
+        /// muxing it to <c>md5</c>: the failure this guards against exits 0 having written nothing, so
+        /// an exit code proves nothing and neither would a file's existence.
+        /// </summary>
+        public static async Task<string> GetLibplaceboProblem()
+        {
+            if (libplaceboProblem != null)
+                return libplaceboProblem;
+
+            // Set before the work rather than after, as GetFilterList does: an ffmpeg that cannot be
+            // run will not start answering later, and re-probing before every encode only delays it.
+            libplaceboProblem = "the probe could not be run";
+
+            string list = await GetFilterList();
+
+            if (list.IsNotEmpty() && !list.Contains(" libplacebo "))
+                return libplaceboProblem = "this FFmpeg has no 'libplacebo' filter";
+
+            try
+            {
+                // The device argument sits after the '-i' on purpose: that is where the AV1AN tab's
+                // filters are spliced into av1an's own per-chunk command, so probing any other shape
+                // would be testing a command line this app never sends.
+                var settings = new AvProcess.FfmpegSettings()
+                {
+                    Args = $"-f lavfi -i color=c=black:s=64x64 {Data.ToneMapConfig.DeviceArgs} " +
+                        $"-vf \"setparams=color_trc=smpte2084:color_primaries=bt2020:colorspace=bt2020nc," +
+                        $"libplacebo=tonemapping=hable:peak_detect=0:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv\" " +
+                        $"-frames:v 1 -f md5 -",
+                    LogLevel = "verbose",
+                    ProcessType = OS.NmkoderProcess.ProcessType.Background,
+                    CanCancelTask = false,
+                    LoggingMode = AvProcess.LogMode.Hidden,
+                };
+
+                string output = await AvProcess.RunFfmpeg(settings);
+
+                if (!output.Contains("MD5="))
+                    return libplaceboProblem = "it could not render a frame here";
+
+                string device = output.SplitIntoLines().LastOrDefault(l => l.Contains(" selected: ")) ?? "";
+
+                if (device.IsEmpty())
+                    return libplaceboProblem = "FFmpeg did not report which Vulkan device it chose";
+
+                if (device.Contains("(software)"))
+                    return libplaceboProblem = "the only Vulkan device here is a software renderer, which is " +
+                        "several times slower than the FFmpeg chain it would replace";
+
+                return libplaceboProblem = "";
+            }
+            catch (System.Exception e)
+            {
+                Logger.Log($"Probing libplacebo failed: {e.Message}", true, level: Logger.Level.Debug);
+                return libplaceboProblem;
+            }
         }
 
         private static async Task<string> GetFilterList()

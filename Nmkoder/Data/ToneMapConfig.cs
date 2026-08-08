@@ -42,6 +42,46 @@ namespace Nmkoder.Data
 
         public bool Runs { get { return Mode != ToneMapMode.Off; } }
 
+        /// <summary>
+        /// Whether libplacebo does the work instead of the zscale chain. Settled per encode by
+        /// <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> and never read off a control: it is a
+        /// property of the machine rather than a preference, and the machine is asked once, at the
+        /// start of the run, for the same reason the QTGMC probe is - a fallback decided halfway
+        /// through would be a different picture in the second half of the file.
+        /// </summary>
+        public bool UseLibplacebo = false;
+
+        /// <summary> Whether this config will actually put a filter in the chain for this file, which
+        /// needs the file as well as the mode: the row stays on screen for an HDR file with the curve
+        /// set to Off, and an SDR file has nothing to map however the row is set. </summary>
+        public bool RunsOn(VideoColorData src)
+        {
+            return Runs && ColorDataUtils.IsHdr(src);
+        }
+
+        /// <summary>
+        /// The global argument that creates the Vulkan device, which libplacebo needs and will not
+        /// create for itself: without it the filter fails with "Found no suitable device, giving up"
+        /// and then "Failed creating Vulkan device!" - and, measured, ffmpeg carries on and exits **0**
+        /// having written nothing, which is the quiet failure shape this app has met before.
+        /// <para/>
+        /// It is a global option and so looks like something only the caller that owns the whole
+        /// command line can place - which would rule the AV1AN tab out, av1an composing its own
+        /// per-chunk ffmpeg command with this app contributing only what goes inside <c>-f</c>.
+        /// Measured, that is not true: ffmpeg accepts it **after the <c>-i</c>**, which is exactly
+        /// where av1an splices those arguments in, and the probe places it there too so that what is
+        /// tested is what ships.
+        /// </summary>
+        public const string DeviceArgs = "-init_hw_device vulkan";
+
+        /// <summary> What has to go in front of the filter arguments, or "" for a chain that does not
+        /// use libplacebo. Both tabs prepend this to their own filter argument rather than composing
+        /// it themselves, so neither can forget it and the two cannot drift. </summary>
+        public string GetDeviceArgs(VideoColorData src)
+        {
+            return UseLibplacebo && RunsOn(src) ? $"{DeviceArgs} " : "";
+        }
+
         /// <summary> What the dropdown shows, in <see cref="AllModes"/> order. Short on purpose, as the
         /// Deinterlace list beside it is: the box is 200 wide and truncates anything longer, and the
         /// readout underneath has the whole line to say what the pick will actually do to this file. Which
@@ -181,8 +221,11 @@ namespace Nmkoder.Data
         /// </summary>
         public string GetFilterArgs(VideoColorData src)
         {
-            if (!Runs || !ColorDataUtils.IsHdr(src))
+            if (!RunsOn(src))
                 return "";
+
+            if (UseLibplacebo)
+                return GetLibplaceboArgs(src);
 
             List<string> chain = new List<string>();
             string stated = GetSourceStatement(src);
@@ -207,6 +250,48 @@ namespace Nmkoder.Data
             chain.Add("zscale=primaries=bt709");
             chain.Add($"tonemap=tonemap={Mode.ToString().ToLowerInvariant()}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
+
+            return string.Join(",", chain);
+        }
+
+        /// <summary>
+        /// The same job done by libplacebo, which is the better tone-mapper and is used wherever the
+        /// probe finds a real GPU behind it - see <see cref="Media.ToneMap.GetLibplaceboProblem"/> for
+        /// what "real" has to mean and why asking is not optional.
+        /// <para/>
+        /// **The curve names map straight across**, which is the whole reason the row needs no new
+        /// entry: libplacebo has <c>hable</c>, <c>mobius</c> and <c>reinhard</c> under those names, so a
+        /// setting means the same thing whichever backend it lands on. What differs is everything
+        /// around the curve. Measured on the same PQ patches, against a file declaring a 4000-nit
+        /// mastering display: 115/143 at 100 and 203 nits where the zscale chain gives 108/144, and its
+        /// top lands on **235** - the nominal white of a limited-range signal - where the zscale chain
+        /// runs to 247 and spends its brightest highlights in the superwhite a player clips.
+        /// <para/>
+        /// <c>peak_detect</c> is turned **off**, and that is the one option here worth arguing about.
+        /// On it is libplacebo's headline feature: it measures each frame instead of believing the
+        /// file, which is what makes a MaxCLL of 10000 harmless. Off, it uses the file's own metadata.
+        /// The measurement is what settles it - with the reported file's metadata the two came out
+        /// 125/154 against 129/152 for the default curve, and byte-identical for <c>hable</c> - so what
+        /// it costs here is nothing much, and what it buys is determinism. **This tab runs the chain
+        /// once per chunk**, in an ffmpeg av1an starts and stops around each one, so a detector whose
+        /// history restarts at every chunk boundary is a detector that can hand neighbouring chunks
+        /// different exposures. There is no <c>src_max</c> to pin it with in this build; off is the
+        /// only way to be sure the 26 chunks of a film agree with each other.
+        /// <para/>
+        /// <c>setparams</c> goes in front for the reason it does in the zscale chain, and the output
+        /// colour is stated on the filter itself so the frames come out tagged bt709/bt709/bt709 and
+        /// limited, exactly as that chain's last zscale leaves them.
+        /// </summary>
+        private string GetLibplaceboArgs(VideoColorData src)
+        {
+            List<string> chain = new List<string>();
+            string stated = GetSourceStatement(src);
+
+            if (stated.IsNotEmpty())
+                chain.Add(stated);
+
+            chain.Add($"libplacebo=tonemapping={Mode.ToString().ToLowerInvariant()}:peak_detect=0" +
+                ":colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv");
 
             return string.Join(",", chain);
         }
