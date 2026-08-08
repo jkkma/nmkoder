@@ -244,9 +244,19 @@ namespace Nmkoder.UI.Tasks
             config.UseLibplacebo = problem.IsEmpty();
 
             if (config.UseLibplacebo)
+            {
                 Logger.Log("Tone mapping with libplacebo on the GPU.");
-            else
-                Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
+                return;
+            }
+
+            Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
+
+            // The one setting on this row that cannot survive the fallback, and the readout cannot say
+            // so: it is drawn when the file loads, where this is not known until the encode starts.
+            if (config.FallsBackToAnotherCurve)
+                Logger.LogWarn($"The {ToneMapConfig.GetLabel(ToneMapMode.Spline)} curve is libplacebo's own, so this encode " +
+                    $"uses {ToneMapConfig.GetLabel(ToneMapMode.Hable)} instead - the closest of the curves FFmpeg has. " +
+                    $"It is a little darker in the mid-tones and holds a little less back at the top.");
         }
     }
 }
