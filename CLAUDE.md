@@ -2306,9 +2306,19 @@ Measured on PQ patches against a file declaring a 4000-nit mastering display, at
 libplacebo's `hable` gives 115/143 where the zscale chain gives 108/144, and its top lands on **235**
 - the nominal white of a limited-range signal - where the zscale chain runs to 247 and spends its
 brightest highlights in the superwhite a player clips. **The curve names map straight across** -
-libplacebo has `hable`, `mobius` and `reinhard` under those names - so the row means the same thing
-whichever backend it lands on, and needs no new entry. Its own default curve (`auto`, a spline) is
-brighter again at 125/154, and is not offered, because a row that says Hable should run hable.
+libplacebo has `hable`, `mobius` and `reinhard` under those names - so those three entries mean the
+same thing whichever backend they land on.
+
+**Spline is the fourth entry and libplacebo's alone.** Mapping the names across is honest and buys
+very little: hable against hable is about seven code values, so the better backend changed almost
+nothing for the pick everybody uses. What is worth having is libplacebo's own default curve, and it
+had no way to be selected - measured, `tonemapping=spline` is byte-identical to what its `auto`
+chooses, and gives **129/152** at 100 and 203 nits against hable's 115/143. Appended to the enum
+rather than slotted in beside the curve it beats, and labelled "Spline (GPU)" rather than left
+looking like a fourth equal choice, because it is the one entry that cannot run everywhere: without
+a usable GPU the zscale chain has nothing like it, so `GetCurveName` falls back to hable and
+`ResolveBackendAsync` warns. **The log is the only place that can be said** - the readout is drawn
+when the file loads, and which backend runs is not known until the encode starts.
 
 **`peak_detect` is turned off**, which throws away libplacebo's headline feature on purpose. On, it
 measures each frame instead of believing the file, which is what makes a MaxCLL of 10000 harmless;
