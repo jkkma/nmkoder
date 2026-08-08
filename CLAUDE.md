@@ -1878,6 +1878,23 @@ included. Without the count the window governs, and being half a frame long is t
 be wrong there: the section carries an extra frame rather than losing the last one, and its count was
 never going to be N anyway, since a bob emits two frames for every one it is given.
 
+**The stream-copy cut - the Cut utility, and the AV1AN tab's trim - ends two frames late, and
+`-frames:v` is not the fix however much it looks like one.** `UtilCut.CopySection` is `-ss`/`-t` over
+`-c copy`, and ffmpeg decides where to stop from the packets' *decode* order, so a source with
+B-frames hands over everything whose DTS is inside the window - including the frames whose PTS is
+past it. Measured against an x265 source with `bframes=4` and b-pyramid: 100, 200 and 500 frames
+asked for came back as 102, 202 and 502, every time, and shortening the window by half a frame or by
+a whole one changed nothing. That is the +2 a user sees in the log, and the frames are real,
+contiguous, and from their own source - the section is 83ms longer than asked, not damaged.
+
+Adding `-frames:v N` beside the `-t` does make the count exact and can take a hole out of the middle
+of the picture doing it, which is a worse fault than an extra frame. It truncates in decode order, so
+it is only clean where N lands on a mini-GOP boundary: cutting 200 frames from frame 0 came out
+contiguous, and cutting 150 from a mid-file keyframe dropped the two frames *before* the last one -
+150 frames, exact count, and a stutter at the end. The Quick Convert trim's own `-frames:v` is not
+the same case and is safe: that one runs over a re-encode, where the frames leave the chain in
+display order. Leave the copy as it is.
+
 **A trim is checked against the file before the encode starts**, through `UtilCut.ResolveSection`,
 which all three of the Cut utility, the AV1AN tab and Quick Convert now ask. A trim outlives the file
 it was set for and a batch does not clear it, so one section runs against every file in the queue;
@@ -1980,6 +1997,17 @@ simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does 
 does the libsvtav1 inside the bundled ffmpeg - where `--film-grain N` is on every build, costs no extra
 pass, and denoises the picture itself. It is the right answer for most people and it stays the cheap
 default.
+
+**Encoder analysis writes grain that only exists once a decoder synthesises it, and it measures the
+frame the filter chain hands over rather than the file.** Both halves come up as "I set 25 and I see
+no grain", and neither is a fault. Measured with the real thing - a grainy 4K source, SVT-AV1 at
+`--film-grain 25 --film-grain-denoise 1`, high-frequency energy read off the decoded frames: the
+source measures 5.16, the app's own 4K-to-1080p downscale hands the encoder 2.14, the coded picture
+is **0.42** - as clean as an encode with no grain synthesis at all, 0.45 - and putting the grain back
+brings it to 2.07. So the round trip is faithful to what the encoder was given, and two things sit
+between that and the source: a decoder that does not apply film grain shows the 0.42, and a resize
+has already taken 60% of what there was to measure before SVT ever sees it. `grav1synth inspect`, or
+the Film Grain utility's read-the-table operation, is how to tell the two apart on a finished file.
 
 **`GrainDelivery` has two values and there is deliberately no third.** A mode either hands the encoder a
 strength or hands it a table; a table it cannot take is a **refusal**, naming the utility as the way to
@@ -2277,22 +2305,45 @@ a check that merely asks "did it come up" passes and then destroys the encode's 
 has no Vulkan without MoltenVK. zscale is in the GPL ffmpeg this project bundles, needs no device,
 and cost 0.17s against 0.07s for a plain pixel format conversion.
 
-### npl is the number that decides everything, and the copied chain gets it wrong
+### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 
 Every version of this chain on the internet uses `npl=100`, which is also what leaving it unset
 does. Measured, that **clips everything above about 374 nits to flat white**: on a 1000-nit HDR10
-master every specular highlight, practical light and window is gone.
+master every specular highlight, practical light and window is gone. So the file's peak has to
+reach the chain somehow. **Which of the two numbers carries it is the whole question**, and putting
+it in `npl` - which is what the first cut of this row did - is what a bug report of "tone mapping
+comes out quite dark" turns out to be.
 
-Where the clipping starts was measured rather than derived - PQ ramps built to peak at exactly
-1000, 4000 and 10000 nits, run at npl 100/200/400/1000/2000, with the level where the output
-reached 255 and stayed there coming out at 374/376/377, 743/746/749, 1509/1509, 3747/3777 and
-7568 nits. A constant **3.75x npl** across every source peak, which is what makes it a rule rather
-than a lookup table. `ToneMapConfig.GetNpl` is that rule, and it takes the peak from the file's own
-MaxCLL, else its mastering display's maximum luminance, else an assumed 1000.
+`npl` is an *exposure*: it says how many nits linear 1.0 stands for, so it scales the entire signal.
+Deriving it from the peak therefore darkens the picture end to end rather than compressing only the
+highlights it describes. Measured on PQ patches, 100 nits came out at 112 of 255 for a grade
+declaring 1000 and at **71 for one declaring 4000** - the same picture at 63% of the luminance, on
+the strength of a number about its brightest pixel. The reported file was an ordinary UHD Blu-ray
+rip, where a 4000-nit mastering display is the commonest thing there is.
 
-**It has to be worked out here because the filter will not read it off the file.** The same PQ ramp
-with and without a MaxCLL of 1000 and a 1000-nit mastering display tone-maps to byte-identical
-output, so tonemap's own peak detection never sees the container's metadata.
+`ToneMapConfig.AnchorNits` is that exposure and is now a constant, 266.667 - what the old chain
+already used for a file declaring nothing, so the commonest file is anchored where it always was,
+and the value measured closest to libplacebo on a 1000-nit source: **126/169 at 100 and 203 nits
+against its 129/170**, where an anchor of 100 gives 173/214 and one of 150 gives 140/203.
+
+The file's peak goes to `GetTonemapPeak` instead - the tonemap filter's own `peak`, in units of the
+anchor, which is the point the curve maps to SDR white and so the level everything clips from. That
+makes the readout's "highlights above X clip to white" exact rather than a rule of thumb, and it
+leaves a declared peak costing what it should: 100 and 203 nits against a declared
+1000/2000/4000/9999 come out at 126/169, 115/153, 108/144 and 104/139. A few code values, where the
+old chain charged half the picture.
+
+Floored at 1 - a white point no lower than the anchor - because under that this stops being a
+roll-off and becomes an exposure boost: a declared 203 nits puts BT.2408 reference white at 252, and
+a declared 100 puts 100 nits itself at 235.
+
+**Both numbers have to be passed because the filter will not read either off the file.** The same PQ
+ramp with and without a MaxCLL of 10000 and a 4000-nit mastering display tone-maps to byte-identical
+output. The reason is worth knowing rather than filing under "metadata is unreliable", because it is
+this app's own doing: by the time `tonemap` runs, the zscale above it has retagged the frame
+`linear`, so the filter takes its fallback for a non-PQ transfer, which is a flat **10**. That is
+what the chain was silently running on - a white point of ten times npl, i.e. 2.667x whatever peak
+had been declared, on every file since the row was written.
 
 **A peak declared at 10000 nits is the format's ceiling, not a measurement, and taking one at face
 value crushed the whole picture.** `ColorDataUtils.GetDeclaredPeakNits` prefers MaxCLL because it
@@ -2301,12 +2352,17 @@ stops holding at the top of the PQ curve, which is the largest number the field 
 gets written when nobody measured. The case is an ordinary UHD Blu-ray rip: x265 wrote
 `cll=10000,258` beside `master-display … L(40000000,50)`, i.e. MaxCLL at the ceiling, a
 measured-looking MaxFALL of 258, and a 4000-nit mastering display - the brightest the grade can ever
-have been checked on. That put `npl` at 2666.7 and, measured on PQ patches through this app's own
-chain, **203 nits came out at 23.2% of the SDR range against 33.6%** off the mastering display's
-4000, with 100 nits at 17.2% against 25.2%. 203 is BT.2408's reference white, where the graded
-picture's white belongs. The top of the range was unreachable too: the file's own 4000-nit peak only
-reached 69.7%, so nearly a third of the output range went unused by a file that never exceeded its
-own mastering display.
+have been checked on. Under the npl-scaling above that put the exposure at 2666.7 and, measured on PQ
+patches through this app's own chain, **203 nits came out at 23.2% of the SDR range against 33.6%**
+off the mastering display's 4000, with 100 nits at 17.2% against 25.2%. 203 is BT.2408's reference
+white, where the graded picture's white belongs.
+
+**That evidence belongs to the chain it was measured on, and the guard now buys far less**, which is
+worth knowing before reaching for it as the fix for a dark encode: with the peak going to the
+roll-off rather than the exposure, taking the ceiling at face value costs 104/139 at 100 and 203
+nits against the mastering display's 108/144 - four code values, where it used to be most of the
+picture. It stays because it is still true that a number sitting on the format's maximum measures
+nothing, and because a peak overstated by 2.5x still compresses highlights that were never there.
 
 `PqCeilingNits` is the one statement of that, and it is applied to the mastering display as well as
 to MaxCLL - a monitor declared at 10000 nits does not exist, so that field is the same
@@ -2317,12 +2373,17 @@ through the default. An honest MaxCLL still wins over the mastering display, 999
 and only the tone map reads any of it - `SetColorData` writes the file's own MaxCLL back out
 untouched.
 
-The alternative parameterisation - `npl=100` with an explicit `peak=` - was measured head to head
-and is worse. It holds mid-tones brighter (100 nits at 181 against 110) and clips from 374 nits on
-a 1000-nit source, where scaling npl clips nothing. Against libplacebo as the reference on the same
-source - 22/54/129/170 at 1, 10, 100 and 203 nits - scaling npl gives 16/44/110/153 and the `peak=`
-form gives 25/65/181/230. Scaling npl is the closer of the two, and hable is the closest of the
-three curves; mobius and reinhard are offered because they are brighter and some sources want that.
+**This file used to say that an explicit `peak=` had been measured head to head and was worse, and
+the measurement was sound while the conclusion was not** - which is the trap to avoid repeating. What
+was compared was `npl=100` with a `peak=` against `npl` scaled by the peak, and `npl=100` really is
+too bright (100 nits at 181 against 110, near this harness's 173 for the same pairing). The anchor
+was doing that, not the mechanism: the two were varied together, so a bad anchor condemned a good
+parameterisation, and the third combination - the old anchor *with* the peak passed - was never
+tried. It is the best of the three. **Vary one at a time**, especially where both numbers land on the
+same curve.
+
+hable is still the closest of the three curves to libplacebo; mobius and reinhard are offered
+because they are brighter and some sources want that.
 
 ### setparams, and the option that looks like the answer
 
