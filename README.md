@@ -1,29 +1,65 @@
+<div align="center">
+
+<img src="docs/images/logo.png" width="120" alt="Nmkoder">
+
 # Nmkoder
 
-Video encoding, muxing and analysis GUI built with [Avalonia UI](https://avaloniaui.net/) on .NET 10,
-wrapping FFmpeg, FFprobe and [av1an](https://github.com/rust-av/Av1an). Runs natively on Windows,
-Linux and macOS.
+**Video encoding, muxing and analysis — a GUI over FFmpeg, FFprobe and [av1an](https://github.com/rust-av/Av1an).**
 
-This is a fork of [n00mkrad/nmkoder](https://github.com/n00mkrad/nmkoder), which was WinForms on .NET
-Framework and Windows-only. The UI has been rebuilt, the app ported to three platforms, and a fair
-amount added on top - see [What's new since the fork](#whats-new-since-the-fork).
+Portable and self-contained on Windows, Linux and macOS. Nothing to install.
 
-![](https://i.imgur.com/c8XtSlG.png)
+[![Latest release](https://img.shields.io/github/v/release/jkkma/nmkoder?style=flat-square&label=release&color=79D1C6&labelColor=2B2D31)](https://github.com/jkkma/nmkoder/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/jkkma/nmkoder/total?style=flat-square&label=downloads&color=79D1C6&labelColor=2B2D31)](https://github.com/jkkma/nmkoder/releases)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-79D1C6?style=flat-square&labelColor=2B2D31)](#download)
+[![.NET 10](https://img.shields.io/badge/.NET-10-79D1C6?style=flat-square&labelColor=2B2D31)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![Avalonia](https://img.shields.io/badge/UI-Avalonia-79D1C6?style=flat-square&labelColor=2B2D31)](https://avaloniaui.net/)
+[![Licence](https://img.shields.io/badge/licence-GPL--3.0-79D1C6?style=flat-square&labelColor=2B2D31)](LICENSE)
+
+[**Download**](#download) · [Features](#features) · [What's new since the fork](#whats-new-since-the-fork) · [What a release bundles](#what-a-release-bundles) · [Building](#building)
+
+<img src="docs/images/quick-convert.png" width="880" alt="The Quick Convert tab: codec, container, quality mode, resize and borders, with the log panel below">
+
+</div>
+
+---
+
+Nmkoder wraps the tools you would otherwise drive by hand. Point it at a file and it reads
+every stream out of it; from there you can re-encode, remux, retime, deinterlace, tone-map,
+cut, measure or batch the lot, and watch what it is doing in a log you can read.
+
+This is a fork of [n00mkrad/nmkoder](https://github.com/n00mkrad/nmkoder), which was WinForms
+on .NET Framework and Windows-only. The UI has been rebuilt, the app ported to three
+platforms, and a fair amount added on top — see
+[What's new since the fork](#whats-new-since-the-fork).
+
+| Tab | What it is for |
+|:--|:--|
+| **Quick Convert** | One ffmpeg command, built for you: H.264, H.265, VP9, AV1, GIF and image sequences, per-track audio, subtitle burn-in, loudness normalization. |
+| **AV1AN** | Chunked, parallel encoding through av1an, with target-quality modes (VMAF, SSIMULACRA2, Butteraugli, XPSNR) and a full per-encoder argument grid. |
+| **Utilities** | The jobs that are not an encode: bitrates, metrics, colour metadata, grain tables, lossless cuts, concatenation, bitrate charts, subtitle OCR. |
 
 ## Download
 
 Portable archives for all four platforms are attached to every
-[release](https://github.com/jkkma/nmkoder/releases). Unpack and run: each build is self-contained,
-so nothing has to be installed to start it, and the Windows archive carries the entire external
-toolchain in `bin/` - ffmpeg, av1an, VapourSynth, the encoders and MKVToolNix. The Linux and macOS
-archives carry less and lean on your package manager; see
-[what a release bundles](#what-a-release-bundles).
+[release](https://github.com/jkkma/nmkoder/releases/latest). Unpack and run — each build is
+self-contained, so no .NET install is needed.
+
+| Platform | Archive | Size | Bundled into `bin/` |
+|:--|:--|--:|:--|
+| **Windows** x64 | `Nmkoder-<version>-win-x64.zip` | ~490 MB | Everything: ffmpeg, MKVToolNix, av1an, VapourSynth, the encoders, grav1synth |
+| **Linux** x64 | `Nmkoder-<version>-linux-x64.tar.gz` | ~120 MB | ffmpeg, av1an, SVT-AV1, VMAF models, grav1synth |
+| **macOS** arm64 | `Nmkoder-<version>-osx-arm64.tar.gz` | ~58 MB | VMAF models, grav1synth |
+| **macOS** x64 | `Nmkoder-<version>-osx-x64.tar.gz` | ~61 MB | VMAF models |
+
+The Linux and macOS archives carry less and lean on your package manager; see
+[what a release bundles](#what-a-release-bundles) for the whole matrix and the reasons.
+Anything you drop into `bin/` yourself takes priority over the same tool on your `PATH`.
 
 <details>
-<summary><b>Scoop</b></summary>
+<summary><b>Windows: install with Scoop</b></summary>
 
-On Windows, [Scoop](https://scoop.sh) can install and update it for you. This repository doubles as
-a bucket:
+On Windows, [Scoop](https://scoop.sh) can install and update it for you. This repository
+doubles as a bucket:
 
 ```
 scoop bucket add nmkoder https://github.com/jkkma/nmkoder
@@ -34,10 +70,139 @@ The app is `nmkoder-avalonia` rather than `nmkoder` because Scoop's community `e
 carries the pre-fork WinForms Nmkoder (1.10.0) under that name, and a bare `scoop install nmkoder`
 resolves to it. The longer name is unambiguous, and the two can be installed side by side.
 
-`scoop update nmkoder` moves to the newest release from then on, and the manifest is pointed at each
-one as it is published, so there is no lag. Settings and logs (`data` and `logs`) are persisted
-across updates; `bin` is not, being the bundled toolchain that every release replaces - anything you
-drop in there yourself belongs in a portable copy rather than a Scoop install.
+`scoop update nmkoder-avalonia` moves to the newest release from then on, and the manifest is
+pointed at each one as it is published, so there is no lag. Settings and logs (`data` and `logs`)
+are persisted across updates; `bin` is not, being the bundled toolchain that every release
+replaces — anything you drop in there yourself belongs in a portable copy rather than a Scoop
+install.
+
+</details>
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><a href="docs/images/file-list.png"><img src="docs/images/file-list.png" alt="File List tab"></a><br><b>File List</b> — muxing or batch mode, drag and drop, thumbnails you can scrub through.</td>
+<td width="50%"><a href="docs/images/track-list.png"><img src="docs/images/track-list.png" alt="Track List tab"></a><br><b>Track List</b> — every stream in the file, with checkboxes, ordering and default-track pickers.</td>
+</tr>
+<tr>
+<td width="50%"><a href="docs/images/av1an.png"><img src="docs/images/av1an.png" alt="AV1AN tab"></a><br><b>AV1AN</b> — chunked encoding, with the framing and quality controls beside it.</td>
+<td width="50%"><a href="docs/images/av1an-advanced.png"><img src="docs/images/av1an-advanced.png" alt="AV1AN Advanced tab"></a><br><b>Advanced</b> — the per-encoder argument grid, grouped by category, with content presets.</td>
+</tr>
+<tr>
+<td width="50%"><a href="docs/images/utilities.png"><img src="docs/images/utilities.png" alt="Utilities tab"></a><br><b>Utilities</b> — the shortcuts for jobs that would otherwise be long CLI commands.</td>
+<td width="50%"><a href="docs/images/quick-convert-audio.png"><img src="docs/images/quick-convert-audio.png" alt="Quick Convert, Audio tab"></a><br><b>Audio</b> — codec, layout and bitrate globally or per track, with EBU R128 loudness normalization.</td>
+</tr>
+</table>
+
+## Features
+
+Each heading below expands.
+
+<details>
+<summary><b>Input</b></summary>
+
+- Supports all formats that ffmpeg can decode
+- Either use **"Muxing Mode"** to convert a single file or merge multiple files into one, or
+  **"Batch Processing Mode"** to run an action on each file, with a naming template for the outputs
+- Supports image sequence inputs (PNG/WEBP/JPEG/BMP) without requiring sequential filenames
+  (FPS needs to be set manually)
+- Drag and drop anywhere in the window, an "Add Folder" button, and a recent-files list
+
+</details>
+
+<details>
+<summary><b>Track List</b></summary>
+
+- View codec, language, title and more (depending on stream type) of the selected media stream
+- Enable or disable streams with checkboxes - disabled streams are not included when encoding/muxing
+- Re-order streams, and set the default audio and subtitle track
+
+</details>
+
+<details>
+<summary><b>Quick Convert (FFmpeg)</b></summary>
+
+- Encode video using ffmpeg and its encoder plugins
+- Video Formats: **H.264 (x264 or NVENC), H.265 (x265 or NVENC), VP9, AV1 (SVT-AV1 or AOM)**
+- Image Formats: Animated **GIF**, **PNG** Sequence, **JPEG** Sequence
+- Audio Formats: **AAC, Opus, Vorbis, E-AC-3, MP3, FLAC**, globally or configured per track
+- Text-based Subtitle Formats: Mov_Text for MP4/MOV, SRT for MKV, WebVTT for WEBM
+- All media types also have the option to **strip** (remove) or **copy** (mux without re-encoding)
+- Set metadata (title and language) for each track, and copy metadata or chapters from any loaded file
+- Encoder Options: set quality and speed/effort aka preset, set colour format
+- Quality Modes: a **constant quality**, a target **bitrate**, or a target **filesize**
+- Video Options: resample the frame rate, **resize** from presets or an exact size, manually or
+  **automatically crop** black bars, pad out to a target **aspect ratio**, and **trim** to a section
+  picked while watching the frame you are on
+- **HDR to SDR tone mapping** for PQ and HLG sources, with the roll-off built around the peak
+  brightness the file declares, and the output retagged BT.709
+- **Deinterlacing**, its row shown only for files whose fields warrant it - a tape, DVD or camcorder
+  capture - and off screen entirely for a modern progressive download. Uses **QTGMC** through
+  VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
+  per field so none of the motion is thrown away
+- Audio Options: set quality and channels/layout
+- **Loudness normalization** to a standard target (-14 / -16 / -23 LUFS, EBU R128), measured per track
+  first and then applied as one flat gain, so the mix keeps its dynamics - a single-pass normalization
+  reaches the same number by riding the gain, which lifts quiet passages by however much they were quiet
+- Subtitle Options: optionally **burn in** a subtitle track
+
+</details>
+
+<details>
+<summary><b>AV1AN Chunked Encoding</b></summary>
+
+- Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
+- Video Formats: **AV1 (SVT-AV1 or AOM), H.265 (x265), H.264 (x264), VP9 (VPX)**
+- Quality Modes: a **constant quality**, or target a **VMAF**, **SSIMULACRA2**, **Butteraugli** or
+  **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
+  XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
+  bundle ships and enables per machine - see below)
+- Same audio, metadata and framing options as FFmpeg encoding, trim included
+- **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with
+  ffmpeg, which has nowhere to run a VapourSynth script, so picking QTGMC renders the video through it
+  once beforehand - into a near-lossless intermediate that av1an then encodes, optionally at one frame
+  per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
+- **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
+  conversion rather than the source
+- **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
+  encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
+  denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
+  optionally denoising to match it. The readout says whether the picture being coded is clean, which is
+  what decides whether any of this saves bitrate or merely adds grain
+- **Advanced encoder arguments** in a grid grouped by category, each with a full explanation and
+  example values on right-click, plus content presets for anime and for game capture
+- Av1an Options: change the splitting method, chunk creation method, number of workers, and more
+- Encodes can be paused and resumed live, or stopped entirely and picked up again later from the
+  finished chunks
+
+</details>
+
+<details>
+<summary><b>Utilities</b></summary>
+
+- Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
+- **Read Bitrates**: calculates stream size and average bitrate for each stream
+- **Get Metrics**: calculate quality metrics like **VMAF**, SSIM, PSNR
+- **Transfer Color Metadata**: copy colour properties and HDR metadata from one file to another
+  (e.g. from a Bluray remux to an encode)
+- **Deinterlace Video**: exports a deinterlaced copy - **QTGMC** over the whole file into a
+  near-lossless MKV, with the audio and subtitles copied across. That file is all it produces; nothing
+  is loaded back into the file list, and you do not need it in order to encode an interlaced source,
+  since both encode tabs deinterlace on their way through. Has its own Deinterlace settings, under
+  Configure on its card, separate from either tab's
+- **Film Grain (AV1)**: the parts of a grain workflow that are not an encode. **Measure** a grain table
+  off any source, whatever its codec - it compares decoded frames - or, on an AV1 file, **extract** the
+  table it already carries, **apply** grain to it (from a table, one of grav1synth's film stock presets,
+  or photon noise at an ISO), or **remove** every grain header from it. The last three rewrite the AV1
+  headers and remux; nothing is re-encoded and the picture is untouched
+- **Cut Video**: keep only a chosen section, copied out without re-encoding, with the start and end
+  points picked while watching the frame you are on
+- **Concatenate Into Single MKV**: merge any amount of any compatible video format into a single MKV
+  (e.g. for chunked encoding)
+- **Show Bitrate Chart**: samples the bitrate across the entire video and plots it, so you can see
+  where bitrate is higher or lower
+- **OCR Bitmap Subtitles**: converts selected bitmap-based subtitle tracks into text subtitles
 
 </details>
 
@@ -289,117 +454,6 @@ partway through an encode.
   showing up as an av1an encode that quietly finished without audio or a concat that failed naming a
   temp path.
 - Animated GIF could not be produced at all unless some other filter happened to be configured.
-
-</details>
-
-## Features
-
-Each heading below expands.
-
-<details>
-<summary><b>Input</b></summary>
-
-- Supports all formats that ffmpeg can decode
-- Either use **"Muxing Mode"** to convert a single file or merge multiple files into one, or
-  **"Batch Processing Mode"** to run an action on each file, with a naming template for the outputs
-- Supports image sequence inputs (PNG/WEBP/JPEG/BMP) without requiring sequential filenames
-  (FPS needs to be set manually)
-- Drag and drop anywhere in the window, an "Add Folder" button, and a recent-files list
-
-</details>
-
-<details>
-<summary><b>Track List</b></summary>
-
-- View codec, language, title and more (depending on stream type) of the selected media stream
-- Enable or disable streams with checkboxes - disabled streams are not included when encoding/muxing
-- Re-order streams, and set the default audio and subtitle track
-
-</details>
-
-<details>
-<summary><b>Quick Convert (FFmpeg)</b></summary>
-
-- Encode video using ffmpeg and its encoder plugins
-- Video Formats: **H.264 (x264 or NVENC), H.265 (x265 or NVENC), VP9, AV1 (SVT-AV1 or AOM)**
-- Image Formats: Animated **GIF**, **PNG** Sequence, **JPEG** Sequence
-- Audio Formats: **AAC, Opus, Vorbis, E-AC-3, MP3, FLAC**, globally or configured per track
-- Text-based Subtitle Formats: Mov_Text for MP4/MOV, SRT for MKV, WebVTT for WEBM
-- All media types also have the option to **strip** (remove) or **copy** (mux without re-encoding)
-- Set metadata (title and language) for each track, and copy metadata or chapters from any loaded file
-- Encoder Options: set quality and speed/effort aka preset, set colour format
-- Quality Modes: a **constant quality**, a target **bitrate**, or a target **filesize**
-- Video Options: resample the frame rate, **resize** from presets or an exact size, manually or
-  **automatically crop** black bars, pad out to a target **aspect ratio**, and **trim** to a section
-  picked while watching the frame you are on
-- **HDR to SDR tone mapping** for PQ and HLG sources, with the roll-off built around the peak
-  brightness the file declares, and the output retagged BT.709
-- **Deinterlacing**, its row shown only for files whose fields warrant it - a tape, DVD or camcorder
-  capture - and off screen entirely for a modern progressive download. Uses **QTGMC** through
-  VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
-  per field so none of the motion is thrown away
-- Audio Options: set quality and channels/layout
-- **Loudness normalization** to a standard target (-14 / -16 / -23 LUFS, EBU R128), measured per track
-  first and then applied as one flat gain, so the mix keeps its dynamics - a single-pass normalization
-  reaches the same number by riding the gain, which lifts quiet passages by however much they were quiet
-- Subtitle Options: optionally **burn in** a subtitle track
-
-</details>
-
-<details>
-<summary><b>AV1AN Chunked Encoding</b></summary>
-
-- Encode video using [av1an](https://github.com/rust-av/Av1an) and supported encoders
-- Video Formats: **AV1 (SVT-AV1 or AOM), H.265 (x265), H.264 (x264), VP9 (VPX)**
-- Quality Modes: a **constant quality**, or target a **VMAF**, **SSIMULACRA2**, **Butteraugli** or
-  **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
-  XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
-  bundle ships and enables per machine - see below)
-- Same audio, metadata and framing options as FFmpeg encoding, trim included
-- **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with
-  ffmpeg, which has nowhere to run a VapourSynth script, so picking QTGMC renders the video through it
-  once beforehand - into a near-lossless intermediate that av1an then encodes, optionally at one frame
-  per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
-- **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
-  conversion rather than the source
-- **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
-  encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
-  denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
-  optionally denoising to match it. The readout says whether the picture being coded is clean, which is
-  what decides whether any of this saves bitrate or merely adds grain
-- **Advanced encoder arguments** in a grid grouped by category, each with a full explanation and
-  example values on right-click, plus content presets for anime and for game capture
-- Av1an Options: change the splitting method, chunk creation method, number of workers, and more
-- Encodes can be paused and resumed live, or stopped entirely and picked up again later from the
-  finished chunks
-
-</details>
-
-<details>
-<summary><b>Utilities</b></summary>
-
-- Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
-- **Read Bitrates**: calculates stream size and average bitrate for each stream
-- **Get Metrics**: calculate quality metrics like **VMAF**, SSIM, PSNR
-- **Transfer Color Metadata**: copy colour properties and HDR metadata from one file to another
-  (e.g. from a Bluray remux to an encode)
-- **Deinterlace Video**: exports a deinterlaced copy - **QTGMC** over the whole file into a
-  near-lossless MKV, with the audio and subtitles copied across. That file is all it produces; nothing
-  is loaded back into the file list, and you do not need it in order to encode an interlaced source,
-  since both encode tabs deinterlace on their way through. Has its own Deinterlace settings, under
-  Configure on its card, separate from either tab's
-- **Film Grain (AV1)**: the parts of a grain workflow that are not an encode. **Measure** a grain table
-  off any source, whatever its codec - it compares decoded frames - or, on an AV1 file, **extract** the
-  table it already carries, **apply** grain to it (from a table, one of grav1synth's film stock presets,
-  or photon noise at an ISO), or **remove** every grain header from it. The last three rewrite the AV1
-  headers and remux; nothing is re-encoded and the picture is untouched
-- **Cut Video**: keep only a chosen section, copied out without re-encoding, with the start and end
-  points picked while watching the frame you are on
-- **Concatenate Into Single MKV**: merge any amount of any compatible video format into a single MKV
-  (e.g. for chunked encoding)
-- **Show Bitrate Chart**: samples the bitrate across the entire video and plots it, so you can see
-  where bitrate is higher or lower
-- **OCR Bitmap Subtitles**: converts selected bitmap-based subtitle tracks into text subtitles
 
 </details>
 
