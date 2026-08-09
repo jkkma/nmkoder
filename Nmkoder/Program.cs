@@ -136,15 +136,21 @@ namespace Nmkoder
         }
 
         /// <summary>
-        /// Deletes the single-file extraction folders earlier builds left in temp. A single-file
-        /// build unpacks itself into %TEMP%\.net\Nmkoder\{bundle-id} before it runs, the id is a
-        /// hash that changes with every build, and .NET deletes none of them ever - so a machine
-        /// that has run a few weeks of releases is carrying one copy of the runtime per release.
-        /// Measured on a user's machine: 40 folders, 5.22 GB.
+        /// Deletes the single-file extraction folders other builds have left in temp. A
+        /// single-file build unpacks itself into %TEMP%\.net\Nmkoder\{bundle-id} before it runs,
+        /// the id is a content hash so every release gets its own, and .NET deletes none of them
+        /// ever - a machine that has run a few weeks of releases would otherwise be carrying one
+        /// copy of the runtime per release. Measured on a user's machine before this existed: 40
+        /// folders, 5.22 GB.
         ///
-        /// The Windows release is no longer built single-file, which stops this happening again -
-        /// but that fix cannot reach what is already on disk, so this deliberately does not ask
-        /// whether *this* build is bundled before looking.
+        /// This is what makes shipping the app as one executable affordable rather than something
+        /// that fills a disk, so it is not housekeeping that can be dropped: reaping every folder
+        /// but the live one on each launch is what keeps the steady state at one, and what makes
+        /// an upgrade collect its predecessor's.
+        ///
+        /// It deliberately does not ask whether *this* build is bundled before looking. A build
+        /// that is not - the win-x64 releases that shipped as loose DLLs, or anyone's own
+        /// non-single publish - is precisely the one with stale folders and no live one to keep.
         /// </summary>
         private static void CleanupBundleExtractions()
         {

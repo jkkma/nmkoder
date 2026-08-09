@@ -393,27 +393,52 @@ Inspecting a published archive settles it without downloading one: a zip's
 central directory is at its end, so a range request for the last few KB, parsed
 for the entry names, lists everything the asset contains.
 
-**The win-x64 release is no longer published single-file, which takes the flag
-above out of every shipped build.** A third consequence is what settled it, and
-it is the one nobody sees until a disk fills: the extraction in (2) goes to
-`%TEMP%\.net\Nmkoder\{bundle-id}`, the id is a hash that changes with **every
-build**, and .NET deletes none of them ever. So a machine collects one copy of
-the runtime and the App SDK - about 140 MB - for each release it has run.
-Measured on a user's machine ten days after installing: 40 folders, 5.22 GB.
-The bundle was buying nothing anyway, the app shipping as a folder in a zip with
-`bin/` beside it either way, so `release.yml`'s matrix now carries `single:`
-per RID and win-x64 is the one that is false.
+**Every RID publishes as one executable, win-x64 included, and the third
+consequence of the flag is the price of that.** Nobody sees it until a disk
+fills: the extraction in (2) goes to `%TEMP%\.net\Nmkoder\{bundle-id}`, the id is
+a content hash so it changes with **every build**, and .NET deletes none of them
+ever. So a machine collects one copy of the runtime and the App SDK - about 140
+MB - for each release it has run. Measured on a user's machine ten days after
+installing: 40 folders, 5.22 GB.
 
-Two things stay regardless, and both look removable now: the csproj still sets
-`IncludeAllContentForSelfExtract`, because the README documents a single-file
-win-x64 publish and the App SDK validation fails that build without it; and
-`CopyBinFilesToPublishDir` stays for the reason above. Neither is the release's
-to need any more, which is exactly why the next person will delete them.
+That is what `Program.CleanupBundleExtractions` exists to pay, and the pairing is
+the point: **the bundle is affordable only because something reaps it**, so do
+not treat that method as housekeeping and do not weaken it to keep a folder
+"just in case". It deletes every extraction but the live one on each launch, so
+the steady state is one folder rather than one per release and an upgrade
+collects its predecessor's. win-x64 did ship as a folder of 224 loose DLLs for a
+few releases, between the report above and the cleanup landing; the shape to
+recognise is that the fix for the disk filling was never the loose DLLs, which
+cost the flag's other two bugs a place to hide and bought a zip nobody wanted.
 
-`Program.CleanupBundleExtractions` clears what is already on disk, since the
-build change cannot reach a folder written by an older release. It does not ask
-whether *this* build is bundled before looking - a non-bundled build is precisely
-the one that has stale folders and no live one. `AppContext.BaseDirectory` is
+The extraction is the *whole* bundle on this one RID and the native libraries
+alone on the others - measured on linux-x64 bundles of the same build, 123 MB
+with the flag against 49 MB without it. Which is also why the flag cannot simply
+be waived: the App SDK's check answers to
+`WindowsAppSDKSingleFileVerifyConfiguration=false`, but the redirection it is
+guarding is real, and an App SDK told to find its native DLLs beside the exe will
+not find them there.
+
+**That check's last clause looks unmet by this csproj and is not.** It warns that
+a single-file build must set `MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY` before
+program entry, which nothing here does by hand - because
+`WindowsAppSdkUndockedRegFreeWinRTInitialize` defaults to true wherever
+`WindowsAppSDKSelfContained` is set, and that is what generates the initializer
+which sets it. The default is keyed off a *different* property in a *different*
+package (`Microsoft.WindowsAppSDK.Foundation`'s
+`UndockedRegFreeWinRTCommon.targets`), so reading only the file that carries the
+warning says the opposite. Do not "fix" this by setting the variable in `Main` -
+that runs after the initializer, and the App SDK has already read it.
+
+Two things follow from that and are now load-bearing rather than vestigial: the
+csproj's `IncludeAllContentForSelfExtract`, which the shipped build sets, and
+`CopyBinFilesToPublishDir`, which puts back what it sweeps up. Both looked
+removable while win-x64 was multi-file. Neither is.
+
+`Program.CleanupBundleExtractions` does not ask whether *this* build is bundled
+before looking - a non-bundled build is precisely the one that has stale folders
+and no live one, which covers both anyone's own multi-file publish and the
+releases that shipped that way. `AppContext.BaseDirectory` is
 read there on purpose, being the extraction folder itself and so the authority on
 where the root is; that is the one question it answers well, and it is the exact
 opposite of the rule in (2), so it carries a comment saying so. A folder in use by
@@ -423,6 +448,22 @@ whatever it had not loaded yet. Verified by running it: a real linux-x64 bundle
 published with the flag, three planted folders deleted, its own kept, and one held
 under `flock` - which is what .NET's `FileShare.None` takes on Unix - kept and
 named in the log.
+
+And verified again across a version step, which is the case the steady state
+rests on rather than the planted one: two bundles of the same source differing
+only in `-p:Version` extract to *different* ids, and running the 2.8.39 one
+freed the 121.7 MB the 2.8.38 one had left, keeping its own. Two publishes at
+the same version share an id and reuse the folder, which is worth knowing before
+reading a check that says nothing was freed - the id follows the content, so
+"nothing to reap" and "the reap did not run" look alike from the outside.
+
+**The other RIDs are not covered by any of this, and that is a gap rather than a
+decision.** Their bundles extract only native libraries, so the flag is off,
+so `AppContext.BaseDirectory` is the exe's own directory - which is the branch
+that tells the method it is *not* running from a bundle. It then falls through
+to a root guessed from `%TEMP%`, and that guess is Windows-only. So a Linux or
+macOS machine still collects the 49 MB per release measured above. Nothing here
+has been changed about it; the win-x64 question was the one asked.
 
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,

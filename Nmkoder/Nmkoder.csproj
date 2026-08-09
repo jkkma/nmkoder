@@ -38,13 +38,17 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <EnableMsixTooling>true</EnableMsixTooling>
-    <!-- Required by the App SDK's own single-file validation, which errors out without it. It
-         sweeps Content into the exe as well, which is why BinFiles below opts back out.
+    <!-- Required by the App SDK's own single-file validation, which errors out without it: it
+         wants the whole bundle unpacked to one directory so the App SDK's native DLLs can be
+         found by side-by-side redirection, which is also why the check cannot simply be waived
+         with WindowsAppSDKSingleFileVerifyConfiguration=false and the flag dropped - the App SDK
+         would then look for those DLLs beside the exe, where the bundle has not put them.
 
-         The release no longer publishes win-x64 single-file, so nothing shipped sets this any
-         more - see the matrix in release.yml for why. It stays because it is not the release's
-         to need: the README documents a single-file win-x64 publish, and that build fails
-         outright without this flag. -->
+         It sweeps Content into the exe as well, which is why BinFiles below opts back out, and it
+         repoints AppContext.BaseDirectory at the extraction folder - two behaviours that have each
+         cost a shipped bug, both recorded in CLAUDE.md and both guarded now. The win-x64 release
+         is published single-file and so ships with this set; the cost that carries at runtime, and
+         what pays for it, is in the matrix comment in release.yml. -->
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 
