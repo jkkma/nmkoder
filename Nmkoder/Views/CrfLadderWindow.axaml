@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Nmkoder.Views.CrfLadderWindow"
+        Title="Configure Sample Encodes"
+        Width="660" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="6">
+
+    <Border Classes="card">
+      <TextBlock TextWrapping="Wrap"
+                 Text="These are the utility's own settings - it does not read either encode tab, and changing them here changes nothing over there. A CRF only means something for the encoder and preset that produced it, so set these to what you intend to encode with." />
+    </Border>
+
+    <TextBlock Classes="h" Text="SOURCE" />
+    <TextBlock x:Name="SourceLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+
+    <TextBlock Classes="h" Text="ENCODER" />
+
+    <Grid Classes="form" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
+      <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncoderBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Encoder_SelectionChanged"
+                ToolTip.Tip="FFmpeg's own encoders, which is what runs here. The AV1AN tab drives separate binaries - its SVT-AV1 is svt-av1-hdr rather than the one compiled into FFmpeg - so a number read off this ladder is a starting point over there rather than the same setting." />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Preset" />
+      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <ComboBox x:Name="PresetBox" Width="140" SelectionChanged="Setting_SelectionChanged" />
+        <TextBlock x:Name="PresetHint" Classes="hint" VerticalAlignment="Center" Text="" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Color format" />
+      <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ColorsBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Setting_SelectionChanged"
+                ToolTip.Tip="The pixel format the samples are encoded in. Match it to the encode you are planning: 10-bit and 8-bit are different rate-distortion curves, so a CRF measured in one is not the same number in the other." />
+    </Grid>
+
+    <TextBlock Classes="h" Text="LADDER" />
+
+    <Grid Classes="form" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="CRF values" />
+      <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <TextBox x:Name="CrfBox" Width="180" LostFocus="Crf_Changed" KeyDown="Crf_KeyDown"
+                 ToolTip.Tip="Comma-separated. Leave it empty for the encoder's own default and a step either side of it. Values outside the encoder's range are pulled into it, and at most 8 are run." />
+        <TextBlock x:Name="CrfHint" Classes="hint" VerticalAlignment="Center" Text="" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Samples" />
+      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <NumericUpDown x:Name="SampleCountBox" Classes="num" Minimum="1" Maximum="8" Increment="1" Value="3" ValueChanged="Number_ValueChanged"
+                       ToolTip.Tip="Sections spread evenly across the source, each centred in its own share of it. The credits at either end are skipped where there is room to skip them." />
+        <TextBlock Classes="field" Text="of" VerticalAlignment="Center" />
+        <NumericUpDown x:Name="SampleSecsBox" Classes="num" Minimum="2" Maximum="120" Increment="1" Value="10" ValueChanged="Number_ValueChanged" />
+        <TextBlock Classes="field" Text="seconds" VerticalAlignment="Center" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Score with" />
+      <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <ComboBox x:Name="MetricBox" Width="150" SelectionChanged="Setting_SelectionChanged"
+                  ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. XPSNR is a perceptually weighted PSNR and a useful second opinion. SSIMULACRA2 is not offered: it has to be compiled into libvmaf and the FFmpeg this app bundles does not have it.">
+          <ComboBoxItem Content="VMAF" />
+          <ComboBoxItem Content="XPSNR" />
+          <ComboBoxItem Content="Nothing (size only)" />
+        </ComboBox>
+        <ComboBox x:Name="VmafModelBox" Width="230" SelectionChanged="Setting_SelectionChanged">
+          <ComboBoxItem Content="vmaf_v0.6.1 (Default)" />
+          <ComboBoxItem Content="vmaf_v0.6.1neg (No Enhancement Gain)" />
+          <ComboBoxItem Content="vmaf_4k_v0.6.1 (4K)" />
+        </ComboBox>
+      </StackPanel>
+    </Grid>
+
+    <CheckBox x:Name="KeepBox" Content="Keep the sample encodes beside the source" IsCheckedChanged="Option_Changed" Margin="0,4,0,0"
+              ToolTip.Tip="Off, everything is thrown away with the session and the table is all that is left. On, the lossless cuts and every encode of them are written beside the source - which is what to open when a score and a look at the frames disagree." />
+
+    <TextBlock Classes="h" Text="RESULT" />
+    <TextBlock x:Name="ResultLabel" Classes="dim" TextWrapping="Wrap" Text="-" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Reset" MinWidth="90" Click="Reset_Click" />
+      <Button Classes="accent" Content="OK" MinWidth="90" IsDefault="True" Click="Confirm_Click" />
+    </StackPanel>
+
+  </StackPanel>
+
+</Window>

@@ -26,6 +26,24 @@ namespace Nmkoder.Views
         private void SelectOcr(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilOcr);
         private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
         private void SelectFilmGrain(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilFilmGrain);
+        private void SelectCrfLadder(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilCrfLadder);
+
+        private async void UtilsCrfLadderConf_Click(object sender, RoutedEventArgs e)
+        {
+            SelectUtil(RunTask.TaskType.UtilCrfLadder);
+
+            // No file check, as the Deinterlace and Film Grain dialogs do it: the encoder, the CRF list
+            // and the sampling are just as configurable with an empty list, and the dialog says so
+            // where the source line goes.
+            await CrfLadderWindow.ShowAsync();
+            UpdateCrfLadderBtnText();
+        }
+
+        /// <summary> The CRF ladder's button doubles as the readout of what is configured. </summary>
+        public void UpdateCrfLadderBtnText()
+        {
+            UtilsCrfLadderConfBtn.Content = UtilCrfLadder.DescribeSettings();
+        }
 
         private async void UtilsDeinterlaceConf_Click(object sender, RoutedEventArgs e)
         {
@@ -182,6 +200,7 @@ namespace Nmkoder.Views
                 { UtilsOcrPanel, RunTask.TaskType.UtilOcr },
                 { UtilsDeinterlacePanel, RunTask.TaskType.UtilDeinterlace },
                 { UtilsFilmGrainPanel, RunTask.TaskType.UtilFilmGrain },
+                { UtilsCrfLadderPanel, RunTask.TaskType.UtilCrfLadder },
             };
 
             foreach (var pair in panels)

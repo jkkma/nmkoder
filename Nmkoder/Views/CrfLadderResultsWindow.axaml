@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
+        x:Class="Nmkoder.Views.CrfLadderResultsWindow"
+        Title="Sample Encodes"
+        Width="900" Height="580"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="12">
+
+    <TextBlock Grid.Row="0" x:Name="HeaderLabel" Classes="h" Text="CRF LADDER" />
+    <TextBlock Grid.Row="1" x:Name="SubtitleLabel" Classes="dim" TextWrapping="Wrap" Margin="0,2,0,8" Text="-" />
+
+    <Border Grid.Row="2" Background="{DynamicResource NmkoderSunken}"
+            BorderBrush="{DynamicResource NmkoderBorderSubtle}" BorderThickness="1" CornerRadius="6">
+      <dg:DataGrid x:Name="LadderGrid" AutoGenerateColumns="False" CanUserSortColumns="False"
+                   CanUserResizeColumns="True" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                   HeadersVisibility="Column">
+        <dg:DataGrid.Columns>
+          <dg:DataGridTextColumn Header="CRF" Binding="{Binding Crf}" Width="Auto" MinWidth="70" />
+          <dg:DataGridTextColumn Header="Video bitrate" Binding="{Binding Bitrate}" Width="Auto" MinWidth="120" />
+          <dg:DataGridTextColumn Header="Per minute" Binding="{Binding PerMinute}" Width="Auto" MinWidth="110" />
+          <dg:DataGridTextColumn Header="Whole file" Binding="{Binding WholeFile}" Width="Auto" MinWidth="120" />
+          <dg:DataGridTextColumn Header="Of source" Binding="{Binding VsSource}" Width="Auto" MinWidth="100" />
+          <dg:DataGridTextColumn Header="VMAF" Binding="{Binding Score}" Width="Auto" MinWidth="100" />
+          <dg:DataGridTextColumn Header="Encode time" Binding="{Binding EncodeTime}" Width="*" MinWidth="110" />
+        </dg:DataGrid.Columns>
+      </dg:DataGrid>
+    </Border>
+
+    <TextBlock Grid.Row="3" x:Name="NoteLabel" Classes="hint" TextWrapping="Wrap" Margin="0,10,0,0" Text="-" />
+
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,10,0,0">
+      <Button Content="Copy" MinWidth="90" Click="Copy_Click"
+              ToolTip.Tip="Copies the table as text, for pasting into notes beside the file it is about." />
+      <Button Classes="accent" Content="Close" MinWidth="90" IsDefault="True" Click="Close_Click" />
+    </StackPanel>
+
+  </Grid>
+
+</Window>
