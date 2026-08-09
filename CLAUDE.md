@@ -1183,6 +1183,76 @@ nothing else there, so `--sc-downscale-height` named a resolution for a pass tha
 inert: av1an skips the downscale only when the height it is given is *above* the source's, so a zero
 reaches ffmpeg as `scale=-2:'min(0,ih)'` and is refused.
 
+**Every downscale tier from 1080 up lands on 720 now, and the height is rounded down to even.** The
+table in `GetScDownscaleHeightFor` used to send 900 for a 2160 source and 1440 for 4320, so the two
+sources whose detection pass is slowest were the only ones analyzed above 720p - and detection still
+decodes at the source's own size whatever this flag says, so the analysis height is the one part of
+its cost the flag can lower. The evening matters on its own: av1an hands the number to a scale filter
+feeding 4:2:0 frames, and the 900 tier's multiplier came out at 637, an odd height ffmpeg refuses.
+
+**Scene detection is the one phase of an av1an run the workers cannot help with - it is what creates
+the chunks they work on - so av1an runs it first, alone, one decode pipeline over every frame while
+the rest of the machine idles.** On a 4K60 file that pass ran at ~35 fps, about as long as the encode
+itself on a fast preset. `Media/Av1anSceneDetect` is the answer: frame-exact slices of the input as
+VapourSynth scripts (`LWLibavSource` plus `[a:b]`), one `av1an --sc-only --scenes <file>` per slice
+in parallel, the lists concatenated with their frame numbers offset, and the encode handed the merged
+file via `--scenes`, which av1an loads instead of detecting when it already exists. A scene never
+spans a slice, so the merge is arithmetic; each boundary starts a scene whether or not the picture
+cut there, which costs one extra chunk boundary - the same thing `-x` does to a long scene. The
+slices carry the encode's own `--sc-downscale-height` and `-x` strings so the `split_scenes`
+subdivision they write is the one the encode expects - subdivision is per-scene, so merging the
+subdivided lists equals subdividing the merged list, but only while both commands agree on `-x`.
+That is why `Av1an.Run` snapshots both strings into locals and splices the same values into both
+commands rather than reading the boxes twice.
+
+**The LSMASH gate is load-bearing, and physical cuts are not an alternative.** The scene list's
+frame numbers must be the ones the encode's chunking counts, and a different indexer can count
+differently - so the slice scripts open the source through lsmash and nothing else (none of the
+ffms2/bestsource fallbacks Qtgmc's scripts carry), and `Run` only engages the feature when the
+chunk method is LSMASH. The `vspipe --info` call that supplies the frame count also builds the
+index, once, into the session's shared vsindex - which is what makes launching the slices
+concurrently safe, since they read a warm cache instead of racing to write one. The main run then
+indexes the file a second time regardless ("Generating VapourSynth cache file"), because av1an
+writes its own load script with its own cache path in its own temp folder and nothing here can
+point it at ours - a real cost, tens of seconds on a big file, and small against the minutes the
+parallel pass saves. Cutting the video
+into real files instead would poison the offsets: a stream-copy cut ends two frames late on any
+B-frame source (see the Cut utility's note), and an offset wrong by two is wrong for every scene
+after it.
+
+**Everything about it is opportunistic, and the safety is two layers deep.** Any missing piece -
+flags absent from av1an's help, no vspipe, a source under ~2 minutes of frames, fewer than two
+detection pipelines' worth of cores, a slice run failing, a merged list that does not tile
+`[0, frames)` exactly - abandons with a log line, and the encode runs with av1an's own in-run
+detection exactly as before. And because the loading side could not be verified here - there is no
+av1an binary in a web session; that an existing `--scenes` file skips detection is its documented
+behaviour, and documented is not measured - the handed-over list is revocable: an av1an that exits
+nonzero without one finished chunk, on a command that carried `--scenes`, is retried once without
+it (`AnyChunkEncoded` is the line between "refused at startup" and "died mid-work"). That caps what
+a wrong assumption can cost at one failed startup. The merge itself *was* verified by running it,
+through the real methods out of the built assembly over av1an-shaped scene files: offsets, exact
+tiling, unknown top-level fields surviving via the template, and the abandon paths - a slice
+reporting a length other than its cut, a gap in a list, a scene without its frame fields, files
+without `split_scenes` (merged without inventing one), and ranges that read as inclusive. The
+binary's half - `--sc-only` accepting a `.vpy` input, and the load-skips-detection behaviour -
+is what the first release carrying this should watch one real 4K encode for: the log should say
+"skips its own pass" and chunks should start within seconds of av1an launching.
+
+The merged list lives at `{tempDir}.scenes.json` - `Av1anUi.GetScenesFilePath` - beside the temp
+folder like every prepared input and for the same reasons: av1an empties its temp at startup, and a
+replayed resume names the path in its saved arguments, so it must survive a failed run.
+`GetPreparedInputs` knows the suffix, so it is cleaned up with the rest. A resume never re-runs the
+pre-pass: replaying saved arguments carries the kept sidecar, and a resume with new settings may
+have changed the trim - a kept list would then describe frames that are no longer the ones being
+encoded - so that path sends no `--scenes` at all and av1an falls back on its own temp state.
+`Av1anOutputHandler.ReadScenesFile` reads the sidecar when the temp folder holds no scenes.json,
+because whether av1an still writes its own copy there when `--scenes` is given is that binary's
+business, and without a total the progress bar would sit on "Scene detection..." for the whole
+encode. The slice count is 2-4, at least 2400 frames and roughly four cores per slice - judgement
+figures rather than measured ones (no av1an here to measure), chosen so a short clip or a small
+machine stands down instead of running contended detectors for the overhead; they live as constants
+on `Av1anSceneDetect` with the reasoning beside them.
+
 **The Concat Method dropdown offers what the container box can actually produce, which is two
 entries.** av1an has a third, `ivf`, and it was on that list without ever being able to run: IVF is a
 bare video stream - no audio, no subtitles, and only VP8, VP9 or AV1 - while the container box offers

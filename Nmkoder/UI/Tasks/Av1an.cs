@@ -110,6 +110,16 @@ namespace Nmkoder.UI.Tasks
             // Set only when the arguments are built from the UI: replaying saved arguments means running
             // exactly what was saved, and may not even have a file loaded to take the subtitles from.
             List<int> subsToAddAfter = new List<int>();
+            // Snapshots that outlive the block they are read in: the parallel scene detection runs
+            // after the input passes, far below, and re-reading the boxes there could disagree with
+            // the command already built - the tab stays editable through every await in between.
+            ChunkMethod chunkMethod = ChunkMethod.LSMASH;
+            bool sceneDetection = false;
+            string scDownscaleArg = "";
+            string keyIntArg = "";
+            // The --scenes argument this run appended, exactly as appended, so the retry below can
+            // take it back out of the command with a plain string replace. Empty when none was.
+            string scenesArg = "";
 
             try
             {
@@ -124,7 +134,7 @@ namespace Nmkoder.UI.Tasks
                     // (the color probe, the auto-crop scan, av1an's --help) - reading the boxes
                     // again later could validate one mode's settings and emit another's.
                     QualityMode qualMode = GetCurrentQualityMode();
-                    ChunkMethod chunkMethod = GetCurrentChunkMethod();
+                    chunkMethod = GetCurrentChunkMethod();
                     decimal quality = Program.MainWin.Av1anQualityUpDown.Value ?? 0;
 
                     // av1an insists on mkvmerge to stitch x265 back together, and mkvmerge cannot
@@ -467,6 +477,14 @@ namespace Nmkoder.UI.Tasks
                     if (memoryProblem.IsNotEmpty())
                         Logger.LogWarn(memoryProblem);
 
+                    // Captured once and spliced in, because the parallel scene detection far below
+                    // hands the same strings to its slice runs - the slices have to detect at the
+                    // resolution and subdivide at the -x the encode itself will carry, and reading
+                    // the boxes twice could answer two different things.
+                    sceneDetection = Av1anUi.SceneDetectionEnabled;
+                    scDownscaleArg = GetScDownscaleHeightArg();
+                    keyIntArg = CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ");
+
                     // The input is not named here. A trim has to cut its section out first, and where
                     // that copy goes is only settled once this run's temp folder is, so the '-i' is
                     // put in front of all of this below, after the cut has run.
@@ -475,14 +493,14 @@ namespace Nmkoder.UI.Tasks
                         $"{GetChunkGenMethod(chunkMethod)} " +
                         $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
-                        $"{GetScDownscaleHeightArg()} " +
+                        $"{scDownscaleArg} " +
                         $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
                         $"{pixFmtConverter} " +
                         $"{ffFilters}" +
                         $"-a \" {ffArgs} \" " +
                         $"-w {form.Av1anOptsWorkerCountUpDown.Value.AsInt()} " +
-                        $"{CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ")} " +
+                        $"{keyIntArg} " +
                         $"-o {outPath.Wrap()}";
 
                     // av1an counts the frames every finished chunk holds and compares them with the
@@ -652,6 +670,35 @@ namespace Nmkoder.UI.Tasks
                     if (denoised.IsNotEmpty())
                         inPath = denoised;
 
+                    // Scene detection is the one phase of an av1an run the workers cannot help with -
+                    // it is what creates the chunks they work on - so where the pieces allow it, it is
+                    // run here instead, split across parallel slices of the input, and av1an is handed
+                    // the finished list via --scenes so it skips its own sequential pass. On whatever
+                    // the three passes above left, because that is the file av1an will open.
+                    // Opportunistic by design: "" on any obstacle, and the encode runs as it always
+                    // did. LSMASH only, because the list's frame numbers have to be the ones the
+                    // encode's own chunking will count - see Av1anSceneDetect for the whole argument.
+                    // Not on a resume: av1an's own temp folder state already carries its scenes, and a
+                    // resume with new settings may have changed the trim, which would make a kept list
+                    // describe frames that are no longer the ones being encoded.
+                    if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH)
+                    {
+                        string scenesFile = await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg);
+
+                        if (RunTask.canceled || RunTask.failed)
+                        {
+                            DiscardUnusedTempFolder(tempDir, resume);
+                            Program.MainWin.SetWorking(false);
+                            return;
+                        }
+
+                        if (scenesFile.IsNotEmpty())
+                        {
+                            scenesArg = $" --scenes {scenesFile.Wrap()}";
+                            args += scenesArg;
+                        }
+                    }
+
                     args = $"-i {inPath.Wrap()} {args}";
                 }
 
@@ -707,6 +754,23 @@ namespace Nmkoder.UI.Tasks
                 _ = Task.Run(() => CreateAttachmentMkv(args, tempDir));
 
             int exitCode = await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
+
+            // The pre-detected scene list is the one argument whose loading side could not be
+            // verified against the bundled binary (there is no av1an in the session that wrote
+            // this), so it is treated as revocable: an av1an that stopped without encoding a single
+            // chunk, on a command that carried one, is retried once without it. That caps what a
+            // wrong assumption about --scenes can ever cost at one failed startup - where an
+            // unrelated startup failure costs one extra attempt that fails the same way, logged.
+            if (exitCode != 0 && !RunTask.canceled && !RunTask.failed && scenesArg.IsNotEmpty() && !AnyChunkEncoded(tempDir))
+            {
+                Logger.LogWarn("av1an stopped before encoding anything, and this run handed it a pre-detected scene " +
+                    "list - retrying once without the list in case that is what it refused. The lines above say what " +
+                    "av1an itself reported.");
+                args = args.Replace(scenesArg, "");
+                IoUtils.TryDeleteIfExists(Av1anUi.GetScenesFilePath(tempDir));
+                SaveJson(sourcePath, tempDirName, args, creationTimestamp, timestamp); // So a resume replays the command that ran
+                exitCode = await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
+            }
 
             if (subsToAddAfter.Count > 0 && !RunTask.canceled)
                 await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
@@ -1056,6 +1120,26 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// Whether av1an got as far as finishing a video chunk in this temp folder - the line between
+        /// "refused the command at startup" and "failed partway through real work", which is what the
+        /// retry-without---scenes above turns on. Sub-kilobyte files are av1an's own bookkeeping, the
+        /// same reading Av1anUi.CountEncodedChunks makes. Not being able to tell counts as yes: the
+        /// retry exists for a cheap failure, and rerunning hours of work is not cheap.
+        /// </summary>
+        private static bool AnyChunkEncoded(string tempDir)
+        {
+            try
+            {
+                string encodeDir = Path.Combine(tempDir, "encode");
+                return Directory.Exists(encodeDir) && Directory.EnumerateFiles(encodeDir).Any(f => new FileInfo(f).Length >= 1024);
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Removes a temp folder that was created for a run which then never started. Only ever the
         /// folder minted for this run: the one a resume points at holds the chunks being resumed from,
         /// and backing out of a resume is not a reason to throw those away.
@@ -1205,17 +1289,29 @@ namespace Nmkoder.UI.Tasks
             if (TrackList.current?.File == null || TrackList.current.File.VideoStreams.Count < 1)
                 return 0;
 
-            int h = TrackList.current.File.VideoStreams[0].Resolution.Height;
+            return GetScDownscaleHeightFor(TrackList.current.File.VideoStreams[0].Resolution.Height);
+        }
+
+        private static int GetScDownscaleHeightFor(int h)
+        {
             float mult = 1f;
 
+            // Every tier from 1080 up lands on 720 at its own threshold (1080 × 0.6667, 1440 × 0.5,
+            // 2160 × 0.3333 and 4320 × 0.1667 are all 720). 2160 used to map to 900 and 4320 to
+            // 1440, which made the two sources whose detection pass is slowest the only ones
+            // analyzed above 720 - and that pass decodes at the source's own size regardless, so
+            // the analysis height is the one part of its cost this can lower.
             if (h >= 720) mult = 0.7500f;
             if (h >= 900) mult = 0.7083f;
             if (h >= 1080) mult = 0.6667f;
             if (h >= 1440) mult = 0.5000f;
-            if (h >= 2160) mult = 0.4166f;
-            if (h >= 4320) mult = 0.3333f;
+            if (h >= 2160) mult = 0.3333f;
+            if (h >= 4320) mult = 0.1667f;
 
-            return (h * mult).RoundToInt().Clamp(360, 2160); // Apply multiplicator but clamp to sane values
+            // Clamped to sane values, then rounded down to even: av1an hands the height to a scale
+            // filter feeding 4:2:0 detection frames, and an odd value (a 900-high source × 0.7083
+            // is 637) is one ffmpeg refuses.
+            return (h * mult).RoundToInt().Clamp(360, 2160) / 2 * 2;
         }
 
         private static void SaveJson(string inputFilePath, string tempFolderName, string args, string creationTimestamp, string lastRunTimestamp)
