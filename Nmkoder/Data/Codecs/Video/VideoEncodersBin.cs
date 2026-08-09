@@ -39,7 +39,6 @@ namespace Nmkoder.Data.Codecs.Video
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
             string denoise = encArgs.ContainsKey("grainSynthDenoise") ? (encArgs["grainSynthDenoise"].GetBool() ? "1" : "0") : "0";
             string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "--tile-rows=", "--tile-columns=");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : "";
             string colors = "";
 
@@ -69,7 +68,7 @@ namespace Nmkoder.Data.Codecs.Video
             // --end-usage=q stays even in the target quality modes: av1an's search only injects
             // --cq-level, which aomenc ignores unless constant quality rate control is selected.
             return new CodecArgs($" -e aom -v \" --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
-                    $"{grainArgs} {colors} --threads={thr} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+                    $"{grainArgs} {colors} --threads={thr} {tiles} {adv} \" --pix-format {pixFmt}");
         }
     }
 
@@ -106,7 +105,6 @@ namespace Nmkoder.Data.Codecs.Video
             string denoise = encArgs.ContainsKey("grainSynthDenoise") ? (encArgs["grainSynthDenoise"].GetBool() ? "1" : "0") : "0";
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
             string tiles = ""; // TEMP DISABLED AS IT SEEMS TO SLOW THINGS DOWN // = CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "--tile-rows ", "--tile-columns ");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? ToSpaceSeparated(encArgs["advanced"]) : "";
             string colors = "";
 
@@ -130,7 +128,7 @@ namespace Nmkoder.Data.Codecs.Video
                 ? $"--fgs-table {encArgs["grainTable"]}"
                 : $"--film-grain {grain} --film-grain-denoise {denoise}";
 
-            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} {grainArgs} {colors} {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e svt-av1 --force -v \" --preset {preset} {(!targetQual ? $"--crf {q}" : "")} {keyint} --lp {thr} {grainArgs} {colors} {tiles} {adv} \" --pix-format {pixFmt}");
         }
 
         /// <summary>
@@ -182,14 +180,13 @@ namespace Nmkoder.Data.Codecs.Video
             b = (b > 0) ? b : 8; // Make bit depth default to 8 if it was detected as 0 (e.g. when using yuv420p which does not explicitly specify 8-bit)
             int p = b > 8 ? (is420 ? 2 : 3) : (is420 ? 0 : 1); // Profile 0: 4:2:0 8-bit | Profile 1: 4:2:2/4:4:4 8-bit | Profile 2: 4:2:0 10/12-bit | Profile 3: 4:2:2/4:4:4 10/12-bit
             string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "--tile-rows=", "--tile-columns=");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : ""; // vpxenc takes --flag=value, as written
 
             string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : ""; // No video stream to work an interval out from
 
             // As with aomenc, --end-usage=q has to be set for av1an's injected --cq-level to apply
             return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
-                    $"--threads={thr} --row-mt=1 {tiles} {adv} {cust} \" --pix-format {pixFmt}");
+                    $"--threads={thr} --row-mt=1 {tiles} {adv} \" --pix-format {pixFmt}");
         }
     }
 
@@ -222,7 +219,6 @@ namespace Nmkoder.Data.Codecs.Video
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(pixFmt);
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : "";
             string colors = "";
 
@@ -243,7 +239,7 @@ namespace Nmkoder.Data.Codecs.Video
             // No --keyint: av1an cuts the scenes itself and sets "--keyint infinite --scenecut 0"
             // for x264, so every chunk already opens on a keyframe. Sending an interval here would
             // override that and put more of them inside the chunks.
-            return new CodecArgs($" -e x264 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} --threads {thr} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e x264 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} --threads {thr} {depth} {colors} {adv} \" --pix-format {pixFmt}");
         }
     }
 
@@ -277,7 +273,6 @@ namespace Nmkoder.Data.Codecs.Video
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             int bitDepth = FormatUtils.GetBitDepthFromPixelFormat(pixFmt);
             string thr = encArgs.ContainsKey("threads") ? encArgs["threads"] : "0";
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : "";
             string colors = "";
 
@@ -298,7 +293,7 @@ namespace Nmkoder.Data.Codecs.Video
             // own frame thread count from the size of it, which is why F is no longer sent.
             string pools = thr.GetInt() > 0 ? $"--pools {thr}" : "";
 
-            return new CodecArgs($" -e x265 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} {keyint} {pools} {depth} {colors} {adv} {cust} \" --pix-format {pixFmt}");
+            return new CodecArgs($" -e x265 --force -v \" {(!targetQual ? $"--crf {q}" : "")} --preset {preset} {keyint} {pools} {depth} {colors} {adv} \" --pix-format {pixFmt}");
         }
     }
 }

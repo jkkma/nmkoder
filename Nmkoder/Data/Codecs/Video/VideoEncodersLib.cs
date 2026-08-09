@@ -42,10 +42,9 @@ namespace Nmkoder.Data.Codecs.Video
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : (q.GetInt() > 0 ? $"-crf {q}" : "-qp 0");
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // The Advanced tab's grid, as one "-x264-params" holding x264's own parameter names
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(Libx264), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v libx264 {p} {rc} -preset {preset} {g} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v libx264 {p} {rc} -preset {preset} {g} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -78,7 +77,6 @@ namespace Nmkoder.Data.Codecs.Video
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : (q.GetInt() > 0 ? $"-crf {q}" : "");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
 
             // Every x265 parameter this encode uses goes into one "-x265-params", the Advanced tab's
             // grid included. It has to be one: a second "-x265-params" does not add to the first, it
@@ -98,7 +96,7 @@ namespace Nmkoder.Data.Codecs.Video
                 x265.AddRange(FfmpegEncoderArgs.Pairs(encArgs["advanced"]));
 
             string x265Params = x265.Count > 0 ? $"-x265-params {FfmpegEncoderArgs.ParamsList(x265)}" : "";
-            return new CodecArgs($"-c:v libx265 {x265Params} {rc} -preset {preset} {g} -pix_fmt {pixFmt} {cust}");
+            return new CodecArgs($"-c:v libx265 {x265Params} {rc} -preset {preset} {g} -pix_fmt {pixFmt}");
         }
     }
 
@@ -135,12 +133,11 @@ namespace Nmkoder.Data.Codecs.Video
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string rc = vbr ? $"-b:v {br}k -minrate {br / 4}k -maxrate {br * 2}k -bufsize {br}k" : (q.GetInt() > 0 ? $"-b:v 0 -cq {q}" : "-tune lossless");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // One AVOption per filled-in row - NVENC has no parameter list of its own. It goes after
             // the rate control, so a "tune" set in the grid wins over the lossless one above, which is
             // the only place the two can name the same option.
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(H264Nvenc), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v h264_nvenc {rc} -preset {preset} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v h264_nvenc {rc} -preset {preset} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -173,10 +170,9 @@ namespace Nmkoder.Data.Codecs.Video
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
             string rc = vbr ? $"-b:v {br}k -minrate {br / 4}k -maxrate {br * 2}k -bufsize {br}k" : (q.GetInt() > 0 ? $"-b:v 0 -cq {q}" : "-tune lossless");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // As for H.264 above, and after the rate control for the same reason
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(H265Nvenc), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v hevc_nvenc {rc} -preset {preset} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v hevc_nvenc {rc} -preset {preset} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -219,11 +215,10 @@ namespace Nmkoder.Data.Codecs.Video
             // where it wanted the opposite: fewer columns than the width can use, and a horizontal split
             // a 2160-line frame does not need.
             string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "-tile-rows ", "-tile-columns ");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // One AVOption per filled-in row: libvpx-vp9 has no parameter list of its own, which is
             // also why its argument JSON names ffmpeg's spellings rather than vpxenc's
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(LibVpx), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v libvpx-vp9 {p} {rc} {tiles} -row-mt 1 -cpu-used {preset} {g} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v libvpx-vp9 {p} {rc} {tiles} -row-mt 1 -cpu-used {preset} {g} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -268,12 +263,11 @@ namespace Nmkoder.Data.Codecs.Video
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-g ", vbr ? 255 : 480); // SVT can't do GOP size >255 in VBR mode
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
             string tiles = ""; // TEMP DISABLED AS IT SEEMS TO SLOW THINGS DOWN // CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "-tile_rows ", "-tile_columns ");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // The Advanced tab's grid, as one "-svtav1-params". Note that the SVT-AV1 behind this is
             // the one compiled into ffmpeg, not the svt-av1-hdr binary bundle-tools.sh fetches for
             // av1an - so its list is a shorter one, and is written against what ffmpeg's library takes.
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(LibSvtAv1), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v libsvtav1 {p} {rc} -preset {preset} {g} {tiles} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v libsvtav1 {p} {rc} -preset {preset} {g} {tiles} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -310,11 +304,10 @@ namespace Nmkoder.Data.Codecs.Video
             string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "-tile-rows ", "-tile-columns ");
             string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : $"-crf {q} -b:v 0";
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // The Advanced tab's grid, as one "-aom-params". This is the one encoder here that refuses
             // the whole encode over a parameter it does not know rather than warning and carrying on.
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(LibAomAv1), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v libaom-av1 {p} {rc} -cpu-used {preset} -row-mt 1 -denoise-noise-level {grain} {tiles} {g} -pix_fmt {pixFmt} {adv} {cust}");
+            return new CodecArgs($"-c:v libaom-av1 {p} {rc} -cpu-used {preset} -row-mt 1 -denoise-noise-level {grain} {tiles} {g} -pix_fmt {pixFmt} {adv}");
         }
     }
 
@@ -351,8 +344,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string q = encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            return new CodecArgs($"-f gif -gifflags -offsetting {cust}", $"split[s0][s1];[s0]palettegen={q}[p];[s1][p]paletteuse=dither=floyd_steinberg");
+            return new CodecArgs($"-f gif -gifflags -offsetting", $"split[s0][s1];[s0]palettegen={q}[p];[s1][p]paletteuse=dither=floyd_steinberg");
         }
     }
 
@@ -380,11 +372,10 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             string q = encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // The Color Format dropdown is offered for this encoder and had nowhere to go, so picking
             // 4:2:2 or 4:4:4 wrote the same 4:2:0 JPEGs as leaving it alone
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
-            return new CodecArgs($"-c:v mjpeg -qmin 1 -q:v {q} -pix_fmt {pixFmt} {cust}");
+            return new CodecArgs($"-c:v mjpeg -qmin 1 -q:v {q} -pix_fmt {pixFmt}");
         }
     }
 
@@ -411,12 +402,11 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
             // As for JPEG above: the dropdown offers RGB24, RGBA, RGB48 and RGBA64 for this encoder, and
             // every one of them wrote the same file until the value was passed on. Alpha is the one that
             // shows - a source with a transparent layer lost it whatever was picked.
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
-            return new CodecArgs($"-c:v png -compression_level 3 -pix_fmt {pixFmt} {cust}");
+            return new CodecArgs($"-c:v png -compression_level 3 -pix_fmt {pixFmt}");
         }
     }
 
@@ -447,8 +437,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            return new CodecArgs($"-c:v copy {cust}");
+            return new CodecArgs($"-c:v copy");
         }
     }
 
@@ -475,8 +464,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string cust = encArgs.ContainsKey("custom") ? encArgs["custom"] : "";
-            return new CodecArgs($"-vn {cust}");
+            return new CodecArgs($"-vn");
         }
     }
 

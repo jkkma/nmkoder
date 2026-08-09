@@ -1033,7 +1033,7 @@ and a run that forgets reads as a pad that quietly lost two pixels.
 value, the preset, the colour format, grain synthesis, the frame rate, the resize, the crop, the trim,
 the borders and the deinterlace all start each session at their defaults - SVT-AV1 into MKV, then whatever
 selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` restores none of them. It
-is down to the Audio & Tracks rows, the two custom-argument boxes and the filter grid - not the Advanced
+is down to the Audio & Tracks rows and the filter grid - not the Advanced
 tab's argument grid, which stopped being saved when Quick Convert's did; `LoadConfigAv1an`
 keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a
 preference, and every way they go wrong is expensive and quiet: a QTGMC left armed spends hours and
@@ -1453,10 +1453,20 @@ command, `MainWindow` no longer exposes `CustomArgsInBox`/`CustomArgsOutBox`, an
 lost the two entries that existed only to clear them.
 
 Nothing else on the tab reaches ffmpeg's input side, so that capability is not hiding elsewhere - the
-Custom Video Filters grid below is output-side and filters only. The AV1AN tab's own pair is untouched.
+Custom Video Filters grid below is output-side and filters only.
 Existing config files still carry the `EncCustomArgsIn`/`EncCustomArgsOut` keys and a `ResetCustomInArgs`
 entry in `ResetSettingsList`; nothing reads them, `ResetSettingsOnNewFile.Load` logs the unknown property
 once behind the debug flag, and its next `Save` writes the list back without them.
+
+**The AV1AN tab's own pair went the same way later, also at the user's request.** The Av1an Options tab
+is down to the settings av1an itself is driven by - split, chunk and concat method, chunk order,
+detection slices, workers and threads. The removal went as far as Quick Convert's: the two rows are out
+of the XAML, `Av1an.Run` no longer splices the one box into the av1an command, the `"custom"` entry is
+gone from `Av1anUi.GetVideoArgsFromUi` - and with it every `cust` reader in `VideoEncodersBin` *and*
+`VideoEncodersLib`, the latter having been dead since the Quick Convert removal, which is exactly the
+kind of still-wired remnant somebody later feeds again. Existing configs still carry the
+`Av1anCustomArgsBox`/`Av1anCustomEncArgsBox` keys; nothing reads them. Holding Shift on Run still opens
+the command in an edit window, which is the escape hatch that replaces both boxes.
 
 ## The Quick Convert command
 

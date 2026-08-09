@@ -496,7 +496,6 @@ namespace Nmkoder.UI.Tasks
                         $"{GetConcatMethodArgs(vCodec)} " +
                         $"{GetChunkOrderArgs()} " +
                         $"{scDownscaleArg} " +
-                        $"{(form.Av1anCustomArgsBox.Text ?? "").Trim()} " +
                         $"{codecArgs.Arguments} " +
                         $"{pixFmtConverter} " +
                         $"{ffFilters}" +
@@ -699,6 +698,12 @@ namespace Nmkoder.UI.Tasks
                             scenesArg = $" --scenes {scenesFile.Wrap()}";
                             args += scenesArg;
                         }
+                    }
+                    else if (!resume && sceneDetection && sceneDetectSlices > 1)
+                    {
+                        // The one stand-down the method above cannot say itself, since the gate is out
+                        // here. Quiet like its own: nothing is wrong, av1an simply detects in-run.
+                        Logger.Log($"Parallel scene detection only runs for the LSMASH chunk method, so with {chunkMethod} av1an detects in-run.", true);
                     }
 
                     args = $"-i {inPath.Wrap()} {args}";
