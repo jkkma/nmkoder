@@ -280,6 +280,36 @@ Each RID carries its target framework in the matrix, because win-x64 is the one
 built against the Windows App SDK. The win-x64 job is also the only place the
 Windows publish is ever exercised - see the build section above.
 
+**`bin/` is what goes on the launched tool's PATH, so a *folder* there occupies a name a
+*binary* wants - and one did, for eighteen releases.** The Quick Convert argument lists were
+filed at `bin/ffmpeg/encoderArgs`, which made `bin/ffmpeg` a directory; `bundle-tools.sh`
+installs the ffmpeg binary at `bin/ffmpeg`; `cp` refused with "cannot overwrite directory
+… with non-directory"; and **every linux-x64 archive from 2.8.25 to 2.8.43 shipped with no
+ffmpeg in it.** Confirmed against the published asset rather than inferred - `bin/` in the
+2.8.43 tarball holds `ffprobe` and `grav1synth` and no `ffmpeg`. Windows escaped it because
+`ffmpeg.exe` does not collide with a folder called `ffmpeg`, and macOS bundles no ffmpeg by
+design, so this was linux-x64 alone.
+
+Two things kept it invisible, and both are now closed. `install_binary` ended in a
+`find … || true`, so the function's exit status was that of the last command and it reported
+success unconditionally - the job summary said `[ok] ffmpeg + ffprobe` over a copy that had
+failed. It judges its own artifact now, refusing outright when a directory sits on the target's
+name (`cp file dir/name` writes *into* the directory rather than failing, so the check has to
+come before the copy as well as after). And the release workflow verifies afterwards that
+`bin/ffmpeg` and `bin/ffprobe` are non-empty regular files on the two RIDs meant to carry them,
+because the bundler's own report had been wrong for eighteen releases and a second pair of eyes
+that looks at the folder is worth more than a third assertion from the script.
+
+The lists live at `bin/encoderArgs/{av1an,ffmpeg}/` from 2.8.44. `encoderArgs` is not a tool
+and never will be, which is the property that matters - do not file anything under `bin/`
+named after a binary the bundler installs.
+
+**A user was unlikely to notice, which is the third reason it lasted.** The app falls back to
+whatever `ffmpeg` is on the system PATH, and a Linux machine that wants this app usually has one
+- so the symptom was a version drift nobody could see rather than a failure. Extracting 2.8.44
+over an install from that range will fail on `bin/ffmpeg`, the old directory being in the way;
+that is the one upgrade worth unpacking fresh.
+
 ## The Scoop bucket
 
 `bucket/nmkoder-avalonia.json` makes this repository its own Scoop bucket, so
@@ -363,7 +393,7 @@ which bite:
    sufficient**, which this file used to claim it was: on the Windows build the
    items reach neither the bundle nor the output directory and simply vanish.
    That is how 2.7.2, 2.7.3 and 2.7.4 each shipped a win-x64 zip carrying no
-   `bin/iso639.csv` and no `bin/av1an/encoderArgs`, the only symptom being an
+   `bin/iso639.csv` and no `bin/encoderArgs/av1an`, the only symptom being an
    empty argument grid on the AV1AN tab. The `CopyBinFilesToPublishDir` target
    copies them in again after publish, past whatever the single-file and MSIX
    machinery decided. Do not delete it on the grounds that the `Content` item
@@ -1310,7 +1340,7 @@ inside the `ItemsControl`, so an Auto column on its own measures that row alone 
 starts somewhere different on every line. It is capped at 340 because x265's `master-display` examples are
 69 characters and would take the window; those wrap inside the chip instead.
 
-The lists are filed apart - `bin/av1an/encoderArgs` against `bin/ffmpeg/encoderArgs`, keyed by the encoder
+The lists are filed apart - `bin/encoderArgs/av1an` against `bin/encoderArgs/ffmpeg`, keyed by the encoder
 class name - and the values under a key each, because they are **different vocabularies rather than
 different files**. The AV1AN tab drives standalone binaries and names their CLI parameters; Quick Convert
 drives ffmpeg and names what the *wrapper* takes, which for VP9 and NVENC is not the same set of names at
@@ -1771,13 +1801,26 @@ divides by it, so `ExtractSamples` probes each cut with ffprobe and `CrfLadder.S
 rather than the setting. A start point sitting exactly on a keyframe still steps back a whole GOP, which
 is the surprising half.
 
-**SSIMULACRA2 is not offered because the bundled ffmpeg cannot compute it.** It is a libvmaf feature that
-has to be compiled in; measured against a current BtbN master build,
-`libvmaf=feature='name\=ssimulacra2'` fails the graph outright with "problem during vmaf_use_feature",
-where `psnr`, `float_ssim`, `float_ms_ssim`, `ciede` and `cambi` all take. XPSNR is the second opinion
-instead - a filter of ffmpeg's own, perceptually weighted where plain PSNR is not. It prints
-`XPSNR  y: 30.7897  u: 29.9396  v: 30.8069  (minimum: 29.9396)`, and `inf` for an identical pair, which is
-a real answer rather than a parse failure and is reported as one.
+**SSIMULACRA2 is not offered, and it is not a question of which ffmpeg build you use.** Measured against a
+current BtbN master build, `libvmaf=feature='name\=ssimulacra2'` fails the graph with "problem during
+vmaf_use_feature", where `psnr`, `float_ssim`, `float_ms_ssim`, `ciede` and `cambi` all take - and the
+reason is that **libvmaf has no such feature extractor at all.** `feature_extractor_list[]` in
+libvmaf 3.2.0 is psnr, ansnr, adm, vif, motion, moment, ms_ssim, ssim, ciede, psnr_hvs, cambi, their
+integer and CUDA variants, and null; the string `ssimulacra` appears in **zero** files of the whole
+repository, and in none of ffmpeg's either - there is no `vf_ssimulacra*` and `vf_libvmaf.c` never
+mentions it. So no build has it: not BtbN's, not gyan.dev's, not one compiled by hand. (The
+`ssimulacra2` string that *is* in the binary belongs to libaom's `--tune` enum, next to `qm-psnr`,
+`vmaf_neg` and `butteraugli` - a different library's list entirely, and an easy one to mistake for
+evidence.)
+
+Where this project does have SSIMULACRA2 is VapourSynth: `bundle-tools.sh` bundles vszip
+(`com.julek.vszip`) on Windows, which is what av1an's Target SSIMULACRA2 mode scores through. Bringing
+that to this utility is possible and is a different piece of work - a `.vpy` and a plugin probe, Windows
+only - rather than a flag on the ffmpeg command.
+
+XPSNR is the second opinion instead - a filter of ffmpeg's own, perceptually weighted where plain PSNR
+is not. It prints `XPSNR  y: 30.7897  u: 29.9396  v: 30.8069  (minimum: 29.9396)`, and `inf` for an
+identical pair, which is a real answer rather than a parse failure and is reported as one.
 
 **The model is named by version, and the escaping was checked at the far end rather than at the parse.**
 The filter goes through `Shell.WrapArg` exactly as `UtilGetMetrics` builds it, backslash-escaped `=` and

@@ -25,10 +25,20 @@ namespace Nmkoder.UI.Tasks
     /// </summary>
     class EncoderArgs
     {
-        /// <summary> Where the AV1AN tab's lists are filed, under <see cref="Paths.GetBinPath"/>. </summary>
+        /// <summary>
+        /// Where both sets are filed, under <see cref="Paths.GetBinPath"/>. One level of its own
+        /// rather than a folder per tool directly under bin/, and that is not tidiness: bin/ is what
+        /// goes on the launched tool's PATH, so a folder there occupies a name a *binary* wants. The
+        /// ffmpeg list used to live in bin/ffmpeg/, which is exactly where bundle-tools.sh installs
+        /// the ffmpeg binary - so the copy failed and every linux-x64 release from 2.8.25 to 2.8.43
+        /// shipped without it. "encoderArgs" is not a tool and never will be.
+        /// </summary>
+        public const string ArgsFolder = "encoderArgs";
+
+        /// <summary> Where the AV1AN tab's lists are filed, under <see cref="ArgsFolder"/>. </summary>
         public const string Av1anFolder = "av1an";
 
-        /// <summary> Where Quick Convert's lists are filed, under <see cref="Paths.GetBinPath"/>. </summary>
+        /// <summary> Where Quick Convert's lists are filed, under <see cref="ArgsFolder"/>. </summary>
         public const string FfmpegFolder = "ffmpeg";
 
         /// <summary>
@@ -42,7 +52,7 @@ namespace Nmkoder.UI.Tasks
         public static List<EncoderArgRow> ReadRows(IEncoder enc, string folder)
         {
             List<EncoderArgRow> rows = new List<EncoderArgRow>();
-            string jsonPath = Path.Combine(Paths.GetBinPath(), folder, "encoderArgs", enc.Name + ".json");
+            string jsonPath = Path.Combine(Paths.GetBinPath(), ArgsFolder, folder, enc.Name + ".json");
 
             if (!File.Exists(jsonPath))
                 return rows;

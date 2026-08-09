@@ -82,7 +82,7 @@
 
   <!-- The Content item above is enough on every publish except the Windows one, where the files
        reach neither the bundle nor the output directory and simply vanish: 2.7.2 through 2.7.4 all
-       shipped a win-x64 zip with no bin/iso639.csv and no bin/av1an/encoderArgs, which is what
+       shipped a win-x64 zip with no bin/iso639.csv and no bin/encoderArgs, which is what
        leaves an Advanced grid empty. ExcludeFromSingleFile was meant to cover this and
        does not - the App SDK build drops the items rather than bundling them - so they are copied
        again once publish has laid everything else out, independent of whatever the single-file and

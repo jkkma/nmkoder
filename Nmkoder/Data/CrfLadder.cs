@@ -15,11 +15,20 @@ namespace Nmkoder.Data
     /// </summary>
     public class CrfLadder
     {
-        /// <summary> What a rung is scored with. SSIMULACRA2 is deliberately not here: it is a libvmaf
-        /// feature that has to be compiled in, and the ffmpeg this app bundles does not have it -
-        /// measured against a current BtbN master build, "libvmaf=feature=name=ssimulacra2" fails the
-        /// graph outright with "problem during vmaf_use_feature". XPSNR is the second opinion instead:
-        /// a filter of ffmpeg's own, perceptually weighted where plain PSNR is not, and present. </summary>
+        /// <summary>
+        /// What a rung is scored with.
+        /// <para/>
+        /// SSIMULACRA2 is deliberately not here, and not because of how this ffmpeg was built: libvmaf
+        /// has no such feature extractor at all. Its feature_extractor_list in 3.2.0 runs psnr, adm,
+        /// vif, motion, ssim, ms_ssim, ciede, psnr_hvs and cambi, and the string "ssimulacra" is in no
+        /// file of the repository or of ffmpeg's - so "libvmaf=feature=name=ssimulacra2" fails the
+        /// graph on every build there is. This project's SSIMULACRA2 comes from VapourSynth (vszip,
+        /// bundled on Windows), which is what av1an's target-quality mode uses and is a different
+        /// mechanism from anything on an ffmpeg command line.
+        /// <para/>
+        /// XPSNR is the second opinion instead: a filter of ffmpeg's own, perceptually weighted where
+        /// plain PSNR is not, and present.
+        /// </summary>
         public enum Metric { Vmaf, Xpsnr, None }
 
         /// <summary>

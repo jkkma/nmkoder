@@ -640,7 +640,7 @@ ffmpeg and is unaffected either way.
 `bin/iso639.csv`, the language table that names audio and subtitle tracks, is not downloaded - it
 lives in `Nmkoder/BinFiles` and every build copies it into `bin`. Regenerate it with
 `.github/scripts/gen-iso639.py` when the ISO registers move. The same folder carries the AV1AN tab's
-per-encoder argument lists (`BinFiles/av1an/encoderArgs`).
+per-encoder argument lists (`BinFiles/encoderArgs`, one folder per tool).
 
 </details>
 
