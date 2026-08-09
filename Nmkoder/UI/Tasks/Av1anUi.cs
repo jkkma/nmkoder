@@ -1791,9 +1791,20 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.grain.tbl";
         }
 
+        /// <summary> The pre-detected scene list handed to av1an via --scenes when the parallel
+        /// detection ran - see <see cref="Media.Av1anSceneDetect"/>. Beside the temp folder like the
+        /// inputs above, and for both of their reasons: av1an empties its own temp folder at
+        /// startup, and a replayed resume names this path in its saved arguments, so it has to
+        /// survive a failed run the way the trimmed input does. </summary>
+        public static string GetScenesFilePath(string tempDir)
+        {
+            return $"{tempDir}.scenes.json";
+        }
+
         /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
         /// Every suffix, because a run can leave one of each - trimmed, then deinterlaced, then
-        /// denoised - and the grain table measured against the last of them.
+        /// denoised - plus the grain table measured against the last of them and the pre-detected
+        /// scene list.
         /// <para/>
         /// The denoised one is the reason to be careful here rather than the trimmed one: it is lossless
         /// FFV1 and therefore the largest file this app ever writes, several times the size of the source.
@@ -1804,7 +1815,7 @@ namespace Nmkoder.UI.Tasks
             try
             {
                 string name = Path.GetFileName(tempDir);
-                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.denoised.", $"{name}.grain." };
+                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.denoised.", $"{name}.grain.", $"{name}.scenes." };
 
                 return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
                     .Where(f => prefixes.Any(p => Path.GetFileName(f).StartsWith(p))).ToList();

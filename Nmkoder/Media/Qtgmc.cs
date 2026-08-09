@@ -684,7 +684,7 @@ clip.set_output()");
         /// The process type decides what Stop reaches: the probe is Background because it runs off
         /// the UI while a file is being described and nothing is waiting on it, while anything a task
         /// waits for has to be Secondary or pressing Stop leaves the task blocked on it. </summary>
-        private static async Task<(int exitCode, string output)?> RunVspipe(string exePath, string args, int timeoutMs,
+        public static async Task<(int exitCode, string output)?> RunVspipe(string exePath, string args, int timeoutMs,
             NmkoderProcess.ProcessType procType = NmkoderProcess.ProcessType.Background)
         {
             Process proc = OsUtils.NewProcess(true, procType, exePath);

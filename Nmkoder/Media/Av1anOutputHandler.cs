@@ -355,6 +355,14 @@ namespace Nmkoder.Media
         {
             string path = Path.Combine(dir, "scenes.json");
 
+            // A run handed a pre-detected list (--scenes, see Av1anSceneDetect) may leave av1an
+            // never writing its own copy into the temp folder - whether it does is that binary's
+            // business - and without a total the bar would sit on "Scene detection..." for the whole
+            // encode. The sidecar the list came from is the fallback: same schema, same numbers,
+            // merged from files the same binary wrote.
+            if (!File.Exists(path))
+                path = UI.Tasks.Av1anUi.GetScenesFilePath(dir);
+
             if (!File.Exists(path))
                 return;
 
