@@ -399,7 +399,7 @@
 
               <TabItem Header="Av1an Options">
                 <ScrollViewer>
-                  <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="4">
+                  <Grid Classes="form" ColumnDefinitions="150,320,40,170,320,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="4">
                     <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Split Method" />
                     <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Av1anOptsSplitModeBox" SelectionChanged="Av1anOption_SelectionChanged">
                       <ComboBoxItem Content="None" />
@@ -422,6 +422,13 @@
                       <ComboBoxItem Content="Sequential (Same order as input video)" />
                       <ComboBoxItem Content="Random (Most accurate filesize estimation)" />
                     </ComboBox>
+
+                    <!-- The Value is a designer placeholder like the Workers box's: the first-run
+                         default is machine-derived, written once into the config by Config's default
+                         table from Av1anSceneDetect.DefaultSliceCount - the only statement of it. -->
+                    <TextBlock Grid.Row="4" Grid.Column="0" Classes="field" Text="Detection Slices" />
+                    <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="Av1anOptsScDetectSlicesUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="8" ValueChanged="Av1anOption_ValueChanged"
+                                   ToolTip.Tip="How many av1an processes detect scene changes side by side before the encode starts, each on its own slice of the video - the encode is handed the finished list and skips its own sequential detection pass.&#10;&#10;1 turns that off and leaves the detection to av1an itself. A short file runs fewer slices than asked, so none drops under 20 seconds of video, and the pass only runs for the LSMASH chunk method.&#10;&#10;New installs start at half the CPU cores, capped at 8." />
 
                     <!-- The Value on both boxes below is a designer placeholder and nothing else.
                          LoadConfigAv1an fills them from the config on every launch, and reading a key

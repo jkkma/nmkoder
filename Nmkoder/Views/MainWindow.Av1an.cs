@@ -302,6 +302,7 @@ namespace Nmkoder.Views
             // penalty is measured from. VidEncoderSelected reduces the box from it a moment later.
             Av1anUi.LoadWorkerBaseline();
             ConfigParser.LoadGuiElement(Av1anThreadsUpDown, false);
+            ConfigParser.LoadGuiElement(Av1anOptsScDetectSlicesUpDown, false);
         }
 
         public void SaveConfigAv1an()
@@ -321,6 +322,7 @@ namespace Nmkoder.Views
                 // take the reduced number for the baseline and reduce it again, and again after that.
                 Config.Set(Config.Key.Av1anOptsWorkerCountUpDown, Av1anUi.WorkerBaseline.ToString());
                 ConfigParser.SaveGuiElement(Av1anThreadsUpDown, ConfigParser.StringMode.Int);
+                ConfigParser.SaveGuiElement(Av1anOptsScDetectSlicesUpDown, ConfigParser.StringMode.Int);
             }
         }
 

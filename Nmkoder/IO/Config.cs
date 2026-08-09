@@ -362,6 +362,9 @@ namespace Nmkoder.IO
             // Av1an.GetDefaultThreadPlan. Neither may be given a literal here.
             if (key == Key.Av1anOptsWorkerCountUpDown)  return WriteDefault(key, $"{Av1an.GetDefaultThreadPlan().Workers}");
             if (key == Key.Av1anThreadsUpDown)          return WriteDefault(key, $"{Av1an.GetDefaultThreadPlan().Threads}");
+            // Machine-derived like the worker plan above and written once the same way; the method
+            // is the only statement of the default (half the cores, 1-8), so no literal here either.
+            if (key == Key.Av1anOptsScDetectSlicesUpDown) return WriteDefault(key, $"{Media.Av1anSceneDetect.DefaultSliceCount()}");
             if (key == Key.mp4Faststart)                return WriteDefault(key, "True");
             if (key == Key.metaMode)                    return WriteDefault(key, "1");
 
@@ -396,6 +399,7 @@ namespace Nmkoder.IO
             Av1anEncoderArgs,
             Av1anThreadsUpDown,
             Av1anOptsChunkModeBox,
+            Av1anOptsScDetectSlicesUpDown,
             Av1anOptsSplitModeBox,
             Av1anOptsWorkerCountUpDown,
             CmdDebugMode,
