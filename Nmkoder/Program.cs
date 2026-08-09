@@ -6,6 +6,7 @@ using Nmkoder.OS;
 using Nmkoder.Utils;
 using Nmkoder.Views;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -136,17 +137,23 @@ namespace Nmkoder
         }
 
         /// <summary>
-        /// Deletes the single-file extraction folders other builds have left in temp. A
-        /// single-file build unpacks itself into %TEMP%\.net\Nmkoder\{bundle-id} before it runs,
-        /// the id is a content hash so every release gets its own, and .NET deletes none of them
-        /// ever - a machine that has run a few weeks of releases would otherwise be carrying one
-        /// copy of the runtime per release. Measured on a user's machine before this existed: 40
-        /// folders, 5.22 GB.
+        /// Deletes the single-file extraction folders other builds have left behind. A single-file
+        /// build unpacks itself into {base}/Nmkoder/{bundle-id} before it runs - %TEMP%\.net on
+        /// Windows, ~/.net elsewhere - the id is a content hash so every release gets its own, and
+        /// .NET deletes none of them ever. A machine that has run a few weeks of releases would
+        /// otherwise be carrying one copy per release. Measured on a user's machine before this
+        /// existed: 40 folders, 5.22 GB.
         ///
         /// This is what makes shipping the app as one executable affordable rather than something
         /// that fills a disk, so it is not housekeeping that can be dropped: reaping every folder
         /// but the live one on each launch is what keeps the steady state at one, and what makes
         /// an upgrade collect its predecessor's.
+        ///
+        /// Every RID is bundled, but they do not extract the same thing: win-x64 sets
+        /// IncludeAllContentForSelfExtract, which the App SDK demands, so its folder is the whole
+        /// bundle, where the others hold the native libraries alone - 123 MB against 49 MB,
+        /// measured on linux-x64 bundles of one build. Both are worth reaping; the flag's only
+        /// bearing here is on how the live folder is found (see GetLiveExtractionDir).
         ///
         /// It deliberately does not ask whether *this* build is bundled before looking. A build
         /// that is not - the win-x64 releases that shipped as loose DLLs, or anyone's own
@@ -161,31 +168,39 @@ namespace Nmkoder
                 if (appName.IsEmpty())
                     return;
 
-                string current = "";
+                string current = GetLiveExtractionDir(appName);
                 string root = "";
 
-                // AppContext.BaseDirectory *is* the extraction folder when the running build is a
-                // bundle, which is the one question it answers well - and the exact opposite of
-                // what Paths.GetExeDir needs it never to be used for, so do not "tidy" this into
-                // that. Reading the root off it beats composing a path wherever it applies.
-                string baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-
-                if (baseDir != Paths.GetExeDir() && Path.GetFileName(Path.GetDirectoryName(baseDir)) == appName)
+                if (current.IsNotEmpty())
                 {
-                    current = baseDir;
-                    root = Path.GetDirectoryName(baseDir);
+                    // Reading the root off the live folder beats composing a path wherever it applies.
+                    root = Path.GetDirectoryName(current);
                 }
                 else if (Shell.IsWindows)
                 {
-                    // Not a bundle, so there is nothing to read the path off - but the builds that
-                    // left the folders were, and this is where they put them. Windows only: the
-                    // Unix layout carries a user name in the middle, which is not worth guessing at
-                    // for tens of megabytes of native libraries.
+                    // Not running from a bundle, so there is nothing to read the path off - but the
+                    // builds that left the folders were, and this is where they put them. Windows
+                    // only, and not for want of knowing the path elsewhere: off Windows a folder
+                    // cannot be told to be free (see IsExtractionInUse), so the sweep only runs
+                    // where this process's own folder is known and every other one is a sibling of
+                    // it. A build that is not bundled has no such anchor.
                     root = Path.Combine(Path.GetTempPath(), ".net", appName);
                 }
 
                 if (root.IsEmpty() || !Directory.Exists(root))
                     return;
+
+                // IsExtractionInUse below is answered by Windows and by nothing else. Measured on
+                // Linux: a .so another process has mapped opens with FileShare.None *and deletes
+                // successfully*, so every folder there reads as free and the sweep would strip a
+                // live instance of whatever it had not loaded yet. Off Windows the question is
+                // therefore asked once, of the process list, and any second instance stands the
+                // whole sweep down - its folder cannot be told apart from a dead one from here.
+                if (!Shell.IsWindows && OtherInstanceRunning(appName))
+                {
+                    Logger.Log($"Cleanup: another {appName} is running - leaving the bundle extractions alone", true);
+                    return;
+                }
 
                 long freed = 0;
 
@@ -216,12 +231,84 @@ namespace Nmkoder
         }
 
         /// <summary>
+        /// The extraction folder this process is running out of, or "" for a build that is not
+        /// bundled at all.
+        ///
+        /// NATIVE_DLL_SEARCH_DIRECTORIES is where the host tells the runtime to look for native
+        /// libraries, and for a bundled build that is the extraction folder. It is asked first
+        /// because it is the only one of the two that answers on every RID: AppContext.BaseDirectory
+        /// names the extraction folder only under IncludeAllContentForSelfExtract, which is the
+        /// Windows build's flag alone - everywhere else BaseDirectory is the exe's own directory
+        /// and nothing on it points at temp. Measured on real bundles under both settings.
+        /// </summary>
+        private static string GetLiveExtractionDir(string appName)
+        {
+            string searchDirs = AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES") as string;
+
+            foreach (string entry in (searchDirs ?? "").Split(Path.PathSeparator))
+            {
+                string dir = entry.Trim().TrimEnd(Path.DirectorySeparatorChar);
+
+                if (IsExtractionDir(dir, appName))
+                    return dir;
+            }
+
+            // The documented half of the same question, and the only one a build predating the
+            // above would have. Reading BaseDirectory here is deliberate and is the exact opposite
+            // of the rule Paths.GetExeDir exists to state, so do not "tidy" the two together.
+            string baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+
+            return IsExtractionDir(baseDir, appName) ? baseDir : "";
+        }
+
+        /// <summary>
+        /// Whether a path looks like one of this app's extraction folders: named under a folder
+        /// carrying the app's name, and not the directory the exe itself sits in.
+        /// </summary>
+        private static bool IsExtractionDir(string dir, string appName)
+        {
+            return dir.IsNotEmpty() && dir != Paths.GetExeDir() && Path.GetFileName(Path.GetDirectoryName(dir)) == appName;
+        }
+
+        /// <summary>
+        /// Whether another copy of the app is running. Off Windows this is the whole of the in-use
+        /// question below, since a folder cannot be tied to the process using it from here - so any
+        /// second instance stands the sweep down rather than risk deleting the one it is using.
+        /// Cannot-tell counts as running: that is not a moment to start deleting.
+        /// </summary>
+        private static bool OtherInstanceRunning(string appName)
+        {
+            Process[] procs = null;
+
+            try
+            {
+                procs = Process.GetProcessesByName(appName);
+                return procs.Any(p => p.Id != Environment.ProcessId);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"OtherInstanceRunning: could not read the process list: {e.Message}", true);
+                return true;
+            }
+            finally
+            {
+                if (procs != null)
+                    foreach (Process proc in procs)
+                        proc.Dispose();
+            }
+        }
+
+        /// <summary>
         /// Whether another Nmkoder is running out of this extraction folder. Deleting one that is
         /// in use is the way this goes wrong: the loaded files refuse to go and the rest do, which
         /// strips a live instance of everything it had not got round to loading yet. A running
         /// process holds its assemblies and native libraries open, so an exclusive open is the
-        /// cheap question to ask first - and it is answered by Windows, which is where the folders
-        /// are large enough to be worth deleting at all.
+        /// cheap question to ask first - and it is answered by Windows and by nothing else.
+        ///
+        /// Unix takes FileShare.None as an advisory flock, which the dynamic loader does not take:
+        /// measured, a mapped .so opens here and deletes without complaint. The caller asks
+        /// OtherInstanceRunning instead before it gets this far, so this is not the guard off
+        /// Windows and must not be mistaken for one.
         /// </summary>
         private static bool IsExtractionInUse(DirectoryInfo dir)
         {

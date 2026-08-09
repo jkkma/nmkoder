@@ -457,13 +457,53 @@ the same version share an id and reuse the folder, which is worth knowing before
 reading a check that says nothing was freed - the id follows the content, so
 "nothing to reap" and "the reap did not run" look alike from the outside.
 
-**The other RIDs are not covered by any of this, and that is a gap rather than a
-decision.** Their bundles extract only native libraries, so the flag is off,
-so `AppContext.BaseDirectory` is the exe's own directory - which is the branch
-that tells the method it is *not* running from a bundle. It then falls through
-to a root guessed from `%TEMP%`, and that guess is Windows-only. So a Linux or
-macOS machine still collects the 49 MB per release measured above. Nothing here
-has been changed about it; the win-x64 question was the one asked.
+**The other RIDs were not covered by any of this for as long as they have been
+bundled, and finding the live folder is what fixes it.** Their bundles extract
+only native libraries, so the flag is off, so `AppContext.BaseDirectory` is the
+exe's own directory - which is the branch that told the method it was *not*
+running from a bundle. It then fell through to a root guessed from `%TEMP%`, and
+that guess is Windows-only, so a Linux or macOS machine collected the 49 MB per
+release measured above and nothing ever touched it.
+
+`GetLiveExtractionDir` asks **`NATIVE_DLL_SEARCH_DIRECTORIES`** first, which is
+where the host tells the runtime to look for native libraries and is therefore
+the extraction folder itself. Measured across all three publish shapes: it names
+the extraction folder both with the flag and without it, where
+`AppContext.BaseDirectory` names it only with, and both come back as the exe's
+own directory for a build that is not bundled at all. So it answers on every RID,
+and the root is its parent rather than a path composed from a guess.
+`BaseDirectory` stays behind it as the documented half of the same question.
+
+**Off Windows, `IsExtractionInUse` is not merely weak - it is blind, and it says
+so where it is deleting is safe.** `FileShare.None` is an advisory `flock` on
+Unix and the dynamic loader takes no such lock: measured, a `.so` another process
+has mapped opens cleanly *and deletes without complaint*, so every folder reads
+as free. Unlinking a mapped file does not disturb what that process has already
+loaded, which is why this is quiet rather than a crash - it strips it of whatever
+it had not got to yet. `OtherInstanceRunning` is the guard instead, asked once of
+the process list: any second instance stands the whole sweep down, since which
+folder is theirs cannot be told from here. Conservative on purpose, and it costs
+nothing that matters - the sweep runs at every launch, so it gets another chance.
+
+The Windows fallback root stays Windows-only, and now for a reason rather than
+for want of the path: off Windows the sweep only ever runs where this process's
+own folder is known and everything else is a sibling of it, and a build that is
+not bundled has no such anchor. That layout was measured too, and it is not what
+the old comment here guessed - there is no user name in the middle. The base is
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR` where it is set, and otherwise `~/.net`, with
+the home directory read out of the password database rather than the
+environment: unsetting `HOME` does not move it and `TMPDIR` has no bearing on it.
+Note that the env var replaces the base *including* the `.net` segment -
+`{var}/Nmkoder/{id}`, not `{var}/.net/Nmkoder/{id}`.
+
+Verified by running it, on real natives-only bundles of two versions: a 2.9.2
+build reaped its 2.9.1 predecessor's 49 MB extraction along with two planted
+folders and kept its own, where before this it did nothing at all; with a live
+process named `Nmkoder` beside it the same build kept everything and said so in
+the log, and swept as soon as that process was gone. The win-x64 shape was
+re-checked against the same tree - an `IncludeAllContentForSelfExtract` bundle
+still finds its own folder, still reaps the rest, and still writes `data` and
+`logs` beside the exe.
 
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,
