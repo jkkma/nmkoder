@@ -17,7 +17,7 @@ namespace Nmkoder.Main
 {
     public class RunTask
     {
-        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace, UtilFilmGrain };
+        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace, UtilFilmGrain, UtilCrfLadder };
 
         public enum FileListMode { Mux, Batch };
         public static FileListMode currentFileListMode;
@@ -312,7 +312,7 @@ namespace Nmkoder.Main
 
             bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates
                 || task == TaskType.UtilOcr || task == TaskType.UtilCut || task == TaskType.UtilDeinterlace
-                || task == TaskType.UtilFilmGrain;
+                || task == TaskType.UtilFilmGrain || task == TaskType.UtilCrfLadder;
 
             if (loadedFileRequired && TrackList.current == null && (inBatch || currentFileListMode == FileListMode.Mux))
             {
@@ -361,6 +361,7 @@ namespace Nmkoder.Main
                 else if (task == TaskType.PlotBitrate) await UtilPlotBitrate.Run();
                 else if (task == TaskType.UtilDeinterlace) await UtilDeinterlace.Run();
                 else if (task == TaskType.UtilFilmGrain) await UtilFilmGrain.Run();
+                else if (task == TaskType.UtilCrfLadder) await UtilCrfLadder.Run();
             }
             catch (Exception e)
             {
@@ -407,7 +408,8 @@ namespace Nmkoder.Main
         /// </summary>
         public static bool SupportsBatch(TaskType task)
         {
-            return task != TaskType.UtilConcat && task != TaskType.UtilGetMetrics && task != TaskType.PlotBitrate;
+            return task != TaskType.UtilConcat && task != TaskType.UtilGetMetrics && task != TaskType.PlotBitrate
+                && task != TaskType.UtilCrfLadder;
         }
 
         private static string WhyNoBatch(TaskType task)
@@ -417,6 +419,7 @@ namespace Nmkoder.Main
                 case TaskType.UtilConcat: return "It joins the whole file list into one output, which is the opposite of running per file.";
                 case TaskType.UtilGetMetrics: return "It compares two loaded files against each other, so a single file means nothing to it.";
                 case TaskType.PlotBitrate: return "It opens a chart window for the file it analysed, and a queue would raise one per file.";
+                case TaskType.UtilCrfLadder: return "It ends in a results window, which a queue would raise once per file with nobody there - and a ladder is read per source anyway, a CRF that suits one file being the wrong one for the next.";
                 default: return "";
             }
         }
@@ -437,6 +440,7 @@ namespace Nmkoder.Main
                 case TaskType.PlotBitrate: return "Bitrate chart";
                 case TaskType.UtilDeinterlace: return "Deinterlace pass";
                 case TaskType.UtilFilmGrain: return "Film grain edit";
+                case TaskType.UtilCrfLadder: return "CRF ladder";
                 default: return "Task";
             }
         }

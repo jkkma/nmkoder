@@ -92,6 +92,8 @@ namespace Nmkoder.Views
             UpdateDeinterlaceBtnText();
             UtilFilmGrain.LoadSettings();
             UpdateFilmGrainBtnText();
+            UtilCrfLadder.LoadSettings();
+            UpdateCrfLadderBtnText();
             // grav1synth's own film stock list, for the Film Grain utility's dialog. Fire-and-forget: the
             // fallback list is already in GrainSynthConfig.Presets, and this only replaces it where the
             // installed binary answers. Read here rather than when the dialog opens, so the first open

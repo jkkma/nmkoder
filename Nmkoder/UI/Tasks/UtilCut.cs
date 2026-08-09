@@ -109,7 +109,10 @@ namespace Nmkoder.UI.Tasks
         /// whether anything came out. Shared with the AV1AN tab, whose trim works by cutting the
         /// section out before av1an is ever started on it.
         /// </summary>
-        public static async Task<bool> CopySection(string inPath, string outPath, long startMs, long endMs)
+        /// <param name="map"> Which streams to carry over. Everything by default, which is what a cut
+        /// and a trim both want; the CRF ladder asks for the first video track alone, so that the bytes
+        /// it measures are video and its samples are not carrying an audio track nothing scores. </param>
+        public static async Task<bool> CopySection(string inPath, string outPath, long startMs, long endMs, string map = "-map 0")
         {
             long durationMs = endMs - startMs;
 
@@ -126,7 +129,7 @@ namespace Nmkoder.UI.Tasks
             // Seeking before -i keeps this cheap - ffmpeg jumps to the keyframe instead of reading
             // its way there - and -map 0 carries every track over, not just the first of each kind.
             string args = $"-ss {FormatDuration(startMs)} -i {inPath.Wrap()} -t {FormatDuration(durationMs)} " +
-                $"-map 0 -c copy -avoid_negative_ts make_zero -ignore_unknown {outPath.Wrap()}";
+                $"{map} -c copy -avoid_negative_ts make_zero -ignore_unknown {outPath.Wrap()}";
 
             FfmpegOutputHandler.overrideTargetDurationMs = durationMs; // Progress is against the cut, not the source
             // Deliberately not ReportFailure: this is shared with the AV1AN tab, whose trim runs it

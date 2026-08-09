@@ -1750,6 +1750,73 @@ turned a chosen burn-in track back to "Disabled" and put the metadata source bac
 had the same shape of bug from the other end: it was rebuilt from entries nothing had written yet, so
 ticking a track in the Track List threw away whatever had just been typed into it.
 
+## The CRF ladder
+
+The Sample Encodes utility answers "what CRF for this source" by trying it: a few short sections are cut
+out, each is encoded at every CRF on the list, and the report is the bitrate, the size a whole file would
+come to, and a quality score per rung. `UtilCrfLadder` runs it, `CrfLadder` holds the arithmetic, and
+`CrfLadderWindow`/`CrfLadderResultsWindow` are the settings and the table.
+
+**The reference is the cut, not the source, and that is the whole reason this is exact.** A stream copy
+carries the source's own frames, so the file the encoder is given *is* the file the metric scores against
+- no seeking, no scaling, no frame alignment, and none of the work `UtilGetMetrics.PrepareComparison` has
+to do to put two unrelated files into one frame of reference.
+
+**A section cut losslessly is longer than the length asked for, and the arithmetic must divide by what
+came out.** A copy cannot begin between keyframes, so the cut starts at the keyframe at or before the
+start point and `-t` is then counted from the start point itself - the pre-roll is kept on top. Measured
+against a source with keyframes exactly every 2s: a 10s section asked for at 20.0s came out **12.08s**, at
+20.5s 10.58s, at 21.0s 11.08s. The first of those is 21% over, and every per-second figure in the report
+divides by it, so `ExtractSamples` probes each cut with ffprobe and `CrfLadder.Sample.Ms` is that number
+rather than the setting. A start point sitting exactly on a keyframe still steps back a whole GOP, which
+is the surprising half.
+
+**SSIMULACRA2 is not offered because the bundled ffmpeg cannot compute it.** It is a libvmaf feature that
+has to be compiled in; measured against a current BtbN master build,
+`libvmaf=feature='name\=ssimulacra2'` fails the graph outright with "problem during vmaf_use_feature",
+where `psnr`, `float_ssim`, `float_ms_ssim`, `ciede` and `cambi` all take. XPSNR is the second opinion
+instead - a filter of ffmpeg's own, perceptually weighted where plain PSNR is not. It prints
+`XPSNR  y: 30.7897  u: 29.9396  v: 30.8069  (minimum: 29.9396)`, and `inf` for an identical pair, which is
+a real answer rather than a parse failure and is reported as one.
+
+**The model is named by version, and the escaping was checked at the far end rather than at the parse.**
+The filter goes through `Shell.WrapArg` exactly as `UtilGetMetrics` builds it, backslash-escaped `=` and
+all. That it parses proves nothing on its own - what was measured is that the three models give three
+*different* scores through the app's own command shape (88.64 / 86.59 / 92.58 on one pair) and that a
+name libvmaf does not have fails rather than falling back.
+
+**ffmpeg's own encoders, not av1an's.** av1an's chunking, scene detection and VapourSynth exist to make a
+long encode parallel and cost more than they save on ten seconds, and there is no av1an binary in a web
+session to check any of it against. The consequence is stated rather than hidden: the AV1AN tab drives
+`SvtAv1EncApp` from svt-av1-hdr where this runs the `libsvtav1` inside ffmpeg, so a number off this ladder
+is a starting point there rather than the same setting. The card, the dialog and the results window all
+say so.
+
+**Container overhead is not subtracted, and that is a judgement rather than an oversight.** Measured on a
+12s video-only MKV it is a fixed ~2.7 KB, which is 0.22% of the bytes at CRF 22 and 0.90% at CRF 40. The
+sampling error is two orders of magnitude larger - 33s of a three-minute file is 18.8% of it - so
+correcting the smaller one would be false precision dressed as rigour. What the report does instead is
+say what it sampled and that the rest of the film is what it cannot know.
+
+**The pooled score is a mean over frames, not over samples.** The sections are not the same length, for
+the pre-roll reason above, so weighting them equally would let the shortest one carry as much of the
+answer as the longest. At a constant frame rate, weighting by duration is weighting by frames, which is
+how libvmaf pools its own.
+
+The settings are the utility's own - encoder, preset, colour format, CRF list, sampling and metric - for
+the argument `UtilDeinterlace.Settings` already makes: this one produces a number to type into a tab, so
+reading a tab to produce it would be circular. It is excluded from batch mode, like the bitrate chart, and
+for the same reason plus one of its own: a CRF that suits one file is the wrong one for the next.
+
+Verified by running it. 468 sample-placement cases across 13 durations, 6 counts and 6 section lengths,
+each checked for staying inside the file, not overlapping, not exceeding the count asked for and coming
+back in time order; the CRF parsing and defaults for all seven encoders, against out-of-range, duplicated,
+unsorted, junk and over-long input; and the pooling and projection arithmetic against numbers whose answer
+is known by hand. Then the whole thing end to end through the real methods out of the built assembly, on a
+three-minute source whose content changes every minute so the three samples genuinely land on different
+material - x264 at CRF 22/26/30 giving 1040/681/375 kbps and VMAF 95.61/92.58/87.14, strictly monotonic in
+both, with each rung's per-sample entries measured against the durations the cuts actually had.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the

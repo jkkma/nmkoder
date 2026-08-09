@@ -183,6 +183,13 @@ Each heading below expands.
 
 - Utilities are "shortcuts" for actions that normally require long (and/or multiple) CLI commands
 - **Read Bitrates**: calculates stream size and average bitrate for each stream
+- **Sample Encodes (CRF ladder)**: answers "what CRF for this source" by trying it, in minutes rather
+  than after the eight-hour encode you then regret. A few short sections are cut out from across the
+  file, each is encoded at every CRF on the list, and the table reports the video bitrate, the size a
+  whole file would come to, that size as a share of the source, and a **VMAF** (or **XPSNR**) score per
+  rung - plus which rung is the highest still scoring above VMAF 95. The sections are cut losslessly and
+  each encode is scored against the cut it came from, so the picture measured and the picture encoded
+  are the same frames. Its own encoder, preset, colour format, CRF list and sampling, under Configure
 - **Get Metrics**: calculate quality metrics like **VMAF**, SSIM, PSNR
 - **Transfer Color Metadata**: copy colour properties and HDR metadata from one file to another
   (e.g. from a Bluray remux to an encode)
@@ -412,6 +419,11 @@ partway through an encode.
 <details>
 <summary><b>Utilities</b></summary>
 
+- **Sample Encodes** - the CRF ladder: short sections from across the source, encoded at several CRFs,
+  reported as size-per-minute, a whole-file projection and a quality score each. This is the thing a GUI
+  can do that a command line will not: picking the CRF by measuring the source rather than by guessing
+  and finding out at the end. The samples are cut losslessly and scored against those cuts, so nothing
+  is being compared across a resize or a seek.
 - **Cut Video** - keep a chosen section, copied out without re-encoding, picked in the same visual
   dialog as the trim.
 - **Deinterlace Video** - a deinterlaced copy into a near-lossless MKV with audio and subtitles

@@ -799,6 +799,17 @@
                   </StackPanel>
                 </Border>
 
+                <Border x:Name="UtilsCrfLadderPanel" Classes="card util" Tapped="SelectCrfLadder"
+                        ToolTip.Tip="Answers &quot;what CRF for this source&quot; by trying it. A few short sections are cut out losslessly, each is encoded at every CRF on the list, and each encode is measured against the cut it came from - so the size and the score are of the same frames, with no seeking or scaling anywhere between them. Minutes instead of the eight-hour encode you would otherwise judge afterwards. The settings are this utility's own; nothing here reaches the encode tabs.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Sample Encodes" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" x:Name="UtilsCrfLadderConfBtn" Content="Configure…" Click="UtilsCrfLadderConf_Click" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Encodes short sections from across the source at several CRFs, then reports the bitrate, the size a whole file would come to, and a VMAF score for each." />
+                  </StackPanel>
+                </Border>
+
                 <Border x:Name="UtilsCutPanel" Classes="card util" Tapped="SelectCut"
                         ToolTip.Tip="Writes the section to a new file and stops there - nothing is loaded back into the file list. To encode part of a video rather than export it, use the Trim setting on the encode tab you are encoding from; this utility's section is its own and does not reach them.">
                   <StackPanel>
