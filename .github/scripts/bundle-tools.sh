@@ -196,16 +196,36 @@ flatten_into() {
 }
 
 # Copy <name>[.exe] out of an extracted tree into <dest>, along with any DLLs sitting
-# next to it. Returns non-zero when the binary is not in the archive.
+# next to it. Returns non-zero when the binary is not in the archive, or when it is and the
+# copy did not land.
+#
+# That second half is the part worth keeping. This used to end in a `find ... || true`, so the
+# function's exit status was that of the last command and it reported success unconditionally -
+# including when `cp` had refused outright. It refused for eighteen releases: bin/ffmpeg was the
+# encoder-argument folder, so the ffmpeg binary could not be written there, and every linux-x64
+# archive from 2.8.25 to 2.8.43 shipped without it while the log said "[ok] ffmpeg + ffprobe".
+# The layout is fixed (the lists live under bin/encoderArgs/ now), and this is what makes any
+# future collision visible instead: judged by the artifact, the way the app judges ffmpeg's own
+# output, since an exit code on its own has already been shown not to settle it.
 install_binary() {
-  local tree="$1" name="$2" dest="$3" src
+  local tree="$1" name="$2" dest="$3" src target
   src="$(find "$tree" -type f \( -iname "$name" -o -iname "$name.exe" \) -print -quit)"
   [ -n "$src" ] || return 1
 
   mkdir -p "$dest"
-  cp "$src" "$dest/"
-  chmod +x "$dest/$(basename "$src")" 2>/dev/null || true
+  target="$dest/$(basename "$src")"
+
+  # Checked before the copy as well as after: `cp file dir/name` where name is a directory writes
+  # *into* it rather than failing, so the test afterwards would be looking at a directory that was
+  # there all along and a binary one level too deep.
+  [ -d "$target" ] && return 1
+
+  cp "$src" "$target" || return 1
+  [ -f "$target" ] && [ -s "$target" ] || return 1
+
+  chmod +x "$target" 2>/dev/null || true
   find "$(dirname "$src")" -maxdepth 1 -name '*.dll' -exec cp {} "$dest/" \; 2>/dev/null || true
+  return 0
 }
 
 # Download the assets of <repo> matching <primary-regex> (falling back to <fallback-regex>

@@ -94,18 +94,18 @@ jobs:
           # instead of shipping.
           missing=0
           for f in bin/iso639.csv \
-                   bin/av1an/encoderArgs/AomAv1.json \
-                   bin/av1an/encoderArgs/SvtAv1.json \
-                   bin/av1an/encoderArgs/Vpx.json \
-                   bin/av1an/encoderArgs/X264.json \
-                   bin/av1an/encoderArgs/X265.json \
-                   bin/ffmpeg/encoderArgs/H264Nvenc.json \
-                   bin/ffmpeg/encoderArgs/H265Nvenc.json \
-                   bin/ffmpeg/encoderArgs/LibAomAv1.json \
-                   bin/ffmpeg/encoderArgs/LibSvtAv1.json \
-                   bin/ffmpeg/encoderArgs/LibVpx.json \
-                   bin/ffmpeg/encoderArgs/Libx264.json \
-                   bin/ffmpeg/encoderArgs/Libx265.json; do
+                   bin/encoderArgs/av1an/AomAv1.json \
+                   bin/encoderArgs/av1an/SvtAv1.json \
+                   bin/encoderArgs/av1an/Vpx.json \
+                   bin/encoderArgs/av1an/X264.json \
+                   bin/encoderArgs/av1an/X265.json \
+                   bin/encoderArgs/ffmpeg/H264Nvenc.json \
+                   bin/encoderArgs/ffmpeg/H265Nvenc.json \
+                   bin/encoderArgs/ffmpeg/LibAomAv1.json \
+                   bin/encoderArgs/ffmpeg/LibSvtAv1.json \
+                   bin/encoderArgs/ffmpeg/LibVpx.json \
+                   bin/encoderArgs/ffmpeg/Libx264.json \
+                   bin/encoderArgs/ffmpeg/Libx265.json; do
             if [ ! -s "publish/Nmkoder/$f" ]; then
               echo "MISSING: $f"
               missing=1
@@ -133,6 +133,43 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f bundle.log
+
+      - name: Verify ffmpeg and ffprobe actually landed
+        # macOS bundles neither and leans on Homebrew, which is a deliberate trade rather than a
+        # failure - see bundle-tools.sh. The two RIDs that are supposed to carry them must.
+        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
+        shell: bash
+        run: |
+          # Bundling is best-effort by design, and this is the one tool that cannot be: an archive
+          # without ffmpeg is not a working app, and every file loaded into it scans as having no
+          # streams. It is checked here because the bundler's own report was wrong for eighteen
+          # releases - bin/ffmpeg was a folder, cp refused, install_binary returned success anyway,
+          # and 2.8.25 through 2.8.43 all shipped a linux-x64 archive with no ffmpeg in it while
+          # the job summary said "[ok] ffmpeg + ffprobe". install_binary judges its own copy now;
+          # this is the second pair of eyes, and it looks at what is in the folder rather than at
+          # what the script says about it.
+          missing=0
+
+          for tool in ffmpeg ffprobe; do
+            found=""
+
+            for candidate in "publish/Nmkoder/bin/$tool" "publish/Nmkoder/bin/$tool.exe"; do
+              [ -f "$candidate" ] && [ -s "$candidate" ] && found="$candidate"
+            done
+
+            if [ -z "$found" ]; then
+              echo "MISSING: bin/$tool"
+              [ -d "publish/Nmkoder/bin/$tool" ] && echo "  (bin/$tool is a directory - something is occupying the binary's name)"
+              missing=1
+            else
+              echo "OK: $found ($(wc -c < "$found") bytes)"
+            fi
+          done
+
+          if [ "$missing" != "0" ]; then
+            echo "::error::${{ matrix.rid }} was built without a bundled ffmpeg/ffprobe"
+            exit 1
+          fi
 
       - name: Verify the QTGMC toolchain actually loads
         if: matrix.rid == 'win-x64'
