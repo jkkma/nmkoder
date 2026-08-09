@@ -1221,8 +1221,8 @@ B-frame source (see the Cut utility's note), and an offset wrong by two is wrong
 after it.
 
 **Everything about it is opportunistic, and the safety is two layers deep.** Any missing piece -
-flags absent from av1an's help, no vspipe, a source under ~2 minutes of frames, fewer than two
-detection pipelines' worth of cores, a slice run failing, a merged list that does not tile
+flags absent from av1an's help, no vspipe, a source under a couple of thousand frames, fewer than
+two detection pipelines' worth of cores, a slice run failing, a merged list that does not tile
 `[0, frames)` exactly - abandons with a log line, and the encode runs with av1an's own in-run
 detection exactly as before. And because the loading side could not be verified here - there is no
 av1an binary in a web session; that an existing `--scenes` file skips detection is its documented
@@ -1233,10 +1233,10 @@ a wrong assumption can cost at one failed startup. The merge itself *was* verifi
 through the real methods out of the built assembly over av1an-shaped scene files: offsets, exact
 tiling, unknown top-level fields surviving via the template, and the abandon paths - a slice
 reporting a length other than its cut, a gap in a list, a scene without its frame fields, files
-without `split_scenes` (merged without inventing one), and ranges that read as inclusive. The
-binary's half - `--sc-only` accepting a `.vpy` input, and the load-skips-detection behaviour -
-is what the first release carrying this should watch one real 4K encode for: the log should say
-"skips its own pass" and chunks should start within seconds of av1an launching.
+without `split_scenes` (merged without inventing one), and ranges that read as inclusive. Of the
+binary's half, `--sc-only` over `.vpy` slices is field-confirmed - see the constants note below -
+and the load-skips-detection behaviour is the part still to watch a real encode for: the log
+should say "skips its own pass" and chunks should start within seconds of av1an launching.
 
 The merged list lives at `{tempDir}.scenes.json` - `Av1anUi.GetScenesFilePath` - beside the temp
 folder like every prepared input and for the same reasons: av1an empties its temp at startup, and a
@@ -1248,10 +1248,15 @@ encoded - so that path sends no `--scenes` at all and av1an falls back on its ow
 `Av1anOutputHandler.ReadScenesFile` reads the sidecar when the temp folder holds no scenes.json,
 because whether av1an still writes its own copy there when `--scenes` is given is that binary's
 business, and without a total the progress bar would sit on "Scene detection..." for the whole
-encode. The slice count is 2-4, at least 2400 frames and roughly four cores per slice - judgement
-figures rather than measured ones (no av1an here to measure), chosen so a short clip or a small
-machine stands down instead of running contended detectors for the overhead; they live as constants
-on `Av1anSceneDetect` with the reasoning beside them.
+encode. The slice count is 2-8, at least 1200 frames and two cores per slice, as constants on
+`Av1anSceneDetect` with the reasoning beside them. The cores figure began at four, a guess, and the
+first field report halved it: a 4K60 file split four ways left its machine at about 25% CPU, so a
+detection pipeline keeps one to two cores busy - nearer serial per slice than the guess assumed.
+Eight is the ceiling: the wall clock falls as 1/K so each step up buys less, while every slice is
+another full-size decode pipeline on the same file - memory anywhere, seek thrash on a spinning
+disk. That report also settled the launch half of what could not be run
+here: av1an accepted the `.vpy` slices and ran `--sc-only` over them in parallel. The load half -
+the encode actually skipping its own pass - is still only watched for, so the retry stays.
 
 **The Concat Method dropdown offers what the container box can actually produce, which is two
 entries.** av1an has a third, `ivf`, and it was on that list without ever being able to run: IVF is a

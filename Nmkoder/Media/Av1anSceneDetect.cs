@@ -54,20 +54,23 @@ namespace Nmkoder.Media
     /// </summary>
     class Av1anSceneDetect
     {
-        /// <summary> Ceiling on concurrent slices. Each one is a full decode pipeline plus a
-        /// detector; past a few of them they contend for the machine instead of sharing it, and the
-        /// win over 2-3 slices shrinks with every extra one (half the pass, then a third...). </summary>
-        const int MaxSlices = 4;
+        /// <summary> Ceiling on concurrent slices. The pass's wall clock falls as 1/K, so each
+        /// step up buys less than the one before - while every slice is another full-size decode
+        /// pipeline reading the same file, which is memory on any machine and seek thrash on a
+        /// spinning disk. Eight is where that trade is called. </summary>
+        const int MaxSlices = 8;
 
-        /// <summary> How many cores one detection pipeline is booked at - the decoder's threads plus
-        /// the analysis. A judgement figure rather than a measured one (there is no av1an in the
-        /// session this was written in): it exists so a 4-core machine does not run two contended
-        /// detectors for a win that is mostly overhead, not to be exact on big machines. </summary>
-        const int CoresPerSlice = 4;
+        /// <summary> How many cores one detection pipeline is booked at. Began as a guess of four;
+        /// the first field report halved it - a 4K60 file split four ways left its machine at about
+        /// 25% CPU, so a pipeline keeps one to two cores busy, the decode and the analysis being
+        /// nearer serial than the guess assumed. Two rather than one books headroom for heavier
+        /// codecs, and mild oversubscription is only timeslicing - the same right-way-round-to-be-
+        /// wrong the thread plan's rounding argues. </summary>
+        const int CoresPerSlice = 2;
 
-        /// <summary> Under this many frames per slice, process startup and indexing overhead eat
-        /// what the parallelism saves - a source this short detects in well under a minute anyway. </summary>
-        const int MinFramesPerSlice = 2400;
+        /// <summary> Under this many frames per slice - twenty seconds of 60 fps video - the
+        /// process start and index open each slice pays eat into what the parallelism saves. </summary>
+        const int MinFramesPerSlice = 1200;
 
         /// <summary> Same figure and same reasoning as Qtgmc.InfoTimeoutMs: what --info spends its
         /// time on is the source plugin indexing the file, which is minutes for a big file off a
