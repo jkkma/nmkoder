@@ -115,6 +115,7 @@ namespace Nmkoder.UI.Tasks
             // the command already built - the tab stays editable through every await in between.
             ChunkMethod chunkMethod = ChunkMethod.LSMASH;
             bool sceneDetection = false;
+            int sceneDetectSlices = 0;
             string scDownscaleArg = "";
             string keyIntArg = "";
             // The --scenes argument this run appended, exactly as appended, so the retry below can
@@ -482,6 +483,7 @@ namespace Nmkoder.UI.Tasks
                     // resolution and subdivide at the -x the encode itself will carry, and reading
                     // the boxes twice could answer two different things.
                     sceneDetection = Av1anUi.SceneDetectionEnabled;
+                    sceneDetectSlices = form.Av1anOptsScDetectSlicesUpDown.Value.AsInt();
                     scDownscaleArg = GetScDownscaleHeightArg();
                     keyIntArg = CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ");
 
@@ -683,7 +685,7 @@ namespace Nmkoder.UI.Tasks
                     // describe frames that are no longer the ones being encoded.
                     if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH)
                     {
-                        string scenesFile = await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg);
+                        string scenesFile = await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
 
                         if (RunTask.canceled || RunTask.failed)
                         {

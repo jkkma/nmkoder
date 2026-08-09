@@ -41,10 +41,11 @@ namespace Nmkoder.Media
     /// frame count also builds the index, once, so the concurrent slices read a warm cache instead
     /// of racing to write one.
     /// <para/>
-    /// Everything here is opportunistic: any missing piece - an av1an without --sc-only or --scenes,
-    /// no vspipe, a source too short to be worth splitting, a slice run failing, a merged list that
-    /// does not tile the video exactly - abandons the attempt and returns "", and the encode runs
-    /// with av1an's own in-run detection exactly as it would have. Nothing here ever fails the run.
+    /// Everything here is opportunistic: any missing piece - the Detection Slices box set to 1, an
+    /// av1an without --sc-only or --scenes, no vspipe, a source too short to be worth splitting, a
+    /// slice run failing, a merged list that does not tile the video exactly - abandons the attempt
+    /// and returns "", and the encode runs with av1an's own in-run detection exactly as it would
+    /// have. Nothing here ever fails the run.
     /// <para/>
     /// What could not be verified in the session that wrote this is av1an's loading side: that a
     /// --scenes file which already exists makes it skip detection is its documented behaviour, but
@@ -54,23 +55,53 @@ namespace Nmkoder.Media
     /// </summary>
     class Av1anSceneDetect
     {
-        /// <summary> Ceiling on concurrent slices. The pass's wall clock falls as 1/K, so each
-        /// step up buys less than the one before - while every slice is another full-size decode
-        /// pipeline reading the same file, which is memory on any machine and seek thrash on a
-        /// spinning disk. Eight is where that trade is called. </summary>
-        const int MaxSlices = 8;
+        /// <summary> Ceiling on the machine-derived <see cref="DefaultSliceCount"/>, not on the box:
+        /// the pass's wall clock falls as 1/K, so each step up buys less than the one before, while
+        /// every slice is another full-size decode pipeline reading the same file - memory on any
+        /// machine, seek thrash on a spinning disk. Eight is where that trade is called for a
+        /// default; anyone who wants more can type more. </summary>
+        const int DefaultMaxSlices = 8;
 
-        /// <summary> How many cores one detection pipeline is booked at. Began as a guess of four;
-        /// the first field report halved it - a 4K60 file split four ways left its machine at about
-        /// 25% CPU, so a pipeline keeps one to two cores busy, the decode and the analysis being
-        /// nearer serial than the guess assumed. Two rather than one books headroom for heavier
-        /// codecs, and mild oversubscription is only timeslicing - the same right-way-round-to-be-
-        /// wrong the thread plan's rounding argues. </summary>
+        /// <summary> How many cores one detection pipeline is booked at, for the default. Began as
+        /// a guess of four; the first field report halved it - a 4K60 file split four ways left its
+        /// machine at about 25% CPU, so a pipeline keeps one to two cores busy, the decode and the
+        /// analysis being nearer serial than the guess assumed. Two rather than one books headroom
+        /// for heavier codecs, and mild oversubscription is only timeslicing - the same
+        /// right-way-round-to-be-wrong the thread plan's rounding argues. </summary>
         const int CoresPerSlice = 2;
+
+        /// <summary> The most the Detection Slices box offers, restated here so no caller can fan
+        /// out further than the box allows: the XAML maximum coerces what the box shows, this
+        /// clamps what actually runs. </summary>
+        public const int HardMaxSlices = 16;
 
         /// <summary> Under this many frames per slice - twenty seconds of 60 fps video - the
         /// process start and index open each slice pays eat into what the parallelism saves. </summary>
         const int MinFramesPerSlice = 1200;
+
+        /// <summary>
+        /// First-run default for the Detection Slices box: half the logical cores, clamped to 1-8.
+        /// On anything under four cores that works out to 1, which switches the pre-pass off - the
+        /// same stand-down those machines had before the box existed. Consulted by Config's default
+        /// table and written into the config once, the same pattern as Av1an.GetDefaultThreadPlan;
+        /// after that the number is the user's, and this is never read again.
+        /// </summary>
+        public static int DefaultSliceCount()
+        {
+            return Math.Clamp(Environment.ProcessorCount / CoresPerSlice, 1, DefaultMaxSlices);
+        }
+
+        /// <summary>
+        /// How many slices actually run for a request against a source: never more than asked,
+        /// never more than the box can express, and never so many that a slice drops under
+        /// <see cref="MinFramesPerSlice"/> - past that point the process start and index open per
+        /// slice are the work. Anything under 2 means "do not split": one slice of everything is
+        /// av1an's own sequential pass with extra steps in front of it.
+        /// </summary>
+        internal static int ResolveSliceCount(int requestedSlices, int frames)
+        {
+            return Math.Min(requestedSlices.Clamp(0, HardMaxSlices), frames / MinFramesPerSlice);
+        }
 
         /// <summary> Same figure and same reasoning as Qtgmc.InfoTimeoutMs: what --info spends its
         /// time on is the source plugin indexing the file, which is minutes for a big file off a
@@ -85,8 +116,10 @@ namespace Nmkoder.Media
         /// the caller. <paramref name="scDownscaleArg"/> and <paramref name="keyIntArg"/> are the
         /// exact argument strings the encode itself will carry, so the slices detect at the same
         /// resolution and subdivide long scenes at the same -x the encode expects.
+        /// <paramref name="requestedSlices"/> is the Detection Slices box as the caller snapshotted
+        /// it; 1 is the box's way of switching the pre-pass off.
         /// </summary>
-        public static async Task<string> TryPrepareScenesFileAsync(string inPath, string tempDir, string scDownscaleArg, string keyIntArg)
+        public static async Task<string> TryPrepareScenesFileAsync(string inPath, string tempDir, string scDownscaleArg, string keyIntArg, int requestedSlices)
         {
             NmkdStopwatch sw = new NmkdStopwatch();
             string scratchDir = "";
@@ -94,6 +127,13 @@ namespace Nmkoder.Media
 
             try
             {
+                // The user's own off switch, checked ahead of everything else it would gate.
+                if (requestedSlices < 2)
+                {
+                    Logger.Log("Parallel scene detection: the Detection Slices box is set to 1, so av1an detects in-run.", true);
+                    return "";
+                }
+
                 // The flags are old (0.4.x era), but av1an refuses a whole command over one it does
                 // not know, and a help text that could not be read says nothing either way - so
                 // unlike the encode's own flag checks, an unknown help here means standing down:
@@ -130,19 +170,20 @@ namespace Nmkoder.Media
                 if (RunTask.canceled || RunTask.failed)
                     return "";
 
-                if (frames < MinFramesPerSlice * 2)
+                int sliceCount = ResolveSliceCount(requestedSlices, frames);
+
+                if (sliceCount < 2)
                 {
                     Logger.Log($"Parallel scene detection: {(frames < 1 ? "the frame count could not be read" : $"{frames} frames is too short to be worth splitting")}, so av1an detects in-run.", true);
                     return "";
                 }
 
-                int sliceCount = Math.Min(frames / MinFramesPerSlice, Environment.ProcessorCount / CoresPerSlice).Clamp(0, MaxSlices);
-
-                if (sliceCount < 2)
-                {
-                    Logger.Log("Parallel scene detection: not enough cores to run two detection pipelines side by side, so av1an detects in-run.", true);
-                    return "";
-                }
+                // A hand-set count is respected up to the floor above; where the file cannot carry
+                // it, the reduction is said out loud, because the number on the tab is the user's.
+                if (sliceCount < requestedSlices.Clamp(0, HardMaxSlices))
+                    Logger.Log($"The file is {frames} frames, so scene detection runs {sliceCount} slices rather than the " +
+                        $"{requestedSlices} configured - under {MinFramesPerSlice} frames a slice is process startup " +
+                        $"rather than parallelism.");
 
                 // Boundary frames, computed here and nowhere else: bounds[i] is both where slice i
                 // starts and the offset its scene list is shifted by in the merge.

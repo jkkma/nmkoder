@@ -1248,13 +1248,19 @@ encoded - so that path sends no `--scenes` at all and av1an falls back on its ow
 `Av1anOutputHandler.ReadScenesFile` reads the sidecar when the temp folder holds no scenes.json,
 because whether av1an still writes its own copy there when `--scenes` is given is that binary's
 business, and without a total the progress bar would sit on "Scene detection..." for the whole
-encode. The slice count is 2-8, at least 1200 frames and two cores per slice, as constants on
-`Av1anSceneDetect` with the reasoning beside them. The cores figure began at four, a guess, and the
-first field report halved it: a 4K60 file split four ways left its machine at about 25% CPU, so a
-detection pipeline keeps one to two cores busy - nearer serial per slice than the guess assumed.
-Eight is the ceiling: the wall clock falls as 1/K so each step up buys less, while every slice is
-another full-size decode pipeline on the same file - memory anywhere, seek thrash on a spinning
-disk. That report also settled the launch half of what could not be run
+encode. **The slice count is the Detection Slices box on the Av1an Options tab**, saved with its
+neighbours; 1 is the off switch, and av1an then detects in-run. Its first-run default is
+machine-derived the way the worker plan's is - `Av1anSceneDetect.DefaultSliceCount`, half the
+logical cores clamped to 1-8, consulted by `Config`'s default table and written once, with no
+literal in `Config` and the box's XAML `Value` a designer placeholder exactly like the Workers
+box's. The per-pipeline booking began at four cores, a guess, and the first field report halved
+it: a 4K60 file split four ways left its machine at about 25% CPU, so a detection pipeline keeps
+one to two cores busy - nearer serial per slice than the guess assumed - which is why the default
+is cores over two. Eight caps only the default; the box goes to 16 by hand, and a hand-set count
+is respected up to the floor of 1200 frames per slice (`ResolveSliceCount`), which reduces with a
+visible log line naming both numbers - the number on the tab is the user's, so a reduction is not
+quiet. Machines under four cores default to 1, the same stand-down they had before the box
+existed. That report also settled the launch half of what could not be run
 here: av1an accepted the `.vpy` slices and ran `--sc-only` over them in parallel. The load half -
 the encode actually skipping its own pass - is still only watched for, so the retry stays.
 
