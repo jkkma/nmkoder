@@ -30,18 +30,23 @@ jobs:
           # App SDK and therefore real desktop notifications. It only exists on a Windows host, so
           # every other RID stays on plain net10.0 - see the csproj for why.
           #
-          # win-x64 is also the one RID not published as a single file. The Windows App SDK's
-          # single-file validation demands IncludeAllContentForSelfExtract, which unpacks the whole
-          # bundle - runtime, App SDK, every assembly - into %TEMP%\.net\Nmkoder\{bundle-id} at
-          # every launch. The id is a per-build hash and .NET deletes none of them, so a machine
-          # collects ~140 MB per release it runs: 5.22 GB over 40 folders on the machine that
-          # reported this. The app is shipped as a folder in a zip with bin/ beside it either way,
-          # so the bundle bought nothing here - and that flag has already cost two shipped bugs,
-          # both recorded in CLAUDE.md.
-          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0, single: false }
-          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0, single: true }
-          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0, single: true }
-          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0, single: true }
+          # Every RID publishes as one executable, and win-x64 is the expensive one. The App SDK's
+          # single-file validation demands IncludeAllContentForSelfExtract, so that build unpacks
+          # its whole bundle into %TEMP%\.net\Nmkoder\{bundle-id} at launch where the others
+          # extract only their native libraries - measured on a linux-x64 bundle, 123 MB against
+          # 49 MB. The id is a content hash, so each release writes its own folder rather than
+          # reusing the last one's: that is how a machine came to be holding 5.22 GB over 40 of
+          # them, and why win-x64 shipped as 224 loose DLLs for a few releases instead.
+          #
+          # Program.CleanupBundleExtractions is what pays for the bundle now. It reaps every
+          # extraction but the live one on each launch, so the steady state is one folder rather
+          # than one per release, and an upgrade collects its predecessor's. Measured on real
+          # linux-x64 bundles built with this same flag: three planted folders deleted and its own
+          # kept, then a 2.8.39 build freeing the 121.7 MB a 2.8.38 build had left.
+          - { rid: win-x64,   os: windows-latest, archive: zip, tfm: net10.0-windows10.0.19041.0 }
+          - { rid: linux-x64, os: ubuntu-latest,  archive: tar, tfm: net10.0 }
+          - { rid: osx-x64,   os: macos-latest,   archive: tar, tfm: net10.0 }
+          - { rid: osx-arm64, os: macos-latest,   archive: tar, tfm: net10.0 }
 
     steps:
       - uses: actions/checkout@v4
@@ -73,8 +78,8 @@ jobs:
             -f ${{ matrix.tfm }} \
             -r ${{ matrix.rid }} \
             --self-contained \
-            -p:PublishSingleFile=${{ matrix.single }} \
-            -p:IncludeNativeLibrariesForSelfExtract=${{ matrix.single }} \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:PublishTrimmed=false \
             -p:DebugType=none \
             -p:Version=${{ steps.ver.outputs.version }} \

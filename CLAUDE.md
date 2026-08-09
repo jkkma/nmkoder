@@ -393,27 +393,52 @@ Inspecting a published archive settles it without downloading one: a zip's
 central directory is at its end, so a range request for the last few KB, parsed
 for the entry names, lists everything the asset contains.
 
-**The win-x64 release is no longer published single-file, which takes the flag
-above out of every shipped build.** A third consequence is what settled it, and
-it is the one nobody sees until a disk fills: the extraction in (2) goes to
-`%TEMP%\.net\Nmkoder\{bundle-id}`, the id is a hash that changes with **every
-build**, and .NET deletes none of them ever. So a machine collects one copy of
-the runtime and the App SDK - about 140 MB - for each release it has run.
-Measured on a user's machine ten days after installing: 40 folders, 5.22 GB.
-The bundle was buying nothing anyway, the app shipping as a folder in a zip with
-`bin/` beside it either way, so `release.yml`'s matrix now carries `single:`
-per RID and win-x64 is the one that is false.
+**Every RID publishes as one executable, win-x64 included, and the third
+consequence of the flag is the price of that.** Nobody sees it until a disk
+fills: the extraction in (2) goes to `%TEMP%\.net\Nmkoder\{bundle-id}`, the id is
+a content hash so it changes with **every build**, and .NET deletes none of them
+ever. So a machine collects one copy of the runtime and the App SDK - about 140
+MB - for each release it has run. Measured on a user's machine ten days after
+installing: 40 folders, 5.22 GB.
 
-Two things stay regardless, and both look removable now: the csproj still sets
-`IncludeAllContentForSelfExtract`, because the README documents a single-file
-win-x64 publish and the App SDK validation fails that build without it; and
-`CopyBinFilesToPublishDir` stays for the reason above. Neither is the release's
-to need any more, which is exactly why the next person will delete them.
+That is what `Program.CleanupBundleExtractions` exists to pay, and the pairing is
+the point: **the bundle is affordable only because something reaps it**, so do
+not treat that method as housekeeping and do not weaken it to keep a folder
+"just in case". It deletes every extraction but the live one on each launch, so
+the steady state is one folder rather than one per release and an upgrade
+collects its predecessor's. win-x64 did ship as a folder of 224 loose DLLs for a
+few releases, between the report above and the cleanup landing; the shape to
+recognise is that the fix for the disk filling was never the loose DLLs, which
+cost the flag's other two bugs a place to hide and bought a zip nobody wanted.
 
-`Program.CleanupBundleExtractions` clears what is already on disk, since the
-build change cannot reach a folder written by an older release. It does not ask
-whether *this* build is bundled before looking - a non-bundled build is precisely
-the one that has stale folders and no live one. `AppContext.BaseDirectory` is
+The extraction is the *whole* bundle on this one RID and the native libraries
+alone on the others - measured on linux-x64 bundles of the same build, 123 MB
+with the flag against 49 MB without it. Which is also why the flag cannot simply
+be waived: the App SDK's check answers to
+`WindowsAppSDKSingleFileVerifyConfiguration=false`, but the redirection it is
+guarding is real, and an App SDK told to find its native DLLs beside the exe will
+not find them there.
+
+**That check's last clause looks unmet by this csproj and is not.** It warns that
+a single-file build must set `MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY` before
+program entry, which nothing here does by hand - because
+`WindowsAppSdkUndockedRegFreeWinRTInitialize` defaults to true wherever
+`WindowsAppSDKSelfContained` is set, and that is what generates the initializer
+which sets it. The default is keyed off a *different* property in a *different*
+package (`Microsoft.WindowsAppSDK.Foundation`'s
+`UndockedRegFreeWinRTCommon.targets`), so reading only the file that carries the
+warning says the opposite. Do not "fix" this by setting the variable in `Main` -
+that runs after the initializer, and the App SDK has already read it.
+
+Two things follow from that and are now load-bearing rather than vestigial: the
+csproj's `IncludeAllContentForSelfExtract`, which the shipped build sets, and
+`CopyBinFilesToPublishDir`, which puts back what it sweeps up. Both looked
+removable while win-x64 was multi-file. Neither is.
+
+`Program.CleanupBundleExtractions` does not ask whether *this* build is bundled
+before looking - a non-bundled build is precisely the one that has stale folders
+and no live one, which covers both anyone's own multi-file publish and the
+releases that shipped that way. `AppContext.BaseDirectory` is
 read there on purpose, being the extraction folder itself and so the authority on
 where the root is; that is the one question it answers well, and it is the exact
 opposite of the rule in (2), so it carries a comment saying so. A folder in use by
@@ -423,6 +448,62 @@ whatever it had not loaded yet. Verified by running it: a real linux-x64 bundle
 published with the flag, three planted folders deleted, its own kept, and one held
 under `flock` - which is what .NET's `FileShare.None` takes on Unix - kept and
 named in the log.
+
+And verified again across a version step, which is the case the steady state
+rests on rather than the planted one: two bundles of the same source differing
+only in `-p:Version` extract to *different* ids, and running the 2.8.39 one
+freed the 121.7 MB the 2.8.38 one had left, keeping its own. Two publishes at
+the same version share an id and reuse the folder, which is worth knowing before
+reading a check that says nothing was freed - the id follows the content, so
+"nothing to reap" and "the reap did not run" look alike from the outside.
+
+**The other RIDs were not covered by any of this for as long as they have been
+bundled, and finding the live folder is what fixes it.** Their bundles extract
+only native libraries, so the flag is off, so `AppContext.BaseDirectory` is the
+exe's own directory - which is the branch that told the method it was *not*
+running from a bundle. It then fell through to a root guessed from `%TEMP%`, and
+that guess is Windows-only, so a Linux or macOS machine collected the 49 MB per
+release measured above and nothing ever touched it.
+
+`GetLiveExtractionDir` asks **`NATIVE_DLL_SEARCH_DIRECTORIES`** first, which is
+where the host tells the runtime to look for native libraries and is therefore
+the extraction folder itself. Measured across all three publish shapes: it names
+the extraction folder both with the flag and without it, where
+`AppContext.BaseDirectory` names it only with, and both come back as the exe's
+own directory for a build that is not bundled at all. So it answers on every RID,
+and the root is its parent rather than a path composed from a guess.
+`BaseDirectory` stays behind it as the documented half of the same question.
+
+**Off Windows, `IsExtractionInUse` is not merely weak - it is blind, and it says
+so where it is deleting is safe.** `FileShare.None` is an advisory `flock` on
+Unix and the dynamic loader takes no such lock: measured, a `.so` another process
+has mapped opens cleanly *and deletes without complaint*, so every folder reads
+as free. Unlinking a mapped file does not disturb what that process has already
+loaded, which is why this is quiet rather than a crash - it strips it of whatever
+it had not got to yet. `OtherInstanceRunning` is the guard instead, asked once of
+the process list: any second instance stands the whole sweep down, since which
+folder is theirs cannot be told from here. Conservative on purpose, and it costs
+nothing that matters - the sweep runs at every launch, so it gets another chance.
+
+The Windows fallback root stays Windows-only, and now for a reason rather than
+for want of the path: off Windows the sweep only ever runs where this process's
+own folder is known and everything else is a sibling of it, and a build that is
+not bundled has no such anchor. That layout was measured too, and it is not what
+the old comment here guessed - there is no user name in the middle. The base is
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR` where it is set, and otherwise `~/.net`, with
+the home directory read out of the password database rather than the
+environment: unsetting `HOME` does not move it and `TMPDIR` has no bearing on it.
+Note that the env var replaces the base *including* the `.net` segment -
+`{var}/Nmkoder/{id}`, not `{var}/.net/Nmkoder/{id}`.
+
+Verified by running it, on real natives-only bundles of two versions: a 2.9.2
+build reaped its 2.9.1 predecessor's 49 MB extraction along with two planted
+folders and kept its own, where before this it did nothing at all; with a live
+process named `Nmkoder` beside it the same build kept everything and said so in
+the log, and swept as soon as that process was gone. The win-x64 shape was
+re-checked against the same tree - an `IncludeAllContentForSelfExtract` bundle
+still finds its own folder, still reaps the rest, and still writes `data` and
+`logs` beside the exe.
 
 `WindowsToast` touches App SDK types exclusively from `NoInlining` helper
 methods. That is deliberate: the JIT resolves types when it compiles a method,
