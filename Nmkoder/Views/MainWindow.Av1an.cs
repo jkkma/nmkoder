@@ -363,8 +363,10 @@ namespace Nmkoder.Views
             ConfigParser.RestoreIfSaved(CheckAv1anCopySubs);
             ConfigParser.RestoreIfSaved(CheckAv1anCopyData);
             ConfigParser.RestoreIfSaved(CheckAv1anCopyAttachs);
-            ConfigParser.RestoreIfSaved(Av1anCustomArgsBox);
-            ConfigParser.RestoreIfSaved(Av1anCustomEncArgsBox);
+            // No custom-argument boxes any more - the pair was removed at the user's request, the same
+            // way Quick Convert's went. Existing configs still carry the Av1anCustomArgsBox and
+            // Av1anCustomEncArgsBox keys; nothing reads them, and nothing should be wired back up on
+            // the strength of finding one there.
             ConfigParser.LoadFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
         }
 
@@ -389,8 +391,6 @@ namespace Nmkoder.Views
                 ConfigParser.SaveGuiElement(CheckAv1anCopySubs);
                 ConfigParser.SaveGuiElement(CheckAv1anCopyData);
                 ConfigParser.SaveGuiElement(CheckAv1anCopyAttachs);
-                ConfigParser.SaveGuiElement(Av1anCustomArgsBox);
-                ConfigParser.SaveGuiElement(Av1anCustomEncArgsBox);
                 ConfigParser.SaveFilterRows(Config.Key.Av1anCustomFilters, Av1anFilterRows);
             }
         }

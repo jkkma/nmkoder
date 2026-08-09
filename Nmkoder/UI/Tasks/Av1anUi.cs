@@ -355,7 +355,6 @@ namespace Nmkoder.UI.Tasks
             }
 
             dict.Add("threads", Form.Av1anThreadsUpDown.Value.AsInt().ToString());
-            dict.Add("custom", Form.Av1anCustomEncArgsBox.Text ?? "");
             dict.Add("advanced", BuildAdvancedArgs(Form.Av1anArgRows));
             return dict;
         }

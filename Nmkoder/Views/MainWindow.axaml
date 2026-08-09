@@ -442,12 +442,6 @@
 
                     <TextBlock Grid.Row="1" Grid.Column="3" Classes="field" Text="Threads per Worker" />
                     <NumericUpDown Grid.Row="1" Grid.Column="4" x:Name="Av1anThreadsUpDown" Classes="num" Minimum="1" Maximum="64" Increment="1" Value="2" ValueChanged="Av1anOption_ValueChanged" />
-
-                    <TextBlock Grid.Row="2" Grid.Column="3" Classes="field" Text="Custom av1an Args" />
-                    <TextBox Grid.Row="2" Grid.Column="4" x:Name="Av1anCustomArgsBox" />
-
-                    <TextBlock Grid.Row="3" Grid.Column="3" Classes="field" Text="Custom Encoder Args" />
-                    <TextBox Grid.Row="3" Grid.Column="4" x:Name="Av1anCustomEncArgsBox" />
                   </Grid>
                 </ScrollViewer>
               </TabItem>
