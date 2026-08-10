@@ -55,12 +55,8 @@
 
       <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Score with" />
       <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-        <ComboBox x:Name="MetricBox" Width="150" SelectionChanged="Setting_SelectionChanged"
-                  ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. XPSNR is a perceptually weighted PSNR and a useful second opinion. SSIMULACRA2 is not offered here: libvmaf has no such feature, so no FFmpeg build can compute it - this app scores it through VapourSynth instead, which is what the AV1AN tab's Target SSIMULACRA2 mode uses.">
-          <ComboBoxItem Content="VMAF" />
-          <ComboBoxItem Content="XPSNR" />
-          <ComboBoxItem Content="Nothing (size only)" />
-        </ComboBox>
+        <ComboBox x:Name="MetricBox" Width="200" SelectionChanged="Setting_SelectionChanged"
+                  ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. SSIMULACRA2 is scored through VapourSynth's vszip plugin - the same way the AV1AN tab scores its Target SSIMULACRA2 mode, bundled on Windows only - and the run says so if it cannot compute it here; no FFmpeg build can, libvmaf having no such feature. XPSNR is a perceptually weighted PSNR and a useful second opinion. The items are filled from code." />
         <ComboBox x:Name="VmafModelBox" Width="230" SelectionChanged="Setting_SelectionChanged">
           <ComboBoxItem Content="vmaf_v0.6.1 (Default)" />
           <ComboBoxItem Content="vmaf_v0.6.1neg (No Enhancement Gain)" />

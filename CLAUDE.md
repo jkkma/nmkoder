@@ -1811,26 +1811,57 @@ divides by it, so `ExtractSamples` probes each cut with ffprobe and `CrfLadder.S
 rather than the setting. A start point sitting exactly on a keyframe still steps back a whole GOP, which
 is the surprising half.
 
-**SSIMULACRA2 is not offered, and it is not a question of which ffmpeg build you use.** Measured against a
-current BtbN master build, `libvmaf=feature='name\=ssimulacra2'` fails the graph with "problem during
-vmaf_use_feature", where `psnr`, `float_ssim`, `float_ms_ssim`, `ciede` and `cambi` all take - and the
-reason is that **libvmaf has no such feature extractor at all.** `feature_extractor_list[]` in
-libvmaf 3.2.0 is psnr, ansnr, adm, vif, motion, moment, ms_ssim, ssim, ciede, psnr_hvs, cambi, their
-integer and CUDA variants, and null; the string `ssimulacra` appears in **zero** files of the whole
-repository, and in none of ffmpeg's either - there is no `vf_ssimulacra*` and `vf_libvmaf.c` never
-mentions it. So no build has it: not BtbN's, not gyan.dev's, not one compiled by hand. (The
-`ssimulacra2` string that *is* in the binary belongs to libaom's `--tune` enum, next to `qm-psnr`,
-`vmaf_neg` and `butteraugli` - a different library's list entirely, and an easy one to mistake for
-evidence.)
+**SSIMULACRA2 is not an ffmpeg metric and never can be, which is why it takes a whole second scoring
+path.** Measured against a current BtbN master build, `libvmaf=feature='name\=ssimulacra2'` fails the
+graph with "problem during vmaf_use_feature", where `psnr`, `float_ssim`, `float_ms_ssim`, `ciede` and
+`cambi` all take - and the reason is that **libvmaf has no such feature extractor at all.**
+`feature_extractor_list[]` in libvmaf 3.2.0 is psnr, ansnr, adm, vif, motion, moment, ms_ssim, ssim,
+ciede, psnr_hvs, cambi, their integer and CUDA variants, and null; the string `ssimulacra` appears in
+**zero** files of the whole repository, and in none of ffmpeg's either - there is no `vf_ssimulacra*`
+and `vf_libvmaf.c` never mentions it. So no build has it: not BtbN's, not gyan.dev's, not one compiled
+by hand. (The `ssimulacra2` string that *is* in a BtbN binary belongs to libaom's `--tune` enum, next to
+`qm-psnr`, `vmaf_neg` and `butteraugli` - a different library's list entirely, and an easy one to mistake
+for evidence.)
 
-Where this project does have SSIMULACRA2 is VapourSynth: `bundle-tools.sh` bundles vszip
-(`com.julek.vszip`) on Windows, which is what av1an's Target SSIMULACRA2 mode scores through. Bringing
-that to this utility is possible and is a different piece of work - a `.vpy` and a plugin probe, Windows
-only - rather than a flag on the ffmpeg command.
+**So it is scored through VapourSynth instead, the same plugin the AV1AN tab's Target SSIMULACRA2 mode
+uses.** `bundle-tools.sh` bundles vszip (`com.julek.vszip`, tag R13) on Windows; `Media/Ssimulacra2.cs`
+runs the bundled embeddable Python over a script that opens both files through the same LSMASH source
+QTGMC uses, calls `core.vszip.SSIMULACRA2(reference, distorted)`, and means over the per-frame
+`SSIMULACRA2` float property. vspipe cannot do this - it renders frames and discards their properties -
+so this is Python-with-the-module, the shape `VshipStager.ProbeDll` already established. **There are two
+vszip API generations and both are handled:** new vszip (and vship) expose `SSIMULACRA2` with the
+property `SSIMULACRA2`; legacy vszip is `Metrics` with `mode=0` and the property `_SSIMULACRA2`. The
+scoring script tries the functions in that order and reads whichever property is present, which is what
+av1an does and what keeps a vszip a user brought themselves working. The plugin does its own RGBS and
+linear-light conversion from a resolution-picked matrix, so nothing here has to tag the clips.
 
-XPSNR is the second opinion instead - a filter of ffmpeg's own, perceptually weighted where plain PSNR
+**Because it is Windows-and-vszip only, it is a refusal rather than a silent skip.** `Ssimulacra2`
+probes once per session by rendering one SSIMULACRA2 frame over a blank clip - presence is not
+loadability, the eedi3m lesson - and `UtilCrfLadder.Run` checks that *before* it cuts or encodes
+anything, so a machine without vszip is told to pick VMAF or XPSNR rather than encoding the whole grid
+and reporting every rung on size alone. `GoodScore` gives it its own recommendation anchor: **80**, the
+AV1AN tab's own target-quality default (VMAF's is 95), where 80 is "imperceptible side by side".
+
+**None of the VapourSynth half can be exercised in a web session** - there is no vszip and no
+VapourSynth - so what is checked here is the script *generation* (the path escaping round-trips through
+a nasty Windows path with backslashes, a space and both quote characters), the score *parse* (locale
+independent, last line wins among interleaved stderr), and the wiring (the refusal fires on this Linux
+box with a platform reason; the results window draws an `SSIMULACRA2` column and the 80-anchor
+recommendation). The computation itself is proven at release time: the win-x64 job renders a real
+SSIMULACRA2 frame through the bundled vszip - identical clips near 100, an inverted pair lower and
+finite - and fails the build if it cannot, the same way it proves the QTGMC toolchain. What a real
+machine still has to confirm is that the number tracks CRF on natural content.
+
+XPSNR is the second opinion, and it is a filter of ffmpeg's own, perceptually weighted where plain PSNR
 is not. It prints `XPSNR  y: 30.7897  u: 29.9396  v: 30.8069  (minimum: 29.9396)`, and `inf` for an
-identical pair, which is a real answer rather than a parse failure and is reported as one.
+identical pair, which is a real answer rather than a parse failure and is reported as one. It has no
+fixed ceiling, so `GoodScore` gives it no anchor and the results window draws no recommendation for it -
+only the table.
+
+**The metric enum is appended to, never reordered, because its numeric value is the saved setting.**
+`Vmaf`, `Xpsnr`, `None` came first and `Ssimulacra2` is `3`; the dialog drives its dropdown from
+`CrfLadder.MetricOrder` (display order: VMAF, SSIMULACRA2, XPSNR, Nothing) rather than from enum==index,
+so a metric can be slotted into the list anywhere without moving what an existing config restores.
 
 **The model is named by version, and the escaping was checked at the far end rather than at the parse.**
 The filter goes through `Shell.WrapArg` exactly as `UtilGetMetrics` builds it, backslash-escaped `=` and

@@ -23,15 +23,10 @@ namespace Nmkoder.Views
     /// </summary>
     public partial class CrfLadderResultsWindow : Window
     {
-        /// <summary>
-        /// The VMAF the "highest CRF still worth using" line is drawn at.
-        /// <para/>
-        /// A rule of thumb rather than a threshold with anything behind it: 95 is where the usual
-        /// advice puts "hard to tell from the source on a normal screen", and the line says as much.
-        /// It exists because a column of scores is not an answer and the whole point of the utility is
-        /// to produce one.
-        /// </summary>
-        private const double GoodVmaf = 95;
+        // The "highest CRF still worth using" line is drawn at CrfLadder.GoodScore(metric) - VMAF 95,
+        // SSIMULACRA2 80, both the app's own target-quality anchors - and not at all for XPSNR, which
+        // has no fixed ceiling. A rule of thumb rather than a threshold with anything behind it: it
+        // exists because a column of scores is not an answer, and the whole point is to produce one.
 
         public CrfLadderResultsWindow()
         {
@@ -70,7 +65,7 @@ namespace Nmkoder.Views
 
             if (score != null)
             {
-                score.Header = result.ScoredWith == CrfLadder.Metric.Xpsnr ? "XPSNR" : "VMAF";
+                score.Header = CrfLadder.MetricName(result.ScoredWith);
                 score.IsVisible = result.ScoredWith != CrfLadder.Metric.None;
             }
 
@@ -108,20 +103,25 @@ namespace Nmkoder.Views
         private static string BuildNote(CrfLadder.Result result)
         {
             var lines = new List<string>();
+            double good = CrfLadder.GoodScore(result.ScoredWith);
 
-            if (result.ScoredWith == CrfLadder.Metric.Vmaf)
+            // A recommendation is drawn only where the metric has an anchor worth naming - VMAF and
+            // SSIMULACRA2 do (95 and 80), XPSNR does not - so GoodScore returns 0 for the rest and the
+            // table stands on its own there.
+            if (good > 0)
             {
+                string metric = CrfLadder.MetricName(result.ScoredWith);
                 // The highest CRF - the smallest file - that still scores well, which is the way this
                 // is read: quality is being spent down to the point where it stops being worth it.
-                CrfLadder.Rung pick = result.Rungs.Where(r => r.Scored && r.Score >= GoodVmaf).OrderByDescending(r => r.Crf).FirstOrDefault();
+                CrfLadder.Rung pick = result.Rungs.Where(r => r.Scored && r.Score >= good).OrderByDescending(r => r.Crf).FirstOrDefault();
 
                 if (pick != null)
-                    lines.Add($"CRF {pick.Crf} is the highest here that still scores above VMAF {GoodVmaf} — about " +
+                    lines.Add($"CRF {pick.Crf} is the highest here that still scores above {metric} {good:0.#} — about " +
                         $"{FormatUtils.Bytes(pick.ProjectedBytes(result.SourceMs))} for the whole file. That threshold is a " +
                         $"rule of thumb for \"hard to tell from the source\", not a measurement of your eyes: look at the " +
                         $"samples before committing to a long encode.");
                 else if (result.Rungs.Any(r => r.Scored))
-                    lines.Add($"Nothing here reached VMAF {GoodVmaf}. Run it again with lower CRF values — " +
+                    lines.Add($"Nothing here reached {metric} {good:0.#}. Run it again with lower CRF values — " +
                         $"the box takes any list, and lower is better quality on every encoder offered.");
             }
 
@@ -145,8 +145,7 @@ namespace Nmkoder.Views
             sb.AppendLine(DescribeSamples(_result));
             sb.AppendLine();
 
-            string metric = _result.ScoredWith == CrfLadder.Metric.Xpsnr ? "XPSNR"
-                : _result.ScoredWith == CrfLadder.Metric.Vmaf ? "VMAF" : "";
+            string metric = _result.ScoredWith == CrfLadder.Metric.None ? "" : CrfLadder.MetricName(_result.ScoredWith);
 
             sb.AppendLine($"CRF\tBitrate\tPer minute\tWhole file{(metric.IsEmpty() ? "" : $"\t{metric}")}");
 
