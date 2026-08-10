@@ -25,14 +25,21 @@ namespace Nmkoder.Media
     /// grain measurement pass downstream measures the picture the encoder will get.
     /// <para/>
     /// Near-lossless x264 like the deinterlace pass, not lossless like the denoise pass, because the
-    /// output is encoded again rather than measured against. The preset is faster than that pass's
-    /// <c>medium</c>: this one routinely runs at UHD sizes, where medium costs hours for size nothing
-    /// downstream would notice, and the GPU filter in front of it is quick.
+    /// output is encoded again rather than measured against. **The settings were chosen by measuring
+    /// what survives them, and the thing measured was grain** - this file is what av1an encodes, so
+    /// texture the intermediate loses is texture the final encode cannot have, and the grain passes
+    /// downstream measure this very file. High-frequency energy of heavy synthetic grain through CRF
+    /// 12: <c>veryfast</c> keeps 90.5% - the preset's trellis 0 and thin analysis, not the CRF, since
+    /// even CRF 3 veryfast only reaches 96.4% - <c>medium</c> keeps 98.5%, and <c>fast</c> with
+    /// <c>-tune grain</c> keeps 100% while sitting a whole preset step quicker than medium at the UHD
+    /// sizes this pass routinely runs at. So: fast, tuned for grain, unconditionally - a clean
+    /// source pays a little bitrate on a temporary file, and fidelity is this file's entire job.
     /// </summary>
     class ToneMapPass
     {
         private const int Crf = 12;
-        private const string Preset = "veryfast";
+        private const string Preset = "fast";
+        private const string Tune = "grain";
 
         /// <summary> What the finished file will be, for the log line that announces the run. </summary>
         public static string DescribeOutput()
@@ -76,7 +83,7 @@ namespace Nmkoder.Media
             // reasoning: re-encoding audio on the way through would cost quality for nothing.
             string args = $"-i {inPath.Wrap()} -map 0:v:0 -map 0:a? -map 0:s? -map 0:t? " +
                 $"{ToneMapConfig.DeviceArgs} -vf \"{filter}\" " +
-                $"-c:v libx264 -crf {Crf} -preset {Preset} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
+                $"-c:v libx264 -crf {Crf} -preset {Preset} -tune {Tune} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
                 $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()}";
 
             var settings = new AvProcess.FfmpegSettings
