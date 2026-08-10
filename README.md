@@ -168,8 +168,10 @@ Each heading below expands.
   conversion rather than the source. On a GPU this also renders once in front of av1an - peak
   detection needs one continuous run, where av1an would restart it at every chunk - and when grain
   synthesis needs a denoised copy, both files come out of that one command. Every intermediate in
-  the chain is lossless, and scene detection runs alongside these passes rather than after them,
-  since none of them changes a frame number
+  the chain is lossless, and sized to the encode rather than to the source: the resize, crop and
+  borders render in the same pass, so tone-mapping a 4K film down to 1080p writes a 1080p
+  intermediate - a quarter of the pixels, and of the disk. Scene detection runs alongside these
+  passes rather than after them, since none of them changes a frame number
 - **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
   encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
   denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,

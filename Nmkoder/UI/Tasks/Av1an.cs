@@ -121,6 +121,11 @@ namespace Nmkoder.UI.Tasks
             // The --scenes argument this run appended, exactly as appended, so the retry below can
             // take it back out of the command with a plain string replace. Empty when none was.
             string scenesArg = "";
+            // The encode's geometry, hoisted with the snapshots above for the same reason: it is
+            // resolved while the arguments are built and read again by the tone-map pass far below,
+            // which renders the geometry itself when frame.GeometryInPass says so. Null exactly when
+            // a replayed resume skipped building arguments - the same runs that skip the passes.
+            Av1anFrame frame = null;
 
             try
             {
@@ -353,7 +358,7 @@ namespace Nmkoder.UI.Tasks
                     // file it came from, and a crop or a resize makes the two different sizes. This is
                     // also where an automatic crop gets measured, which is why the filters below are
                     // handed the answer instead of going and asking for it a second time.
-                    Av1anFrame frame = await ResolveFrameAsync();
+                    frame = await ResolveFrameAsync();
 
                     // Said here as well as on the tab's readout, because this is the last point at which
                     // it can be said clearly. ffmpeg refuses a frame this large from inside av1an, one
@@ -416,7 +421,22 @@ namespace Nmkoder.UI.Tasks
                         TrackList.current.File.ColorData = sourceColor;
                     }
 
+                    // Whether the tone-map pass in front renders the geometry too, decided before
+                    // either chain is built so the filters land in exactly one of them. Folding it in
+                    // is what sizes the pass's lossless intermediate to the *encode* instead of the
+                    // source - a 4K film scaled to 1080p otherwise pays FFV1 for four times the
+                    // pixels the encoder ever sees, reported at tens of gigabytes for a five-minute
+                    // test clip - and it puts the real frames in front of the target-quality probes
+                    // and the grain passes as a side effect. The one thing that may not move with it
+                    // is a per-chunk deinterlacer: that filter must see whole fields, and the pass
+                    // runs first - so bwdif in the chain keeps the geometry per-chunk, behind it,
+                    // where it always was. (QTGMC is no such obstacle: its pass runs *before* this
+                    // one, so its filter string here is empty.)
+                    frame.GeometryInPass = Av1anUi.ToneMapRendersInFront(sourceColor)
+                        && Av1anUi.CurrentDeinterlace.GetFfmpegFilter().IsEmpty();
+
                     string vf = GetVideoFilterArgs(frame, sourceColor, codecArgs);
+                    frame.PassGeometryFilters = Av1anUi.GetPassGeometryFilterArgs(frame);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
                     // audio track, and this tab has one bitrate and one channel count for all of them.
@@ -475,8 +495,11 @@ namespace Nmkoder.UI.Tasks
                     // neither memory nor the box to change. Everything the estimate needs is settled by
                     // here - the encoder, the frame it is handed, the source it comes from and the chain
                     // in between.
+                    // With the geometry folded into the pass, the workers decode the pass's output -
+                    // frames already at the encoded size - so that is the size their decode is priced
+                    // at, and the residual chain (often empty now) is what the filter ffmpeg costs.
                     string memoryProblem = Av1anMemory.GetProblem(form.Av1anOptsWorkerCountUpDown.Value.AsInt(),
-                        vCodec, frame.Encoded, frame.Source, vf);
+                        vCodec, frame.Encoded, frame.GeometryInPass ? frame.Encoded : frame.Source, vf);
 
                     if (memoryProblem.IsNotEmpty())
                         Logger.LogWarn(memoryProblem);
@@ -683,7 +706,7 @@ namespace Nmkoder.UI.Tasks
                     // Third, on whatever the first two left, and ahead of the grain pass below on
                     // purpose: the grain has to be measured on the frames that will be encoded, and
                     // once this runs those are the SDR frames it produces.
-                    string toneMapped = await RenderToneMappedInput(inPath, tempDir, resume);
+                    string toneMapped = await RenderToneMappedInput(inPath, tempDir, resume, frame);
 
                     if (RunTask.canceled || RunTask.failed)
                     {
@@ -935,7 +958,10 @@ namespace Nmkoder.UI.Tasks
             string note = "Note: av1an encodes its target quality probes from the source, not from the filtered " +
                 "frames, so the video filters set on this tab are invisible to the quality search.";
 
-            if (frame != null && frame.ChangesSize)
+            // Only when the size change actually happens per-chunk. With the geometry folded into
+            // the tone-map pass, av1an's input - and so every probe - is already the encoded frame,
+            // and this clause would claim the opposite of what the fold just fixed.
+            if (frame != null && frame.ChangesSize && !frame.GeometryInPass)
                 note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
                     $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
                     "the target at the source's size rather than at the size being written. Encoding at the source's " +
@@ -1079,7 +1105,7 @@ namespace Nmkoder.UI.Tasks
         /// the gate: the grain must be measured on the SDR frames being encoded, and those passes run
         /// on files, in front of av1an, where a per-chunk tone map cannot have happened yet.
         /// </summary>
-        private static async Task<string> RenderToneMappedInput(string inPath, string tempDir, bool resume)
+        private static async Task<string> RenderToneMappedInput(string inPath, string tempDir, bool resume, Av1anFrame frame)
         {
             ToneMapConfig config = Av1anUi.CurrentToneMap;
             VideoColorData srcColor = TrackList.current?.File?.ColorData;
@@ -1097,9 +1123,32 @@ namespace Nmkoder.UI.Tasks
             // a fresh run mints a temp folder from the clock, so there is never one here already.
             if (resume && IoUtils.GetFilesize(outPath) > 0)
             {
-                Logger.Log($"Reusing the tone-mapped file this encode was started from ('{Path.GetFileName(outPath)}'). " +
-                    $"The pass is not run again and the Tone Mapping setting is not re-read - delete that file to redo it.");
-                return outPath;
+                // With the geometry rendered by this pass, a kept file is only reusable if it holds
+                // the frames the rebuilt command now expects - and a resume with current settings
+                // re-reads the resize, the crop and the borders, so the two can disagree. The frame
+                // size is the whole contract: folded, the file must already be the encoded frame;
+                // unfolded, it must still be the source's, or a chain built to scale it would scale
+                // it twice. One ffprobe answers it, against a kept file worth hours.
+                Size expected = frame.GeometryInPass ? frame.Encoded : frame.Source;
+                Size kept = await GetMediaResolutionCached.GetSizeAsync(outPath);
+
+                if (!expected.IsEmpty && !kept.IsEmpty && kept != expected)
+                {
+                    Logger.Log($"The tone-mapped file this resume kept is {kept.Width}x{kept.Height} where the encode now " +
+                        $"wants {expected.Width}x{expected.Height} - the geometry settings changed since it was rendered - " +
+                        $"so it is rendered again. The denoised copy and grain table measured against it go with it.");
+                    IoUtils.TryDeleteIfExists(outPath);
+                    // Stale with their sibling: a denoised file at the old size would be reused by the
+                    // grain pass below and diffed against a file it no longer matches.
+                    IoUtils.TryDeleteIfExists(Av1anUi.GetDenoisedInputPath(tempDir));
+                    IoUtils.TryDeleteIfExists(Av1anUi.GetGrainTablePath(tempDir));
+                }
+                else
+                {
+                    Logger.Log($"Reusing the tone-mapped file this encode was started from ('{Path.GetFileName(outPath)}'). " +
+                        $"The pass is not run again and the Tone Mapping setting is not re-read - delete that file to redo it.");
+                    return outPath;
+                }
             }
 
             // The denoised copy the grain passes want is written as a second output of this same
@@ -1113,6 +1162,22 @@ namespace Nmkoder.UI.Tasks
             bool fuseDenoise = grainPlan != null && grainPlan.NeedsDenoisePass;
             string denoisedPath = Av1anUi.GetDenoisedInputPath(tempDir);
 
+            // The size clause is most of what this announce is for - lossless intermediates are the
+            // largest files this app writes, and the report that shaped it was ~40 GB of FFV1 for a
+            // five-minute 4K test clip whose encode was 1080p. With the geometry folded in, the
+            // honest statement is the smaller one: the file holds the encode's frames, not the
+            // source's. Folded geometry that grows the frame (borders, an upscale) keeps the plain
+            // sentence, which stays true.
+            long encodedPx = (long)frame.Encoded.Width * frame.Encoded.Height;
+            long sourcePx = (long)frame.Source.Width * frame.Source.Height;
+            bool shrinks = frame.GeometryInPass && frame.ChangesSize && encodedPx < sourcePx && sourcePx > 0;
+            string sizeClause = shrinks
+                ? $"this is a full pass over the video, rendered straight to the {frame.Encoded.Width}x{frame.Encoded.Height} " +
+                    $"the encode wants - the resize, crop and borders run in this same pass, so the lossless temporary file " +
+                    $"carries {encodedPx * 100 / sourcePx}% of the pixels it would cost at the source's " +
+                    $"{frame.Source.Width}x{frame.Source.Height}."
+                : "this is a full pass over the video, and lossless output means a temporary file several times the source's size.";
+
             Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with " +
                 (config.UseLibplacebo
                     ? $"libplacebo, into {ToneMapPass.DescribeOutput()} that av1an will then encode. Its peak detection " +
@@ -1121,13 +1186,13 @@ namespace Nmkoder.UI.Tasks
                     : $"FFmpeg's zscale chain, into {ToneMapPass.DescribeOutput()} that av1an will then encode. The grain " +
                         $"pass that follows must measure the SDR frames the encoder will get - measured on the HDR source, " +
                         $"the grain table would carry the wrong amplitudes - so the tone map runs once here in front; ") +
-                $"this is a full pass over the video, and lossless output means a temporary file several times the source's size." +
+                sizeClause +
                 (fuseDenoise ? $" The denoised copy the grain synthesis needs ({grainPlan.Config.GetDenoiseFilter()}, " +
                     $"{DenoisePass.DescribeOutput()}) is written by the same command, so the film is decoded once for both." : ""));
 
             string problem = fuseDenoise
-                ? await ToneMapPass.RunFusedAsync(config, srcColor, grainPlan.Config, inPath, outPath, denoisedPath, file)
-                : await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file);
+                ? await ToneMapPass.RunFusedAsync(config, srcColor, grainPlan.Config, inPath, outPath, denoisedPath, file, frame.PassGeometryFilters)
+                : await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file, frame.PassGeometryFilters);
 
             if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
             {

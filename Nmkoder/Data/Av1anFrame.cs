@@ -63,6 +63,25 @@ namespace Nmkoder.Data
         public BorderPad Border = BorderPad.None(Size.Empty);
 
         /// <summary>
+        /// Whether the geometry above - the crop, the mod-2 pad, the resize or de-squeeze, and the
+        /// borders - is rendered by the tone-map pass in front of av1an instead of by the per-chunk
+        /// filter chain. Set by Av1an.Run exactly when that pass runs and no per-chunk deinterlacer
+        /// sits ahead of the geometry (a deinterlacer must see whole fields, and the pass runs first).
+        /// <para/>
+        /// What it buys is the intermediate's size: the pass writes lossless FFV1, and written at the
+        /// source's frame it carries pixels the encoder never sees - a 4K film scaled to 1080p costs
+        /// four times the disk it needs to, reported at tens of gigabytes for a five-minute test clip.
+        /// The frames that come out are the same either way: the pass renders the exact filters, in
+        /// the exact order, that the per-chunk chain would have run on its output.
+        /// </summary>
+        public bool GeometryInPass;
+
+        /// <summary> Those geometry filters as one chain for the pass to append, "" where
+        /// <see cref="GeometryInPass"/> is off or nothing changes the frame. Built once, beside the
+        /// per-chunk chain, so the two cannot disagree about what runs where. </summary>
+        public string PassGeometryFilters = "";
+
+        /// <summary>
         /// The frame rate filter the chain carries, or "" where the encode keeps the source's rate.
         /// <para/>
         /// Not geometry, but settled in the same pass and for the same reason: av1an has to be told
