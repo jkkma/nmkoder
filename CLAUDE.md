@@ -2045,7 +2045,7 @@ for the same verdict a moment later.
 **An engine picked by name must not outlive the file it was picked for.** What made that a trap was
 that the mode was sticky and nothing cleared it: it was saved per tab and restored at startup, so a
 QTGMC picked for a tape was still armed days later, and on the AV1AN tab that is a full pass over the
-video into a near-lossless intermediate before av1an starts. 2.8.12 shipped that - a progressive 1080p
+video into a lossless intermediate before av1an starts. 2.8.12 shipped that - a progressive 1080p
 WEB-DL got hours of QTGMC Very Slow and 47.952 fps of interpolated fields, with nothing wrong anywhere
 in the detection, which had read it correctly and said so on screen. Hiding the row is what closes
 that case for good; the resets below still matter for the file the row *is* shown for.
@@ -2347,8 +2347,9 @@ came back with the frame the sequential render calls 298, where the same video r
 landed on 300 exactly.
 
 **The Deinterlace Video utility exports a file and stops.** It shares the pass - `DeinterlacePass`
-is the one place the near-lossless x264 MKV with its audio and subtitles copied is written - and
-its output is the deliverable rather than a step on the way to a tab. Until 2.8.10 it was that
+is the one place a deinterlaced MKV with its audio and subtitles copied is written, near-lossless
+x264 for this utility's deliverable and lossless FFV1 for the AV1AN tab's intermediate, the split
+its own doc explains - and its output is the deliverable rather than a step on the way to a tab. Until 2.8.10 it was that
 step, and loaded its own result into the file list to make the AV1AN tab reachable; the tab
 reaches QTGMC itself now, so the loading is gone, along with the muxing-mode and batch carve-outs
 that guarded it. A utility that exports a file has no business rearranging the file list on the
@@ -2592,9 +2593,10 @@ resume must find both rather than spend the hours again. Both are deleted togeth
 denoised file with no table beside it would be reused by the next resume as though it had been
 measured, and encoded with no grain description at all.
 
-**`DenoisePass` is lossless where `DeinterlacePass` beside it is deliberately near-lossless, and the
-difference is what the output is for.** That pass writes a file to be looked at or encoded again, where
-x264 at CRF 12 is indistinguishable and a tenth of the size. This one writes a file to be *measured
+**`DenoisePass` is lossless, and what began as its distinction is the whole pipeline's now: the
+difference is what an output is for.** `DeinterlacePass` stays near-lossless x264 only for the
+Deinterlace Video utility's deliverable, a file to be looked at, where CRF 12 is indistinguishable
+and a tenth of the size; every AV1AN input pass - deinterlace included - is lossless FFV1. This one writes a file to be *measured
 against*, and whatever a lossy codec adds is a difference between the two files that is not grain -
 grain being precisely the small high-frequency signal a quantiser disturbs first. Hence FFV1, and a
 temporary file larger than the source, which the row says before the run rather than a full disk saying

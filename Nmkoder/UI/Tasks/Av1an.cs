@@ -991,13 +991,16 @@ namespace Nmkoder.UI.Tasks
             }
 
             Logger.Log($"Deinterlacing {(trimmed ? "the section to encode" : $"'{file?.Name.Trunc(40)}'")} with {plan.Describe()}, " +
-                $"into {DeinterlacePass.DescribeOutput()} that av1an will then encode. QTGMC cannot run inside av1an, so it " +
-                $"runs once here instead; this is a full pass over the video and its output is a temporary file the size of one.");
+                $"into {DeinterlacePass.DescribeOutput(lossless: true)} that av1an will then encode. QTGMC cannot run inside av1an, so it " +
+                $"runs once here instead; this is a full pass over the video, and lossless output means a temporary file " +
+                $"several times the source's size.");
 
             // The loaded file either way - the cut copy carries its track layout - but only the
             // whole of it when nothing was cut, since a section's length is not the length that file
             // reports and the progress target would be measured against the wrong number.
-            string problem = await DeinterlacePass.RunAsync(plan, inPath, outPath, "qtgmc-av1an", file, wholeSource: !trimmed);
+            // Lossless, unlike the utility's export: this file is an encode-pipeline intermediate, and
+            // the pipeline is generation-free everywhere else now.
+            string problem = await DeinterlacePass.RunAsync(plan, inPath, outPath, "qtgmc-av1an", file, wholeSource: !trimmed, lossless: true);
 
             if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
             {

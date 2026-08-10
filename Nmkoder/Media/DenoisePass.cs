@@ -12,13 +12,15 @@ namespace Nmkoder.Media
     /// Measured mode, which diffs the source against this copy to find out what the grain in it is, and
     /// then encodes this copy so that the grain is described rather than coded.
     /// <para/>
-    /// **It is lossless, where <see cref="DeinterlacePass"/> beside it is deliberately near-lossless, and
-    /// the difference is what the output is for.** That pass writes a file to be looked at or encoded
-    /// again, where x264 at CRF 12 is indistinguishable from the source and a tenth of the size. This one
-    /// writes a file to be *measured against*: whatever a lossy codec adds is a difference between the two
-    /// files that is not grain, and grain is precisely the small high-frequency signal a quantiser
-    /// disturbs first. So FFV1, and the size that comes with it - which is the honest cost of the mode and
-    /// is stated on the row rather than discovered on a full disk.
+    /// **It is lossless, and what began as this pass's distinction is the whole encode pipeline's now.**
+    /// The argument was always about what an output is for: a file to be *measured against* cannot carry
+    /// a codec's additions, grain being precisely the small high-frequency signal a quantiser disturbs
+    /// first - and the same reasoning has since taken every AV1AN input pass to FFV1, the tone map and
+    /// the deinterlace included, because each of those files is what av1an encodes and a generation
+    /// there was a ceiling on the final picture. <see cref="DeinterlacePass"/> keeps its near-lossless
+    /// x264 shape only for the Deinterlace Video utility's deliverable, a file to be looked at. The
+    /// size that lossless costs is the honest price of all of it, stated on the row and in the passes'
+    /// announce lines rather than discovered on a full disk.
     /// </summary>
     class DenoisePass
     {
