@@ -263,7 +263,7 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   Optionally one frame per field, so none of the motion is thrown away.
 - **Both encode tabs deinterlace.** av1an filters each chunk with ffmpeg, which has nowhere to
   evaluate a VapourSynth script, so picking QTGMC there renders the video through it once beforehand
-  into a near-lossless intermediate and encodes that.
+  into a lossless intermediate and encodes that.
 - **A Deinterlace Video utility** for when the deinterlaced file itself is what you want, with its
   own settings separate from either tab's.
 
@@ -281,11 +281,10 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   film 30-odd code values darker than a player that measures the signal - which is exactly what mpv
   does, and why the source "looked brighter" there. On a GPU, libplacebo's peak detection measures
   every frame; without one, a sampled scan reads the brightest real pixel off the file and the
-  declared value only caps it. The declared metadata cannot simply be trusted *or* passed along:
-  measured, FFmpeg's own tone-mapper reads none of it - the same clip with and without MaxCLL and a
-  mastering display tone-maps identically - and the widely-copied chain's default clips everything
-  above about 374 nits to flat white. The encode log states measured, declared and effective peaks
-  per file.
+  declared value only caps it. None of this can be left to FFmpeg itself: measured, its tone-mapper
+  reads no metadata at all - the same clip with and without MaxCLL and a mastering display
+  tone-maps identically - and the widely-copied chain's default clips everything above about 374
+  nits to flat white. The encode log states measured, declared and effective peaks per file.
 - It runs **before any crop, scale or burnt-in subtitle**, so subtitles are not dragged through a
   gamut conversion written for the picture, and the output is retagged BT.709 with the HDR metadata
   dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would
