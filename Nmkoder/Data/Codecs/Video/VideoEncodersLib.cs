@@ -263,10 +263,37 @@ namespace Nmkoder.Data.Codecs.Video
             string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-g ", vbr ? 255 : 480); // SVT can't do GOP size >255 in VBR mode
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
             string tiles = ""; // TEMP DISABLED AS IT SEEMS TO SLOW THINGS DOWN // CodecUtils.GetTilingArgs(mediaFile.VideoStreams.FirstOrDefault().Resolution, "-tile_rows ", "-tile_columns ");
-            // The Advanced tab's grid, as one "-svtav1-params". Note that the SVT-AV1 behind this is
-            // the one compiled into ffmpeg, not the svt-av1-hdr binary bundle-tools.sh fetches for
-            // av1an - so its list is a shorter one, and is written against what ffmpeg's library takes.
-            string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(LibSvtAv1), encArgs["advanced"]) : "";
+            // Everything this encode says to SVT-AV1 goes into one "-svtav1-params", the Grain Synthesis
+            // row and the Advanced tab's grid alike - a second one replaces the first outright rather
+            // than adding to it, which is measured and is why Libx265 above merges its own settings the
+            // same way. Note that the SVT-AV1 behind this is the one compiled into ffmpeg, not the
+            // svt-av1-hdr binary bundle-tools.sh fetches for av1an: its list is a shorter one, written
+            // against what ffmpeg's library takes, and it has no --fgs-table - so this encoder is only
+            // ever handed a strength, never a grain table.
+            List<string> svt = new List<string>();
+            int grain = encArgs.ContainsKey("grainSynthStrength") ? encArgs["grainSynthStrength"].GetInt() : 0;
+
+            if (grain > 0)
+            {
+                // The denoise flag is only written beside a strength, because SVT reads it only on the
+                // film-grain path and answers one set against --film-grain 0 with "ignored when film
+                // grain is off" - a warning that goes to a stderr nothing here reads.
+                svt.Add($"film-grain={grain}");
+                svt.Add($"film-grain-denoise={(encArgs.ContainsKey("grainSynthDenoise") && encArgs["grainSynthDenoise"].GetBool() ? 1 : 0)}");
+            }
+
+            // The grid goes last on purpose, so that a parameter named by both is left holding the value
+            // typed into the Advanced tab. ffmpeg parses this list with av_dict_parse_string, which sets
+            // each pair into an AVDictionary that replaces an equal key rather than keeping both unless
+            // it is asked for AV_DICT_MULTIKEY - so the later entry is the one the library is handed.
+            // That is ffmpeg's documented dictionary behaviour rather than something measured here; what
+            // *is* measured is the same precedence on libaom below, where the grid's -aom-params entry
+            // beats the AVOption the row writes. One rule for both encoders is worth more than a wash
+            // between them, and QuickConvertUi.GetGrainSynthProblem reports whichever pair has met.
+            if (encArgs.ContainsKey("advanced"))
+                svt.AddRange(FfmpegEncoderArgs.Pairs(encArgs["advanced"]));
+
+            string adv = svt.Count > 0 ? $"-svtav1-params {FfmpegEncoderArgs.ParamsList(svt)}" : "";
             return new CodecArgs($"-c:v libsvtav1 {p} {rc} -preset {preset} {g} {tiles} -pix_fmt {pixFmt} {adv}");
         }
     }
@@ -299,15 +326,22 @@ namespace Nmkoder.Data.Codecs.Video
             string q = encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
             string pixFmt = encArgs.ContainsKey("pixFmt") ? encArgs["pixFmt"] : PixFmtUtils.GetFormat(ColorFormats[ColorFormatDefault]).Name;
+            // The Grain Synthesis row's two arguments, as AVOptions - libaom's parameter list is reached
+            // through "-aom-params" but these two have AVOptions of their own, and an AVOption cannot be
+            // written into the same list the grid builds. The denoise flag only goes out beside a
+            // strength: it applies "when denoise-noise-level is enabled" and libaom defaults it to 1, so
+            // sending it at a strength of 0 would be setting a switch on a denoiser that is not running.
             string grain = encArgs.ContainsKey("grainSynthStrength") ? encArgs["grainSynthStrength"] : "0";
-            //string denoise = encArgs.ContainsKey("grainSynthDenoise") ? (encArgs["grainSynthDenoise"].GetBool() ? "1" : "0") : "0";
+            string denoise = grain.GetInt() > 0
+                ? $"-enable-dnl-denoising {(encArgs.ContainsKey("grainSynthDenoise") && encArgs["grainSynthDenoise"].GetBool() ? 1 : 0)}"
+                : "";
             string tiles = CodecUtils.GetTilingArgs(CodecUtils.GetEncodedFrameSize(encArgs, mediaFile), "-tile-rows ", "-tile-columns ");
             string rc = vbr ? $"-b:v {(encArgs.ContainsKey("bitrate") ? encArgs["bitrate"] : "0")}k" : $"-crf {q} -b:v 0";
             string p = pass == Pass.OneOfOne ? "" : (pass == Pass.OneOfTwo ? "-pass 1" : "-pass 2");
             // The Advanced tab's grid, as one "-aom-params". This is the one encoder here that refuses
             // the whole encode over a parameter it does not know rather than warning and carrying on.
             string adv = encArgs.ContainsKey("advanced") ? FfmpegEncoderArgs.Render(nameof(LibAomAv1), encArgs["advanced"]) : "";
-            return new CodecArgs($"-c:v libaom-av1 {p} {rc} -cpu-used {preset} -row-mt 1 -denoise-noise-level {grain} {tiles} {g} -pix_fmt {pixFmt} {adv}");
+            return new CodecArgs($"-c:v libaom-av1 {p} {rc} -cpu-used {preset} -row-mt 1 -denoise-noise-level {grain} {denoise} {tiles} {g} -pix_fmt {pixFmt} {adv}");
         }
     }
 

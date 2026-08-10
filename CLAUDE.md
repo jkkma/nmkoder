@@ -1398,13 +1398,24 @@ the shorter one. Do not "fix" it by pointing Quick Convert at the PSY list: thos
 by ffmpeg, dropped by the library with a warning nothing here reads, and encode as though they had never
 been set.
 
-**One row deliberately overrides an argument the app sends itself, and it is the only one.** Quick
-Convert has no grain-synthesis control, so `LibAomAv1.GetArgs` always sends `-denoise-noise-level 0` -
-which left `enable-dnl-denoising` sitting in the grid beside it unable to do anything, that parameter
-only applying where the denoiser is on. Measured, the grid's `-aom-params denoise-noise-level=N` beats
-the AVOption: the files differ, and with denoising on, `enable-dnl-denoising=0` changes the output
-again. So the fix was the missing partner row rather than deleting the orphan, and AV1 grain synthesis
-is reachable on that tab. Every other row is a parameter the app does not set.
+**Four rows now name an argument the Grain Synthesis row also writes, and the grid wins all four.**
+`denoise-noise-level` and `enable-dnl-denoising` on libaom, `film-grain` and `film-grain-denoise` on
+libsvtav1. On libaom that precedence is measured rather than arranged: the grid's `-aom-params
+denoise-noise-level=N` beats the AVOption `LibAomAv1.GetArgs` writes - the files differ, and with
+denoising on, `enable-dnl-denoising=0` changes the output again. On libsvtav1 both copies land in the
+one `":"`-joined `-svtav1-params`, which ffmpeg parses with `av_dict_parse_string` into an AVDictionary
+that replaces an equal key unless asked for `AV_DICT_MULTIKEY` - so the later entry is the one handed to
+the library, and `GetArgs` appends the grid *after* the row deliberately to give both encoders the same
+rule rather than a wash between them. That half is ffmpeg's documented dictionary behaviour rather than
+something measured here; the libaom half is measured. Worth re-checking with a real encode.
+`QuickConvertUi.GetGrainSynthProblem` names whichever pair has met, because from the outside the
+number that runs is not the one the row is showing. Every other row is a parameter the app does not set.
+
+Two of those four predate the row and were the whole of AV1 grain synthesis on this tab: with no
+control to own it, `LibAomAv1.GetArgs` sent a hardcoded `-denoise-noise-level 0` and `enable-dnl-denoising`
+sat in the grid beside it unable to do anything, that parameter only applying where the denoiser is on.
+The partner row was added rather than the orphan deleted, which is why the grid can still reach all of
+it - a grain setting typed there is still a supported thing to do, it is only no longer the only door.
 
 **`LibSvtAv1` used to send a `-rc vbr` that did nothing, and `Gif` used to let the palette size go
 below what its own filter accepts.** Neither came from this tab; both were found by running its
@@ -2404,6 +2415,31 @@ Deinterlace Video: utilities write a file, the tabs' own settings apply during a
 reads the other's. `GrainSynthConfig.EncodeModes` is the row's list; the enum keeps `Preset` and
 `PhotonNoise` because the utility uses this same class to say where its grain comes from.
 
+**Both encode tabs carry the row, and the only thing that differs between them is which binary is
+behind it.** `GrainSynthUi` drives both the way `ToneMapUi` and `DeinterlaceUi` do - one `Init`, one
+`RefreshInfo` writing both readouts, per-tab config getters - so the modes, the panels, the readout
+and the refusals are one implementation rather than two that drift. The AV1AN tab drives standalone
+encoders, where SVT-AV1 is the svt-av1-hdr build this project bundles and has `--fgs-table`; Quick
+Convert drives the libraries inside ffmpeg, where SVT-AV1 is mainline and has none.
+`GrainSynthUi.GetTableFlag(VideoCodec)` is the one statement of that, and everything downstream reads
+it: which delivery is likely, what the readout says, and what `Run` refuses.
+
+**So Quick Convert offers all four modes and can carry out two of them.** Encoder analysis works on
+both its AV1 encoders - `film-grain`/`film-grain-denoise` into `-svtav1-params`, `-denoise-noise-level`
+/`-enable-dnl-denoising` as AVOptions on libaom - and the two table modes are **refused**, naming the
+Film Grain utility as the way to put that table into the finished file. That is the same refusal the
+AV1AN tab gives against a mainline SVT-AV1, and it is stated in the readout the moment the mode is
+picked rather than only at Run, because on this tab the answer needs no binary: which parameters a
+library inside ffmpeg has is settled by that build. Offering a mode this tab cannot deliver is
+deliberate - the row was moved whole, and a mode that silently vanished per encoder would be the
+setting-dropped-without-saying-so failure the rest of this file keeps arguing against.
+
+`film-grain-table` is the one thing that could change that. aomenc takes it, and whether it survives
+ffmpeg's `-aom-params` to reach libaom **has not been measured** - so `LibAomAv1.json` has no row for
+it and `GetTableFlag` does not claim it, libaom being the one encoder here that refuses the whole
+encode over a parameter it does not know. Returning the flag from that one method is the entire change
+needed to light both table modes up on this tab once it has been measured.
+
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
 does the libsvtav1 inside the bundled ffmpeg - where `--film-grain N` is on every build, costs no extra
@@ -2499,6 +2535,17 @@ because the rows can still be typed by hand and because the Anime / Cel Animatio
 `noise-adaptive-filtering`, which is on the same list. The x264 and x265 presets of that name are
 untouched: neither encoder has grain synthesis at all, so the row is disabled beside them and there is
 nothing for retention to contradict.
+
+**Quick Convert's two checks are not these checks, and copying them across would have been wrong twice
+over.** Its collision is not three arguments fighting over which grain description SVT reads - the row
+writes at most one and the ffmpeg encoders have no `--noise` and no `fgs-table` at all - it is the
+*same* argument written by the row and by the grid, which is a different sentence and a different fix.
+And its retention list is one entry where this one is four: three of the four are svt-av1-hdr
+parameters `LibSvtAv1.json` has no row for, so none can be typed, and the fourth is `tune`, which must
+**not** carry over. **`tune 5` is the fork's film grain bundle and mainline's VMAF** - the two argument
+lists say so in their own descriptions - so reporting a 5 on that tab as grain retention would be
+describing another encoder's parameter to somebody looking at this one. `ac-bias` is what is left, being
+the same texture-preserving bias on both builds, and off by default there where the fork ships it at 1.0.
 
 The retention list is `tune 5`, `noise-adaptive-filtering`, `noise-norm-strength` and `ac-bias` - this
 file's own account of which parameters are retention rather than synthesis, which is also why none of
@@ -3222,9 +3269,10 @@ stereo downmix included.
 ## Nothing on the Quick Convert tab is saved either
 
 The same rule the AV1AN Video tab has, widened to a whole tab: the codec, the container, the quality
-mode and its value, the preset, the colour format, the frame rate, the resize, the borders, the
-deinterlacer, the tone-map, the audio codec, bitrate, channels and loudness target, the subtitle codec,
-the metadata source and the Advanced tab's argument grid all start each session at their defaults.
+mode and its value, the preset, the colour format, the frame rate, the resize, the borders, the grain
+synthesis, the deinterlacer, the tone-map, the audio codec, bitrate, channels and loudness target, the
+subtitle codec, the metadata source and the Advanced tab's argument grid all start each session at
+their defaults.
 `LoadQuickConvertSettings` restores none of them, `SaveQuickConvertSettings` is gone rather than left
 returning early, and the Quick Convert block came out of `LoadUiConfig`/`SaveUiConfig` with it.
 

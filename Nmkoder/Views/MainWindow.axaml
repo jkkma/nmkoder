@@ -565,7 +565,7 @@
                          control column is sized to its content and the text stays on one line. It is
                          rewritten on every file load, and a wrap would reflow the rows beneath it each
                          time a file is selected. -->
-                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <Grid Classes="form" ColumnDefinitions="125,300" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field rowhead" Text="Resize" />
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
@@ -583,10 +583,52 @@
                         <TextBlock x:Name="EncBordersInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
 
+                      <!-- The AV1AN tab's Grain Synthesis row, in the same place in the same column and
+                           driven by the same GrainSynthUi. Only one of the panels is ever visible; see
+                           GrainSynthUi.ApplyControlVisibility.
+
+                           What differs is not the row but the encoder behind it. This tab runs the AV1
+                           libraries compiled into FFmpeg, where SVT-AV1 is mainline and has no fgs-table,
+                           so Encoder analysis is the mode that works here and the two table modes are
+                           refused with the Film Grain utility named as the way to get the same result.
+                           GrainSynthUi.GetTableFlag(VideoCodec) is the one statement of that. -->
+                      <TextBlock Grid.Row="2" Grid.Column="0" Classes="field rowhead" Text="Grain Synthesis" />
+                      <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
+                          <ComboBox x:Name="EncGrainModeBox" Width="300" SelectionChanged="EncGrainMode_SelectionChanged"
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and is the mode this tab can carry out: the AV1 encoders here are the ones inside FFmpeg, and neither of them can be handed a grain table, so the two table modes are refused with the Film Grain utility named as the way to apply one afterwards. To put grain into a file that is already encoded - a film stock preset, photon noise, or a table - use that utility on the Utilities tab." />
+
+                          <StackPanel x:Name="EncGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
+                            <NumericUpDown x:Name="EncGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
+                                           ValueChanged="EncGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="SVT-AV1's film-grain, libaom's denoise-noise-level. Around 10 suits lightly grainy digital, 25 an ordinary film scan; above 50 the denoising starts taking picture with it." />
+                            <CheckBox x:Name="EncGrainSynthDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainSetting_Changed"
+                                      ToolTip.Tip="Encode the denoised picture rather than the original. This is where the bitrate saving comes from - left off, the grain is still in the frames being coded and the synthetic grain is laid on top of it." />
+                          </StackPanel>
+
+                          <StackPanel x:Name="EncGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <TextBox x:Name="EncGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="EncGrainTable_Changed" />
+                            <Button Content="…" Classes="icon" Click="EncGrainTableBrowse_Click" />
+                            <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainTableDenoise_Changed"
+                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Measured mode uses. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is." />
+                          </StackPanel>
+
+                          <!-- Shared by Measured and by Table with Denoise ticked: it is the same denoiser. -->
+                          <StackPanel x:Name="EncGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <TextBlock x:Name="EncGrainDenoiseLabel" Classes="dim" Text="Denoise" VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="EncGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
+                                           ValueChanged="EncGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="How hard the denoiser runs, as a proportion of FFmpeg's own hqdn3d defaults - 4 is exactly those defaults. Too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
+                          </StackPanel>
+
+                        </WrapPanel>
+                        <TextBlock x:Name="EncGrainInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
+                      </StackPanel>
+
                       <!-- Both halves of the row are hidden together, and only shown once the loaded file
                            is known to be interlaced - see DeinterlaceUi.RefreshInfo. -->
-                      <TextBlock Grid.Row="2" Grid.Column="0" x:Name="EncDeintLabel" Classes="field rowhead" Text="Deinterlace" IsVisible="False" />
-                      <StackPanel Grid.Row="2" Grid.Column="1" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
+                      <TextBlock Grid.Row="3" Grid.Column="0" x:Name="EncDeintLabel" Classes="field rowhead" Text="Deinterlace" IsVisible="False" />
+                      <StackPanel Grid.Row="3" Grid.Column="1" x:Name="EncDeintPanel" Spacing="4" IsVisible="False">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="EncDeintModeBox" Width="300" SelectionChanged="EncDeintMode_SelectionChanged"
                                     ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not. QTGMC is a motion-compensated deinterlacer run through VapourSynth - far better than bwdif or yadif, and far slower; it falls back to bwdif where VapourSynth cannot run it." />
@@ -600,8 +642,8 @@
 
                       <!-- Hidden unless the file the video is mapped from has an HDR transfer curve - see
                            ToneMapUi.RefreshInfo. In Muxing Mode that is not necessarily the loaded file. -->
-                      <TextBlock Grid.Row="3" Grid.Column="0" x:Name="EncToneMapLabel" Classes="field rowhead" Text="Tone Mapping" IsVisible="False" />
-                      <StackPanel Grid.Row="3" Grid.Column="1" x:Name="EncToneMapPanel" Spacing="4" IsVisible="False">
+                      <TextBlock Grid.Row="4" Grid.Column="0" x:Name="EncToneMapLabel" Classes="field rowhead" Text="Tone Mapping" IsVisible="False" />
+                      <StackPanel Grid.Row="4" Grid.Column="1" x:Name="EncToneMapPanel" Spacing="4" IsVisible="False">
                         <ComboBox x:Name="EncToneMapModeBox" Width="300" HorizontalAlignment="Left" SelectionChanged="EncToneMap_SelectionChanged"
                                   ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR. Spline is the best of them and needs a GPU - it is libplacebo's own curve, and without one it falls back to Hable. Of the rest, Hable is the closest to the reference; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which. Runs before any crop, scale or burnt-in subtitle, so everything after it is working in SDR." />
                         <TextBlock x:Name="EncToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />

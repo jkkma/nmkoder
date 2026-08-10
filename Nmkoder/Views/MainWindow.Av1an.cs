@@ -173,7 +173,7 @@ namespace Nmkoder.Views
 
         private async void Av1anGrainTableBrowse_Click(object sender, RoutedEventArgs e)
         {
-            await GrainSynthUi.PickTableAsync();
+            await GrainSynthUi.PickTableAsync(av1anTab: true);
         }
 
         /// <summary> The Workers box is not the plain saved spinner the rest of the tab is: it shows the

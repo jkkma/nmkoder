@@ -47,6 +47,15 @@ namespace Nmkoder.UI.Tasks
         /// and for the same reason. </summary>
         public static LoudnessConfig CurrentLoudness = new LoudnessConfig();
 
+        /// <summary>
+        /// The grain setting this run settled on, snapshotted by <see cref="QuickConvert.Run"/> before the
+        /// encoder's arguments are built. Same reason <c>Av1anUi.CurrentGrain</c> exists: the row owns
+        /// more than one encoder argument and writes at most one of them, and which one is a question that
+        /// has been answered by the time <see cref="GetVideoArgsFromUi"/> is filling a dictionary off the
+        /// controls.
+        /// </summary>
+        public static GrainPlan CurrentGrain = null;
+
         /// <summary> What the measuring pass found, by position among the *ticked* audio tracks - which
         /// is the same numbering the encoder arguments use, so a track that is not being written is not
         /// measured and does not shift the ones that are. </summary>
@@ -180,6 +189,12 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 RefreshFileListRelatedOptions();
+
+                // Writes no setting - it only redraws the readout, which for the Measured mode is an
+                // hours-long estimate worked out from the loaded file's size and length and so describes
+                // the wrong file until it is rewritten. The AV1AN tab's InitFile does the same, and this
+                // one is reached on paths that one is not (loading the file list, and startup).
+                GrainSynthUi.RefreshInfo();
             }
             catch (Exception e)
             {
@@ -513,6 +528,9 @@ namespace Nmkoder.UI.Tasks
             Form.EncToneMapModeBox.IsEnabled = !enc.DoesNotEncode;
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
+            // Only the two AV1 encoders have grain synthesis, and each mode brings its own control - so
+            // this both enables the row and settles which panel is beside the dropdown.
+            GrainSynthUi.ApplyControlVisibility();
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
@@ -802,6 +820,23 @@ namespace Nmkoder.UI.Tasks
                 dict.Add("pixFmt", PixFmtUtils.GetFormat(enc.ColorFormats[Form.EncVidColorsBox.SelectedIndex]).Name);
 
             dict.Add("qMode", Form.EncQualModeBox.SelectedIndex.ToString());
+
+            // The Grain Synthesis row owns more than one encoder argument and writes at most one of
+            // them, so which entries exist here is the plan's answer rather than the controls'.
+            // CurrentGrain is what the run settled on a few lines before this is called; the row's own
+            // reading is the guard for a caller that has not settled one - the command preview, mostly.
+            GrainPlan grain = CurrentGrain ?? GrainSynthUi.GetQuickConvertPlan();
+
+            if (grain.IsEncoderAnalysis)
+            {
+                dict.Add("grainSynthStrength", grain.Config.Strength.ToString());
+                dict.Add("grainSynthDenoise", grain.Config.Denoise.ToString());
+            }
+            else if (grain.IsEncoderTable)
+            {
+                dict.Add("grainTable", grain.TablePath);
+            }
+
             // Bare "key=value" pairs. Each encoder re-spells them for itself, four of them into a
             // single ":"-joined parameter option and the rest as AVOptions of their own - see
             // FfmpegEncoderArgs, which is where that difference is stated.
@@ -809,6 +844,104 @@ namespace Nmkoder.UI.Tasks
 
             return dict;
         }
+
+        #region Grain Synthesis
+
+        /// <summary> A filled-in Advanced grid row's value, or "" where that argument has no row or an
+        /// empty one. The AV1AN tab has the same accessor over its own grid. </summary>
+        private static string GetAdvancedArgValue(string argument)
+        {
+            return Form.EncArgRows
+                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == argument)
+                .Select(x => (x.Value ?? "").Trim())
+                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+        }
+
+        /// <summary>
+        /// Which Advanced grid rows the Grain Synthesis row is now writing for itself, per encoder - so a
+        /// row filled in beside it can be reported rather than silently deciding the encode.
+        /// <para/>
+        /// **This is a different collision from the AV1AN tab's and needs saying, because the two look
+        /// alike.** There, three *different* arguments fight over which grain description SVT-AV1 reads,
+        /// and the losing one is dropped inside the encoder with a warning nothing here sees. Here it is
+        /// the same argument written twice - once by this row and once by the grid - and which copy wins
+        /// is a property of ffmpeg's plumbing rather than of the encoder's precedence rules. For SVT-AV1
+        /// both land in one ":"-joined <c>-svtav1-params</c>, which ffmpeg parses into an AVDictionary
+        /// that replaces an equal key rather than keeping both - so the grid's copy stands by being
+        /// written last, which is ffmpeg's documented behaviour rather than a measurement. For libaom the
+        /// row writes an AVOption and the grid writes an <c>-aom-params</c> entry, and that entry is
+        /// *measured* to beat the AVOption. Either way the number typed into the grid is the one that
+        /// runs and the row's own value goes nowhere, so it is named rather than left to be discovered
+        /// in the output.
+        /// </summary>
+        private static string[] GetOwnedGridArgs(CodecUtils.VideoCodec codec, GrainPlan plan)
+        {
+            if (plan == null || !plan.Config.Runs)
+                return new string[0];
+
+            if (codec == CodecUtils.VideoCodec.LibSvtAv1 && plan.IsEncoderAnalysis)
+                return new[] { "film-grain", "film-grain-denoise" };
+
+            if (codec == CodecUtils.VideoCodec.LibAomAv1 && plan.IsEncoderAnalysis)
+                return new[] { "denoise-noise-level", "enable-dnl-denoising" };
+
+            return new string[0];
+        }
+
+        /// <summary>
+        /// Why an Advanced grid row will not do what it says beside the Grain Synthesis row, or "" if
+        /// none is in its way. Logged rather than refused - the encode is not broken by it, and one of
+        /// the two settings is going to run.
+        /// </summary>
+        public static string GetGrainSynthProblem(CodecUtils.VideoCodec codec, GrainPlan plan)
+        {
+            var set = GetOwnedGridArgs(codec, plan)
+                .Select(a => (Arg: a, Value: GetAdvancedArgValue(a)))
+                .Where(a => a.Value.IsNotEmpty())
+                .Select(a => $"{a.Arg} {a.Value}")
+                .ToList();
+
+            if (set.Count < 1)
+                return "";
+
+            return $"Note: the Advanced tab has {string.Join(" and ", set)} filled in, and the Grain Synthesis " +
+                $"row writes {(set.Count > 1 ? "those arguments" : "that argument")} for itself - so " +
+                $"{(set.Count > 1 ? "they are" : "it is")} on the command line twice and the Advanced tab's " +
+                $"value is the one that runs. Clear whichever of the two you did not mean.";
+        }
+
+        /// <summary>
+        /// Why the Advanced grid's grain *retention* rows are pulling against the Grain Synthesis row, or
+        /// "" when they are not. The AV1AN tab makes the same argument at more length: retention makes the
+        /// encoder stop averaging the source's own grain away, synthesis takes that grain out and
+        /// describes it instead, and they are alternatives rather than companions.
+        /// <para/>
+        /// **The list is one entry where the AV1AN tab's is four, and that is not an oversight.** Three of
+        /// its four are svt-av1-hdr parameters that mainline SVT-AV1 does not have, so
+        /// <c>LibSvtAv1.json</c> has no row for them and none can be typed. The fourth is <c>tune</c>,
+        /// which must not carry over at all: <c>tune 5</c> is the fork's film grain bundle and mainline's
+        /// **VMAF**, so reporting a 5 here as grain retention would be describing another encoder's
+        /// parameter. What is left is <c>ac-bias</c>, which is the same texture-preserving bias on both
+        /// builds - and off by default here where the fork ships it at 1.0.
+        /// </summary>
+        public static string GetGrainRetentionProblem(CodecUtils.VideoCodec codec, GrainSynthConfig config)
+        {
+            if (codec != CodecUtils.VideoCodec.LibSvtAv1 || config == null || !config.DenoisesSource)
+                return "";
+
+            string acBias = GetAdvancedArgValue("ac-bias");
+
+            if (acBias.IsEmpty() || acBias.GetFloat() <= 0)
+                return "";
+
+            return $"Note: the Advanced tab is set to keep the source's own grain (ac-bias {acBias}), and Grain " +
+                $"Synthesis is replacing it - Denoise is ticked, so the encoder codes the denoised picture. That " +
+                $"row costs bitrate protecting texture that has been taken out of the frames, and the grain in " +
+                $"the output is the synthesised one either way. Retention and synthesis are alternatives: clear " +
+                $"that row, or set Grain Synthesis to No grain synthesis.";
+        }
+
+        #endregion
 
         private static int GetVideoKbps()
         {

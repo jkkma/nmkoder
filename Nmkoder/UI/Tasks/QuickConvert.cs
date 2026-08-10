@@ -125,6 +125,29 @@ namespace Nmkoder.UI.Tasks
                     }
                 }
 
+                // Settled before the encoder's arguments are built, because the row owns more than one
+                // argument and GetVideoArgsFromUi has to be told which of them this run is writing.
+                QuickConvertUi.CurrentGrain = GrainSynthUi.GetQuickConvertPlan();
+                string grainProblem = await GrainSynthUi.GetProblemAsync(QuickConvertUi.CurrentGrain.Config, GetCurrentCodecV());
+
+                if (grainProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(grainProblem);
+                    return;
+                }
+
+                // Logged rather than refused: the encode runs either way and one of the two settings is
+                // going to reach the encoder. Which one is the thing nobody could otherwise see.
+                string grainCollision = QuickConvertUi.GetGrainSynthProblem(GetCurrentCodecV(), QuickConvertUi.CurrentGrain);
+
+                if (grainCollision.IsNotEmpty())
+                    Logger.Log(grainCollision);
+
+                string retentionProblem = QuickConvertUi.GetGrainRetentionProblem(GetCurrentCodecV(), QuickConvertUi.CurrentGrain.Config);
+
+                if (retentionProblem.IsNotEmpty())
+                    Logger.Log(retentionProblem);
+
                 // Not read straight off the mode box: the fixed formats have no rate control and that box
                 // is disabled over whatever was last picked in it, so a Target Bitrate left over from
                 // H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG read a "q". Both fell
