@@ -1015,9 +1015,9 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Renders the GPU tone map over the whole input and returns the SDR file av1an should be
-        /// given, or "" where there is no such pass - which is every encode where the tone map is off,
-        /// the file is not HDR, or the zscale chain is doing the work inside av1an's own filter chain.
+        /// Renders the tone map over the whole input and returns the SDR file av1an should be given,
+        /// or "" where there is no such pass - <see cref="Av1anUi.ToneMapRendersInFront"/> is the gate,
+        /// and with it the statement of which encodes have one.
         /// <para/>
         /// libplacebo cannot run inside av1an, for reasons this app measured rather than assumed. Its
         /// peak detection - the only way it can learn what a file's frames are actually brighter or
@@ -1028,13 +1028,19 @@ namespace Nmkoder.UI.Tasks
         /// neither MaxCLL nor the mastering display and priced every file for the 10000-nit PQ
         /// ceiling. One continuous pass in front has neither problem, and hands av1an an SDR file its
         /// target-quality probes can actually score - the per-chunk chain is invisible to them.
+        /// <para/>
+        /// The zscale chain lands here too when a grain denoise pass follows, for the domain reason on
+        /// the gate: the grain must be measured on the SDR frames being encoded, and those passes run
+        /// on files, in front of av1an, where a per-chunk tone map cannot have happened yet.
         /// </summary>
         private static async Task<string> RenderToneMappedInput(string inPath, string tempDir, bool resume)
         {
             ToneMapConfig config = Av1anUi.CurrentToneMap;
             VideoColorData srcColor = TrackList.current?.File?.ColorData;
 
-            if (config == null || !config.UseLibplacebo || !config.RunsOn(srcColor))
+            // Av1anUi.ToneMapRendersInFront is the whole gate: libplacebo always, the zscale chain
+            // only when a grain pass downstream needs to measure the SDR frames being encoded.
+            if (!Av1anUi.ToneMapRendersInFront(srcColor))
                 return "";
 
             string outPath = Av1anUi.GetToneMappedInputPath(tempDir);
@@ -1050,9 +1056,14 @@ namespace Nmkoder.UI.Tasks
                 return outPath;
             }
 
-            Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with libplacebo, into {ToneMapPass.DescribeOutput()} " +
-                $"that av1an will then encode. Its peak detection measures the picture's real brightness as it goes, " +
-                $"which needs one continuous run - inside av1an it would restart at every chunk - so it runs once here; " +
+            Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with " +
+                (config.UseLibplacebo
+                    ? $"libplacebo, into {ToneMapPass.DescribeOutput()} that av1an will then encode. Its peak detection " +
+                        $"measures the picture's real brightness as it goes, which needs one continuous run - inside " +
+                        $"av1an it would restart at every chunk - so it runs once here; "
+                    : $"FFmpeg's zscale chain, into {ToneMapPass.DescribeOutput()} that av1an will then encode. The grain " +
+                        $"pass that follows must measure the SDR frames the encoder will get - measured on the HDR source, " +
+                        $"the grain table would carry the wrong amplitudes - so the tone map runs once here in front; ") +
                 $"this is a full pass over the video and its output is a temporary file the size of one.");
 
             string problem = await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file);
