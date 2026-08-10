@@ -607,14 +607,17 @@ VSZIP_TAG="${VSZIP_TAG:-R13}"
 # names is upstream's own, so the match keys on the win64 suffix instead.
 VSJULEK_TAG="${VSJULEK_TAG:-r3}"
 
-# These score the AV1AN tab's VapourSynth-scored quality modes. av1an reaches these
-# metrics through VapourSynth, not through ffmpeg, so without the plugin a mode fails at
-# probe time: vszip (com.julek.vszip) scores SSIMULACRA2, julek scores butteraugli.
-# Target XPSNR needs neither - av1an scores it with the bundled ffmpeg's xpsnr filter.
-# julek is staged for the day av1an can actually use it: every av1an release to date
-# invokes it as "butteraugli" where the plugin registers "Butteraugli", a case mismatch
-# VapourSynth does not forgive, so the app stops Target Butteraugli when it can see that
-# Vship is absent, and warns where it cannot look (see the guard in Av1an.Run).
+# These score the VapourSynth-scored quality metrics - the AV1AN tab's Target modes, and
+# the Sample Encodes utility's SSIMULACRA2 and Butteraugli columns. Neither metric is
+# reachable through ffmpeg, so without the plugin a mode fails at probe time: vszip
+# (com.julek.vszip) scores SSIMULACRA2, julek scores Butteraugli. Target XPSNR needs
+# neither - av1an scores it with the bundled ffmpeg's xpsnr filter.
+# julek is load-bearing for Sample Encodes, whose own scripts call it by its right name
+# (Butteraugli, prop _FrameButteraugli) - the release workflow renders a real score
+# through it now. For av1an's Target Butteraugli it is still only staged: every av1an
+# release to date invokes it as "butteraugli" where the plugin registers "Butteraugli", a
+# case mismatch VapourSynth does not forgive, so the app stops Target Butteraugli when it
+# can see that Vship is absent, and warns where it cannot look (see Av1an.Run's guard).
 # Vship, the GPU plugin av1an accepts for both plugin-scored metrics (and the only thing
 # its butteraugli path calls correctly), ships parked - see bundle_vs_vship below.
 bundle_vs_metric_plugins() {
@@ -641,7 +644,7 @@ bundle_vs_metric_plugins() {
                      Source: https://github.com/dnjulek/vapoursynth-julek-plugin"
   else
     ASSET_RELEASE_TAG=""
-    note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - staged for when av1an can call it"
+    note_skip "vapoursynth plugin: julek" "no win64 asset in $VSJULEK_TAG - Sample Encodes' Butteraugli metric needs it"
   fi
 
   bundle_vs_vship

@@ -18,7 +18,7 @@
 
     <TextBlock Classes="h" Text="ENCODER" />
 
-    <Grid Classes="form" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
+    <Grid Classes="form" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto">
       <TextBlock Grid.Row="0" Grid.Column="0" Classes="field" Text="Encoder" />
       <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EncoderBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Encoder_SelectionChanged"
                 ToolTip.Tip="FFmpeg's own encoders, which is what runs here. The AV1AN tab drives separate binaries - its SVT-AV1 is svt-av1-hdr rather than the one compiled into FFmpeg - so a number read off this ladder is a starting point over there rather than the same setting." />
@@ -32,6 +32,11 @@
       <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Color format" />
       <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ColorsBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Setting_SelectionChanged"
                 ToolTip.Tip="The pixel format the samples are encoded in. Match it to the encode you are planning: 10-bit and 8-bit are different rate-distortion curves, so a CRF measured in one is not the same number in the other." />
+
+      <!-- Shown only for the encoders that have content presets (SVT-AV1, x264, x265) - the tooltip
+           is rewritten in code to the selected preset's own description. -->
+      <TextBlock Grid.Row="3" Grid.Column="0" x:Name="ContentPresetLabel" Classes="field" Text="Content preset" />
+      <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ContentPresetBox" Width="260" HorizontalAlignment="Left" SelectionChanged="Setting_SelectionChanged" />
     </Grid>
 
     <TextBlock Classes="h" Text="LADDER" />
@@ -56,7 +61,7 @@
       <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Score with" />
       <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
         <ComboBox x:Name="MetricBox" Width="190" SelectionChanged="Setting_SelectionChanged"
-                  ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. SSIMULACRA2 is scored through VapourSynth's vszip plugin - the same way the AV1AN tab scores its Target SSIMULACRA2 mode, bundled on Windows only - and the run says so if it cannot compute it here; no FFmpeg build can, libvmaf having no such feature. XPSNR is a perceptually weighted PSNR and a useful second opinion. The items are filled from code." />
+                  ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. SSIMULACRA2 and Butteraugli are scored through VapourSynth - the same plugins the AV1AN tab's Target modes use, bundled on Windows only - and the run says so if it cannot compute them here; no FFmpeg build can. Butteraugli measures distortion, so 0 is identical and lower is better, on the same 203-nit scale as the Target Butteraugli box. XPSNR is a perceptually weighted PSNR and a useful second opinion. The items are filled from code." />
         <ComboBox x:Name="VmafModelBox" Width="340" SelectionChanged="Setting_SelectionChanged">
           <ComboBoxItem Content="vmaf_v0.6.1 (Default)" />
           <ComboBoxItem Content="vmaf_v0.6.1neg (No Enhancement Gain)" />

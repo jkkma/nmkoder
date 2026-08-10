@@ -8,6 +8,7 @@ using Nmkoder.Extensions;
 using Nmkoder.UI;
 using Nmkoder.UI.Tasks;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -54,6 +55,7 @@ namespace Nmkoder.Views
                 UtilCrfLadder.Encoder = UtilCrfLadder.Encoders[0];
                 UtilCrfLadder.Preset = "";
                 UtilCrfLadder.ColorFormatIndex = -1;
+                UtilCrfLadder.ContentPreset = "";
                 UtilCrfLadder.Crfs = "";
                 UtilCrfLadder.SampleCount = 3;
                 UtilCrfLadder.SampleSeconds = 10;
@@ -101,6 +103,23 @@ namespace Nmkoder.Views
             CrfBox.Text = UtilCrfLadder.Crfs;
             CrfBox.PlaceholderText = CrfLadder.Format(CrfLadder.DefaultCrfs(enc));
             PresetHint.Text = enc.PresetInfo;
+
+            // The Advanced tabs' content presets, for the encoders that have any - hidden outright for
+            // the rest, the way those tabs hide their own preset row.
+            IReadOnlyList<EncoderArgPreset> presets = UtilCrfLadder.GetContentPresets();
+            ContentPresetLabel.IsVisible = presets.Count > 0;
+            ContentPresetBox.IsVisible = presets.Count > 0;
+
+            var items = new List<object> { "None" };
+            items.AddRange(presets.Select(p => (object)p.Name));
+            int selected = 0;
+            EncoderArgPreset saved = UtilCrfLadder.GetContentPreset();
+
+            for (int i = 0; i < presets.Count; i++)
+                if (saved != null && presets[i].Name == saved.Name)
+                    selected = i + 1;
+
+            ContentPresetBox.SetItems(items, selected);
         }
 
         #region Handlers
@@ -114,11 +133,12 @@ namespace Nmkoder.Views
             // encoder's own arrays and GetPreset/GetColorFormatIndex need to know which encoder that is.
             UtilCrfLadder.Encoder = UtilCrfLadder.Encoders[EncoderBox.SelectedIndex.Clamp(0, UtilCrfLadder.Encoders.Length - 1)];
 
-            // The preset and colour format do not carry across: the lists are named differently per
-            // encoder, so keeping an index would silently pick something else and keeping a name would
-            // pick nothing. Both fall back to the new encoder's own defaults.
+            // The preset, colour format and content preset do not carry across: the lists are named
+            // differently per encoder, so keeping an index would silently pick something else and
+            // keeping a name would pick nothing. All fall back to the new encoder's own defaults.
             UtilCrfLadder.Preset = "";
             UtilCrfLadder.ColorFormatIndex = -1;
+            UtilCrfLadder.ContentPreset = "";
 
             _ready = false;
             LoadEncoderLists();
@@ -154,6 +174,20 @@ namespace Nmkoder.Views
 
             UtilCrfLadder.Preset = PresetBox.GetText();
             UtilCrfLadder.ColorFormatIndex = ColorsBox.SelectedIndex.Clamp(0, Math.Max(0, enc.ColorFormats.Count - 1));
+
+            // Index 0 is "None"; the entries after it are the preset list in order.
+            IReadOnlyList<EncoderArgPreset> presets = UtilCrfLadder.GetContentPresets();
+            int cp = ContentPresetBox.SelectedIndex;
+            UtilCrfLadder.ContentPreset = cp > 0 && cp <= presets.Count ? presets[cp - 1].Name : "";
+
+            // The box's tooltip is the selected preset's own description - the same text its button
+            // on the Advanced tab shows - or a plain explainer on None.
+            ToolTip.SetTip(ContentPresetBox, cp > 0 && cp <= presets.Count
+                ? presets[cp - 1].Description
+                : "The Advanced tabs' content presets, applied to the sample encodes - so the ladder measures the encode " +
+                  "you actually plan to run. SVT-AV1's are written for the AV1AN tab's svt-av1-hdr, so only the settings " +
+                  "the SVT-AV1 inside FFmpeg has are applied, and the readout below says how many that is.");
+
             UtilCrfLadder.Crfs = CrfBox.Text ?? "";
             UtilCrfLadder.SampleCount = SampleCountBox.Value.AsInt().Clamp(1, 8);
             UtilCrfLadder.SampleSeconds = SampleSecsBox.Value.AsInt().Clamp(2, 120);
