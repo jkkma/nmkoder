@@ -1,6 +1,9 @@
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using System;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Nmkoder.Media
@@ -103,9 +106,12 @@ namespace Nmkoder.Media
                 // would be testing a command line this app never sends.
                 var settings = new AvProcess.FfmpegSettings()
                 {
+                    // peak_detect on, because the shipped chains run it on - what is tested is what
+                    // ships. On this one black frame it converges instantly and proves the detector's
+                    // compute shaders run on this device, which a bare conversion would not.
                     Args = $"-f lavfi -i color=c=black:s=64x64 {Data.ToneMapConfig.DeviceArgs} " +
                         $"-vf \"setparams=color_trc=smpte2084:color_primaries=bt2020:colorspace=bt2020nc," +
-                        $"libplacebo=tonemapping=hable:peak_detect=0:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv\" " +
+                        $"libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv\" " +
                         $"-frames:v 1 -f md5 -",
                     LogLevel = "verbose",
                     ProcessType = OS.NmkoderProcess.ProcessType.Background,
@@ -134,6 +140,148 @@ namespace Nmkoder.Media
                 Logger.Log($"Probing libplacebo failed: {e.Message}", true, level: Logger.Level.Debug);
                 return libplaceboProblem;
             }
+        }
+
+        /// <summary> How many spots of the file the peak scan decodes, spread evenly through it, and how
+        /// many frames it reads at each. A dozen points is the autocrop's ten with a little on top, and
+        /// the cost is the same shape: seconds of seeking and decoding before an encode that runs for
+        /// hours. The miss risk of sampling - the brightest scene falling between points - is what
+        /// <see cref="Data.ToneMapConfig.MeasuredPeakHeadroom"/> is priced for. </summary>
+        private const int PeakScanPoints = 12, PeakScanFramesPerPoint = 5;
+
+        /// <summary>
+        /// Reads the brightest pixel a sampled scan of the file actually contains, in nits, or 0 where
+        /// it could not be measured - which every caller treats as "fall back to the declared metadata",
+        /// so a failed scan costs the old behaviour and never the encode.
+        /// <para/>
+        /// This exists because a PQ file's declared peak routinely describes something other than the
+        /// picture: the mastering monitor's ceiling, or a scan artifact like a MaxCLL two nits under
+        /// the format maximum. PQ is absolute - a code value *is* a luminance - so the honest number
+        /// can simply be read off the frames: <c>signalstats</c> reports each frame's maximum luma
+        /// code, and the PQ curve turns the largest one back into nits. It is the same answer a
+        /// peak-detecting player computes per frame, taken once, deterministically, for the one
+        /// backend that needs its peak as a static number.
+        /// <para/>
+        /// PQ only. HLG is relative by design and the zscale chain passes no peak for it - see the
+        /// note in <see cref="Data.ToneMapConfig.GetFilterArgs"/>.
+        /// <para/>
+        /// The maximum is a single-pixel maximum, so film grain and speculars set it rather than the
+        /// scene's perceptual level. That is the right way round to be wrong for a roll-off: it can
+        /// only overstate the content, which softens the curve, where a percentile that understated it
+        /// would clip real pixels.
+        /// </summary>
+        public static async Task<double> MeasurePeakNitsAsync(string path)
+        {
+            try
+            {
+                var probe = new AvProcess.FfprobeSettings()
+                {
+                    Args = $"-select_streams v:0 -show_entries stream=pix_fmt,color_range:format=duration -of default=noprint_wrappers=1 {path.Wrap()}",
+                    LogLevel = "quiet",
+                };
+
+                string info = await AvProcess.RunFfprobe(probe);
+                string pixFmt = ReadProbeValue(info, "pix_fmt");
+                string range = ReadProbeValue(info, "color_range");
+                double duration = ReadProbeValue(info, "duration").GetFloat();
+
+                int bitDepth = GetBitDepth(pixFmt);
+
+                if (bitDepth < 8)
+                    return 0;
+
+                // Full range only where the file says so; limited is what unspecified video is.
+                bool fullRange = range.Trim().ToLowerInvariant() == "pc" || range.Trim().ToLowerInvariant() == "full";
+
+                int maxCode = -1;
+                int points = duration > 1 ? PeakScanPoints : 1;
+                int frames = duration > 1 ? PeakScanFramesPerPoint : PeakScanPoints * PeakScanFramesPerPoint;
+
+                for (int i = 0; i < points; i++)
+                {
+                    if (Main.RunTask.canceled)
+                        return 0;
+
+                    double t = duration > 1 ? duration * (i + 0.5d) / points : 0;
+
+                    var settings = new AvProcess.FfmpegSettings()
+                    {
+                        Args = $"-ss {t.ToString("0.##", CultureInfo.InvariantCulture)} -i {path.Wrap()} -map 0:v:0 -an -sn " +
+                            $"-frames:v {frames} -vf signalstats,metadata=mode=print -f null -",
+                        LogLevel = "info", // metadata=print speaks at info level, and quieter drops it
+                        ProcessType = OS.NmkoderProcess.ProcessType.Background,
+                        CanCancelTask = false,
+                        LoggingMode = AvProcess.LogMode.Hidden,
+                    };
+
+                    string output = await AvProcess.RunFfmpeg(settings);
+
+                    foreach (Match m in Regex.Matches(output, @"signalstats\.YMAX=(\d+)"))
+                        maxCode = Math.Max(maxCode, m.Groups[1].Value.GetInt());
+                }
+
+                if (maxCode < 0)
+                    return 0;
+
+                return PqCodeToNits(maxCode, bitDepth, fullRange);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Measuring the file's peak brightness failed: {e.Message}", true, level: Logger.Level.Debug);
+                return 0;
+            }
+        }
+
+        private static string ReadProbeValue(string probeOutput, string key)
+        {
+            return probeOutput.SplitIntoLines().FirstOrDefault(l => l.StartsWith($"{key}="))?.Split('=').Last() ?? "";
+        }
+
+        /// <summary> The bit depth a decoded pixel format's values are in, read off the name ffprobe
+        /// prints - "yuv420p10le" is 10, "yuv420p" is 8 - because that is the scale signalstats reports
+        /// its maxima in. 0 for a name that carries no recognisable depth, which callers treat as
+        /// unmeasurable rather than guessing one. </summary>
+        private static int GetBitDepth(string pixFmt)
+        {
+            Match m = Regex.Match(pixFmt ?? "", @"p(\d{2})(?:le|be)?$");
+
+            if (m.Success)
+                return m.Groups[1].Value.GetInt();
+
+            return pixFmt.IsNotEmpty() ? 8 : 0;
+        }
+
+        /// <summary>
+        /// One luma code value back into the nits the PQ curve says it stands for - ST 2084's EOTF,
+        /// with the code first normalised out of the file's own range: limited puts black at 64 and
+        /// white at 940 in 10-bit terms, scaled by 2^(depth-10) for other depths, where full range is
+        /// the plain 0..2^depth-1.
+        /// </summary>
+        public static double PqCodeToNits(int code, int bitDepth, bool fullRange)
+        {
+            double e;
+
+            if (fullRange)
+            {
+                e = code / (Math.Pow(2, bitDepth) - 1);
+            }
+            else
+            {
+                double scale = Math.Pow(2, bitDepth - 10);
+                e = (code - 64 * scale) / (876 * scale);
+            }
+
+            e = Math.Clamp(e, 0, 1);
+
+            // ST 2084 constants, as the spec writes them
+            const double m1 = 2610d / 16384d, m2 = 2523d / 4096d * 128d;
+            const double c1 = 3424d / 4096d, c2 = 2413d / 4096d * 32d, c3 = 2392d / 4096d * 32d;
+
+            double p = Math.Pow(e, 1d / m2);
+            double num = Math.Max(p - c1, 0);
+            double den = c2 - c3 * p;
+
+            return 10000d * Math.Pow(num / den, 1d / m1);
         }
 
         private static async Task<string> GetFilterList()

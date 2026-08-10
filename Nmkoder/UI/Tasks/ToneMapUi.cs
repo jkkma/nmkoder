@@ -226,17 +226,29 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Settles which backend this encode tone-maps with, and says so. Called by both tabs before
-        /// anything is built, for the reason <see cref="ToneMapConfig.UseLibplacebo"/> gives: the
-        /// answer is a property of the machine, and one answer has to hold for the whole run.
+        /// Settles which backend this encode tone-maps with, measures what that backend needs measured,
+        /// and says so. Called by both tabs before anything is built, for the reason
+        /// <see cref="ToneMapConfig.UseLibplacebo"/> gives: the answer is a property of the machine, and
+        /// one answer has to hold for the whole run.
         /// <para/>
         /// It is stated in the log either way rather than only on the fallback. Which tone-mapper
         /// produced a file is the first thing anybody comparing two encodes needs to know, and on this
         /// tab the fallback is invisible from the outside - the picture simply differs a little from
         /// the one the same settings gave on another machine.
+        /// <para/>
+        /// The peak scan runs here, and only for the zscale chain. libplacebo measures every frame
+        /// itself - that is the whole reason it is preferred - where the zscale chain takes its peak as
+        /// one static number, and the declared metadata that number used to come from routinely
+        /// describes the mastering monitor rather than the picture: the reported case declared MaxCLL
+        /// 9978 and a 4000-nit display over frames that measure about 610 nits, which put the whole
+        /// film 30-odd code values darker than a player that measures. A PQ file's frames are the
+        /// authority on their own brightness, so they are read - a sampled scan, seconds long, logged
+        /// with both numbers so an encode can be compared against the metadata it ignored.
         /// </summary>
-        public static async Task ResolveBackendAsync(ToneMapConfig config, VideoColorData src)
+        public static async Task ResolveBackendAsync(ToneMapConfig config, MediaFile file)
         {
+            VideoColorData src = file?.ColorData;
+
             if (config == null || !config.RunsOn(src))
                 return;
 
@@ -245,7 +257,7 @@ namespace Nmkoder.UI.Tasks
 
             if (config.UseLibplacebo)
             {
-                Logger.Log("Tone mapping with libplacebo on the GPU.");
+                Logger.Log("Tone mapping with libplacebo on the GPU, measuring the picture's real brightness as it goes.");
                 return;
             }
 
@@ -257,6 +269,28 @@ namespace Nmkoder.UI.Tasks
                 Logger.LogWarn($"The {ToneMapConfig.GetLabel(ToneMapMode.Spline)} curve is libplacebo's own, so this encode " +
                     $"uses {ToneMapConfig.GetLabel(ToneMapMode.Hable)} instead - the closest of the curves FFmpeg has. " +
                     $"It is a little darker in the mid-tones and holds a little less back at the top.");
+
+            if (src.ColorTransfer != ColorDataUtils.TransferPq)
+                return; // HLG is relative and the chain passes no peak for it - there is nothing to measure
+
+            Logger.Log("Measuring the picture's peak brightness (a sampled scan, a few seconds)...");
+            config.MeasuredPeakNits = await ToneMap.MeasurePeakNitsAsync(file.SourcePath);
+
+            double declared = ColorDataUtils.GetDeclaredPeakNits(src);
+            string declaredNote = declared > 0 ? $"{declared:0} nits" : "nothing";
+
+            if (config.MeasuredPeakNits > 0)
+            {
+                double effective = ToneMapConfig.GetEffectivePeakNits(src, config.MeasuredPeakNits);
+                Logger.Log($"The brightest sampled pixel is ~{config.MeasuredPeakNits:0} nits, where the metadata declares " +
+                    $"{declaredNote} - the roll-off is built for {effective:0} nits, and highlights above " +
+                    $"{ToneMapConfig.GetWhitePointNits(effective):0} nits clip to white.");
+            }
+            else
+            {
+                Logger.Log($"The picture's own peak could not be measured, so the declared metadata answers: " +
+                    $"{(declared > 0 ? $"{declaredNote}, with highlights above {ToneMapConfig.GetWhitePointNits(declared):0} nits clipping to white" : $"nothing declared, so {ToneMapConfig.AssumedPeakNits:0} nits is assumed")}.");
+            }
         }
     }
 }

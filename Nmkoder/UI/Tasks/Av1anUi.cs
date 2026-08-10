@@ -531,13 +531,22 @@ namespace Nmkoder.UI.Tasks
             // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
             // the two tabs cannot produce different pixels from the same settings.
             //
-            // It runs inside av1an, once per chunk, rather than as a pass in front of it the way QTGMC
-            // does. It can: this is an ordinary ffmpeg filter chain with nothing for VapourSynth to
-            // evaluate, and it neither changes the frame count nor the frame size, so av1an's chunking
-            // has nothing to disagree with. What it does share with every other filter on this tab is
-            // that the target-quality probes never see it - see GetFilteredTargetQualityNote, which
-            // covers this one by counting the chain rather than by naming what is in it.
-            string toneMapFilter = CurrentToneMap.GetFilterArgs(sourceColor);
+            // Only ever the zscale chain. Where libplacebo does the work it runs as a pass in front of
+            // av1an - Av1an.RenderToneMappedInput - and must never be put in this chain instead: its
+            // peak detection carries history, av1an starts and stops this chain's ffmpeg around every
+            // chunk, and a detector restarting mid-scene steps the exposure where the chunks meet.
+            // Worse, av1an feeds this chain through y4m pipes, which carry no HDR side data - so a
+            // libplacebo in here never even saw the mastering display, and priced every file for the
+            // 10000-nit PQ ceiling. The zscale chain is immune to both: it is stateless, and its peak
+            // arrives as a number in the filter string rather than as metadata on the frames.
+            //
+            // The zscale chain can run per chunk: an ordinary ffmpeg filter chain with nothing for
+            // VapourSynth to evaluate, changing neither the frame count nor the frame size, so av1an's
+            // chunking has nothing to disagree with. What it shares with every other filter on this tab
+            // is that the target-quality probes never see it - see GetFilteredTargetQualityNote, which
+            // covers this one by counting the chain rather than by naming what is in it. (The pass, by
+            // contrast, bakes its SDR into the input, which is exactly why the probes do see that one.)
+            string toneMapFilter = CurrentToneMap.UseLibplacebo ? "" : CurrentToneMap.GetFilterArgs(sourceColor);
 
             if (toneMapFilter.IsNotEmpty())
             {
@@ -611,10 +620,10 @@ namespace Nmkoder.UI.Tasks
             if (filters.Count < 1)
                 return "";
 
-            // The Vulkan device libplacebo needs, in front of the filters and inside the same '-f'
-            // string - av1an splices the lot in after its own '-i', which is a position ffmpeg accepts
-            // a global option in. "" for every chain that does not use libplacebo.
-            return $"{CurrentToneMap.GetDeviceArgs(sourceColor)}-vf {string.Join(",", filters)}";
+            // No Vulkan device argument here any more, and none must come back: libplacebo left this
+            // chain for the pass in front (see the tone map note above), so the per-chunk command has
+            // no filter that could use the device - only the pass's own command carries it.
+            return $"-vf {string.Join(",", filters)}";
         }
 
         private static List<string> GetCustomFilters()
@@ -1785,6 +1794,15 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.denoised.mkv";
         }
 
+        /// <summary> Where the tone-map pass writes the SDR file av1an is given - see
+        /// <see cref="Media.ToneMapPass"/>. Beside the temp folder like the inputs above and for their
+        /// reasons: av1an empties its own temp folder at startup, and a resume reuses this rather than
+        /// rendering the film again. </summary>
+        public static string GetToneMappedInputPath(string tempDir)
+        {
+            return $"{tempDir}.tonemap.mkv";
+        }
+
         public static string GetGrainTablePath(string tempDir)
         {
             return $"{tempDir}.grain.tbl";
@@ -1802,8 +1820,8 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
         /// Every suffix, because a run can leave one of each - trimmed, then deinterlaced, then
-        /// denoised - plus the grain table measured against the last of them and the pre-detected
-        /// scene list.
+        /// tone-mapped, then denoised - plus the grain table measured against the last of them and the
+        /// pre-detected scene list.
         /// <para/>
         /// The denoised one is the reason to be careful here rather than the trimmed one: it is lossless
         /// FFV1 and therefore the largest file this app ever writes, several times the size of the source.
@@ -1814,7 +1832,7 @@ namespace Nmkoder.UI.Tasks
             try
             {
                 string name = Path.GetFileName(tempDir);
-                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.denoised.", $"{name}.grain.", $"{name}.scenes." };
+                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.tonemap.", $"{name}.denoised.", $"{name}.grain.", $"{name}.scenes." };
 
                 return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
                     .Where(f => prefixes.Any(p => Path.GetFileName(f).StartsWith(p))).ToList();
