@@ -278,8 +278,11 @@ namespace Nmkoder.UI.Tasks
                     Av1anUi.CurrentToneMap = ToneMapUi.GetAv1anConfig();
 
                     // Which tone-mapper runs, settled before the check below because the check is about
-                    // the zscale chain's filters and libplacebo names none of them.
-                    await ToneMapUi.ResolveBackendAsync(Av1anUi.CurrentToneMap, TrackList.current.File.ColorData);
+                    // the zscale chain's filters and libplacebo names none of them. On the zscale path
+                    // this also measures the file's real peak - off the whole source, which for a
+                    // trimmed encode overstates the section at worst, a direction the roll-off forgives
+                    // where measuring the cut copy would mean waiting for the cut to run first.
+                    await ToneMapUi.ResolveBackendAsync(Av1anUi.CurrentToneMap, TrackList.current.File);
                     string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap);
 
                     if (toneMapProblem.IsNotEmpty())
@@ -656,7 +659,22 @@ namespace Nmkoder.UI.Tasks
                     if (deinterlaced.IsNotEmpty())
                         inPath = deinterlaced;
 
-                    // Last of the three input passes, and on whatever the first two left: the grain has to
+                    // Third, on whatever the first two left, and ahead of the grain pass below on
+                    // purpose: the grain has to be measured on the frames that will be encoded, and
+                    // once this runs those are the SDR frames it produces.
+                    string toneMapped = await RenderToneMappedInput(inPath, tempDir, resume);
+
+                    if (RunTask.canceled || RunTask.failed)
+                    {
+                        DiscardUnusedTempFolder(tempDir, resume);
+                        Program.MainWin.SetWorking(false);
+                        return;
+                    }
+
+                    if (toneMapped.IsNotEmpty())
+                        inPath = toneMapped;
+
+                    // Last of the input passes, and on whatever the ones above left: the grain has to
                     // be measured on the frames that will be encoded, so a trimmed section is measured
                     // rather than the whole tape and a deinterlaced file rather than the interlaced one.
                     string denoised = await RenderDenoisedInput(inPath, tempDir, resume);
@@ -989,6 +1007,64 @@ namespace Nmkoder.UI.Tasks
 
                 if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
                     RunTask.Fail($"The deinterlace pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
+
+                return "";
+            }
+
+            return outPath;
+        }
+
+        /// <summary>
+        /// Renders the GPU tone map over the whole input and returns the SDR file av1an should be
+        /// given, or "" where there is no such pass - which is every encode where the tone map is off,
+        /// the file is not HDR, or the zscale chain is doing the work inside av1an's own filter chain.
+        /// <para/>
+        /// libplacebo cannot run inside av1an, for reasons this app measured rather than assumed. Its
+        /// peak detection - the only way it can learn what a file's frames are actually brighter or
+        /// darker than their metadata claims - carries history, and av1an starts and stops the filter
+        /// ffmpeg around every chunk: a detector restarting mid-scene lands 6 code values off the
+        /// continuous answer and pumps as it converges. And with detection off it is worse than the
+        /// zscale chain it replaced, because av1an's y4m pipes carry no HDR side data, so it read
+        /// neither MaxCLL nor the mastering display and priced every file for the 10000-nit PQ
+        /// ceiling. One continuous pass in front has neither problem, and hands av1an an SDR file its
+        /// target-quality probes can actually score - the per-chunk chain is invisible to them.
+        /// </summary>
+        private static async Task<string> RenderToneMappedInput(string inPath, string tempDir, bool resume)
+        {
+            ToneMapConfig config = Av1anUi.CurrentToneMap;
+            VideoColorData srcColor = TrackList.current?.File?.ColorData;
+
+            if (config == null || !config.UseLibplacebo || !config.RunsOn(srcColor))
+                return "";
+
+            string outPath = Av1anUi.GetToneMappedInputPath(tempDir);
+            MediaFile file = TrackList.current?.File;
+
+            // Same reasoning as the deinterlaced input above: re-rendering the film to change a CRF
+            // would cost more than the encode being resumed. Only ever a file this same encode wrote -
+            // a fresh run mints a temp folder from the clock, so there is never one here already.
+            if (resume && IoUtils.GetFilesize(outPath) > 0)
+            {
+                Logger.Log($"Reusing the tone-mapped file this encode was started from ('{Path.GetFileName(outPath)}'). " +
+                    $"The pass is not run again and the Tone Mapping setting is not re-read - delete that file to redo it.");
+                return outPath;
+            }
+
+            Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with libplacebo, into {ToneMapPass.DescribeOutput()} " +
+                $"that av1an will then encode. Its peak detection measures the picture's real brightness as it goes, " +
+                $"which needs one continuous run - inside av1an it would restart at every chunk - so it runs once here; " +
+                $"this is a full pass over the video and its output is a temporary file the size of one.");
+
+            string problem = await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file);
+
+            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            {
+                // Whatever is on disk stops partway through the video, and the reuse above would take
+                // it for a finished pass on the next resume - so a stopped pass leaves nothing behind.
+                IoUtils.TryDeleteIfExists(outPath);
+
+                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                    RunTask.Fail($"The tone-map pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
 
                 return "";
             }

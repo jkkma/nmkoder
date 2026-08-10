@@ -47,6 +47,21 @@ namespace Nmkoder.Data
         public bool Runs { get { return Mode != ToneMapMode.Off; } }
 
         /// <summary>
+        /// The brightest pixel a sampled scan of the file actually found, in nits, or 0 where nothing
+        /// was measured. Filled by <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> for the one
+        /// backend that needs it - the zscale chain, whose roll-off takes its peak as a number - and
+        /// left 0 for libplacebo, which measures every frame itself with peak detection.
+        /// <para/>
+        /// It exists because the declared metadata routinely describes a picture that is not in the
+        /// file. The reported case is the ordinary shape of a UHD Blu-ray: MaxCLL 9978 and a 4000-nit
+        /// mastering display over a film whose frames measure about 610 nits - so a roll-off built for
+        /// the metadata spends the top two thirds of the SDR range on highlights that never come, and
+        /// the whole picture sits 30-odd code values darker than the same file tone-mapped by a player
+        /// that measures it. See <see cref="GetEffectivePeakNits"/> for how the two numbers combine.
+        /// </summary>
+        public double MeasuredPeakNits = 0;
+
+        /// <summary>
         /// Whether libplacebo does the work instead of the zscale chain. Settled per encode by
         /// <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> and never read off a control: it is a
         /// property of the machine rather than a preference, and the machine is asked once, at the
@@ -69,18 +84,17 @@ namespace Nmkoder.Data
         /// and then "Failed creating Vulkan device!" - and, measured, ffmpeg carries on and exits **0**
         /// having written nothing, which is the quiet failure shape this app has met before.
         /// <para/>
-        /// It is a global option and so looks like something only the caller that owns the whole
-        /// command line can place - which would rule the AV1AN tab out, av1an composing its own
-        /// per-chunk ffmpeg command with this app contributing only what goes inside <c>-f</c>.
-        /// Measured, that is not true: ffmpeg accepts it **after the <c>-i</c>**, which is exactly
-        /// where av1an splices those arguments in, and the probe places it there too so that what is
-        /// tested is what ships.
+        /// It is a global option, but position-flexible: measured, ffmpeg accepts it **after the
+        /// <c>-i</c>**, which is where Quick Convert's command and <see cref="Media.ToneMapPass"/>
+        /// both place it, and where the probe places it too so that what is tested is what ships.
+        /// (The AV1AN tab's per-chunk chain never carries it any more - libplacebo left that chain
+        /// for the pass, see <see cref="UI.Tasks.Av1anUi.GetVideoFilterArgs"/>.)
         /// </summary>
         public const string DeviceArgs = "-init_hw_device vulkan";
 
         /// <summary> What has to go in front of the filter arguments, or "" for a chain that does not
-        /// use libplacebo. Both tabs prepend this to their own filter argument rather than composing
-        /// it themselves, so neither can forget it and the two cannot drift. </summary>
+        /// use libplacebo. Quick Convert prepends this to its own filter argument rather than composing
+        /// it itself, so it cannot forget it and the two cannot drift. </summary>
         public string GetDeviceArgs(VideoColorData src)
         {
             return UseLibplacebo && RunsOn(src) ? $"{DeviceArgs} " : "";
@@ -170,7 +184,7 @@ namespace Nmkoder.Data
         /// at all and starts being an exposure boost: measured, a declared 203 nits puts BT.2408
         /// reference white at 252 and a declared 100 puts 100 nits itself at 235, which is a picture
         /// blown out on the strength of a number that was probably never measured.
-        /// <see cref="ColorDataUtils.GetDeclaredPeakNits"/> is where the file's answer comes from.
+        /// <see cref="GetEffectivePeakNits"/> is where the nits handed in here come from.
         /// </summary>
         public static double GetTonemapPeak(double peakNits)
         {
@@ -182,6 +196,44 @@ namespace Nmkoder.Data
         public static double GetWhitePointNits(double peakNits)
         {
             return GetTonemapPeak(peakNits) * AnchorNits;
+        }
+
+        /// <summary>
+        /// The sampling headroom on a measured peak: the scan reads a dozen spots of the film, so the
+        /// brightest frame of all is likely brighter than the brightest frame it saw, and a peak set
+        /// exactly at the sample would clip every highlight the sampling missed. Twice the sample is
+        /// also where the zscale chain's shoulder behaves: measured on 610-nit content, the exact peak
+        /// ran 400 nits to 252 and hard-clipped everything past 500, where libplacebo's own measured
+        /// mapping puts them at 212 and 227-235 - and twice the sample lands at 220 and 235-242, within
+        /// a few code values of that reference across the whole range.
+        /// </summary>
+        public const double MeasuredPeakHeadroom = 2.0;
+
+        /// <summary>
+        /// The peak the zscale chain's roll-off is built for, out of the two numbers this app can have
+        /// about a file: what its metadata declares, and what a sampled scan of its frames measured.
+        /// <para/>
+        /// The measurement wins where it exists, with <see cref="MeasuredPeakHeadroom"/> on top,
+        /// because the metadata describes the mastering monitor or a scan artifact more often than the
+        /// picture - see <see cref="MeasuredPeakNits"/> for the reported case. The declared value still
+        /// serves twice: as the cap, since a measurement cannot legitimately exceed what the file says
+        /// its own ceiling is (a sampled 610 in a 4000-nit grade may have missed a 4000-nit scene, but
+        /// a doubled sample past the declared peak describes frames the format says do not exist); and
+        /// as the whole answer where nothing was measured, which is what every file got before the
+        /// scan existed. The floor at the raw measurement is for the opposite lie - a file declaring
+        /// less than its frames actually hold clips real pixels, and the frames are the authority.
+        /// </summary>
+        public static double GetEffectivePeakNits(VideoColorData src, double measuredNits)
+        {
+            double declared = ColorDataUtils.GetDeclaredPeakNits(src);
+
+            if (measuredNits <= 0)
+                return declared;
+
+            double withHeadroom = measuredNits * MeasuredPeakHeadroom;
+            double capped = declared > 0 ? Math.Min(withHeadroom, declared) : withHeadroom;
+
+            return Math.Max(capped, measuredNits);
         }
 
         /// <summary>
@@ -237,8 +289,8 @@ namespace Nmkoder.Data
         /// <item><c>zscale=transfer=bt709:matrix=bt709:range=tv</c> puts it back into an ordinary SDR
         /// video signal - and, importantly, retags the frames as it goes, which is what makes the output
         /// correct without a single explicit colour argument anywhere. Measured through the real command
-        /// shape: the file comes out tagged bt709/bt709/bt709 with the mastering-display and light-level
-        /// side data dropped.</item>
+        /// shape: the file comes out tagged bt709/bt709/bt709. The HDR side data is a separate matter -
+        /// see <see cref="HdrSideDataDeletes"/>, which now ends the chain.</item>
         /// </list>
         /// </summary>
         public string GetFilterArgs(VideoColorData src)
@@ -265,16 +317,38 @@ namespace Nmkoder.Data
             // to derive one from.
             bool pq = src.ColorTransfer == ColorDataUtils.TransferPq;
             string npl = pq ? $":npl={Fmt(AnchorNits)}" : "";
-            string peak = pq ? $":peak={Fmt(GetTonemapPeak(ColorDataUtils.GetDeclaredPeakNits(src)))}" : "";
+            string peak = pq ? $":peak={Fmt(GetTonemapPeak(GetEffectivePeakNits(src, MeasuredPeakNits)))}" : "";
 
             chain.Add($"zscale=transfer=linear{npl}");
             chain.Add("format=gbrpf32le");
             chain.Add("zscale=primaries=bt709");
             chain.Add($"tonemap=tonemap={GetCurveName(libplacebo: false)}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
+            chain.AddRange(HdrSideDataDeletes);
 
             return string.Join(",", chain);
         }
+
+        /// <summary>
+        /// The tail both chains share: the frames' HDR side data deleted, because after a tone map it
+        /// describes a picture that no longer exists and some encoders will faithfully write it back
+        /// out. This file used to state the zscale chain dropped it on its own, and the measurement
+        /// behind that was encoder-dependent without saying so: through libsvtav1 nothing carries the
+        /// side data into the file, so it *looked* dropped, where the same chain through libx265 - a
+        /// wrapper that maps mastering-display and light-level frame side data straight to encoder
+        /// parameters - produced an SDR BT.709 file declaring a 4000-nit mastering display and a
+        /// MaxCLL of 9978. libplacebo passes the side data through just the same. The Dolby Vision
+        /// entries are on the list on the same grounds, with one difference of degree: an RPU
+        /// describing the reshaping of frames that have since been tone-mapped is not merely stale
+        /// but actively wrong, and the x265 wrapper can write RPUs too.
+        /// </summary>
+        private static readonly string[] HdrSideDataDeletes =
+        {
+            "sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA",
+            "sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL",
+            "sidedata=mode=delete:type=DOVI_METADATA",
+            "sidedata=mode=delete:type=DOVI_RPU_BUFFER",
+        };
 
         /// <summary>
         /// The same job done by libplacebo, which is the better tone-mapper and is used wherever the
@@ -289,20 +363,34 @@ namespace Nmkoder.Data
         /// top lands on **235** - the nominal white of a limited-range signal - where the zscale chain
         /// runs to 247 and spends its brightest highlights in the superwhite a player clips.
         /// <para/>
-        /// <c>peak_detect</c> is turned **off**, and that is the one option here worth arguing about.
-        /// On it is libplacebo's headline feature: it measures each frame instead of believing the
-        /// file, which is what makes a MaxCLL of 10000 harmless. Off, it uses the file's own metadata.
-        /// The measurement is what settles it - with the reported file's metadata the two came out
-        /// 125/154 against 129/152 for the default curve, and byte-identical for <c>hable</c> - so what
-        /// it costs here is nothing much, and what it buys is determinism. **This tab runs the chain
-        /// once per chunk**, in an ffmpeg av1an starts and stops around each one, so a detector whose
-        /// history restarts at every chunk boundary is a detector that can hand neighbouring chunks
-        /// different exposures. There is no <c>src_max</c> to pin it with in this build; off is the
-        /// only way to be sure the 26 chunks of a film agree with each other.
+        /// <c>peak_detect</c> is **on**, and it is the half of libplacebo that earns the backend its
+        /// place: it measures each frame's real brightness instead of believing the file, which is the
+        /// only way the truth can reach this filter at all. Measured against the current BtbN build,
+        /// libplacebo with detection off reads the mastering display and **nothing else** - a MaxCLL of
+        /// 610 and one of 9978 tone-map byte-identically - and there is no option to hand it a peak as
+        /// a number, no filter that can write side data, and stripping the side data makes it assume
+        /// the 10000-nit PQ ceiling, which is darker still. So with detection off, the ordinary UHD
+        /// Blu-ray - a 4000-nit mastering display over a film whose frames top out near 600 nits - has
+        /// its whole picture priced for highlights that never come: measured on such content, 100 nits
+        /// came out at 129 against 139 with detection, reference white at 152 against 176, and the
+        /// film's brightest pixel at a dull 186 against 235. That difference is the "output looks
+        /// darker than the source in mpv" report, mpv being a peak-detecting renderer.
+        /// <para/>
+        /// What detection asks in exchange is a **continuous run**: its history restarts wherever the
+        /// stream does, and a restart mid-scene steps the exposure - measured, a chunk boundary in a
+        /// brightness ramp lands 6 code values off the continuous answer and takes ~23 frames to
+        /// converge. Every libplacebo invocation this app builds is therefore a whole-file run: Quick
+        /// Convert's chain is one ffmpeg over the file, and the AV1AN tab renders this chain **in
+        /// front** of av1an as its own pass rather than per chunk - see <see cref="Media.ToneMapPass"/>,
+        /// and the note in <see cref="UI.Tasks.Av1anUi.GetVideoFilterArgs"/> for why the per-chunk
+        /// chain must never carry it.
         /// <para/>
         /// <c>setparams</c> goes in front for the reason it does in the zscale chain, and the output
         /// colour is stated on the filter itself so the frames come out tagged bt709/bt709/bt709 and
         /// limited, exactly as that chain's last zscale leaves them.
+        /// <para/>
+        /// <see cref="HdrSideDataDeletes"/> closes the chain, as it does the zscale one and for the
+        /// reason written on it.
         /// </summary>
         private string GetLibplaceboArgs(VideoColorData src)
         {
@@ -312,8 +400,10 @@ namespace Nmkoder.Data
             if (stated.IsNotEmpty())
                 chain.Add(stated);
 
-            chain.Add($"libplacebo=tonemapping={GetCurveName(libplacebo: true)}:peak_detect=0" +
+            chain.Add($"libplacebo=tonemapping={GetCurveName(libplacebo: true)}:peak_detect=1" +
                 ":colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv");
+
+            chain.AddRange(HdrSideDataDeletes);
 
             return string.Join(",", chain);
         }
@@ -390,9 +480,11 @@ namespace Nmkoder.Data
         /// TextWrapping, so a longer sentence is not wrapped but clipped at the window's edge.
         /// <para/>
         /// The peak is named because it is the number that decides the whole result and the only one
-        /// nobody can otherwise see, and whether it was declared or assumed with it - a file that says
-        /// nothing about its own brightness is being guessed at, and that is worth knowing before an
-        /// encode rather than after one.
+        /// nobody can otherwise see. What is named is the *declared* one, said as the ceiling it is
+        /// rather than as the answer it used to be: which backend runs, and with it whether the real
+        /// peak comes from per-frame detection or the sampled scan, is not settled until the encode
+        /// starts, where the readout is drawn when the file loads. The encode log carries the measured
+        /// number - <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> is where it gets said.
         /// </summary>
         public string GetNote(VideoColorData src)
         {
@@ -412,9 +504,9 @@ namespace Nmkoder.Data
                 return $"{what} to SDR BT.709 · {curve} · HLG stays watchable on an SDR display, so only the top is rolled off";
 
             double declared = ColorDataUtils.GetDeclaredPeakNits(src);
-            string peak = declared > 0 ? $"{declared:0} nits, declared" : $"{AssumedPeakNits:0} nits, assumed";
+            string peak = declared > 0 ? $"declares {declared:0} nits" : "declares no peak";
 
-            return $"{what} to SDR BT.709 · {curve} · peak {peak} · highlights above {GetWhitePointNits(declared):0} nits clip to white";
+            return $"{what} to SDR BT.709 · {curve} · {peak} · the picture's real brightness is measured at encode time";
         }
 
         /// <summary> A filter argument's number. Invariant culture, because a comma decimal separator

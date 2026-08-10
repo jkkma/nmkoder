@@ -179,8 +179,10 @@ namespace Nmkoder.UI.Tasks
                 await QuickConvertUi.PrepareLoudnessAsync(TrackList.current?.File, loudnessSpan);
 
                 // Which tone-mapper runs, settled before the check below because the check is about the
-                // zscale chain's filters and libplacebo names none of them.
-                await ToneMapUi.ResolveBackendAsync(QuickConvertUi.CurrentToneMap, QuickConvertUi.GetVideoSourceFile()?.ColorData);
+                // zscale chain's filters and libplacebo names none of them. On the zscale path this
+                // also measures the file's real peak, off the whole source - a trim only narrows what
+                // the section can contain, which the roll-off's headroom forgives.
+                await ToneMapUi.ResolveBackendAsync(QuickConvertUi.CurrentToneMap, QuickConvertUi.GetVideoSourceFile());
                 string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap);
 
                 if (toneMapProblem.IsNotEmpty())

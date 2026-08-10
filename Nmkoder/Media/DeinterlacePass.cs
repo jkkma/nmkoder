@@ -136,8 +136,11 @@ namespace Nmkoder.Media
         /// Named per stream rather than converting the lot, because copying is what every other format
         /// wants: turning ASS into SRT would throw its styling away for nothing. Output subtitle N is
         /// source subtitle N here - they are mapped in order, out of the one input.
+        /// <para/>
+        /// Public because <see cref="ToneMapPass"/> writes the same kind of file - every track carried,
+        /// video re-rendered - and two copies of this reasoning would drift.
         /// </summary>
-        private static string GetSubtitleArgs(MediaFile source)
+        public static string GetSubtitleArgs(MediaFile source)
         {
             var args = new List<string> { "-c:s copy" };
 

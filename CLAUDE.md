@@ -2717,13 +2717,56 @@ a usable GPU the zscale chain has nothing like it, so `GetCurveName` falls back 
 `ResolveBackendAsync` warns. **The log is the only place that can be said** - the readout is drawn
 when the file loads, and which backend runs is not known until the encode starts.
 
-**`peak_detect` is turned off**, which throws away libplacebo's headline feature on purpose. On, it
-measures each frame instead of believing the file, which is what makes a MaxCLL of 10000 harmless;
-measured with the reported file's metadata the two came out 125/154 against 129/152 for the default
-curve and byte-identical for `hable`, so what it costs here is very little. What it buys is
-determinism, and the AV1AN tab is why: **the chain runs once per chunk**, in an ffmpeg av1an starts
-and stops around each one, so a detector whose history restarts at every chunk boundary can hand
-neighbouring chunks different exposures. This build has no `src_max` to pin it with instead.
+**`peak_detect` is on, and the only place the truth about a file's brightness can reach libplacebo
+at all.** It was off for a while, for determinism, and the cost of off was measured on synthetic
+patches whose content actually reached the metadata's peak - where it is a few code values. On a
+real catalogue film it is most of the picture, which is what "tone mapping comes out darker than
+the source" reports turn out to be: the ordinary UHD Blu-ray declares a 4000-nit mastering display
+and a MaxCLL near the format ceiling over frames that top out around 600 nits, and a static mapping
+priced for the metadata spends the top two thirds of the SDR range on highlights that never come.
+Measured on content shaped like the reported file (frames to 610 nits, MDL 4000, MaxCLL 9978):
+detection off put 100 nits at 129, reference white at 152 and the film's brightest pixel at a dull
+186, where detection - and mpv, which is what the user compares against - puts them at **139, 176
+and 235**. The film's own peak reaching full SDR white instead of grey is the whole complaint.
+
+**And with detection off there is no other door.** All measured against the current BtbN build:
+libplacebo reads the mastering display and nothing else - a MaxCLL of 610 and one of 9978 tone-map
+byte-identically, so the app's own declared-peak logic can never reach it; the filter has no option
+that takes a peak as a number; no ffmpeg filter can *write* side data (`sidedata` only deletes);
+and stripping the side data is worse, because bare PQ is assumed to peak at the 10000-nit format
+ceiling. The zscale chain takes its peak as a number in the filter string, which is why it has the
+scan below instead.
+
+**What detection asks in exchange is a continuous run, and that is a hard requirement, not a
+preference.** Its history restarts wherever the stream does, and a restart mid-scene steps the
+exposure: measured, a chunk boundary in a brightness ramp lands 6 code values off the continuous
+answer and takes ~23 frames to converge - a visible pump, at up to one place per chunk. So Quick
+Convert runs the filter inline, its chain being one ffmpeg over the whole file (two-pass runs it
+identically twice), and **the AV1AN tab renders it in front as a pass of its own** -
+`Media/ToneMapPass`, called from `Av1an.RenderToneMappedInput` - exactly the QTGMC argument one
+filter over: a filter with temporal state cannot run inside av1an, which starts and stops the `-f`
+ffmpeg around every chunk.
+
+**The AV1AN tab's per-chunk chain had a second, quieter reason to lose libplacebo: it never saw the
+metadata at all.** av1an feeds the `-f` ffmpeg through y4m pipes, and y4m carries no side data - so
+a libplacebo in that chain read neither MaxCLL nor the mastering display for any file ever, and
+priced everything for the 10000-nit ceiling: measured through the real pipe shape, 126/148 at
+100/203 nits, the darkest reading of all. `Av1anUi.GetVideoFilterArgs` therefore puts only the
+zscale chain in `-f` (whose peak is a number in the string, immune to the pipe) and carries no
+Vulkan device argument any more; the pass's own command has both.
+
+The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trim and QTGMC passes and
+for their reason - av1an empties its temp at startup - sits after the deinterlace and before the
+grain denoise (grain must be measured on the SDR frames being encoded), is reused by a resume, is
+in `GetPreparedInputs` so it is cleaned with the rest, and near-lossless x264 CRF 12 like the
+QTGMC pass but at `veryfast`: this one routinely runs at UHD sizes, where `medium` costs hours for
+size nothing downstream can see. Output pinned to 10-bit inside the filter itself
+(`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation land
+on 8 bits first and convert up after, baking banding in. A failed pass fails the encode the way a
+failed QTGMC pass does - the probe has already proven libplacebo renders on this machine, so a
+failure here is the machine changing mid-run, not a normal path. Two things it buys beside
+correctness: the target-quality probes score the SDR frames actually being encoded (per-chunk
+filters are invisible to them), and a resume replays it for free.
 
 **The probe is `ToneMap.GetLibplaceboProblem`, and asking only whether the device came up is not
 enough.** Three things have to hold. The filter has to be in this ffmpeg - BtbN's builds carry it,
@@ -2747,11 +2790,10 @@ existence.
 **One thing this file used to give as a blocker is not one.** `-init_hw_device vulkan` is a global
 option, and the note here said the AV1AN tab could not place it because av1an composes its own
 per-chunk command with this app contributing only what goes inside `-f`. Measured, ffmpeg accepts it
-**after the `-i`**, which is exactly where av1an splices those arguments in - so both tabs prepend it
-to their own filter argument through `ToneMapConfig.GetDeviceArgs`, and the probe places it in the
-same position so that what is tested is what ships. What is *not* verified is av1an's own handling of
-it: there is no av1an in a web session, so the tokens have been shown to reach ffmpeg correctly and
-not to survive av1an's splitting of the `-f` string.
+**after the `-i`** - and with libplacebo now running in front of av1an rather than inside it, the
+question of av1an's handling of the token is moot: only Quick Convert's command (through
+`ToneMapConfig.GetDeviceArgs`) and the pass's own carry it, both after their `-i`, and the probe
+places it in the same position so that what is tested is what ships.
 
 macOS remains the platform with no Vulkan at all without MoltenVK, and bundles no ffmpeg either - the
 probe simply answers "no" there and the zscale chain runs, which is what those users already had.
@@ -2795,6 +2837,33 @@ Floored at 1 - a white point no lower than the anchor - because under that this 
 roll-off and becomes an exposure boost: a declared 203 nits puts BT.2408 reference white at 252, and
 a declared 100 puts 100 nits itself at 235.
 
+**The declared peak was the next lie down, and the answer to it is to read the frames.** The
+reported case is the ordinary shape of a UHD Blu-ray remux: MaxCLL 9978 - twenty-two nits under
+the format ceiling, so it clears `PqCeilingNits` and reads as an honest measurement - beside a
+4000-nit mastering display and a MaxFALL of 279, over a film whose frames measure about 610 nits.
+Rolled off for 9978, 100 nits lands at 104 and reference white at 139, where a player that measures
+the signal puts them at 139 and 176. PQ is absolute - a code value *is* a luminance - so
+`ToneMap.MeasurePeakNitsAsync` reads the honest number straight off the file: a dozen sampled spots
+(the autocrop's shape, seconds of decoding), `signalstats` YMAX per frame, and the PQ curve back to
+nits, depth and range handled off ffprobe's own report of the decoded format. It runs in
+`ResolveBackendAsync` only where the zscale chain will do the work - libplacebo measures every
+frame itself - and only for PQ, HLG being relative with no peak passed at all.
+
+`ToneMapConfig.GetEffectivePeakNits` is the formula: **twice the measured peak, never above the
+declared one, never below the raw measurement, and the declared value alone where nothing was
+measured.** The doubling is priced two ways. It is sampling insurance - the brightest frame of all
+is likely brighter than the brightest frame a dozen spots saw - and it is where this chain's
+shoulder behaves: at the exact measured peak the roll-off runs 400 nits to 252 and hard-clips
+everything past 500 into superwhite, where at twice it lands 220/235/242 against libplacebo's
+212/227/235 across the same bands, within a few code values of the reference everywhere. On the
+reported shape that is 122 at 100 nits against yesterday's 104, with the film's peak at 242 instead
+of 203. The cap is the declared value because a doubled sample past the file's own stated ceiling
+describes frames the format says do not exist; the floor is the raw measurement because a file
+declaring *less* than its frames hold is lying the other way, and the frames are the authority. A
+failed scan returns 0 and the declared behaviour runs unchanged - the scan can only ever improve on
+it, never block an encode. The log states measured, declared and effective per file, because the
+readout is drawn at file load where none of this is known yet.
+
 **Both numbers have to be passed because the filter will not read either off the file.** The same PQ
 ramp with and without a MaxCLL of 10000 and a 4000-nit mastering display tone-maps to byte-identical
 output. The reason is worth knowing rather than filing under "metadata is unreliable", because it is
@@ -2829,7 +2898,9 @@ which is where it belongs: that constant's own note already argues that assuming
 mid-tone in the far commoner case, and this is that case arriving through the file rather than
 through the default. An honest MaxCLL still wins over the mastering display, 9999 is still trusted,
 and only the tone map reads any of it - `SetColorData` writes the file's own MaxCLL back out
-untouched.
+untouched. Do not widen this guard to catch near-ceiling values like the reported 9978: where the
+line would sit is unanswerable, and the measured scan above makes it moot - a lying declared peak
+is now only ever the *cap* on a measurement, not the answer.
 
 **This file used to say that an explicit `peak=` had been measured head to head and was worse, and
 the measurement was sound while the conclusion was not** - which is the trap to avoid repeating. What
@@ -2886,9 +2957,19 @@ picture one.
 ### The output colour, and the trap on the AV1AN tab
 
 On Quick Convert nothing has to be said about the output at all. The final `zscale` retags the
-frames as it goes, so the file comes out tagged bt709/bt709/bt709 with the mastering-display and
-light-level side data dropped - verified in the real `-filter_complex`/`[vf]`/`-map`/`-pix_fmt`
-command shape, not just as a bare `-vf`.
+frames as it goes, so the file comes out tagged bt709/bt709/bt709 - verified in the real
+`-filter_complex`/`[vf]`/`-map`/`-pix_fmt` command shape, not just as a bare `-vf`.
+
+**The HDR side data is a separate matter, and "the chain drops it" was an encoder-dependent
+observation mistaken for a chain property.** Through libsvtav1 nothing carries frame side data into
+the file, so it looked dropped; through libx265 - a wrapper that maps mastering-display and
+light-level side data straight to encoder parameters - both chains produced an SDR BT.709 file
+declaring a 4000-nit mastering display and a MaxCLL of 9978. `ToneMapConfig.HdrSideDataDeletes` now
+ends both chains: four `sidedata=mode=delete` filters taking out the mastering display, the light
+levels and both Dolby Vision entries, the last because an RPU describing the reshaping of frames
+that have since been tone-mapped is not merely stale but wrong, and the x265 wrapper can write RPUs
+too. Verified through x265 on both backends: zero HDR side data entries on the output, band values
+unchanged.
 
 The AV1AN tab is the opposite: its encoders are *told* what they are encoding, as H.273 integers out
 of `MediaFile.ColorData`. Unaccounted for, a tone-mapped encode produces the worst possible outcome -
@@ -2914,15 +2995,26 @@ is coming out, so the two cannot share a source.
 A stream copy builds no filter chain, so the Quick Convert box is disabled for one and
 `ToneMapUi.GetQuickConvertConfig` reports Off - a copy of an HDR file is the one way to keep it
 exactly as it is, which is an ordinary thing to want, so the row stays on screen saying the file is
-HDR and only the curve is taken away. And av1an's target-quality probes never see this filter, the
-same as every other filter on that tab; the existing note covers it by counting the chain rather
-than by naming what is in it.
+HDR and only the curve is taken away. av1an's target-quality probes are two stories now: on the GPU
+path the tone map is baked into the input the pass renders, so the probes score the real SDR
+frames; the zscale chain still runs per chunk inside `-f`, invisible to them like every other
+filter there, and the existing note covers it by counting the chain.
 
-Verified by running it rather than by reading it: 42 chains built by the real `ToneMapConfig` across
-9 colour-data shapes and all four modes, each run through ffmpeg in both tabs' command shapes, all
-parsing, all producing frames, all tagged bt709. A full chain - deinterlace, tone-map, fps, crop,
-mod-2 pad, scale, burn-in, borders - composes correctly on both tabs and lands on the frame size the
-geometry predicts. An SDR-to-PQ-and-back round trip returns every hue and every edge intact.
+Verified by running it rather than by reading it, twice over. The original round: 42 chains built by
+the real `ToneMapConfig` across 9 colour-data shapes and all four modes, each run through ffmpeg in
+both tabs' command shapes, all parsing, all producing frames, all tagged bt709; a full chain -
+deinterlace, tone-map, fps, crop, mod-2 pad, scale, burn-in, borders - composing correctly on both
+tabs and landing on the predicted frame size; an SDR-to-PQ-and-back round trip returning every hue
+and edge intact. The measured-peak round, against lossless x265 PQ patch strips carrying the
+reported file's exact metadata: the current-vs-fixed band tables above; a 19-check harness driving
+the real assembly's PQ math (spec anchor points, 10/12-bit, limited and full range), the real
+`MeasurePeakNitsAsync` over the strips through the real ffprobe/ffmpeg plumbing (613 nits measured
+where 613.1 is the code-value truth, full-range file read on its own scale, missing file answering
+0), every branch of `GetEffectivePeakNits`, both chains' filter strings, and the real
+`ToneMapPass.RunAsync` end to end - output tagged bt709/limited, 10-bit, zero HDR side data, and
+band-for-band identical to the continuous peak-detection reference. The chunk-seam number came from
+rendering a 120-frame brightness ramp whole and again from frame 60 and comparing a constant band
+frame by frame; the y4m stripping from piping the strip through av1an's exact pipe shape.
 
 ## Loudness normalization
 
