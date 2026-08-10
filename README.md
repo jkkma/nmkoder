@@ -186,10 +186,13 @@ Each heading below expands.
 - **Sample Encodes (CRF ladder)**: answers "what CRF for this source" by trying it, in minutes rather
   than after the eight-hour encode you then regret. A few short sections are cut out from across the
   file, each is encoded at every CRF on the list, and the table reports the video bitrate, the size a
-  whole file would come to, that size as a share of the source, and a **VMAF** (or **XPSNR**) score per
-  rung - plus which rung is the highest still scoring above VMAF 95. The sections are cut losslessly and
-  each encode is scored against the cut it came from, so the picture measured and the picture encoded
-  are the same frames. Its own encoder, preset, colour format, CRF list and sampling, under Configure
+  whole file would come to, that size as a share of the source, and a **VMAF**, **SSIMULACRA2** or
+  **XPSNR** score per rung - plus which rung is the highest still worth using (VMAF 95, SSIMULACRA2 80).
+  SSIMULACRA2 is scored through VapourSynth's vszip plugin, the same way the AV1AN tab scores its Target
+  SSIMULACRA2 mode, so it needs the Windows bundle (or VapourSynth + vszip installed); the run says so if
+  it cannot. The sections are cut losslessly and each encode is scored against the cut it came from, so
+  the picture measured and the picture encoded are the same frames. Its own encoder, preset, colour
+  format, CRF list and sampling, under Configure
 - **Get Metrics**: calculate quality metrics like **VMAF**, SSIM, PSNR
 - **Transfer Color Metadata**: copy colour properties and HDR metadata from one file to another
   (e.g. from a Bluray remux to an encode)
@@ -420,10 +423,12 @@ partway through an encode.
 <summary><b>Utilities</b></summary>
 
 - **Sample Encodes** - the CRF ladder: short sections from across the source, encoded at several CRFs,
-  reported as size-per-minute, a whole-file projection and a quality score each. This is the thing a GUI
-  can do that a command line will not: picking the CRF by measuring the source rather than by guessing
-  and finding out at the end. The samples are cut losslessly and scored against those cuts, so nothing
-  is being compared across a resize or a seek.
+  reported as size-per-minute, a whole-file projection and a **VMAF, SSIMULACRA2 or XPSNR** score each.
+  This is the thing a GUI can do that a command line will not: picking the CRF by measuring the source
+  rather than by guessing and finding out at the end. The samples are cut losslessly and scored against
+  those cuts, so nothing is being compared across a resize or a seek. SSIMULACRA2 is scored through
+  VapourSynth's vszip plugin (the AV1AN tab's Target SSIMULACRA2 mechanism), so it is Windows-only unless
+  you have VapourSynth and vszip installed - the run refuses with a reason where it cannot compute it.
 - **Cut Video** - keep a chosen section, copied out without re-encoding, picked in the same visual
   dialog as the trim.
 - **Deinterlace Video** - a deinterlaced copy into a near-lossless MKV with audio and subtitles

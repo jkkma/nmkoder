@@ -67,7 +67,12 @@ namespace Nmkoder.Views
 
             SampleCountBox.Value = UtilCrfLadder.SampleCount.Clamp(1, 8);
             SampleSecsBox.Value = UtilCrfLadder.SampleSeconds.Clamp(2, 120);
-            MetricBox.SelectedIndex = ((int)UtilCrfLadder.Score).Clamp(0, 2);
+
+            // Filled from the display order rather than the enum's numeric order - see
+            // CrfLadder.MetricOrder - so SSIMULACRA2 could be added without moving VMAF's or XPSNR's
+            // saved value. The selected index maps back through the same array in ReadUi.
+            MetricBox.SetItems(CrfLadder.MetricOrder.Select(m => (object)CrfLadder.MetricName(m)),
+                Math.Max(0, Array.IndexOf(CrfLadder.MetricOrder, UtilCrfLadder.Score)));
             VmafModelBox.SelectedIndex = UtilCrfLadder.VmafModel.Clamp(0, 2);
             KeepBox.IsChecked = UtilCrfLadder.KeepSamples;
 
@@ -147,7 +152,7 @@ namespace Nmkoder.Views
             UtilCrfLadder.Crfs = CrfBox.Text ?? "";
             UtilCrfLadder.SampleCount = SampleCountBox.Value.AsInt().Clamp(1, 8);
             UtilCrfLadder.SampleSeconds = SampleSecsBox.Value.AsInt().Clamp(2, 120);
-            UtilCrfLadder.Score = (CrfLadder.Metric)MetricBox.SelectedIndex.Clamp(0, 2);
+            UtilCrfLadder.Score = CrfLadder.MetricOrder[MetricBox.SelectedIndex.Clamp(0, CrfLadder.MetricOrder.Length - 1)];
             UtilCrfLadder.VmafModel = VmafModelBox.SelectedIndex.Clamp(0, 2);
             UtilCrfLadder.KeepSamples = KeepBox.IsChecked == true;
 

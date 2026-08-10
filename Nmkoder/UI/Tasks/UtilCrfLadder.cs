@@ -186,13 +186,18 @@ namespace Nmkoder.UI.Tasks
                   $"{DescribeSampling(file)}.";
 
             string scoring = Score == CrfLadder.Metric.None ? "no quality metric"
-                : Score == CrfLadder.Metric.Xpsnr ? "XPSNR"
-                : $"VMAF ({GetVmafModelName()})";
+                : Score == CrfLadder.Metric.Vmaf ? $"VMAF ({GetVmafModelName()})"
+                : CrfLadder.MetricName(Score);
+
+            string ssimu2Note = Score == CrfLadder.Metric.Ssimulacra2
+                ? " SSIMULACRA2 is scored through VapourSynth's vszip plugin, bundled on Windows only; the run stops with a " +
+                  "reason if it cannot be computed here."
+                : "";
 
             return $"{source}\n\n{runs} sample encode{(runs == 1 ? "" : "s")} with {enc.FriendlyName} at preset " +
                 $"{GetPreset()}, {GetPixelFormat()}, scored with {scoring}. A CRF is only meaningful for the encoder " +
                 $"and preset that produced it - the AV1AN tab drives different binaries, so treat a number from here " +
-                $"as a starting point there rather than as the same setting.";
+                $"as a starting point there rather than as the same setting.{ssimu2Note}";
         }
 
         private static string DescribeSampling(MediaFile file)
@@ -225,6 +230,18 @@ namespace Nmkoder.UI.Tasks
                 if (problem.IsNotEmpty())
                 {
                     RunTask.Cancel(problem);
+                    return;
+                }
+
+                // Checked before a single frame is cut or encoded, because the metric is the one thing
+                // that can be impossible on this machine and it is not cheap to find out at the end: a
+                // ladder with SSIMULACRA2 picked on a build with no vszip would otherwise encode the
+                // whole grid and then report every rung on size alone. The other two metrics are ffmpeg
+                // filters that are always present.
+                if (Score == CrfLadder.Metric.Ssimulacra2 && !await Media.Ssimulacra2.IsAvailableAsync())
+                {
+                    RunTask.Cancel($"SSIMULACRA2 cannot be scored here.\n\n{Media.Ssimulacra2.GetUnavailableReason()}\n\n" +
+                        $"Pick VMAF or XPSNR in the Sample Encodes settings, or score with nothing and read the sizes alone.");
                     return;
                 }
 
@@ -495,12 +512,17 @@ namespace Nmkoder.UI.Tasks
         /// <para/>
         /// The two are the same frames by construction - the encode's input *is* the reference - so
         /// there is none of the scaling and cropping <see cref="UtilGetMetrics"/> has to do to put two
-        /// unrelated files into one frame of reference. The frame rate is still forced onto both, as it
-        /// is there: a variable-rate source keeps its timestamps through a stream copy and loses them
-        /// through an encode, and the metric filters pair their inputs up by timestamp.
+        /// unrelated files into one frame of reference. VMAF and XPSNR are ffmpeg filters; SSIMULACRA2
+        /// goes to VapourSynth instead, since no ffmpeg build computes it.
         /// </summary>
         private static async Task<double> ScoreAsync(MediaFile file, string encPath, string refPath, CrfLadder.Metric scoreWith)
         {
+            if (scoreWith == CrfLadder.Metric.Ssimulacra2)
+                return await ScoreSsimulacra2Async(encPath, refPath);
+
+            // The frame rate is forced onto both inputs: a variable-rate source keeps its timestamps
+            // through a stream copy and loses them through an encode, and the ffmpeg metric filters
+            // pair their inputs up by timestamp.
             Fraction rate = file.VideoStreams.FirstOrDefault()?.Rate ?? Fraction.Zero;
             string r = rate.GetFloat() > 0f ? $"-r {rate}" : "";
             string metric = scoreWith == CrfLadder.Metric.Xpsnr ? "xpsnr" : GetVmafFilter();
@@ -532,6 +554,24 @@ namespace Nmkoder.UI.Tasks
                     $"'{Path.GetFileName(encPath)}' - that rung is reported on size alone. The log has FFmpeg's output.");
 
             return score;
+        }
+
+        /// <summary>
+        /// SSIMULACRA2 through VapourSynth. Frame-exact by construction here - the encode is of the
+        /// lossless cut - so no rate is forced: the scorer opens both files through the same LSMASH
+        /// source av1an and QTGMC use and compares frame i against frame i. Its progress prints through
+        /// the ordinary log rather than the progress bar, VapourSynth having no time-based readout.
+        /// </summary>
+        private static async Task<double> ScoreSsimulacra2Async(string encPath, string refPath)
+        {
+            Media.Ssimulacra2.Score result = await Media.Ssimulacra2.ScoreAsync(refPath, encPath);
+
+            if (result.Ok)
+                return result.Value;
+
+            Logger.LogWarn($"No SSIMULACRA2 score came back for '{Path.GetFileName(encPath)}' - that rung is reported on " +
+                $"size alone. {result.Problem}");
+            return double.MinValue;
         }
 
         /// <summary>
@@ -583,9 +623,7 @@ namespace Nmkoder.UI.Tasks
             {
                 // Off the result rather than off the static setting: the dialog can be reopened while
                 // this runs, and the table has to describe the run that produced it.
-                string score = !rung.Scored ? "" : result.ScoredWith == CrfLadder.Metric.Xpsnr
-                    ? $" · XPSNR {FormatScore(rung.Score)}"
-                    : $" · VMAF {FormatScore(rung.Score)}";
+                string score = !rung.Scored ? "" : $" · {CrfLadder.MetricName(result.ScoredWith)} {FormatScore(rung.Score)}";
 
                 Logger.Log($"  CRF {rung.Crf}: {FormatUtils.Bitrate(rung.Kbps)} · " +
                     $"{FormatUtils.Bytes(rung.BytesPerMinute)}/min · whole file {CrfLadder.DescribeProjection(rung.ProjectedBytes(result.SourceMs))}{score}");

@@ -242,6 +242,73 @@ jobs:
           }
           rm -f "$VS/qtgmc-check.py"
 
+      - name: Verify the vszip SSIMULACRA2 scorer actually computes
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          # The Sample Encodes utility scores SSIMULACRA2 through this plugin, exactly as the AV1AN
+          # tab's Target SSIMULACRA2 mode does - and none of it can be exercised in a web session, so
+          # this is where it is proven. Presence is not loadability (eedi3m taught that lesson): the
+          # DLL can be in vs-plugins and right in every way and still not register under the bundled
+          # VSPipe. So this asks the bundled Python to actually compute a score, the same way
+          # Nmkoder.Media.Ssimulacra2's own probe does, and fails the build if it cannot.
+          VS="publish/Nmkoder/bin/av1an/vsynth"
+
+          if [ ! -f "$VS/python.exe" ]; then
+            echo "::error::VapourSynth was not bundled, so SSIMULACRA2 cannot be scored in this build"
+            exit 1
+          fi
+
+          cat > "$VS/ssimu2-check.py" <<'CHECK'
+          import math, sys
+          import vapoursynth as vs
+
+          core = vs.core
+          z = getattr(core, 'vszip', None)
+
+          if z is None:
+              print('SSIMU2_CHECK_FAIL: the vszip namespace is not loaded (Target SSIMULACRA2 needs it)')
+              sys.exit(1)
+
+          # New vszip (R7+, what this bundles) exposes SSIMULACRA2; legacy exposes Metrics(mode=0).
+          def score(a, b):
+              if hasattr(z, 'SSIMULACRA2'):
+                  return z.SSIMULACRA2(reference=a, distorted=b)
+              return z.Metrics(reference=a, distorted=b, mode=0)
+
+          def value(clip):
+              f = clip.get_frame(0)
+              try:
+                  return f.props['SSIMULACRA2']
+              except KeyError:
+                  return f.props['_SSIMULACRA2']
+
+          base = core.std.BlankClip(width=256, height=256, format=vs.YUV420P8, length=1, color=[128, 110, 150])
+          # Inverted rather than another flat colour: guaranteed to score below identical without
+          # leaning on natural content, which SSIMULACRA2 is designed for and flats are not.
+          other = core.std.Invert(base)
+
+          same = float(value(score(base, base)))
+          diff = float(value(score(base, other)))
+          print('SSIMULACRA2 identical=%.4f inverted=%.4f' % (same, diff))
+
+          # Identical images score at the top of the 0-100 scale; a maximally different pair must
+          # score below that and be a real number. A plugin returning a constant or a NaN fails both.
+          if same >= 90.0 and math.isfinite(diff) and diff < same:
+              print('SSIMU2_CHECK_OK')
+              sys.exit(0)
+
+          print('SSIMU2_CHECK_FAIL: the vszip plugin did not produce a sane SSIMULACRA2 score')
+          sys.exit(1)
+          CHECK
+
+          ( cd "$VS" && ./python.exe ssimu2-check.py ) || {
+            echo "::error::The bundled vszip SSIMULACRA2 scorer does not work - Sample Encodes and Target SSIMULACRA2 would both fall back"
+            rm -f "$VS/ssimu2-check.py"
+            exit 1
+          }
+          rm -f "$VS/ssimu2-check.py"
+
       - name: Stage docs
         shell: bash
         run: cp README.md LICENSE publish/Nmkoder/
