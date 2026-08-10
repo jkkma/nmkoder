@@ -1901,6 +1901,75 @@ three-minute source whose content changes every minute so the three samples genu
 material - x264 at CRF 22/26/30 giving 1040/681/375 kbps and VMAF 95.61/92.58/87.14, strictly monotonic in
 both, with each rung's per-sample entries measured against the durations the cuts actually had.
 
+**Butteraugli is the fourth metric, and it is SSIMULACRA2's shape with the direction reversed.** No
+ffmpeg computes it - the "butteraugli" string in a BtbN binary is libaom's `--tune` enum, the same trap
+the SSIMULACRA2 note above records - so `Media/Butteraugli.cs` scores it through VapourSynth: Vship's
+`BUTTERAUGLI` where `VshipStager` has staged it (the ladder calls `Reconcile` before the availability
+gate for both VapourSynth metrics, exactly as a metric-targeted av1an encode does), else the julek
+plugin the bundle already carries staged for av1an's sake - which this feature is the first thing to
+actually call. The shared Python plumbing moved to `Media/VsPython.cs` with this; the two metric classes
+keep their own probes, scripts and parses.
+
+What it reports is the per-frame *maximum* distance (the INF norm) at 203 nits, pooled as a mean over
+frames - the same quantity av1an's `butteraugli-inf` targets, so a number here and the Target
+Butteraugli box read on one scale, and `GoodScore`'s anchor is that box's own default of 4. All of it
+was read out of the pinned sources rather than assumed: Vship v4.0.2 writes `_BUTTERAUGLI_INFNorm` and
+defaults its intensity to 203; julek r3 writes `_FrameButteraugli`, which is libjxl's
+`ButteraugliDistance` and therefore the max of the diff map, and defaults its intensity to **80** - so
+203 goes out explicitly to both, or the CPU and GPU paths would disagree by a scale factor. julek also
+refuses anything but RGB where Vship converts internally, so the julek path converts first with Vship's
+own toRGBS recipe (Bicubic to RGBS, BT.709 matrix above 650 lines and BT.601 below, limited in, full
+out), which is what keeps a machine that scores on CPU comparable with one that scores on GPU.
+
+**Lower is better, and that flips more than the recommendation line.** `CrfLadder.LowerIsBetter` is the
+one statement of it: the results window picks the highest CRF still *under* the anchor, the no-pick
+phrasing reads "stayed under", and a genuine 0.0 over real frames is Ok - an identical pair *is* 0, and
+the parse must not confuse it with no score coming back. The enum appended `Butteraugli = 4` (numeric
+values are the saved setting; `MetricOrder` slots it into the display after SSIMULACRA2), and the
+harness asserts the enum values never moved and that `MetricOrder` holds every value exactly once.
+
+**The bundled julek.dll requests API 4.0 and loads on R72** - read out of the published 2.8.46 zip's PE
+by the eedi3m method rather than assumed, julek compiling with `VAPOURSYNTH_API_VERSION` from whatever
+headers built it, which is exactly how eedi3m shipped broken. The release workflow now renders a real
+Butteraugli score through the bundled plugin beside the vszip check (identical pair under 0.5,
+white-against-black past it by 5), so loadability is re-proven per release instead of once by hand. The
+scoring scripts were also *executed*, not merely compiled: a stub vapoursynth module - the QTGMC
+plugin-trace trick - ran the real emitted script under julek-only, vship-only, both and neither,
+observing the backend preference, the RGBS conversion happening on the julek path only and with Vship's
+exact arguments, the explicit 203, the property fallback order (INFNorm, then julek's, then old Vship's
+bare `_BUTTERAUGLI`), the trim to the shorter clip, the mean, and the sentinel. What no session here
+can confirm is the number tracking CRF on natural content - the same caveat SSIMULACRA2 carries.
+
+**The Content preset row applies the Advanced tabs' presets to the sample encodes**, at the user's
+request, so the ladder measures the encode being planned rather than a vanilla one. x264 and x265 get
+their Quick Convert sets, written for exactly the binary this utility runs; SVT-AV1 gets the AV1AN
+tab's set, which is written for svt-av1-hdr - a different binary from the libsvtav1 here - so
+`UtilCrfLadder.GetApplicablePresetPairs` keeps only the parameters `LibSvtAv1.json` vouches for and the
+log names what it drops, because a parameter this library lacks would be accepted by ffmpeg and dropped
+by the library with a warning nothing reads: the silent half-apply this file already documents, turned
+into a named one. The surviving rows reach the command as the ordinary `encArgs["advanced"]` pairs
+string, so `-svtav1-params`, `-x264-params` and x265's merged list are the same code a filled grid
+uses. The preset is part of the run's snapshot and of `CrfLadder.Result`, named in the dialog readout
+(with the applied-count for SVT), the log, the results subtitle and the copied table - a CRF belongs to
+every setting that produced it. The row hides for the encoders without a set, and the choice resets on
+an encoder switch like the speed preset beside it.
+
+**Do not put hbd-mds into LibSvtAv1.json, however measured-present it looks.** It was added for exactly
+one commit, on the strength of the measured note above that the v4.1.0 library has it - and the current
+BtbN build (svt-av1-hdr master, `v4.1.0-279-gd3c4cb394` when checked) **segfaults** the moment hbd-mds
+is set beside `tune` (any value) or `enable-overlays`, at preset 4 and 8, 8- and 10-bit alike, while
+every parameter alone runs fine. Found by running the translated presets against the real binary before
+shipping them, and bisected to those pairs by leave-one-out. The shipped SvtAv1EncApp
+(`v4.1.0-19-g8b4b9f562`, pulled back out of the published 2.8.46 linux tarball and run) takes the same
+combinations cleanly - so the AV1AN tab's presets, which pair `hbd-mds 1` with `tune 0` on that binary,
+are unaffected, and the regression sits in the fork's master between those two commits, which is what
+BtbN links. With no hbd-mds row in the ffmpeg list the translation drops it, named in the log beside
+`noise-adaptive-filtering` (the genuinely absent one), and nothing in the app can produce the pairing
+through ffmpeg. Anime translates 6 of its 8 rows, Game Capture 7 of 8, and all three encoders' preset
+paths were run end to end through the real `Run()` against the real binaries: SVT 557 kbps plain
+against 636 (Anime) and 620 (Game), x264 543 against 690 (Grainy Film), x265 609 against 500 (Anime) -
+so the rows demonstrably reach the encoders, through all three spellings.
+
 ## Deinterlacing
 
 **Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the

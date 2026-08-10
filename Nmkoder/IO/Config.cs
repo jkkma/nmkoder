@@ -426,6 +426,7 @@ namespace Nmkoder.IO
             UtilCrfLadderKeep,
             UtilCrfLadderMetric,
             UtilCrfLadderVmafModel,
+            UtilCrfLadderContentPreset,
             UtilFilmGrainOp,
             UtilFilmGrainDenoise,
             UtilFilmGrainKeepDenoised,

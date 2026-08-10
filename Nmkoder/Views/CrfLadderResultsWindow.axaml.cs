@@ -24,9 +24,11 @@ namespace Nmkoder.Views
     public partial class CrfLadderResultsWindow : Window
     {
         // The "highest CRF still worth using" line is drawn at CrfLadder.GoodScore(metric) - VMAF 95,
-        // SSIMULACRA2 80, both the app's own target-quality anchors - and not at all for XPSNR, which
-        // has no fixed ceiling. A rule of thumb rather than a threshold with anything behind it: it
-        // exists because a column of scores is not an answer, and the whole point is to produce one.
+        // SSIMULACRA2 80 and Butteraugli 4, all the app's own target-quality anchors - and not at all
+        // for XPSNR, which has no fixed ceiling. Butteraugli is a distortion, so its comparison runs
+        // the other way (CrfLadder.LowerIsBetter): the pick is the highest CRF still *under* the
+        // anchor. A rule of thumb rather than a threshold with anything behind it: it exists because a
+        // column of scores is not an answer, and the whole point is to produce one.
 
         public CrfLadderResultsWindow()
         {
@@ -74,6 +76,7 @@ namespace Nmkoder.Views
 
             HeaderLabel.Text = $"CRF LADDER — {result.FileName.Trunc(60).ToUpperInvariant()}";
             SubtitleLabel.Text = $"{result.EncoderName}, preset {result.Preset}, {result.PixelFormat}" +
+                $"{(result.ContentPreset.IsEmpty() ? "" : $", '{result.ContentPreset}' content preset")}" +
                 $"{(result.ScoredWith == CrfLadder.Metric.Vmaf ? $", {result.VmafModel}" : "")} — " +
                 $"{DescribeSamples(result)}";
 
@@ -105,25 +108,33 @@ namespace Nmkoder.Views
             var lines = new List<string>();
             double good = CrfLadder.GoodScore(result.ScoredWith);
 
-            // A recommendation is drawn only where the metric has an anchor worth naming - VMAF and
-            // SSIMULACRA2 do (95 and 80), XPSNR does not - so GoodScore returns 0 for the rest and the
-            // table stands on its own there.
+            // A recommendation is drawn only where the metric has an anchor worth naming - VMAF,
+            // SSIMULACRA2 and Butteraugli do (95, 80 and 4), XPSNR does not - so GoodScore returns 0
+            // for the rest and the table stands on its own there. Butteraugli's comparison runs the
+            // other way, being a distortion rather than a quality.
             if (good > 0)
             {
+                bool lower = CrfLadder.LowerIsBetter(result.ScoredWith);
                 string metric = CrfLadder.MetricName(result.ScoredWith);
                 // The highest CRF - the smallest file - that still scores well, which is the way this
                 // is read: quality is being spent down to the point where it stops being worth it.
-                CrfLadder.Rung pick = result.Rungs.Where(r => r.Scored && r.Score >= good).OrderByDescending(r => r.Crf).FirstOrDefault();
+                CrfLadder.Rung pick = result.Rungs.Where(r => r.Scored && (lower ? r.Score <= good : r.Score >= good))
+                    .OrderByDescending(r => r.Crf).FirstOrDefault();
 
                 if (pick != null)
-                    lines.Add($"CRF {pick.Crf} is the highest here that still scores above {metric} {good:0.#} — about " +
+                    lines.Add($"CRF {pick.Crf} is the highest here that still scores {(lower ? "under" : "above")} {metric} {good:0.#} — about " +
                         $"{FormatUtils.Bytes(pick.ProjectedBytes(result.SourceMs))} for the whole file. That threshold is a " +
                         $"rule of thumb for \"hard to tell from the source\", not a measurement of your eyes: look at the " +
                         $"samples before committing to a long encode.");
                 else if (result.Rungs.Any(r => r.Scored))
-                    lines.Add($"Nothing here reached {metric} {good:0.#}. Run it again with lower CRF values — " +
+                    lines.Add($"Nothing here {(lower ? "stayed under" : "reached")} {metric} {good:0.#}. Run it again with lower CRF values — " +
                         $"the box takes any list, and lower is better quality on every encoder offered.");
             }
+
+            if (result.ScoredWith == CrfLadder.Metric.Butteraugli)
+                lines.Add("Butteraugli measures distortion — 0 is identical and lower is better — at the same 203-nit " +
+                    "intensity the AV1AN tab's Target Butteraugli scores with, so a number here and that box's target " +
+                    "are on the same scale.");
 
             lines.Add($"The whole-file figures are the sampled bitrate carried across the source, and video only — no " +
                 $"audio and no subtitles. What they cannot know is the rest of the film: this measured " +
@@ -141,7 +152,8 @@ namespace Nmkoder.Views
         {
             var sb = new StringBuilder();
             sb.AppendLine($"CRF ladder - {_result.FileName}");
-            sb.AppendLine($"{_result.EncoderName}, preset {_result.Preset}, {_result.PixelFormat}");
+            sb.AppendLine($"{_result.EncoderName}, preset {_result.Preset}, {_result.PixelFormat}" +
+                $"{(_result.ContentPreset.IsEmpty() ? "" : $", '{_result.ContentPreset}' content preset")}");
             sb.AppendLine(DescribeSamples(_result));
             sb.AppendLine();
 

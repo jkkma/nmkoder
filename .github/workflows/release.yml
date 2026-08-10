@@ -309,6 +309,70 @@ jobs:
           }
           rm -f "$VS/ssimu2-check.py"
 
+      - name: Verify the julek Butteraugli scorer actually computes
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          # Same argument as the vszip step above, for the plugin behind the Sample Encodes
+          # Butteraugli metric. julek was bundled untested for a year (staged for av1an, which calls
+          # it by the wrong case and so never touched it) - its requested API version was read out of
+          # a shipped zip's PE by hand once, and this step is what replaces that with a real render on
+          # every release. The runner has no GPU, so what is proven is the CPU path: exactly the
+          # julek call, RGBS conversion and property Nmkoder.Media.Butteraugli's script makes.
+          VS="publish/Nmkoder/bin/av1an/vsynth"
+
+          if [ ! -f "$VS/python.exe" ]; then
+            echo "::error::VapourSynth was not bundled, so Butteraugli cannot be scored in this build"
+            exit 1
+          fi
+
+          cat > "$VS/butter-check.py" <<'CHECK'
+          import math, sys
+          import vapoursynth as vs
+
+          core = vs.core
+          j = getattr(core, 'julek', None)
+
+          if j is None or not hasattr(j, 'Butteraugli'):
+              print('BUTTER_CHECK_FAIL: the julek namespace is not loaded (Sample Encodes Butteraugli needs it)')
+              sys.exit(1)
+
+          # The same conversion the app's scoring script makes for julek - Vship's own toRGBS
+          # recipe - and the same explicit 203-nit intensity, so what is tested is what runs.
+          def to_rgbs(c):
+              matrix = 1 if c.height > 650 else 6
+              return core.resize.Bicubic(c, format=vs.RGBS, matrix_in=matrix, transfer_in=1,
+                                         primaries_in=1, range_in=0, transfer=1, primaries=1, range=1)
+
+          def score(a, b):
+              f = j.Butteraugli(reference=to_rgbs(a), distorted=to_rgbs(b), intensity_target=203.0).get_frame(0)
+              return float(f.props['_FrameButteraugli'])
+
+          white = core.std.BlankClip(width=192, height=108, format=vs.YUV420P8, length=1, color=[235, 128, 128])
+          black = core.std.BlankClip(width=192, height=108, format=vs.YUV420P8, length=1, color=[16, 128, 128])
+
+          same = score(white, white)
+          diff = score(white, black)
+          print('BUTTERAUGLI identical=%.4f inverted=%.4f' % (same, diff))
+
+          # Butteraugli is a distance: an identical pair sits at 0 and white-against-black is a
+          # huge one, so the direction is the reverse of the vszip check's. A plugin returning a
+          # constant or a NaN fails both clauses.
+          if same < 0.5 and math.isfinite(diff) and diff > same + 5.0:
+              print('BUTTER_CHECK_OK')
+              sys.exit(0)
+
+          print('BUTTER_CHECK_FAIL: the julek plugin did not produce a sane Butteraugli score')
+          sys.exit(1)
+          CHECK
+
+          ( cd "$VS" && ./python.exe butter-check.py ) || {
+            echo "::error::The bundled julek Butteraugli scorer does not work - the Sample Encodes Butteraugli metric would refuse on every machine without Vship"
+            rm -f "$VS/butter-check.py"
+            exit 1
+          }
+          rm -f "$VS/butter-check.py"
+
       - name: Stage docs
         shell: bash
         run: cp README.md LICENSE publish/Nmkoder/

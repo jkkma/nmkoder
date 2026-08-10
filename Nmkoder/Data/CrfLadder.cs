@@ -18,24 +18,25 @@ namespace Nmkoder.Data
         /// <summary>
         /// What a rung is scored with.
         /// <para/>
-        /// VMAF and XPSNR are ffmpeg filters. SSIMULACRA2 is not, and cannot be: libvmaf has no such
-        /// feature extractor at all - its feature_extractor_list in 3.2.0 runs psnr, adm, vif, motion,
-        /// ssim, ms_ssim, ciede, psnr_hvs and cambi, and the string "ssimulacra" is in no file of the
-        /// repository or of ffmpeg's, so "libvmaf=feature=name=ssimulacra2" fails the graph on every
-        /// build there is. It is scored through VapourSynth's vszip plugin instead - see
-        /// <see cref="Nmkoder.Media.Ssimulacra2"/> - which is the same plugin, and the same mechanism,
-        /// the AV1AN tab's Target SSIMULACRA2 mode uses. That plugin is bundled on Windows only, so this
-        /// metric refuses the run with a plain reason where it cannot compute.
+        /// VMAF and XPSNR are ffmpeg filters. SSIMULACRA2 and Butteraugli are not, and cannot be:
+        /// libvmaf has no such feature extractors at all - its feature_extractor_list in 3.2.0 runs
+        /// psnr, adm, vif, motion, ssim, ms_ssim, ciede, psnr_hvs and cambi, the string "ssimulacra"
+        /// is in no file of the repository or of ffmpeg's, and the "butteraugli" a BtbN binary carries
+        /// belongs to libaom's --tune enum rather than to any filter. Both are scored through
+        /// VapourSynth instead - see <see cref="Nmkoder.Media.Ssimulacra2"/> and
+        /// <see cref="Nmkoder.Media.Butteraugli"/> - through the same plugins the AV1AN tab's Target
+        /// SSIMULACRA2 and Target Butteraugli modes use. Those plugins are bundled on Windows only, so
+        /// these metrics refuse the run with a plain reason where they cannot compute.
         /// <para/>
         /// The numeric values persist as the saved setting, so append rather than reorder; the dialog
         /// drives its dropdown from an explicit display order and does not rely on enum==index.
         /// </summary>
-        public enum Metric { Vmaf, Xpsnr, None, Ssimulacra2 }
+        public enum Metric { Vmaf, Xpsnr, None, Ssimulacra2, Butteraugli }
 
-        /// <summary> The metrics as the dialog lists them - VMAF first as the default, SSIMULACRA2
-        /// beside it, XPSNR as the second opinion, then Nothing. Order here is display order; the enum's
-        /// numeric order is the on-disk order and must not move. </summary>
-        public static readonly Metric[] MetricOrder = { Metric.Vmaf, Metric.Ssimulacra2, Metric.Xpsnr, Metric.None };
+        /// <summary> The metrics as the dialog lists them - VMAF first as the default, the two
+        /// VapourSynth-scored ones beside it, XPSNR as the second opinion, then Nothing. Order here is
+        /// display order; the enum's numeric order is the on-disk order and must not move. </summary>
+        public static readonly Metric[] MetricOrder = { Metric.Vmaf, Metric.Ssimulacra2, Metric.Butteraugli, Metric.Xpsnr, Metric.None };
 
         /// <summary> The metric's label, for the dialog, the results column and the log. </summary>
         public static string MetricName(Metric m)
@@ -44,23 +45,37 @@ namespace Nmkoder.Data
             {
                 case Metric.Vmaf: return "VMAF";
                 case Metric.Ssimulacra2: return "SSIMULACRA2";
+                case Metric.Butteraugli: return "Butteraugli";
                 case Metric.Xpsnr: return "XPSNR";
                 default: return "Nothing (size only)";
             }
         }
 
         /// <summary>
-        /// The score at or above which a rung reads as "hard to tell from the source", used to pick the
-        /// recommended CRF. VMAF 95 and SSIMULACRA2 80 are the app's own anchors - the AV1AN tab's
-        /// target-quality defaults - where 80 is "imperceptible side by side". XPSNR has no fixed
-        /// ceiling, so no single threshold is honest for it, and it returns 0: the results window draws
-        /// no recommendation there, only the table.
+        /// The score at which a rung reads as "hard to tell from the source", used to pick the
+        /// recommended CRF. VMAF 95, SSIMULACRA2 80 and Butteraugli 4 are the app's own anchors - the
+        /// AV1AN tab's target-quality defaults - where 80 is "imperceptible side by side" and the 4 is
+        /// on the 203-nit INF-norm scale that tab targets (av1an's own docs use 5.4; 4 is a step
+        /// stricter). XPSNR has no fixed ceiling, so no single threshold is honest for it, and it
+        /// returns 0: the results window draws no recommendation there, only the table.
+        /// <para/>
+        /// Which side of the anchor is the good side depends on the metric - see
+        /// <see cref="LowerIsBetter"/>.
         /// </summary>
         public static double GoodScore(Metric m)
         {
             if (m == Metric.Vmaf) return 95;
             if (m == Metric.Ssimulacra2) return 80;
+            if (m == Metric.Butteraugli) return 4;
             return 0;
+        }
+
+        /// <summary> Butteraugli is a distance where the others are qualities: 0 is identical and the
+        /// number grows as the picture degrades, so every comparison against <see cref="GoodScore"/> -
+        /// and every reading of the results column - flips for it. </summary>
+        public static bool LowerIsBetter(Metric m)
+        {
+            return m == Metric.Butteraugli;
         }
 
         /// <summary>
@@ -144,6 +159,9 @@ namespace Nmkoder.Data
             public string EncoderName = "";
             public string Preset = "";
             public string PixelFormat = "";
+            /// <summary> The content preset's name, or "" - part of what the CRF belongs to, so it is
+            /// carried with the encoder and speed preset it modified. </summary>
+            public string ContentPreset = "";
             public Metric ScoredWith = Metric.None;
             public string VmafModel = "";
             public List<Sample> Samples = new List<Sample>();

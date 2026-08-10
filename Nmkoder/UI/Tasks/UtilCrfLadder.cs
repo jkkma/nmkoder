@@ -65,6 +65,11 @@ namespace Nmkoder.UI.Tasks
         /// default. Same argument as the preset - the lists differ per encoder. </summary>
         public static int ColorFormatIndex = -1;
 
+        /// <summary> The name of a content preset from <see cref="EncoderArgPresets"/>, or "" for
+        /// none. Saved by name rather than index for the reason the speed preset is saved as text:
+        /// the lists differ per encoder, and an index would silently pick something else. </summary>
+        public static string ContentPreset = "";
+
         /// <summary> The box's text rather than the parsed values, so what was typed survives an
         /// encoder change that would clamp it. Empty means <see cref="CrfLadder.DefaultCrfs"/>. </summary>
         public static string Crfs = "";
@@ -122,6 +127,62 @@ namespace Nmkoder.UI.Tasks
             return CrfLadder.ParseCrfs(Crfs, GetEncoder());
         }
 
+        /// <summary>
+        /// The content presets the current encoder can offer - the Advanced tabs' own sets, brought
+        /// here at the user's request so a ladder can measure the settings an encode would really run.
+        /// x264 and x265 get their Quick Convert sets, which are written for exactly the binary this
+        /// utility runs. SVT-AV1 gets the AV1AN tab's set, which is written for svt-av1-hdr - a
+        /// different binary from the libsvtav1 here - so those presets are applied through
+        /// <see cref="GetApplicablePresetPairs"/>, which keeps the parameters this build's list
+        /// vouches for and names what it drops. The other encoders have no sets and show no row.
+        /// </summary>
+        public static IReadOnlyList<EncoderArgPreset> GetContentPresets()
+        {
+            IEncoder enc = GetEncoder();
+            string name = enc.Name == nameof(Data.Codecs.Video.LibSvtAv1) ? nameof(Data.Codecs.Video.SvtAv1) : enc.Name;
+            return EncoderArgPresets.For(name);
+        }
+
+        /// <summary> The selected content preset, or null for none - including a saved name the
+        /// current encoder does not have, which is what an encoder switch leaves behind. </summary>
+        public static EncoderArgPreset GetContentPreset()
+        {
+            return ContentPreset.IsEmpty() ? null : GetContentPresets().FirstOrDefault(p => p.Name == ContentPreset);
+        }
+
+        /// <summary>
+        /// A preset's values as the "key=value key=value" pairs string the encoders' GetArgs read from
+        /// the "advanced" entry, filtered to the parameters this tab's encoder actually has -
+        /// <paramref name="dropped"/> is what did not make it.
+        /// <para/>
+        /// The filter is the encoder's own argument list (the vetted rows the Advanced grid offers,
+        /// every one measured against the bundled build), and it only ever bites on SVT-AV1: the AV1AN
+        /// preset is written for svt-av1-hdr, and a parameter that fork alone has would be accepted by
+        /// ffmpeg and then dropped by the library with a warning nothing reads - the silent half-apply
+        /// this filter exists to turn into a named one. The x264 and x265 presets are written for the
+        /// binary here and pass through whole.
+        /// </summary>
+        public static string GetApplicablePresetPairs(IEncoder enc, EncoderArgPreset preset, out List<string> dropped)
+        {
+            dropped = new List<string>();
+
+            if (preset == null)
+                return "";
+
+            var known = new HashSet<string>(EncoderArgs.ReadRows(enc, EncoderArgs.FfmpegFolder).Select(r => r.Argument));
+            var applied = new List<string>();
+
+            foreach (var kv in preset.Values)
+            {
+                if (known.Contains(kv.Key))
+                    applied.Add($"{kv.Key}={kv.Value}");
+                else
+                    dropped.Add(kv.Key);
+            }
+
+            return string.Join(" ", applied);
+        }
+
         #region Settings
 
         public static void LoadSettings()
@@ -130,6 +191,7 @@ namespace Nmkoder.UI.Tasks
             Encoder = Encoders.Contains((CodecUtils.VideoCodec)enc) ? (CodecUtils.VideoCodec)enc : Encoders[0];
             Preset = Config.Get(Config.Key.UtilCrfLadderPreset, "");
             ColorFormatIndex = Config.Get(Config.Key.UtilCrfLadderColors, "-1").GetInt();
+            ContentPreset = Config.Get(Config.Key.UtilCrfLadderContentPreset, "");
             Crfs = Config.Get(Config.Key.UtilCrfLadderCrfs, "");
             SampleCount = Config.Get(Config.Key.UtilCrfLadderSamples, "3").GetInt().Clamp(1, 8);
             SampleSeconds = Config.Get(Config.Key.UtilCrfLadderSampleSecs, "10").GetInt().Clamp(2, 120);
@@ -145,6 +207,7 @@ namespace Nmkoder.UI.Tasks
             Config.Set(Config.Key.UtilCrfLadderEncoder, ((int)Encoder).ToString());
             Config.Set(Config.Key.UtilCrfLadderPreset, Preset);
             Config.Set(Config.Key.UtilCrfLadderColors, ColorFormatIndex.ToString());
+            Config.Set(Config.Key.UtilCrfLadderContentPreset, ContentPreset);
             Config.Set(Config.Key.UtilCrfLadderCrfs, Crfs);
             Config.Set(Config.Key.UtilCrfLadderSamples, SampleCount.ToString());
             Config.Set(Config.Key.UtilCrfLadderSampleSecs, SampleSeconds.ToString());
@@ -193,16 +256,42 @@ namespace Nmkoder.UI.Tasks
                 : Score == CrfLadder.Metric.Vmaf ? $"VMAF ({GetVmafModelName()})"
                 : CrfLadder.MetricName(Score);
 
-            string ssimu2Note = Score == CrfLadder.Metric.Ssimulacra2
+            string metricNote = Score == CrfLadder.Metric.Ssimulacra2
                 ? " SSIMULACRA2 is scored through VapourSynth's vszip plugin, bundled on Windows only; the run stops with a " +
                   "reason if it cannot be computed here."
+                : Score == CrfLadder.Metric.Butteraugli
+                ? " Butteraugli measures distortion - 0 is identical and lower is better, on the same 203-nit scale as the " +
+                  "AV1AN tab's Target Butteraugli. It is scored through VapourSynth (Vship on a GPU that passes its check, " +
+                  "else the bundled julek plugin, Windows only); the run stops with a reason if it cannot be computed here."
                 : "";
 
             return $"{file.Name.Trunc(50)} — {FormatUtils.Time(file.DurationMs)}, sampled {DescribeSampling(samples, file.DurationMs)}." +
                 $"\n\n{runs} sample encode{(runs == 1 ? "" : "s")} with {enc.FriendlyName} at preset " +
-                $"{GetPreset()}, {GetPixelFormat()}, scored with {scoring}. A CRF is only meaningful for the encoder " +
-                $"and preset that produced it - the AV1AN tab drives different binaries, so treat a number from here " +
-                $"as a starting point there rather than as the same setting.{ssimu2Note}";
+                $"{GetPreset()}, {GetPixelFormat()}{DescribeContentPreset(enc)}, scored with {scoring}. A CRF is only " +
+                $"meaningful for the encoder and settings that produced it - the AV1AN tab drives different binaries, " +
+                $"so treat a number from here as a starting point there rather than as the same setting.{metricNote}";
+        }
+
+        /// <summary>
+        /// The content preset's clause in the readout, with the honest half said up front for SVT-AV1:
+        /// the AV1AN tab's preset is written for svt-av1-hdr, and only the parameters this build's
+        /// libsvtav1 has can be applied - so the count is stated here, where it can be read before the
+        /// run, and the dropped names go to the log when it starts.
+        /// </summary>
+        private static string DescribeContentPreset(IEncoder enc)
+        {
+            EncoderArgPreset preset = GetContentPreset();
+
+            if (preset == null)
+                return "";
+
+            GetApplicablePresetPairs(enc, preset, out List<string> dropped);
+
+            if (dropped.Count < 1)
+                return $", '{preset.Name}' content preset";
+
+            return $", '{preset.Name}' content preset ({preset.Values.Count - dropped.Count} of its {preset.Values.Count} " +
+                $"settings - the rest are svt-av1-hdr's and the SVT-AV1 inside FFmpeg does not take them)";
         }
 
         private static string DescribeSampling(List<CrfLadder.Sample> samples, long durationMs)
@@ -240,19 +329,34 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
-                // The metric is snapshotted before the gate, not read twice around the await inside it:
-                // the dialog can flip it while the availability probe runs, and gating on one metric
-                // then encoding for another is exactly the split the snapshot exists to prevent.
+                // The metric is snapshotted before the gates, not read twice around the awaits inside
+                // them: the dialog can flip it while the availability probe runs, and gating on one
+                // metric then encoding for another is exactly the split the snapshot exists to prevent.
                 CrfLadder.Metric metric = Score;
+
+                // The VapourSynth-scored metrics change backend when Vship is present, so the autoload
+                // folder is reconciled against what this machine's GPU can actually run before anything
+                // probes it - exactly what a metric-targeted av1an encode does, and for the same
+                // reason: a staged copy from a session on different hardware is either a GPU going
+                // unused or a plugin that fails every frame.
+                if (metric == CrfLadder.Metric.Ssimulacra2 || metric == CrfLadder.Metric.Butteraugli)
+                    await VshipStager.Reconcile();
 
                 // Checked before a single frame is cut or encoded, because the metric is the one thing
                 // that can be impossible on this machine and it is not cheap to find out at the end: a
-                // ladder with SSIMULACRA2 picked on a build with no vszip would otherwise encode the
-                // whole grid and then report every rung on size alone. The other two metrics are ffmpeg
-                // filters that are always present.
+                // ladder with SSIMULACRA2 or Butteraugli picked on a build without their plugins would
+                // otherwise encode the whole grid and then report every rung on size alone. The other
+                // two metrics are ffmpeg filters that are always present.
                 if (metric == CrfLadder.Metric.Ssimulacra2 && !await Media.Ssimulacra2.IsAvailableAsync())
                 {
                     RunTask.Cancel($"SSIMULACRA2 cannot be scored here.\n\n{Media.Ssimulacra2.GetUnavailableReason()}\n\n" +
+                        $"Pick VMAF or XPSNR in the Sample Encodes settings, or score with nothing and read the sizes alone.");
+                    return;
+                }
+
+                if (metric == CrfLadder.Metric.Butteraugli && !await Media.Butteraugli.IsAvailableAsync())
+                {
+                    RunTask.Cancel($"Butteraugli cannot be scored here.\n\n{Media.Butteraugli.GetUnavailableReason()}\n\n" +
                         $"Pick VMAF or XPSNR in the Sample Encodes settings, or score with nothing and read the sizes alone.");
                     return;
                 }
@@ -269,6 +373,12 @@ namespace Nmkoder.UI.Tasks
                 workDir = GetWorkDir(file, runKeep);
                 Directory.CreateDirectory(workDir);
 
+                // The content preset is part of the snapshot too, resolved to its pairs string once:
+                // a CRF belongs to every setting that produced it, so the advanced parameters have to
+                // be pinned with the encoder and the speed preset.
+                EncoderArgPreset contentPreset = GetContentPreset();
+                string advanced = GetApplicablePresetPairs(enc, contentPreset, out List<string> droppedRows);
+
                 var result = new CrfLadder.Result
                 {
                     FileName = file.Name,
@@ -277,10 +387,27 @@ namespace Nmkoder.UI.Tasks
                     EncoderName = enc.FriendlyName,
                     Preset = GetPreset(),
                     PixelFormat = GetPixelFormat(),
+                    ContentPreset = contentPreset?.Name ?? "",
                     ScoredWith = metric,
                     VmafModel = GetVmafModelName(),
                     Samples = CrfLadder.PlanSamples(file.DurationMs, SampleCount, SampleSeconds),
                 };
+
+                if (contentPreset != null)
+                {
+                    // What was kept and what was not, before anything encodes: the dropped rows are
+                    // svt-av1-hdr parameters this build's libsvtav1 does not have, and a preset that
+                    // quietly half-applied would be measuring settings nobody chose.
+                    // "takes" rather than "has", precisely: noise-adaptive-filtering it does not have,
+                    // where hbd-mds it has and segfaults on - see LibSvtAv1.json's history. Both are
+                    // rows this build cannot be given, which is what the sentence says.
+                    string droppedNote = droppedRows.Count < 1 ? ""
+                        : droppedRows.Count == 1
+                        ? $" - {droppedRows[0]} is not a parameter the SVT-AV1 inside FFmpeg takes, and was left out"
+                        : $" - {string.Join(", ", droppedRows)} are not parameters the SVT-AV1 inside FFmpeg takes, and were left out";
+                    Logger.Log($"Applying the '{contentPreset.Name}' content preset: " +
+                        $"{contentPreset.Values.Count - droppedRows.Count} of its {contentPreset.Values.Count} settings{droppedNote}.");
+                }
 
                 if (result.Samples.Count < SampleCount)
                     Logger.Log($"'{file.Name.Trunc(40)}' is {FormatUtils.Time(file.DurationMs)} long, which does not hold " +
@@ -288,12 +415,13 @@ namespace Nmkoder.UI.Tasks
 
                 Logger.Log($"Cutting {result.Samples.Count} sample{(result.Samples.Count == 1 ? "" : "s")} out of " +
                     $"'{file.Name.Trunc(40)}' and encoding {crfs.Length} of them at CRF {CrfLadder.Format(crfs)} with " +
-                    $"{result.EncoderName}, preset {result.Preset}, {result.PixelFormat}.");
+                    $"{result.EncoderName}, preset {result.Preset}, {result.PixelFormat}" +
+                    $"{(result.ContentPreset.IsEmpty() ? "" : $", '{result.ContentPreset}' content preset")}.");
 
                 if (!await ExtractSamples(file, result, workDir))
                     return;
 
-                if (!await EncodeLadder(file, result, crfs, enc, workDir, runKeep))
+                if (!await EncodeLadder(file, result, crfs, enc, advanced, workDir, runKeep))
                     return;
 
                 Report(result);
@@ -423,7 +551,7 @@ namespace Nmkoder.UI.Tasks
         /// fields on <paramref name="result"/> - never from the live statics, so the dialog cannot
         /// change what a run in progress does.
         /// </summary>
-        private static async Task<bool> EncodeLadder(MediaFile file, CrfLadder.Result result, int[] crfs, IEncoder enc, string workDir, bool keep)
+        private static async Task<bool> EncodeLadder(MediaFile file, CrfLadder.Result result, int[] crfs, IEncoder enc, string advanced, string workDir, bool keep)
         {
             int step = 0;
             int steps = crfs.Length * result.Samples.Count;
@@ -439,7 +567,7 @@ namespace Nmkoder.UI.Tasks
                     Logger.Log($"Encoding sample {sample.Index + 1}/{result.Samples.Count} at CRF {crf} ({step}/{steps})...");
 
                     var sw = Stopwatch.StartNew();
-                    bool wrote = await EncodeSample(file, enc, crf, result.Preset, result.PixelFormat, sample, outPath);
+                    bool wrote = await EncodeSample(file, enc, crf, result.Preset, result.PixelFormat, advanced, sample, outPath);
                     sw.Stop();
 
                     if (RunTask.canceled)
@@ -498,7 +626,7 @@ namespace Nmkoder.UI.Tasks
         /// both are worked out from the video's frame rate and frame size, which the cut shares. The
         /// preset and colour format are the run's snapshot, not the live settings.
         /// </summary>
-        private static async Task<bool> EncodeSample(MediaFile file, IEncoder enc, int crf, string preset, string pixFmt, CrfLadder.Sample sample, string outPath)
+        private static async Task<bool> EncodeSample(MediaFile file, IEncoder enc, int crf, string preset, string pixFmt, string advanced, CrfLadder.Sample sample, string outPath)
         {
             var encArgs = new Dictionary<string, string>
             {
@@ -509,6 +637,12 @@ namespace Nmkoder.UI.Tasks
 
             if (pixFmt.IsNotEmpty())
                 encArgs["pixFmt"] = pixFmt;
+
+            // The content preset's surviving rows, in the same pairs form the Advanced grids hand
+            // over - so they reach the command through the encoder's own GetArgs exactly as a filled
+            // grid would (-svtav1-params / -x264-params / merged into x265's list).
+            if (advanced.IsNotEmpty())
+                encArgs["advanced"] = advanced;
 
             CodecArgs codecArgs = enc.GetArgs(encArgs, file, Pass.OneOfOne);
             string args = $"-i {Shell.WrapArg(sample.Path)} {codecArgs.Arguments} -an -sn -dn {Shell.WrapArg(outPath)}";
@@ -538,7 +672,7 @@ namespace Nmkoder.UI.Tasks
         /// The two are the same frames by construction - the encode's input *is* the reference - so
         /// there is none of the scaling and cropping <see cref="UtilGetMetrics"/> has to do to put two
         /// unrelated files into one frame of reference. VMAF and XPSNR are ffmpeg filters; SSIMULACRA2
-        /// goes to VapourSynth instead, since no ffmpeg build computes it.
+        /// and Butteraugli go to VapourSynth instead, since no ffmpeg build computes either.
         /// </summary>
         private static async Task<double> ScoreAsync(MediaFile file, string encPath, CrfLadder.Sample sample, CrfLadder.Metric scoreWith, string vmafModel)
         {
@@ -546,6 +680,9 @@ namespace Nmkoder.UI.Tasks
 
             if (scoreWith == CrfLadder.Metric.Ssimulacra2)
                 return await ScoreSsimulacra2Async(encPath, refPath);
+
+            if (scoreWith == CrfLadder.Metric.Butteraugli)
+                return await ScoreButteraugliAsync(encPath, refPath);
 
             // The frame rate is forced onto both inputs: a variable-rate source keeps its timestamps
             // through a stream copy and loses them through an encode, and the ffmpeg metric filters
@@ -602,6 +739,20 @@ namespace Nmkoder.UI.Tasks
             return double.MinValue;
         }
 
+        /// <summary> Butteraugli through VapourSynth, the same shape as the SSIMULACRA2 path above -
+        /// frame-exact by construction, no rate forced, progress through the ordinary log. </summary>
+        private static async Task<double> ScoreButteraugliAsync(string encPath, string refPath)
+        {
+            Media.Butteraugli.Score result = await Media.Butteraugli.ScoreAsync(refPath, encPath);
+
+            if (result.Ok)
+                return result.Value;
+
+            Logger.LogWarn($"No Butteraugli score came back for '{Path.GetFileName(encPath)}' - that rung is reported on " +
+                $"size alone. {result.Problem}");
+            return double.MinValue;
+        }
+
         /// <summary>
         /// The model is named by version rather than by path, for the reasons <see cref="UtilGetMetrics"/>
         /// gives at length: libvmaf's first positional option is the log path, not the model, and a
@@ -645,7 +796,8 @@ namespace Nmkoder.UI.Tasks
         private static void Report(CrfLadder.Result result)
         {
             Logger.Log($"CRF ladder for '{result.FileName.Trunc(40)}' - {result.EncoderName}, preset {result.Preset}, " +
-                $"{result.PixelFormat}, measured over {FormatUtils.Time(result.Samples.Sum(x => x.Ms))} of it:");
+                $"{result.PixelFormat}{(result.ContentPreset.IsEmpty() ? "" : $", '{result.ContentPreset}' content preset")}, " +
+                $"measured over {FormatUtils.Time(result.Samples.Sum(x => x.Ms))} of it:");
 
             foreach (CrfLadder.Rung rung in result.Rungs)
             {
