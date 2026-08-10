@@ -119,7 +119,7 @@ namespace Nmkoder.Media
         /// <paramref name="requestedSlices"/> is the Detection Slices box as the caller snapshotted
         /// it; 1 is the box's way of switching the pre-pass off.
         /// </summary>
-        public static async Task<string> TryPrepareScenesFileAsync(string inPath, string tempDir, string scDownscaleArg, string keyIntArg, int requestedSlices)
+        public static async Task<(string scenesFile, int frames)> TryPrepareScenesFileAsync(string inPath, string tempDir, string scDownscaleArg, string keyIntArg, int requestedSlices)
         {
             NmkdStopwatch sw = new NmkdStopwatch();
             string scratchDir = "";
@@ -131,7 +131,7 @@ namespace Nmkoder.Media
                 if (requestedSlices < 2)
                 {
                     Logger.Log("Parallel scene detection: the Detection Slices box is set to 1, so av1an detects in-run.", true);
-                    return "";
+                    return ("", 0);
                 }
 
                 // The flags are old (0.4.x era), but av1an refuses a whole command over one it does
@@ -142,7 +142,7 @@ namespace Nmkoder.Media
                     !await AvProcess.Av1anSupportsFlag("--sc-only") || !await AvProcess.Av1anSupportsFlag("--scenes"))
                 {
                     Logger.Log("Parallel scene detection: this av1an does not advertise --sc-only/--scenes, so av1an detects in-run.", true);
-                    return "";
+                    return ("", 0);
                 }
 
                 string vspipe = Qtgmc.GetVspipePath();
@@ -150,13 +150,13 @@ namespace Nmkoder.Media
                 if (vspipe.IsEmpty())
                 {
                     Logger.Log("Parallel scene detection: VSPipe is not available to slice the input, so av1an detects in-run.", true);
-                    return "";
+                    return ("", 0);
                 }
 
                 string av1anPath = GetAv1anPath();
 
                 if (av1anPath.IsEmpty())
-                    return ""; // The encode's own launcher names this loudly moments later - no point saying it twice
+                    return ("", 0); // The encode's own launcher names this loudly moments later - no point saying it twice
 
                 scratchDir = Path.Combine(Paths.GetSessionDataPath(), $"scdet-{Path.GetFileName(tempDir)}");
                 Directory.CreateDirectory(scratchDir);
@@ -168,14 +168,14 @@ namespace Nmkoder.Media
                 int frames = await GetFrameCountAsync(vspipe, inPath, scratchDir);
 
                 if (RunTask.canceled || RunTask.failed)
-                    return "";
+                    return ("", 0);
 
                 int sliceCount = ResolveSliceCount(requestedSlices, frames);
 
                 if (sliceCount < 2)
                 {
                     Logger.Log($"Parallel scene detection: {(frames < 1 ? "the frame count could not be read" : $"{frames} frames is too short to be worth splitting")}, so av1an detects in-run.", true);
-                    return "";
+                    return ("", 0);
                 }
 
                 // A hand-set count is respected up to the floor above; where the file cannot carry
@@ -226,7 +226,7 @@ namespace Nmkoder.Media
                     pending.Remove(finished);
 
                     if (RunTask.canceled || RunTask.failed)
-                        return ""; // Stop has already killed the processes (they run as Secondary)
+                        return ("", 0); // Stop has already killed the processes (they run as Secondary)
 
                     var slice = slices.First(s => s.run == finished);
                     (int exitCode, string output) = finished.Result;
@@ -237,7 +237,7 @@ namespace Nmkoder.Media
                             $"{(exitCode != 0 ? $"exited with code {exitCode}" : "wrote no scene list")}, so av1an " +
                             $"does its own scene detection instead. The encode is unaffected.");
                         Logger.Log($"Slice {slice.index + 1} output:\n{output.Trim().Trunc(1200)}", true);
-                        return "";
+                        return ("", 0);
                     }
 
                     done++;
@@ -250,7 +250,7 @@ namespace Nmkoder.Media
                 {
                     Logger.Log($"Parallel scene detection did not work out - {problem} - so av1an does its own " +
                         $"scene detection instead. The encode is unaffected.");
-                    return "";
+                    return ("", 0);
                 }
 
                 string outPath = Av1anUi.GetScenesFilePath(tempDir);
@@ -258,13 +258,13 @@ namespace Nmkoder.Media
                 int sceneCount = SceneCount(merged);
                 Logger.Log($"Scene detection finished in {FormatUtils.Time(sw.ElapsedMs)} - {sceneCount} scenes " +
                     $"from {sliceCount} parallel slices. av1an is given the list and skips its own pass.");
-                return outPath;
+                return (outPath, frames);
             }
             catch (Exception e)
             {
                 Logger.Log($"Parallel scene detection could not run ({e.Message}), so av1an does its own scene detection instead.", true);
                 Logger.Log($"{e.StackTrace}", true);
-                return "";
+                return ("", 0);
             }
             finally
             {
@@ -285,6 +285,42 @@ namespace Nmkoder.Media
                 if (scratchDir.IsNotEmpty())
                     IoUtils.TryDeleteIfExists(scratchDir);
             }
+        }
+
+        /// <summary>
+        /// Whether two files carry the same running time, within 50ms - the tripwire behind running
+        /// scene detection concurrently with the render passes, whose outputs must index frame-for-
+        /// frame against the file the detection read. A duration is a header field and costs nothing,
+        /// where an exact packet count is a full sequential read of a file that is now hundreds of
+        /// gigabytes; the tolerance is under any frame period this app meets at 20 fps and below, and
+        /// what it exists to catch is structural - a doubled rate, a dropped tail - not a rounding.
+        /// A duration that cannot be read answers true, the benefit of the doubt this app's other
+        /// probes give: the check is a regression tripwire, not a load-bearing gate, and losing the
+        /// pre-detected list over a probe hiccup would cost a real optimization for nothing.
+        /// </summary>
+        public static async Task<bool> DurationsMatchAsync(string pathA, string pathB)
+        {
+            double a = await GetDurationSecondsAsync(pathA);
+            double b = await GetDurationSecondsAsync(pathB);
+
+            if (a <= 0 || b <= 0)
+            {
+                Logger.Log($"Scene detection duration check: could not read {(a <= 0 ? pathA : pathB)}, so the list is trusted.", true);
+                return true;
+            }
+
+            return Math.Abs(a - b) < 0.05;
+        }
+
+        static async Task<double> GetDurationSecondsAsync(string path)
+        {
+            var settings = new AvProcess.FfprobeSettings()
+            {
+                Args = $"-show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {path.Wrap()}",
+                LogLevel = "quiet",
+            };
+
+            return ((await AvProcess.RunFfprobe(settings)).SplitIntoLines().FirstOrDefault(l => l.Trim().Length > 0) ?? "").GetFloat();
         }
 
         /// <summary> Frame indices where the slices meet: bounds[i] to bounds[i+1] is slice i, and

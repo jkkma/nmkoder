@@ -135,8 +135,9 @@ Each heading below expands.
 - Video Options: resample the frame rate, **resize** from presets or an exact size, manually or
   **automatically crop** black bars, pad out to a target **aspect ratio**, and **trim** to a section
   picked while watching the frame you are on
-- **HDR to SDR tone mapping** for PQ and HLG sources, with the roll-off built around the peak
-  brightness the file declares, and the output retagged BT.709
+- **HDR to SDR tone mapping** for PQ and HLG sources, with the roll-off built around the picture's
+  **measured** brightness - on a GPU, libplacebo measures every frame as it goes; without one, a
+  sampled scan reads the brightest real pixel first - and the output retagged BT.709
 - **Deinterlacing**, its row shown only for files whose fields warrant it - a tape, DVD or camcorder
   capture - and off screen entirely for a modern progressive download. Uses **QTGMC** through
   VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
@@ -161,10 +162,14 @@ Each heading below expands.
 - Same audio, metadata and framing options as FFmpeg encoding, trim included
 - **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with
   ffmpeg, which has nowhere to run a VapourSynth script, so picking QTGMC renders the video through it
-  once beforehand - into a near-lossless intermediate that av1an then encodes, optionally at one frame
+  once beforehand - into a lossless intermediate that av1an then encodes, optionally at one frame
   per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
 - **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
-  conversion rather than the source
+  conversion rather than the source. On a GPU this also renders once in front of av1an - peak
+  detection needs one continuous run, where av1an would restart it at every chunk - and when grain
+  synthesis needs a denoised copy, both files come out of that one command. Every intermediate in
+  the chain is lossless, and scene detection runs alongside these passes rather than after them,
+  since none of them changes a frame number
 - **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
   encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
   denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
@@ -270,11 +275,17 @@ None of this existed before the fork - there was no deinterlacing in the app at 
 - **HDR sources can be converted to SDR**, on both encode tabs. The row only appears for a file whose
   transfer curve says PQ or HLG, and it defaults to doing nothing - the other reason to load an HDR
   file is to re-encode it *as* HDR - so it exists to say the file is HDR and let you choose.
-- **The roll-off is built around the peak brightness the file declares** (MaxCLL, else its mastering
-  display), because FFmpeg's tone-mapper does not read either of them: measured, the same clip with
-  and without that metadata tone-maps identically. The widely-copied chain leaves this at its default,
-  which clips everything above about 374 nits to flat white - every highlight on a 1000-nit master.
-  The readout names the peak used and whether it was declared or assumed.
+- **The roll-off is built around the picture's measured brightness, not the metadata's claim.** The
+  ordinary UHD Blu-ray declares a 4000-nit mastering display and a MaxCLL near the format ceiling
+  over frames that top out around 600 nits, and a mapping priced for the metadata renders the whole
+  film 30-odd code values darker than a player that measures the signal - which is exactly what mpv
+  does, and why the source "looked brighter" there. On a GPU, libplacebo's peak detection measures
+  every frame; without one, a sampled scan reads the brightest real pixel off the file and the
+  declared value only caps it. The declared metadata cannot simply be trusted *or* passed along:
+  measured, FFmpeg's own tone-mapper reads none of it - the same clip with and without MaxCLL and a
+  mastering display tone-maps identically - and the widely-copied chain's default clips everything
+  above about 374 nits to flat white. The encode log states measured, declared and effective peaks
+  per file.
 - It runs **before any crop, scale or burnt-in subtitle**, so subtitles are not dragged through a
   gamut conversion written for the picture, and the output is retagged BT.709 with the HDR metadata
   dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would

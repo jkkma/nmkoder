@@ -1235,6 +1235,20 @@ subdivided lists equals subdividing the merged list, but only while both command
 That is why `Av1an.Run` snapshots both strings into locals and splices the same values into both
 commands rather than reading the boxes twice.
 
+**Where a tone-map or grain pass follows, the detection runs alongside it rather than after it.**
+Those passes change pixels, never the frame count or order, so a list detected on their *input*
+indexes their output frame for frame - and the two phases the workers cannot help with then hide
+behind each other, the detection disappearing entirely into a grain measurement's hours. The
+overlap starts after the deinterlacer on purpose: a bob writes one frame per field, which renumbers
+everything behind it. The invariant carries a tripwire, `Av1anSceneDetect.DurationsMatchAsync` - a
+header-cost duration comparison rather than a packet count, which would mean reading every byte of
+a file that is now hundreds of gigabytes - that discards the list and lets av1an detect in-run if a
+pass ever changes the timing; it catches the structural regressions (a doubled rate, a dropped
+tail) and accepts that a single-frame drift would slip through to cost av1an its final chunk. On a
+failed run the overlapped slices are wound down before the temp folder goes -
+`SettleSceneDetectionAsync`, which has to kill them itself because `RunTask.Fail`, unlike `Cancel`,
+kills no processes.
+
 **The LSMASH gate is load-bearing, and physical cuts are not an alternative.** The scene list's
 frame numbers must be the ones the encode's chunking counts, and a different indexer can count
 differently - so the slice scripts open the source through lsmash and nothing else (none of the

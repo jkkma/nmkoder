@@ -659,6 +659,27 @@ namespace Nmkoder.UI.Tasks
                     if (deinterlaced.IsNotEmpty())
                         inPath = deinterlaced;
 
+                    // Every pass from here on preserves frame numbering - the tone map and the denoise
+                    // change pixels, never the count or the order - so a scene list detected on this
+                    // file indexes the file av1an will open, frame for frame. That is what lets the
+                    // detection run *alongside* those passes instead of after them: the two phases the
+                    // workers cannot help with hide behind each other, and with a grain measurement in
+                    // the run the detection disappears into the hours grav1synth takes entirely. The
+                    // deinterlacer is the reason the overlap starts here and not sooner - a bob writes
+                    // one frame per field, which renumbers everything after it.
+                    VideoColorData overlapColor = TrackList.current?.File?.ColorData;
+                    bool passesFollow = Av1anUi.ToneMapRendersInFront(overlapColor)
+                        || (Av1anUi.CurrentGrain != null && Av1anUi.CurrentGrain.NeedsDenoisePass);
+                    Task<(string scenesFile, int frames)> earlySceneTask = null;
+                    string sceneDetectInput = inPath;
+
+                    if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH && passesFollow)
+                    {
+                        Logger.Log("Scene detection runs alongside the render passes - they change pixels, not frame numbers, " +
+                            "so the list detected on their input fits their output.", true);
+                        earlySceneTask = Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
+                    }
+
                     // Third, on whatever the first two left, and ahead of the grain pass below on
                     // purpose: the grain has to be measured on the frames that will be encoded, and
                     // once this runs those are the SDR frames it produces.
@@ -666,6 +687,7 @@ namespace Nmkoder.UI.Tasks
 
                     if (RunTask.canceled || RunTask.failed)
                     {
+                        await SettleSceneDetectionAsync(earlySceneTask);
                         DiscardUnusedTempFolder(tempDir, resume);
                         Program.MainWin.SetWorking(false);
                         return;
@@ -681,6 +703,7 @@ namespace Nmkoder.UI.Tasks
 
                     if (RunTask.canceled || RunTask.failed)
                     {
+                        await SettleSceneDetectionAsync(earlySceneTask);
                         DiscardUnusedTempFolder(tempDir, resume);
                         Program.MainWin.SetWorking(false);
                         return;
@@ -692,8 +715,9 @@ namespace Nmkoder.UI.Tasks
                     // Scene detection is the one phase of an av1an run the workers cannot help with -
                     // it is what creates the chunks they work on - so where the pieces allow it, it is
                     // run here instead, split across parallel slices of the input, and av1an is handed
-                    // the finished list via --scenes so it skips its own sequential pass. On whatever
-                    // the three passes above left, because that is the file av1an will open.
+                    // the finished list via --scenes so it skips its own sequential pass. Overlapped
+                    // with the render passes above where those ran, sequentially on the final input
+                    // otherwise.
                     // Opportunistic by design: "" on any obstacle, and the encode runs as it always
                     // did. LSMASH only, because the list's frame numbers have to be the ones the
                     // encode's own chunking will count - see Av1anSceneDetect for the whole argument.
@@ -702,13 +726,32 @@ namespace Nmkoder.UI.Tasks
                     // describe frames that are no longer the ones being encoded.
                     if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH)
                     {
-                        string scenesFile = await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
+                        (string scenesFile, int detectedFrames) = earlySceneTask != null
+                            ? await earlySceneTask
+                            : await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
 
                         if (RunTask.canceled || RunTask.failed)
                         {
                             DiscardUnusedTempFolder(tempDir, resume);
                             Program.MainWin.SetWorking(false);
                             return;
+                        }
+
+                        // The tripwire for the invariant the overlap rests on. The passes preserve the
+                        // count by construction, so this only ever fires on a regression in one of
+                        // them - and it is a duration check rather than a packet count because the
+                        // exact count costs a full read of a file that is now several hundred
+                        // gigabytes, where the headers cost nothing. It catches every structural
+                        // change (a doubled rate, a dropped tail, a trim); a single-frame drift slips
+                        // it, and would cost av1an its final chunk rather than the run. Discarding is
+                        // the safe direction: the encode falls back to av1an's own in-run detection.
+                        if (scenesFile.IsNotEmpty() && inPath != sceneDetectInput &&
+                            !await Av1anSceneDetect.DurationsMatchAsync(sceneDetectInput, inPath))
+                        {
+                            Logger.Log("The scene list was detected on an input whose duration no longer matches the prepared " +
+                                "file, so it is discarded and av1an detects in-run. A render pass changed the timing, which none should.");
+                            IoUtils.TryDeleteIfExists(scenesFile);
+                            scenesFile = "";
                         }
 
                         if (scenesFile.IsNotEmpty())
@@ -1104,6 +1147,23 @@ namespace Nmkoder.UI.Tasks
             }
 
             return outPath;
+        }
+
+        /// <summary>
+        /// Winds down an overlapped scene detection before a failed run returns, so its slices are not
+        /// left grinding over an encode that is already dead and its scratch folder is cleaned before
+        /// the temp folder goes. A cancel has already killed the slice processes - they run as
+        /// Secondary - but <see cref="RunTask.Fail"/> kills nothing, so the kill here is what turns
+        /// the detection's own abandon path from minutes of zombie decoding into an immediate return.
+        /// Null is the common case and free: most early returns never started an overlap.
+        /// </summary>
+        private static async Task SettleSceneDetectionAsync(Task<(string scenesFile, int frames)> earlySceneTask)
+        {
+            if (earlySceneTask == null || earlySceneTask.IsCompleted)
+                return;
+
+            ProcessManager.KillSecondary();
+            await earlySceneTask;
         }
 
         /// <summary> Where a run's temp folder is, worked out without creating it. Stated once because
