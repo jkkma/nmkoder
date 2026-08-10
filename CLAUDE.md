@@ -2776,18 +2776,35 @@ is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bi
 itself (`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation
 land on 8 bits first and convert up after, baking banding in.
 
-**The intermediate's encode settings were chosen by measuring what survives them, and the thing to
-measure is grain.** This file is what av1an encodes and what the grain passes measure, so texture it
-loses is gone from the final encode - and the first cut shipped `veryfast` on the claim that nothing
-downstream would notice, which a measurement then contradicted: high-frequency energy of heavy
-grain through x264 CRF 12 is **90.5% at veryfast** (the preset's trellis 0 and thin analysis, not
-the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5% at medium, and **100% at `fast` with
-`-tune grain`**, a preset step quicker than medium at the UHD sizes this pass runs at. That is what
-it uses, unconditionally: a clean source pays a little bitrate on a temporary file, and fidelity is
-the file's entire job. Note the grain *pipeline* was never at risk of mismatch from this - the
-denoiser, grav1synth and av1an all read this same file, so a measured table's reconstruction target
-is exactly the file being encoded whatever the intermediate kept; what the retention buys is the
-intermediate not softening the film on the way in. A failed pass fails the encode the way a
+**The intermediate is lossless FFV1 now, at the user's own request, and the path to that is worth
+keeping because each step was measured.** The first cut shipped x264 CRF 12 `veryfast` on the claim
+that nothing downstream would notice, and a measurement contradicted it: heavy grain keeps 90.5% of
+its high-frequency energy through that (the preset's trellis 0, not the CRF - even CRF 3 veryfast
+only reaches 96.4%), 98.5% through medium, and **100% through `fast` with `-tune grain`** - which is
+what 2.8.49 shipped, measured transparent on grain energy and tone values alike at about a tenth of
+the source's size. It was replaced anyway: the intermediate is the file av1an encodes, so its
+generation is the ceiling on the final picture, and the user chose to take the generation out of the
+chain over the disk. The cost is a temporary file several times the source's size, said in the
+announce log. The encode arguments are `DenoisePass.Ffv1Args` - the same statement the denoised file
+uses - and the fallback knob is that one line plus the retention table above, should the disk cost
+ever have to come back down. **x264's own lossless mode is not the cheaper route it looks like:
+measured, 10-bit `-qp 0` is not lossless** - high-bit-depth x264 shifts its QP scale, so 0 is no
+longer the lossless point - and ffmpeg's wrapper refuses the negative QP that scale would need,
+where FFV1 round-trips bit-exact.
+
+**The tone map and the grain denoise render as one fused command when both would run** -
+`ToneMapPass.RunFusedAsync`, gated exactly where the two passes meet: the graph splits after the
+whole tone-map chain and writes the tone-mapped file and its denoised copy as two outputs of one
+ffmpeg, so the film is decoded and tone-mapped once where the separate passes cost two. With both
+outputs lossless, the grain measurement is exact - grav1synth diffs the rendered frames themselves,
+no encode generation between. Failure semantics are the pair's: both files or neither, because a
+resume that found one half would mistake a dead fused run for a finished pass -
+`RenderToneMappedInput` deletes both on any failure, and `RenderDenoisedInput` keys its reuse on
+the files rather than on the resume flag, so a denoised file the fused pass wrote is recognised on
+a fresh run, and one missing its grain table skips only the render and still gets measured. The
+separate `DenoisePass` remains as the repair path (a resume that kept the tone-mapped file but lost
+the denoised half denoises from disk without re-rendering) and as the Film Grain utility's pass,
+which is why the FFV1 statement lives on it. A failed pass fails the encode the way a
 failed QTGMC pass does - the probe has already proven libplacebo renders on this machine, so a
 failure here is the machine changing mid-run, not a normal path. Two things it buys beside
 correctness: the target-quality probes score the SDR frames actually being encoded (per-chunk
