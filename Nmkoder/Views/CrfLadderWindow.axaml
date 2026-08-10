@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Nmkoder.Views.CrfLadderWindow"
         Title="Configure Sample Encodes"
-        Width="660" SizeToContent="Height"
+        Width="730" SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
 
@@ -55,9 +55,9 @@
 
       <TextBlock Grid.Row="2" Grid.Column="0" Classes="field" Text="Score with" />
       <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-        <ComboBox x:Name="MetricBox" Width="200" SelectionChanged="Setting_SelectionChanged"
+        <ComboBox x:Name="MetricBox" Width="190" SelectionChanged="Setting_SelectionChanged"
                   ToolTip.Tip="VMAF is the usual answer and the one CRF advice is written against. SSIMULACRA2 is scored through VapourSynth's vszip plugin - the same way the AV1AN tab scores its Target SSIMULACRA2 mode, bundled on Windows only - and the run says so if it cannot compute it here; no FFmpeg build can, libvmaf having no such feature. XPSNR is a perceptually weighted PSNR and a useful second opinion. The items are filled from code." />
-        <ComboBox x:Name="VmafModelBox" Width="230" SelectionChanged="Setting_SelectionChanged">
+        <ComboBox x:Name="VmafModelBox" Width="340" SelectionChanged="Setting_SelectionChanged">
           <ComboBoxItem Content="vmaf_v0.6.1 (Default)" />
           <ComboBoxItem Content="vmaf_v0.6.1neg (No Enhancement Gain)" />
           <ComboBoxItem Content="vmaf_4k_v0.6.1 (4K)" />

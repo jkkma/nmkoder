@@ -136,8 +136,13 @@ namespace Nmkoder.Views
         /// focus has moved somewhere else. </summary>
         private void Crf_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter)
-                ReadUi();
+            if (e.Key != Key.Enter)
+                return;
+
+            // Handled, or the KeyDown bubbles to the window and the IsDefault OK button clicks - so
+            // Enter would save and close the dialog rather than refresh this readout.
+            e.Handled = true;
+            ReadUi();
         }
 
         private void ReadUi()
