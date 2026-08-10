@@ -1956,19 +1956,34 @@ an encoder switch like the speed preset beside it.
 
 **Do not put hbd-mds into LibSvtAv1.json, however measured-present it looks.** It was added for exactly
 one commit, on the strength of the measured note above that the v4.1.0 library has it - and the current
-BtbN build (svt-av1-hdr master, `v4.1.0-279-gd3c4cb394` when checked) **segfaults** the moment hbd-mds
-is set beside `tune` (any value) or `enable-overlays`, at preset 4 and 8, 8- and 10-bit alike, while
-every parameter alone runs fine. Found by running the translated presets against the real binary before
-shipping them, and bisected to those pairs by leave-one-out. The shipped SvtAv1EncApp
-(`v4.1.0-19-g8b4b9f562`, pulled back out of the published 2.8.46 linux tarball and run) takes the same
-combinations cleanly - so the AV1AN tab's presets, which pair `hbd-mds 1` with `tune 0` on that binary,
-are unaffected, and the regression sits in the fork's master between those two commits, which is what
-BtbN links. With no hbd-mds row in the ffmpeg list the translation drops it, named in the log beside
+BtbN build (`v4.1.0-279-gd3c4cb394` when checked) **segfaults** the moment hbd-mds is set beside `tune`
+(any value) or `enable-overlays`, at preset 4 and 8, 8- and 10-bit alike, while every parameter alone
+runs fine. Found by running the translated presets against the real binary before shipping them, and
+bisected to those pairs by leave-one-out. The shipped SvtAv1EncApp (`SVT-AV1-HDR v4.1.0-19-g8b4b9f562`,
+pulled back out of the published 2.8.46 linux tarball and run) takes the same combinations cleanly - so
+the AV1AN tab's presets, which pair `hbd-mds 1` with `tune 0` on that binary, are unaffected. With no
+hbd-mds row in the ffmpeg list the translation drops it, named in the log beside
 `noise-adaptive-filtering` (the genuinely absent one), and nothing in the app can produce the pairing
 through ffmpeg. Anime translates 6 of its 8 rows, Game Capture 7 of 8, and all three encoders' preset
 paths were run end to end through the real `Run()` against the real binaries: SVT 557 kbps plain
 against 636 (Anime) and 620 (Game), x264 543 against 690 (Grainy Film), x265 609 against 500 (Anime) -
 so the rows demonstrably reach the encoders, through all three spellings.
+
+**Whose SVT-AV1 those two version strings belong to was got wrong once, and the receipts are worth
+keeping.** The libsvtav1 inside BtbN's ffmpeg is **mainline** - `BtbN/FFmpeg-Builds`'
+`scripts.d/50-svtav1.sh` clones `gitlab.com/AOMediaCodec/SVT-AV1` at a pinned commit, and the pin
+(`d3c4cb394` when checked) is the very hash in the library's version string - so the hbd-mds segfault
+above is a *mainline* regression between the v4.1.0 release and that pin, not the fork's. What made it
+look like a fork build is that the old tells have rotted: mainline numbers itself 4.x now, and it has
+absorbed a large slice of the formerly-PSY surface - `luminance-qp-bias`, `chroma-qm-min`, the
+variance-boost family, `hbd-mds`, `ac-bias` were all measured being accepted through `-svtav1-params`,
+and `luminance-qp-bias` visibly moves the encode. svt-av1-hdr today is a thin layer on top: its release
+binary calls itself `SVT-AV1-HDR v4.1.0-19`, mainline's own v4.1.0 plus the fork's commits, and what
+those commits still carry exclusively is the `noise*` family, `fgs-table`, `tx-bias`,
+`noise-adaptive-filtering`, `kf-tf-strength` and friends - exactly the rows `LibSvtAv1.json` lacks and
+the preset translation drops. So "ffmpeg's SVT is mainline, av1an's is the hdr fork" is the right
+model; the reachable-parameter split the two JSON lists encode is real either way, and it is measured
+against the binaries rather than derived from whose tree they come from.
 
 ## Deinterlacing
 
