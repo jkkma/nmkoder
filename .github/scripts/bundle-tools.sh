@@ -1059,10 +1059,15 @@ install_svtav1() {
 # svt-av1-hdr continues the PSY line, which psy-ex/svt-av1-psy no longer develops, and is the
 # only source tried. Mainline AOMediaCodec/SVT-AV1 used to sit behind it as a fallback, which
 # meant a release where svt-av1-hdr had not published an asset yet shipped a mainline binary
-# under the same filename, with nothing saying so. That is not a lesser build of the same
-# thing: the PSY-only parameters the AV1AN tab's content presets are built from are absent
-# there, and several of the ones mainline does accept it defaults off. A release with no PSY
-# build is now a visible skip instead. Override with SVTAV1_REPOS to use something else.
+# under the same filename, with nothing saying so. That is still not the same encoder, though
+# the gap has narrowed: mainline (4.x now) has absorbed much of the PSY surface - measured on
+# the mainline lib inside BtbN's ffmpeg, luminance-qp-bias, chroma-qm-min, ac-bias and the
+# variance-boost family are all accepted - but the noise* family, fgs-table, tx-bias,
+# noise-adaptive-filtering and friends are still the fork's alone, and headline features
+# mainline does accept it defaults off (enable-qm, variance boost) where the fork has them
+# on - so a substituted mainline binary runs presets written for the fork half-applied, in
+# silence. A release with no PSY build is a visible skip instead. Override with SVTAV1_REPOS
+# to use something else.
 SVTAV1_REPOS="${SVTAV1_REPOS:-juliobbv-p/svt-av1-hdr}"
 
 bundle_svtav1() {
