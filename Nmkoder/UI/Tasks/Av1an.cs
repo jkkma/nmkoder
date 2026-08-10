@@ -421,18 +421,21 @@ namespace Nmkoder.UI.Tasks
                         TrackList.current.File.ColorData = sourceColor;
                     }
 
-                    // Whether the tone-map pass in front renders the geometry too, decided before
-                    // either chain is built so the filters land in exactly one of them. Folding it in
-                    // is what sizes the pass's lossless intermediate to the *encode* instead of the
-                    // source - a 4K film scaled to 1080p otherwise pays FFV1 for four times the
-                    // pixels the encoder ever sees, reported at tens of gigabytes for a five-minute
-                    // test clip - and it puts the real frames in front of the target-quality probes
-                    // and the grain passes as a side effect. The one thing that may not move with it
-                    // is a per-chunk deinterlacer: that filter must see whole fields, and the pass
-                    // runs first - so bwdif in the chain keeps the geometry per-chunk, behind it,
-                    // where it always was. (QTGMC is no such obstacle: its pass runs *before* this
-                    // one, so its filter string here is empty.)
-                    frame.GeometryInPass = Av1anUi.ToneMapRendersInFront(sourceColor)
+                    // Whether a pass in front renders the geometry too - the tone-map pass when one
+                    // runs, else the denoise pass - decided before either chain is built so the
+                    // filters land in exactly one place. Folding it in is what sizes the passes'
+                    // intermediates to the *encode* instead of the source - a 4K film scaled to
+                    // 1080p otherwise pays lossless rates for four times the pixels the encoder ever
+                    // sees, reported at tens of gigabytes for a five-minute test clip - and for a
+                    // measured grain table it is a correctness matter outright: the table's
+                    // amplitudes live in its frames' own domain, so grain measured at the source's
+                    // size is the wrong grain for the resized frames it is synthesised onto. The one
+                    // thing that may not move with it is a per-chunk deinterlacer: that filter must
+                    // see whole fields, and the passes run first - so bwdif in the chain keeps the
+                    // geometry per-chunk, behind it, where it always was. (QTGMC is no such
+                    // obstacle: its pass runs *before* these, so its filter string here is empty.)
+                    frame.GeometryInPass = (Av1anUi.ToneMapRendersInFront(sourceColor)
+                            || (Av1anUi.CurrentGrain != null && Av1anUi.CurrentGrain.NeedsDenoisePass))
                         && Av1anUi.CurrentDeinterlace.GetFfmpegFilter().IsEmpty();
 
                     string vf = GetVideoFilterArgs(frame, sourceColor, codecArgs);
@@ -722,7 +725,7 @@ namespace Nmkoder.UI.Tasks
                     // Last of the input passes, and on whatever the ones above left: the grain has to
                     // be measured on the frames that will be encoded, so a trimmed section is measured
                     // rather than the whole tape and a deinterlaced file rather than the interlaced one.
-                    string denoised = await RenderDenoisedInput(inPath, tempDir, resume);
+                    string denoised = await RenderDenoisedInput(inPath, tempDir, resume, frame);
 
                     if (RunTask.canceled || RunTask.failed)
                     {
@@ -1249,20 +1252,29 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Renders the denoised copy the Measured grain mode needs, measures the grain between it and the
-        /// input with grav1synth, and hands back the denoised file for av1an to encode - or "" when the
-        /// mode is not in use or nothing usable came out.
+        /// Renders the denoised copy the Measured grain mode needs, measures the grain between it and its
+        /// reference with grav1synth, and hands back the denoised file for av1an to encode - or "" when
+        /// the mode is not in use or nothing usable came out.
         /// <para/>
         /// Both halves are here rather than in two places because neither is worth anything alone: the
         /// denoised file exists to be measured against and then encoded, and the table describes exactly
         /// the file this returns. Encoding the *source* with this table would be the mistake the whole
         /// feature is meant to avoid - the grain would be coded and then synthesised on top of itself.
         /// <para/>
+        /// The reference the diff runs against is whichever file holds the encode's own frames with the
+        /// grain still in them: the tone-mapped file when that pass ran, the raw input when nothing
+        /// changes the frame, and a rendered copy of the geometried input otherwise - because when this
+        /// pass renders the tab's resize itself (frame.GeometryInPass with no tone map in front), the
+        /// input is no longer the same frame size as the denoised copy and grav1synth cannot diff the
+        /// two. That render is what puts a measured table in the *encoded* frame's domain for SDR
+        /// sources, the way the fused tone-map pass already does for HDR ones: grain measured at the
+        /// source's size is the wrong grain for the resized frames it is synthesised onto.
+        /// <para/>
         /// It costs a lossless intermediate the length of the video and a single-threaded pass over every
         /// pixel of it twice, which is why the row says so before the run and why this logs the estimate
         /// again when it starts.
         /// </summary>
-        private static async Task<string> RenderDenoisedInput(string inPath, string tempDir, bool resume)
+        private static async Task<string> RenderDenoisedInput(string inPath, string tempDir, bool resume, Av1anFrame frame)
         {
             GrainPlan plan = Av1anUi.CurrentGrain;
 
@@ -1270,7 +1282,15 @@ namespace Nmkoder.UI.Tasks
                 return "";
 
             string outPath = Av1anUi.GetDenoisedInputPath(tempDir);
+            string refPath = Av1anUi.GetGrainReferencePath(tempDir);
             string tablePath = plan.TablePath;
+            MediaFile file = TrackList.current?.File;
+
+            // Whether this pass is the one rendering the geometry: only when no tone-map pass ran in
+            // front - that pass folds the geometry whenever it runs, and this one then receives its
+            // output already at the encoded size. Empty geometry means nothing to fold either way.
+            string geometry = frame?.PassGeometryFilters ?? "";
+            bool applyGeometry = geometry.IsNotEmpty() && !Av1anUi.ToneMapRendersInFront(file?.ColorData);
 
             // Keyed on the files rather than on the resume flag, because two different runs can put
             // them here: a resume reusing what a previous attempt wrote, and the fused tone-map pass
@@ -1281,6 +1301,30 @@ namespace Nmkoder.UI.Tasks
             bool haveDenoised = IoUtils.GetFilesize(outPath) > 0;
             string origin = resume ? "the run being resumed" : "the fused tone-map pass above";
 
+            // A kept file is only reusable if it holds the frames the rebuilt command now expects -
+            // the tone-map reuse guard's argument, for the same reason: with the geometry rendered by
+            // a pass, a resume that changed the resize leaves a file av1an would encode at the wrong
+            // size, with a table measured in the wrong domain beside it.
+            if (haveDenoised && frame != null)
+            {
+                Size expected = frame.GeometryInPass ? frame.Encoded : frame.Source;
+                Size kept = await GetMediaResolutionCached.GetSizeAsync(outPath);
+
+                if (!expected.IsEmpty && !kept.IsEmpty && kept != expected)
+                {
+                    Logger.Log($"The denoised file this resume kept is {kept.Width}x{kept.Height} where the encode now " +
+                        $"wants {expected.Width}x{expected.Height} - the geometry settings changed since it was rendered - " +
+                        $"so the pass runs again, and the grain table measured against it goes too.");
+                    IoUtils.TryDeleteIfExists(outPath);
+                    IoUtils.TryDeleteIfExists(refPath);
+
+                    if (plan.NeedsMeasurement)
+                        IoUtils.TryDeleteIfExists(tablePath);
+
+                    haveDenoised = false;
+                }
+            }
+
             if (haveDenoised && (!plan.NeedsMeasurement || GrainSynthConfig.LooksLikeGrainTable(tablePath)))
             {
                 Logger.Log($"The denoised file ('{Path.GetFileName(outPath)}'" +
@@ -1289,30 +1333,52 @@ namespace Nmkoder.UI.Tasks
                 return outPath;
             }
 
-            MediaFile file = TrackList.current?.File;
-
             if (haveDenoised)
             {
-                // The fused pass rendered it, or a resumed run died between the render and the diff -
-                // either way the expensive half is on disk and only the measurement is owed.
+                // The fused pass rendered it, or a resumed run died between the render and the end of
+                // a measurement that takes hours - either way the expensive half is on disk and only
+                // the rest is owed. When the diff's reference was a rendered file and the crash took
+                // it, only that cheap half is re-made: a geometry-only render, no denoiser in it.
                 Logger.Log($"The denoised file ('{Path.GetFileName(outPath)}') was written by {origin}, " +
                     $"so only the grain measurement runs.");
+
+                if (applyGeometry && IoUtils.GetFilesize(refPath) < 1)
+                {
+                    string refProblem = await DenoisePass.RunReferenceAsync(inPath, refPath, geometry);
+
+                    if (RunTask.canceled || RunTask.failed || refProblem.IsNotEmpty())
+                    {
+                        IoUtils.TryDeleteIfExists(refPath);
+
+                        if (refProblem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                            RunTask.Fail($"The grain reference this measurement needs did not finish, so av1an was not started.\n\n{refProblem}");
+
+                        return "";
+                    }
+                }
             }
             else
             {
                 Logger.Log($"Denoising '{file?.Name.Trunc(40)}' with {plan.Config.GetDenoiseFilter()}, into " +
-                    $"{DenoisePass.DescribeOutput()} that av1an will then encode. " +
+                    $"{DenoisePass.DescribeOutput()} that av1an will then encode" +
+                    (applyGeometry ? $", rendered straight to the {frame.Encoded.Width}x{frame.Encoded.Height} the encode " +
+                        $"wants - the resize, crop and borders run in this same pass. " : ". ") +
                     (plan.NeedsMeasurement
                         ? "The grain taken out of it is what grav1synth measures next, and the encoder is handed the " +
                             "clean picture plus the description."
                         : "The encoder is handed the clean picture, and the grain table supplies the grain that was " +
                             "taken out - so the strength here wants to be the one the table was measured at."));
 
-                string renderProblem = await DenoisePass.RunAsync(plan.Config, inPath, outPath);
+                // The reference is only rendered where something will be measured against it; a table
+                // the user brought still gets the geometried denoise, just no second output.
+                string renderProblem = applyGeometry && plan.NeedsMeasurement
+                    ? await DenoisePass.RunWithReferenceAsync(plan.Config, inPath, refPath, outPath, geometry, file)
+                    : await DenoisePass.RunAsync(plan.Config, inPath, outPath, file, applyGeometry ? geometry : "");
 
                 if (RunTask.canceled || RunTask.failed || renderProblem.IsNotEmpty())
                 {
                     IoUtils.TryDeleteIfExists(outPath);
+                    IoUtils.TryDeleteIfExists(refPath);
 
                     if (renderProblem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
                         RunTask.Fail($"The denoise pass this encode needs did not finish, so av1an was not started.\n\n{renderProblem}");
@@ -1324,17 +1390,22 @@ namespace Nmkoder.UI.Tasks
             if (!plan.NeedsMeasurement)
                 return outPath; // A table the user brought: the pass was only ever the denoising half
 
-            Logger.Log($"Measuring the grain between the source and the denoised copy with grav1synth. It reads " +
-                $"every frame of both, single-threaded, and prints no progress of its own while this app is " +
-                $"collecting its output - so the bar below only says that it is still running.");
+            // The frames with the grain still in them, at the denoised copy's own size: the rendered
+            // reference where the geometry ran here, the input - tone-mapped or untouched - otherwise.
+            string diffRef = applyGeometry ? refPath : inPath;
 
-            string diffProblem = await Grav1synth.DiffAsync(inPath, outPath, tablePath);
+            Logger.Log($"Measuring the grain between '{Path.GetFileName(diffRef)}' and the denoised copy with " +
+                $"grav1synth. It reads every frame of both, single-threaded, and prints no progress of its own " +
+                $"while this app is collecting its output - so the bar below only says that it is still running.");
+
+            string diffProblem = await Grav1synth.DiffAsync(diffRef, outPath, tablePath);
 
             if (RunTask.canceled || RunTask.failed || diffProblem.IsNotEmpty())
             {
                 // The denoised file goes with the table: kept, it would be reused by the next resume as
                 // though it had been measured, and encoded with no grain description at all.
                 IoUtils.TryDeleteIfExists(outPath);
+                IoUtils.TryDeleteIfExists(refPath);
                 IoUtils.TryDeleteIfExists(tablePath);
 
                 if (diffProblem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
@@ -1343,6 +1414,10 @@ namespace Nmkoder.UI.Tasks
 
                 return "";
             }
+
+            // The reference's one reader has finished with it. The denoised file and the table stay -
+            // they are the encode's input and its description - where this was only the measuring stick.
+            IoUtils.TryDeleteIfExists(refPath);
 
             Logger.Log($"Wrote the grain table to '{Path.GetFileName(tablePath)}'.");
             return outPath;
@@ -1354,9 +1429,12 @@ namespace Nmkoder.UI.Tasks
         /// <para/>
         /// The temp copy is deleted with the rest of the run's scratch data, and it is the one thing in
         /// there worth more than the encode it belongs to: it took hours to measure, it is a few tens of
-        /// kilobytes, and it describes the *source* rather than this encode - so it is the input to every
-        /// later encode of the same film, through the row's Grain table file mode, at no further cost.
-        /// Throwing it away and re-measuring is a working day for a feature.
+        /// kilobytes, and it describes the source's grain rather than this encode's bitstream - so it is
+        /// the input to every later encode of the same film, through the row's Grain table file mode, at
+        /// no further cost. Throwing it away and re-measuring is a working day for a feature. One caveat
+        /// travels with it now that the measurement happens at the *encoded* frame: the table's
+        /// amplitudes live in the frame size and tone domain it was measured at, so it fits later
+        /// encodes with the same geometry and tone-map settings, not any encode of the file.
         /// <para/>
         /// Only for Measured: a table the user picked is already a file of theirs, and the generated modes
         /// have no table at all.
@@ -1374,7 +1452,8 @@ namespace Nmkoder.UI.Tasks
                 File.Copy(plan.TablePath, kept, false);
                 Logger.Log($"Kept the measured grain table as '{Path.GetFileName(kept)}', beside the encode. Point the " +
                     $"Grain Synthesis row's Grain table file mode at it to encode this source again without measuring " +
-                    $"it a second time.");
+                    $"it a second time - with the same resize and tone-map settings, since the table describes the " +
+                    $"grain as it looks at this encode's frame.");
             }
             catch (Exception e)
             {
