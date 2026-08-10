@@ -31,31 +31,46 @@ namespace Nmkoder.Media
     /// map still inside av1an the grain would be measured on HDR frames while the encoder received SDR
     /// ones, and a grain table's amplitudes live in its file's own signal domain.
     /// <para/>
-    /// **Lossless FFV1, like every AV1AN input pass now, at the user's own
-    /// request: the intermediate is the file av1an encodes, so its generation is the ceiling on the
-    /// final picture, and losslessness takes the generation out of the chain entirely.** It costs a
-    /// temporary file several times the source's size, which the announce log says out loud - and
-    /// what keeps that cost sane is the folded geometry: the caller appends the tab's crop, resize
-    /// and borders to this pass's chain (see <see cref="Data.Av1anFrame.GeometryInPass"/>), so the
-    /// file is written at the encode's frame size rather than the source's. Before that fold, a 4K
-    /// film scaled to 1080p paid lossless rates for four times the pixels the encoder ever saw -
-    /// ~40 GB for a five-minute test clip. The
-    /// history is worth keeping because the fallback knob is real: x264 CRF 12 with <c>-tune grain</c>
-    /// at <c>fast</c> measured 100% of grain high-frequency energy retained and tone values
-    /// band-identical, at about a tenth of the size - that is the measured-transparent choice if the
-    /// disk cost ever has to come back down, and the codec line below is the whole change. x264's own
-    /// lossless mode is not an option here, and that was measured rather than assumed: 10-bit
-    /// <c>-qp 0</c> comes back with differing frame hashes - high-bit-depth x264 shifts its QP scale,
-    /// so 0 is no longer the lossless point - and ffmpeg's wrapper refuses the negative QP that scale
-    /// would need. FFV1 round-trips bit-exact, and it is the codec the denoised file beside this one
-    /// already uses, so the encode arguments are <see cref="DenoisePass.Ffv1Args"/>, stated once.
+    /// **The solo pass writes near-lossless x264 and the fused pass writes lossless FFV1, and the
+    /// split is who reads the file.** The solo output is only ever *encoded* - av1an decodes it and
+    /// AV1 comes out - and the x264 settings below were chosen by measuring what survives them:
+    /// high-frequency energy of heavy grain through CRF 12 is 90.5% at <c>veryfast</c> (the preset's
+    /// trellis 0, not the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5% at <c>medium</c>, and
+    /// **100% at <c>fast</c> with <c>-tune grain</c>**, with tone values band-identical - transparent
+    /// to the encoder that reads it, at about a tenth of the source's size. Lossless FFV1 replaced
+    /// this for a while at the user's request, and the user traded it back after living with the
+    /// cost: even rendered at the encode's frame size (the folded geometry, see
+    /// <see cref="Data.Av1anFrame.GeometryInPass"/> - before that fold a 4K film scaled to 1080p
+    /// paid lossless rates for four times the pixels the encoder ever saw, ~40 GB for a five-minute
+    /// test clip), lossless 1080p is still a temporary file in the tens of gigabytes per film.
+    /// <para/>
+    /// The fused pass cannot follow, because its tone-mapped output is *measured against*, not only
+    /// encoded: the graph splits into two independent encoders, and grav1synth then diffs the
+    /// tone-mapped file against its denoised sibling frame for frame - so a lossy reference would
+    /// put the quantizer's noise into the grain table as though it were grain, which is precisely
+    /// the small high-frequency signal a quantiser disturbs first. The solo shape has no diff; the
+    /// one way a solo x264 file meets a measurement is the repair path, where the denoised copy is
+    /// derived *from* that file's own decoded frames, so both sides share one generation and the
+    /// difference is still exactly the grain that was removed. (x264's own lossless mode is not an
+    /// alternative spelling of FFV1 here, measured rather than assumed: 10-bit <c>-qp 0</c> comes
+    /// back with differing frame hashes - high-bit-depth x264 shifts its QP scale, so 0 is no longer
+    /// the lossless point - and ffmpeg's wrapper refuses the negative QP that scale would need.
+    /// FFV1 round-trips bit-exact, and the fused outputs share <see cref="DenoisePass.Ffv1Args"/>
+    /// with the denoised file for exactly that reason.)
     /// </summary>
     class ToneMapPass
     {
-        /// <summary> What the finished file will be, for the log line that announces the run. </summary>
-        public static string DescribeOutput()
+        private const int Crf = 12;
+        private const string Preset = "fast";
+        private const string Tune = "grain";
+
+        /// <summary> What the finished file will be, for the log line that announces the run - which
+        /// depends on the shape: the fused pair is lossless, the solo file is not. See the class
+        /// note for why that split is not a preference. </summary>
+        public static string DescribeOutput(bool lossless)
         {
-            return "a lossless SDR FFV1 MKV";
+            return lossless ? "a lossless SDR FFV1 MKV"
+                : $"a near-lossless SDR MKV (x264, CRF {Crf}, tuned for grain)";
         }
 
         /// <summary>
@@ -94,7 +109,7 @@ namespace Nmkoder.Media
 
             string args = $"-i {inPath.Wrap()} -map 0:v:0 -map 0:a? -map 0:s? -map 0:t? " +
                 $"{GetDeviceArgs(config)}-vf \"{filter}\" " +
-                $"{DenoisePass.Ffv1Args} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
+                $"-c:v libx264 -crf {Crf} -preset {Preset} -tune {Tune} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
                 $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()}";
 
             string problem = await RunAndJudgeAsync(args, outPath);

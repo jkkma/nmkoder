@@ -1162,28 +1162,36 @@ namespace Nmkoder.UI.Tasks
             bool fuseDenoise = grainPlan != null && grainPlan.NeedsDenoisePass;
             string denoisedPath = Av1anUi.GetDenoisedInputPath(tempDir);
 
-            // The size clause is most of what this announce is for - lossless intermediates are the
+            // The size clause is most of what this announce is for - these intermediates are the
             // largest files this app writes, and the report that shaped it was ~40 GB of FFV1 for a
-            // five-minute 4K test clip whose encode was 1080p. With the geometry folded in, the
-            // honest statement is the smaller one: the file holds the encode's frames, not the
-            // source's. Folded geometry that grows the frame (borders, an upscale) keeps the plain
-            // sentence, which stays true.
+            // five-minute 4K test clip whose encode was 1080p. The fused pair is lossless (the grain
+            // measurement's reference must not carry quantizer noise - see ToneMapPass), so its
+            // clause states the disk cost; the solo file is the measured-transparent x264, so its
+            // clause states what was measured. Folded geometry that grows the frame (borders, an
+            // upscale) keeps the plain sentences, which stay true.
             long encodedPx = (long)frame.Encoded.Width * frame.Encoded.Height;
             long sourcePx = (long)frame.Source.Width * frame.Source.Height;
             bool shrinks = frame.GeometryInPass && frame.ChangesSize && encodedPx < sourcePx && sourcePx > 0;
-            string sizeClause = shrinks
-                ? $"this is a full pass over the video, rendered straight to the {frame.Encoded.Width}x{frame.Encoded.Height} " +
-                    $"the encode wants - the resize, crop and borders run in this same pass, so the lossless temporary file " +
-                    $"carries {encodedPx * 100 / sourcePx}% of the pixels it would cost at the source's " +
-                    $"{frame.Source.Width}x{frame.Source.Height}."
-                : "this is a full pass over the video, and lossless output means a temporary file several times the source's size.";
+            string foldClause = $"rendered straight to the {frame.Encoded.Width}x{frame.Encoded.Height} the encode wants " +
+                $"- the resize, crop and borders run in this same pass";
+            string sizeClause = fuseDenoise
+                ? (shrinks
+                    ? $"this is a full pass over the video, {foldClause}, so the lossless temporary files carry " +
+                        $"{encodedPx * 100 / sourcePx}% of the pixels they would cost at the source's " +
+                        $"{frame.Source.Width}x{frame.Source.Height}."
+                    : "this is a full pass over the video, and lossless output means a temporary file several times the source's size.")
+                : (shrinks
+                    ? $"this is a full pass over the video, {foldClause} - and the x264 settings were chosen by measuring " +
+                        $"what survives them: grain energy and tone values come through intact."
+                    : "this is a full pass over the video; the x264 settings were chosen by measuring what survives them - " +
+                        "grain energy and tone values come through intact, at about a tenth of the source's size.");
 
             Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with " +
                 (config.UseLibplacebo
-                    ? $"libplacebo, into {ToneMapPass.DescribeOutput()} that av1an will then encode. Its peak detection " +
+                    ? $"libplacebo, into {ToneMapPass.DescribeOutput(fuseDenoise)} that av1an will then encode. Its peak detection " +
                         $"measures the picture's real brightness as it goes, which needs one continuous run - inside " +
                         $"av1an it would restart at every chunk - so it runs once here; "
-                    : $"FFmpeg's zscale chain, into {ToneMapPass.DescribeOutput()} that av1an will then encode. The grain " +
+                    : $"FFmpeg's zscale chain, into {ToneMapPass.DescribeOutput(fuseDenoise)} that av1an will then encode. The grain " +
                         $"pass that follows must measure the SDR frames the encoder will get - measured on the HDR source, " +
                         $"the grain table would carry the wrong amplitudes - so the tone map runs once here in front; ") +
                 sizeClause +

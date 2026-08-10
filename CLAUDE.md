@@ -2827,23 +2827,29 @@ against what this run expects (folded: `frame.Encoded`; unfolded: the source's),
 re-renders, taking the denoised sibling and the grain table with it, since both were measured
 against frames that are no longer the ones being encoded.
 
-**The intermediate is lossless FFV1 now, at the user's own request, and the path to that is worth
-keeping because each step was measured.** The first cut shipped x264 CRF 12 `veryfast` on the claim
-that nothing downstream would notice, and a measurement contradicted it: heavy grain keeps 90.5% of
-its high-frequency energy through that (the preset's trellis 0, not the CRF - even CRF 3 veryfast
-only reaches 96.4%), 98.5% through medium, and **100% through `fast` with `-tune grain`** - which is
-what 2.8.49 shipped, measured transparent on grain energy and tone values alike at about a tenth of
-the source's size. It was replaced anyway: the intermediate is the file av1an encodes, so its
-generation is the ceiling on the final picture, and the user chose to take the generation out of the
-chain over the disk. The cost is a temporary file several times the source's size, said in the
-announce log with the rendered frame size and the pixel ratio - and the geometry fold above is what
-keeps that cost proportionate to the encode being made rather than to the file it came from. The
-encode arguments are `DenoisePass.Ffv1Args` - the same statement the denoised file
-uses - and the fallback knob is that one line plus the retention table above, should the disk cost
-ever have to come back down. **x264's own lossless mode is not the cheaper route it looks like:
-measured, 10-bit `-qp 0` is not lossless** - high-bit-depth x264 shifts its QP scale, so 0 is no
-longer the lossless point - and ffmpeg's wrapper refuses the negative QP that scale would need,
-where FFV1 round-trips bit-exact.
+**The solo pass writes the measured-transparent x264 and the fused pass writes lossless FFV1, and
+the whole history is worth keeping because every turn of it was either measured or the user's own
+call.** The first cut shipped x264 CRF 12 `veryfast` on the claim that nothing downstream would
+notice, and a measurement contradicted it: heavy grain keeps 90.5% of its high-frequency energy
+through that (the preset's trellis 0, not the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5%
+through medium, and **100% through `fast` with `-tune grain`** - which is what 2.8.49 shipped,
+measured transparent on grain energy and tone values alike at about a tenth of the source's size.
+The user then chose lossless FFV1 over it - the intermediate is the file av1an encodes, so its
+generation is the ceiling on the final picture - and traded the solo pass back to the x264 after
+living with what lossless costs in practice: the first 4K test clip wrote ~40 GB of tonemap.mkv
+for five minutes of video, and even with the geometry fold above taking three quarters of that
+away, a lossless film is a temporary file in the tens of gigabytes. **The fused pair stays FFV1,
+and that half is not a preference**: the graph splits into two independent encoders and grav1synth
+then diffs the tone-mapped file against its denoised sibling, so a lossy reference would put the
+quantizer's noise into the grain table as though it were grain - precisely the small
+high-frequency signal a quantiser disturbs first. The solo shape has no diff, and the one way a
+solo x264 file meets a measurement - the repair path - derives the denoised copy *from* that
+file's own decoded frames, so both sides share one generation and the difference is still exactly
+the grain. **x264's own lossless mode is not an FFV1 under another name: measured, 10-bit `-qp 0`
+is not lossless** - high-bit-depth x264 shifts its QP scale, so 0 is no longer the lossless point -
+and ffmpeg's wrapper refuses the negative QP that scale would need, where FFV1 round-trips
+bit-exact. The fused outputs and the denoised file share `DenoisePass.Ffv1Args` for that reason;
+the solo pass's x264 line lives in `ToneMapPass` beside the measurements that chose it.
 
 **The tone map and the grain denoise render as one fused command when both would run** -
 `ToneMapPass.RunFusedAsync`, gated exactly where the two passes meet: the graph splits after the
@@ -2903,6 +2909,10 @@ real `ToneMapPass` out of the built assembly: the folded pass and the folded fus
 the encoded frame size at 10 bits, the pass geometry string is the real `ResizeConfig`'s own chain,
 an unfolded frame hands back "", and the folded output is framemd5-identical to rendering the pass
 at the source's size and scaling afterwards - same filters, same order, one process instead of two.
+That identity proof lives on the fused FFV1 shape on purpose - two x264 encodes at different sizes
+are not bit-comparable, so the lossless pair is where a filter-ordering difference would have
+nowhere to hide - and the codec split itself is asserted beside it: solo outputs probe as h264
+(High 10, encoded size, folded and unfolded), fused outputs as ffv1.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 

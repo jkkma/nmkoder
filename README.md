@@ -167,11 +167,13 @@ Each heading below expands.
 - **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
   conversion rather than the source. On a GPU this also renders once in front of av1an - peak
   detection needs one continuous run, where av1an would restart it at every chunk - and when grain
-  synthesis needs a denoised copy, both files come out of that one command. Every intermediate in
-  the chain is lossless, and sized to the encode rather than to the source: the resize, crop and
-  borders render in the same pass, so tone-mapping a 4K film down to 1080p writes a 1080p
-  intermediate - a quarter of the pixels, and of the disk. Scene detection runs alongside these
-  passes rather than after them, since none of them changes a frame number
+  synthesis needs a denoised copy, both files come out of that one command. The intermediate is
+  rendered at the encode's frame size - the resize, crop and borders run in the same pass - as
+  near-lossless x264 at settings chosen by measuring what survives them: grain energy and tone
+  values come through intact, at about a tenth of the source's size. When a grain table is being
+  measured, the intermediates are lossless FFV1 instead, since a measured table must not read
+  quantizer noise as grain. Scene detection runs alongside these passes rather than after them,
+  since none of them changes a frame number
 - **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
   encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
   denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
