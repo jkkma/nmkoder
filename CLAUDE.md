@@ -2607,6 +2607,32 @@ resume must find both rather than spend the hours again. Both are deleted togeth
 denoised file with no table beside it would be reused by the next resume as though it had been
 measured, and encoded with no grain description at all.
 
+**"The frames that will be encoded" includes their size, and for an SDR source that took a third
+file to make true.** With a tone map in front the fused pass splits after the folded geometry, so
+both halves of the measurement are the encoded frame; without one, the denoise pass renders the
+geometry itself - and the raw input then no longer matches the denoised copy's frame size, so
+grav1synth has nothing legal to diff against. `DenoisePass.RunWithReferenceAsync` therefore writes
+a geometried copy of the input as a second output of the same command - `{tempDir}.grainref.mkv`,
+video-only, split off before the denoiser so the pair differs by exactly the removed grain - and
+the diff runs between the two renders. The reference is deleted the moment the diff succeeds: its
+one reader is done, and it is a lossless file the length of the film. It is in `GetPreparedInputs`
+anyway, for the run that dies mid-measurement, and the repair path re-makes it alone -
+`RunReferenceAsync`, a geometry-only render - when a crash took it but left the denoised half. Both
+this pass and the kept-file reuse guard share the tone-map pass's size check, because with geometry
+baked into files a resume that changed the resize would otherwise encode at the wrong size with a
+wrong-domain table beside it.
+
+**The denoised copy carries the source's audio, subtitles and chapters, because av1an has no other
+supply of them - and for as long as it was video-only, every Measured-mode encode was silent.**
+av1an takes every non-video track from its `-i` input: the `-a` arguments are applied to that file,
+and the attachment step waits on the `audio.mkv` its audio ffmpeg writes from that file. The
+denoised file is that input in Measured mode, and `DenoisePass` wrote it `-map 0:v:0 -an` on the
+strength of a comment claiming av1an "is given the audio separately out of the original" -
+machinery that does not exist anywhere in this app. Found by reading the `-a` flow while folding
+the geometry, not by a report: the mode is hours long and new enough that nobody had filed one. The
+fused pass's second output had inherited the same shape and is fixed the same way; the tracks are
+stream copies, and the disk they cost is the price of the output having sound.
+
 **`DenoisePass` is lossless, and what began as its distinction is the whole pipeline's now: the
 difference is what an output is for.** `DeinterlacePass` stays near-lossless x264 only for the
 Deinterlace Video utility's deliverable, a file to be looked at, where CRF 12 is indistinguishable
@@ -2625,8 +2651,11 @@ film, which this pass has to.
 **The table is kept and the denoised copy is not.** `SaveMeasuredGrainTable` copies a measured table
 beside the encode as `<output>.grain.tbl` before the temp data goes, because it is the one thing in there
 worth more than the encode it belongs to: it took hours to measure, it is a few tens of kilobytes, and it
-describes the *source* rather than that encode - so it is the input to every later encode of the same
-film through the row's Grain table file mode. The denoised intermediate goes with the rest of the scratch
+describes the source's grain rather than that encode's bitstream - so it is the input to every later
+encode of the same film through the row's Grain table file mode. One caveat travels with it now that the
+measurement happens at the encoded frame: the table fits later encodes with the same geometry and
+tone-map settings, not any encode of the file, and the kept-table log line says so. The denoised
+intermediate goes with the rest of the scratch
 data, and `GetPreparedInputs` had to be taught about it: it matched `.trim.` and `.deint.` only, so every
 measured encode leaked a lossless FFV1 copy of the whole video - the largest file this app writes - onto
 the disk for good.
@@ -2818,9 +2847,8 @@ encode for the 4K decodes it no longer does. The target-quality probes score the
 `GetFilteredTargetQualityNote`'s size clause stands down when the geometry folded - it would
 otherwise claim the probes run at a size they no longer do. The fused pass splits after the
 geometry, so a measured grain table now lives in the *encoded* frame's domain rather than the
-source's - which quietly closes the resize half of the grain-domain argument for tone-mapped
-encodes; a measured-grain encode with no tone map still measures at the source's size, that pass
-not being folded. And the resume guard exists because reuse got a new way to be wrong: a resume
+source's - and the standalone denoise pass folds the same way for SDR sources (see the grain
+section's account of the reference file), so no measured table is in the wrong domain any more. And the resume guard exists because reuse got a new way to be wrong: a resume
 with current settings re-reads the resize, and a kept file with the *old* geometry baked in would
 be scaled twice or not at all - so `RenderToneMappedInput` ffprobes the kept file's frame size
 against what this run expects (folded: `frame.Encoded`; unfolded: the source's), and a mismatch
@@ -2912,7 +2940,11 @@ at the source's size and scaling afterwards - same filters, same order, one proc
 That identity proof lives on the fused FFV1 shape on purpose - two x264 encodes at different sizes
 are not bit-comparable, so the lossless pair is where a filter-ordering difference would have
 nowhere to hide - and the codec split itself is asserted beside it: solo outputs probe as h264
-(High 10, encoded size, folded and unfolded), fused outputs as ffv1.
+(High 10, encoded size, folded and unfolded), fused outputs as ffv1. The denoise pass's shapes are
+proven the same way: the two-output render's reference is framemd5-identical to a geometry-only
+render of the input and its denoised half to denoise-of-geometry, both at the encoded size, the
+reference video-only and the denoised copy carrying the input's audio - as does the fused tone-map
+pass's second output, which is the assertion that Measured encodes have sound again.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 

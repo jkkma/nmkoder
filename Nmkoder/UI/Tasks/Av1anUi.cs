@@ -1874,6 +1874,17 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.grain.tbl";
         }
 
+        /// <summary> The geometried copy of the source that the grain diff measures against, written by
+        /// the denoise pass when it renders the geometry itself (no tone-map pass in front to fold it
+        /// into). grav1synth needs two files of the same frame size, and with the denoised copy at the
+        /// encoded size the raw input no longer qualifies. Deleted as soon as the diff succeeds - it is
+        /// a lossless file whose only reader has finished with it - so unlike its siblings it is only
+        /// ever found beside a run that died mid-measurement. </summary>
+        public static string GetGrainReferencePath(string tempDir)
+        {
+            return $"{tempDir}.grainref.mkv";
+        }
+
         /// <summary> The pre-detected scene list handed to av1an via --scenes when the parallel
         /// detection ran - see <see cref="Media.Av1anSceneDetect"/>. Beside the temp folder like the
         /// inputs above, and for both of their reasons: av1an empties its own temp folder at
@@ -1898,7 +1909,7 @@ namespace Nmkoder.UI.Tasks
             try
             {
                 string name = Path.GetFileName(tempDir);
-                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.tonemap.", $"{name}.denoised.", $"{name}.grain.", $"{name}.scenes." };
+                string[] prefixes = { $"{name}.trim.", $"{name}.deint.", $"{name}.tonemap.", $"{name}.denoised.", $"{name}.grainref.", $"{name}.grain.", $"{name}.scenes." };
 
                 return Directory.EnumerateFiles(Path.GetDirectoryName(tempDir), $"{name}.*")
                     .Where(f => prefixes.Any(p => Path.GetFileName(f).StartsWith(p))).ToList();

@@ -227,7 +227,7 @@ namespace Nmkoder.UI.Tasks
                 $"is about {Utils.FormatUtils.Time(estimate, allowMs: false)} for this file, and it prints no progress " +
                 $"of its own.");
 
-            string problem = await DenoisePass.RunAsync(config, file.ImportPath, denoisedPath);
+            string problem = await DenoisePass.RunAsync(config, file.ImportPath, denoisedPath, file);
 
             if (RunTask.canceled || RunTask.failed)
                 return;

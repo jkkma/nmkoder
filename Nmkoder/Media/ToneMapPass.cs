@@ -153,12 +153,16 @@ namespace Nmkoder.Media
 
             // Output options bind to the output that follows them, so the tone-mapped file keeps the
             // exact shape RunAsync gives it - every track carried, metadata and chapters included -
-            // and the denoised one keeps DenoisePass's: video only, FFV1.
+            // and the denoised one carries them too, because it is what av1an encodes in Measured
+            // mode and av1an takes every non-video track from its own -i input. It was video-only
+            // once, which made every Measured encode silent - see the DenoisePass class note.
             string args = $"-i {inPath.Wrap()} {GetDeviceArgs(config)}-filter_complex \"{graph}\" " +
                 $"-map \"[tm]\" -map 0:a? -map 0:s? -map 0:t? " +
                 $"{DenoisePass.Ffv1Args} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
                 $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()} " +
-                $"-map \"[den]\" -an -sn -dn {DenoisePass.Ffv1Args} {denoisedOutPath.Wrap()}";
+                $"-map \"[den]\" -map 0:a? -map 0:s? -map 0:t? {DenoisePass.Ffv1Args} " +
+                $"-c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
+                $"-map_metadata 0 -map_chapters 0 {denoisedOutPath.Wrap()}";
 
             string problem = await RunAndJudgeAsync(args, outPath);
 
