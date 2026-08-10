@@ -31,7 +31,7 @@ namespace Nmkoder.Media
     /// map still inside av1an the grain would be measured on HDR frames while the encoder received SDR
     /// ones, and a grain table's amplitudes live in its file's own signal domain.
     /// <para/>
-    /// **Lossless FFV1, like the denoise pass and unlike the deinterlace one, at the user's own
+    /// **Lossless FFV1, like every AV1AN input pass now, at the user's own
     /// request: the intermediate is the file av1an encodes, so its generation is the ceiling on the
     /// final picture, and losslessness takes the generation out of the chain entirely.** It costs a
     /// temporary file several times the source's size, which the announce log says out loud. The

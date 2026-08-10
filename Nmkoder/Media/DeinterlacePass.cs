@@ -22,19 +22,25 @@ namespace Nmkoder.Media
     class DeinterlacePass
     {
         /// <summary>
-        /// Near-lossless, and deliberately not lossless: FFV1 on 720x480 at one frame per field runs
-        /// to tens of gigabytes an hour, where this is single digits and nothing that reads the result
-        /// afterwards - an eye or another encoder - can tell the difference. The preset is x264's own
-        /// default, which at standard definition is far quicker than QTGMC in front of it; a slower one
-        /// would buy size that neither caller is spending.
+        /// The near-lossless shape, for the caller whose output is a deliverable: the Deinterlace
+        /// Video utility exports a file people keep and play, and FFV1 on 720x480 at one frame per
+        /// field runs to tens of gigabytes an hour where this is single digits, with nothing that
+        /// *watches* the result able to tell the difference. The preset is x264's own default, which
+        /// at standard definition is far quicker than QTGMC in front of it.
+        /// <para/>
+        /// The AV1AN tab's caller asks for <paramref name="lossless"/> instead, because there the
+        /// output is an intermediate the encode pipeline reads - av1an directly, or the tone-map and
+        /// grain passes on the way to it - and that pipeline is generation-free everywhere else now:
+        /// the trim is a stream copy and the tone-map and denoise intermediates are FFV1. A CRF 12
+        /// generation here was the one lossy step left in it.
         /// </summary>
         private const int Crf = 12;
         private const string Preset = "medium";
 
         /// <summary> What the finished file will be, for the log line that announces the run. </summary>
-        public static string DescribeOutput()
+        public static string DescribeOutput(bool lossless = false)
         {
-            return $"a near-lossless MKV (x264, CRF {Crf})";
+            return lossless ? "a lossless FFV1 MKV" : $"a near-lossless MKV (x264, CRF {Crf})";
         }
 
         /// <summary>
@@ -48,9 +54,10 @@ namespace Nmkoder.Media
         /// the input carries whether or not it is that file itself - which a cut copy is not, and
         /// <paramref name="wholeSource"/> says so: the duration the progress target compares against
         /// is only meaningful where the input really is the whole of what that file reports.
+        /// <paramref name="lossless"/> picks between the two shapes the constants above explain.
         /// </summary>
         public static async Task<string> RunAsync(DeinterlacePlan plan, string inPath, string outPath, string name,
-            MediaFile source, bool wholeSource = true)
+            MediaFile source, bool wholeSource = true, bool lossless = false)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
 
@@ -86,8 +93,9 @@ namespace Nmkoder.Media
             // Everything but the video is copied: re-encoding audio on the way through would cost
             // quality for nothing, whether the result is being kept or encoded again. Data streams are
             // dropped because Matroska stores none.
+            string videoEnc = lossless ? DenoisePass.Ffv1Args : $"-c:v libx264 -crf {Crf} -preset {Preset}";
             string args = $"-i {inPath.Wrap()} {pipeIn} -map {videoMap} -map 0:a? -map 0:s? -map 0:t? " +
-                $"-c:v libx264 -crf {Crf} -preset {Preset} {vf} -c:a copy {GetSubtitleArgs(source)} -dn " +
+                $"{videoEnc} {vf} -c:a copy {GetSubtitleArgs(source)} -dn " +
                 $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()}";
 
             var settings = new AvProcess.FfmpegSettings
