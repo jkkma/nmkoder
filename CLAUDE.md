@@ -2792,6 +2792,41 @@ is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bi
 itself (`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation
 land on 8 bits first and convert up after, baking banding in.
 
+**The pass renders the tab's geometry too - the crop, the mod-2 pad, the resize or de-squeeze, and
+the borders - and that fold is what sizes the intermediate to the encode instead of the source.**
+Written at the source's frame, lossless FFV1 pays for pixels the encoder never sees: the resize
+still sat in av1an's `-f`, so a 4K film scaled to 1080p rendered a 4K intermediate that every chunk
+then scaled down - four times the pixels, reported as ~40 GB of tonemap.mkv for a *five-minute*
+test clip. `Av1anFrame.GeometryInPass` is the statement of where the geometry runs and
+`Av1anUi.BuildGeometryFilters` the one builder both homes share, so the two cannot drift; the pass
+appends the chain after the tone map and the side-data deletes, which is the order the per-chunk
+chain ran it in, and the fold was measured to change nothing but the size - the folded output is
+framemd5-identical to the two-step it replaces. Two filters stay per-chunk on purpose. A bwdif in
+`-f` blocks the fold entirely (the condition is the deinterlace filter string being empty), because
+a deinterlacer must see whole fields and the pass runs first - geometry stays behind it, at the
+source's size, exactly as before. And the fps resample never folds: it changes the frame *count*,
+and the scene-detection overlap's whole invariant is that the passes change pixels, never count or
+order - the slices index the pass's input. (Custom filter rows also stay per-chunk, and their order
+holds: they always ran after the geometry, and the pass runs before the chain.)
+
+Everything downstream of the fold moves in the same direction, and two of the moves are checked
+guards rather than free wins. With `-f` empty the per-chunk filter ffmpeg disappears entirely -
+`--pix-format-converter vs-resize` takes over, so each worker is two processes instead of three -
+and the memory estimate prices the worker's decode at the encoded size
+(`Av1anMemory.GetProblem`'s source argument), where it used to warn a 32 GB machine off a 1080p
+encode for the 4K decodes it no longer does. The target-quality probes score the pass's output, so
+`GetFilteredTargetQualityNote`'s size clause stands down when the geometry folded - it would
+otherwise claim the probes run at a size they no longer do. The fused pass splits after the
+geometry, so a measured grain table now lives in the *encoded* frame's domain rather than the
+source's - which quietly closes the resize half of the grain-domain argument for tone-mapped
+encodes; a measured-grain encode with no tone map still measures at the source's size, that pass
+not being folded. And the resume guard exists because reuse got a new way to be wrong: a resume
+with current settings re-reads the resize, and a kept file with the *old* geometry baked in would
+be scaled twice or not at all - so `RenderToneMappedInput` ffprobes the kept file's frame size
+against what this run expects (folded: `frame.Encoded`; unfolded: the source's), and a mismatch
+re-renders, taking the denoised sibling and the grain table with it, since both were measured
+against frames that are no longer the ones being encoded.
+
 **The intermediate is lossless FFV1 now, at the user's own request, and the path to that is worth
 keeping because each step was measured.** The first cut shipped x264 CRF 12 `veryfast` on the claim
 that nothing downstream would notice, and a measurement contradicted it: heavy grain keeps 90.5% of
@@ -2801,7 +2836,9 @@ what 2.8.49 shipped, measured transparent on grain energy and tone values alike 
 the source's size. It was replaced anyway: the intermediate is the file av1an encodes, so its
 generation is the ceiling on the final picture, and the user chose to take the generation out of the
 chain over the disk. The cost is a temporary file several times the source's size, said in the
-announce log. The encode arguments are `DenoisePass.Ffv1Args` - the same statement the denoised file
+announce log with the rendered frame size and the pixel ratio - and the geometry fold above is what
+keeps that cost proportionate to the encode being made rather than to the file it came from. The
+encode arguments are `DenoisePass.Ffv1Args` - the same statement the denoised file
 uses - and the fallback knob is that one line plus the retention table above, should the disk cost
 ever have to come back down. **x264's own lossless mode is not the cheaper route it looks like:
 measured, 10-bit `-qp 0` is not lossless** - high-bit-depth x264 shifts its QP scale, so 0 is no
@@ -2861,7 +2898,11 @@ colour-data shapes and all three curves - 24 of them - rendered through ffmpeg i
 shapes, composed with a crop, a scale and a pad, each landing on the predicted frame size and tagged
 bt709/bt709/bt709 limited. libplacebo hands software frames back to the filters after it, so the
 geometry needs no `hwdownload` and none is emitted. The probe itself was run through the real code
-against lavapipe and correctly refused it.
+against lavapipe and correctly refused it. The geometry fold was verified the same way, through the
+real `ToneMapPass` out of the built assembly: the folded pass and the folded fused pass both land on
+the encoded frame size at 10 bits, the pass geometry string is the real `ResizeConfig`'s own chain,
+an unfolded frame hands back "", and the folded output is framemd5-identical to rendering the pass
+at the source's size and scaling afterwards - same filters, same order, one process instead of two.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 

@@ -589,6 +589,39 @@ namespace Nmkoder.UI.Tasks
             if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
                 filters.Add(frame.FpsFilter);
 
+            // The geometry has two possible homes now - here, per chunk, or appended to the tone-map
+            // pass in front of av1an - so it is built in one place and taken by exactly one of the
+            // two. When the pass carries it (frame.GeometryInPass), this chain must not, or every
+            // chunk would crop and scale frames the pass had already cropped and scaled. The custom
+            // filters below stay per-chunk either way, and their order holds: the pass runs before
+            // this chain, which is where the geometry sat relative to them anyway.
+            if (!frame.GeometryInPass)
+                filters.AddRange(BuildGeometryFilters(frame));
+
+            filters.AddRange(GetCustomFilters());
+
+            filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
+
+            if (filters.Count < 1)
+                return "";
+
+            // No Vulkan device argument here any more, and none must come back: libplacebo left this
+            // chain for the pass in front (see the tone map note above), so the per-chunk command has
+            // no filter that could use the device - only the pass's own command carries it.
+            return $"-vf {string.Join(",", filters)}";
+        }
+
+        /// <summary>
+        /// The geometry filters - crop, mod-2 pad, resize or de-squeeze, borders - in chain order,
+        /// with their log lines. One builder, because the same filters can run in two places (see
+        /// <see cref="Av1anFrame.GeometryInPass"/>) and two copies would drift the day either home
+        /// was touched. Called exactly once per encode, from whichever home takes the filters, so
+        /// the logging fires once wherever they run.
+        /// </summary>
+        private static List<string> BuildGeometryFilters(Av1anFrame frame)
+        {
+            List<string> filters = new List<string>();
+
             filters.AddRange(frame.CropFilters); // Check Filter: Manual Crop / Autocrop
 
             // After the crop, not before it. A crop rectangle is measured against the frame the file
@@ -642,17 +675,21 @@ namespace Nmkoder.UI.Tasks
                 LogBorders(frame);
             }
 
-            filters.AddRange(GetCustomFilters());
+            return filters;
+        }
 
-            filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
-
-            if (filters.Count < 1)
+        /// <summary>
+        /// The geometry as one filter chain for the tone-map pass to render, and "" where it stays
+        /// per-chunk - <see cref="Av1anFrame.GeometryInPass"/> is the gate, set in Av1an.Run. Called
+        /// once, right after <see cref="GetVideoFilterArgs"/>, so the geometry's log lines land in
+        /// the same place they always did whichever home the filters take.
+        /// </summary>
+        public static string GetPassGeometryFilterArgs(Av1anFrame frame)
+        {
+            if (frame == null || !frame.GeometryInPass)
                 return "";
 
-            // No Vulkan device argument here any more, and none must come back: libplacebo left this
-            // chain for the pass in front (see the tone map note above), so the per-chunk command has
-            // no filter that could use the device - only the pass's own command carries it.
-            return $"-vf {string.Join(",", filters)}";
+            return string.Join(",", BuildGeometryFilters(frame).Where(x => x.Trim().Length > 2));
         }
 
         private static List<string> GetCustomFilters()

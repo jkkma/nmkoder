@@ -34,7 +34,12 @@ namespace Nmkoder.Media
     /// **Lossless FFV1, like every AV1AN input pass now, at the user's own
     /// request: the intermediate is the file av1an encodes, so its generation is the ceiling on the
     /// final picture, and losslessness takes the generation out of the chain entirely.** It costs a
-    /// temporary file several times the source's size, which the announce log says out loud. The
+    /// temporary file several times the source's size, which the announce log says out loud - and
+    /// what keeps that cost sane is the folded geometry: the caller appends the tab's crop, resize
+    /// and borders to this pass's chain (see <see cref="Data.Av1anFrame.GeometryInPass"/>), so the
+    /// file is written at the encode's frame size rather than the source's. Before that fold, a 4K
+    /// film scaled to 1080p paid lossless rates for four times the pixels the encoder ever saw -
+    /// ~40 GB for a five-minute test clip. The
     /// history is worth keeping because the fallback knob is real: x264 CRF 12 with <c>-tune grain</c>
     /// at <c>fast</c> measured 100% of grain high-frequency energy retained and tone values
     /// band-identical, at about a tenth of the size - that is the measured-transparent choice if the
@@ -63,16 +68,26 @@ namespace Nmkoder.Media
         /// not it is that file itself - a cut or deinterlaced copy is not, but its tracks are the same
         /// ones, and the subtitle handling reads them.
         /// <para/>
+        /// <paramref name="extraFilters"/> is the tab's geometry - crop, pad, resize, borders - when
+        /// the caller folds it into this pass (<see cref="Data.Av1anFrame.GeometryInPass"/>), appended
+        /// after the whole tone-map chain in the order the per-chunk chain would have run it. That is
+        /// what sizes the lossless intermediate to the *encode* rather than the source: written at 4K
+        /// for a 1080p encode it carries four times the pixels the encoder ever sees, which a report
+        /// measured at ~40 GB for a five-minute test clip.
+        /// <para/>
         /// The output pins 10 bits, whatever the negotiation with x264 would have picked: this SDR
         /// intermediate is about to be encoded 10-bit by av1an, and dropping to 8 in between would put
         /// banding into every gradient the roll-off just compressed. How it is pinned differs by
-        /// backend, and the difference is deliberate - see the comment on it below.
+        /// backend, and the difference is deliberate - see the comment on it below. The geometry runs
+        /// after the pin and changes no format: swscale, crop and pad all hand on the 10-bit frames
+        /// they are given.
         /// </summary>
-        public static async Task<string> RunAsync(ToneMapConfig config, VideoColorData srcColor, string inPath, string outPath, MediaFile source)
+        public static async Task<string> RunAsync(ToneMapConfig config, VideoColorData srcColor, string inPath, string outPath,
+            MediaFile source, string extraFilters = "")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
 
-            string filter = PrepareFilter(config, srcColor);
+            string filter = PrepareFilter(config, srcColor, extraFilters);
 
             if (filter.IsEmpty())
                 return "Nothing to tone-map - the chain came out empty.";
@@ -106,11 +121,15 @@ namespace Nmkoder.Media
         /// half missing is denoised from disk without re-rendering the tone map.
         /// </summary>
         public static async Task<string> RunFusedAsync(ToneMapConfig config, VideoColorData srcColor, GrainSynthConfig grain,
-            string inPath, string outPath, string denoisedOutPath, MediaFile source)
+            string inPath, string outPath, string denoisedOutPath, MediaFile source, string extraFilters = "")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
 
-            string filter = PrepareFilter(config, srcColor);
+            // The geometry sits before the split on purpose: both outputs must carry it, because the
+            // denoised copy is the grain measurement's other half and grav1synth diffs the two frame
+            // for frame - and the encoder is handed one of them, so measuring at any other size would
+            // put the table in the wrong domain.
+            string filter = PrepareFilter(config, srcColor, extraFilters);
 
             if (filter.IsEmpty())
                 return "Nothing to tone-map - the chain came out empty.";
@@ -142,7 +161,8 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
-        /// The chain with its output depth pinned, or "" where the config builds none.
+        /// The chain with its output depth pinned and any folded geometry appended, or "" where the
+        /// config builds none.
         /// <para/>
         /// For libplacebo the pin is spliced onto the chain's own ":range=tv" tail rather than passed
         /// as an output -pix_fmt, because the two are not the same statement: inside the filter,
@@ -152,17 +172,24 @@ namespace Nmkoder.Media
         /// gets a trailing format filter instead - zscale has no format option, and the requirement
         /// placed directly downstream makes zimg's own final conversion produce 10 bits, with the
         /// format filter itself left a no-op.
+        /// <para/>
+        /// The geometry goes last, after the pin and after the side-data deletes the chains end with:
+        /// the per-chunk chain it moved out of also ran it on this pass's finished output, so last is
+        /// the order that keeps the pixels identical - and the deletes touch metadata, not frames, so
+        /// nothing re-adds what they removed.
         /// </summary>
-        private static string PrepareFilter(ToneMapConfig config, VideoColorData srcColor)
+        private static string PrepareFilter(ToneMapConfig config, VideoColorData srcColor, string extraFilters)
         {
             string filter = config.GetFilterArgs(srcColor);
 
             if (filter.IsEmpty())
                 return "";
 
-            return config.UseLibplacebo
+            filter = config.UseLibplacebo
                 ? filter.Replace(":range=tv", ":range=tv:format=yuv420p10le")
                 : $"{filter},format=yuv420p10le";
+
+            return extraFilters.IsNotEmpty() ? $"{filter},{extraFilters}" : filter;
         }
 
         /// <summary> The device argument only for the backend that needs a device - on the zscale path
