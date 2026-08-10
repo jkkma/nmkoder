@@ -2755,6 +2755,20 @@ priced everything for the 10000-nit ceiling: measured through the real pipe shap
 zscale chain in `-f` (whose peak is a number in the string, immune to the pipe) and carries no
 Vulkan device argument any more; the pass's own command has both.
 
+**The zscale chain renders in front too when a grain denoise pass follows, and
+`Av1anUi.ToneMapRendersInFront` is the one statement of the whole decision.** The chain is
+stateless, so per-chunk is normally fine for it - but the grain passes run on *files*, before av1an
+starts, so a tone map still sitting inside av1an means the grain is measured on HDR frames while
+the encoder receives SDR ones. A grain table's amplitudes live in its file's own signal domain:
+measured off PQ and synthesised onto BT.709, the grain comes out wrong-strength, worst in what
+used to be the highlights. The GPU path closed that mismatch by construction the day the pass
+existed; the gate closes it for machines without one, at the cost of the pass those machines were
+otherwise spared - paid only where a grain pass was already being paid for. Encoder-analysis grain
+(`--film-grain N`) needs none of this per-chunk or in front: the encoder analyses the frames it is
+handed, which are post-chain either way. On the zscale pass the command carries no Vulkan device
+argument - that machine has none, and asking ffmpeg to create one fails the pass - and the 10-bit
+pinning is a trailing `format=yuv420p10le` filter, zscale having no format option of its own.
+
 The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trim and QTGMC passes and
 for their reason - av1an empties its temp at startup - sits after the deinterlace and before the
 grain denoise (grain must be measured on the SDR frames being encoded), is reused by a resume, and

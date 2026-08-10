@@ -47,6 +47,33 @@ namespace Nmkoder.UI.Tasks
         /// output for a second and filter with a third. </summary>
         public static ToneMapConfig CurrentToneMap = new ToneMapConfig();
 
+        /// <summary>
+        /// Whether this run's tone map is rendered in front of av1an as its own pass
+        /// (<see cref="Av1an.RenderToneMappedInput"/>) rather than run inside av1an's per-chunk filter
+        /// chain. The one statement of that decision, read by the pass and by
+        /// <see cref="GetVideoFilterArgs"/> alike - two readers of the same two snapshots, and a chain
+        /// that carried the filter while the pass also ran would tone-map the file twice.
+        /// <para/>
+        /// libplacebo always renders in front - its peak detection carries history no chunk boundary
+        /// may restart, see the note in <see cref="GetVideoFilterArgs"/>. The zscale chain is stateless
+        /// and normally stays per-chunk, except when a grain denoise pass follows: those passes run on
+        /// files, before av1an ever starts, so a tone map still sitting inside av1an would have the
+        /// grain measured on the HDR frames while the encoder receives SDR ones - and a grain table
+        /// carries amplitudes in its file's own signal domain, so an HDR-measured table synthesises
+        /// wrong-strength grain onto an SDR encode, strongest in what used to be its highlights. The
+        /// GPU path closed that mismatch by construction; this closes it for the machines without one.
+        /// </summary>
+        public static bool ToneMapRendersInFront(VideoColorData srcColor)
+        {
+            if (CurrentToneMap == null || !CurrentToneMap.RunsOn(srcColor))
+                return false;
+
+            if (CurrentToneMap.UseLibplacebo)
+                return true;
+
+            return CurrentGrain != null && CurrentGrain.NeedsDenoisePass;
+        }
+
         public static void Init()
         {
             // Load video codecs. SVT-AV1 rather than the first entry, and stated here rather than left
@@ -531,14 +558,16 @@ namespace Nmkoder.UI.Tasks
             // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
             // the two tabs cannot produce different pixels from the same settings.
             //
-            // Only ever the zscale chain. Where libplacebo does the work it runs as a pass in front of
-            // av1an - Av1an.RenderToneMappedInput - and must never be put in this chain instead: its
-            // peak detection carries history, av1an starts and stops this chain's ffmpeg around every
-            // chunk, and a detector restarting mid-scene steps the exposure where the chunks meet.
-            // Worse, av1an feeds this chain through y4m pipes, which carry no HDR side data - so a
-            // libplacebo in here never even saw the mastering display, and priced every file for the
-            // 10000-nit PQ ceiling. The zscale chain is immune to both: it is stateless, and its peak
-            // arrives as a number in the filter string rather than as metadata on the frames.
+            // Only ever the zscale chain, and only when no grain pass follows - see
+            // ToneMapRendersInFront, which is the one statement of when the tone map is a pass in
+            // front of av1an (Av1an.RenderToneMappedInput) instead of a filter in here. libplacebo is
+            // never in this chain: its peak detection carries history, av1an starts and stops this
+            // chain's ffmpeg around every chunk, and a detector restarting mid-scene steps the
+            // exposure where the chunks meet. Worse, av1an feeds this chain through y4m pipes, which
+            // carry no HDR side data - so a libplacebo in here never even saw the mastering display,
+            // and priced every file for the 10000-nit PQ ceiling. The zscale chain is immune to both:
+            // it is stateless, and its peak arrives as a number in the filter string rather than as
+            // metadata on the frames.
             //
             // The zscale chain can run per chunk: an ordinary ffmpeg filter chain with nothing for
             // VapourSynth to evaluate, changing neither the frame count nor the frame size, so av1an's
@@ -546,7 +575,7 @@ namespace Nmkoder.UI.Tasks
             // is that the target-quality probes never see it - see GetFilteredTargetQualityNote, which
             // covers this one by counting the chain rather than by naming what is in it. (The pass, by
             // contrast, bakes its SDR into the input, which is exactly why the probes do see that one.)
-            string toneMapFilter = CurrentToneMap.UseLibplacebo ? "" : CurrentToneMap.GetFilterArgs(sourceColor);
+            string toneMapFilter = ToneMapRendersInFront(sourceColor) ? "" : CurrentToneMap.GetFilterArgs(sourceColor);
 
             if (toneMapFilter.IsNotEmpty())
             {
