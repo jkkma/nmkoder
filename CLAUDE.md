@@ -2421,6 +2421,20 @@ between that and the source: a decoder that does not apply film grain shows the 
 has already taken 60% of what there was to measure before SVT ever sees it. `grav1synth inspect`, or
 the Film Grain utility's read-the-table operation, is how to tell the two apart on a finished file.
 
+The round trip was measured again after the solo tone-map intermediate went back to x264, because
+that intermediate now sits between the source and the encoder's grain analysis, and "transparent on
+grain energy" had only been measured on the intermediate alone. Through libsvtav1 (mainline
+v4.1.0-279, the bundled ffmpeg's) and dav1d, on heavy synthetic grain at `film-grain=50` with
+denoise: source HF energy 861.8, through the x264 intermediate 863.6, the AV1 with decoder
+synthesis on 731.2 direct and **738.4 via the intermediate** - within 1% of each other - with the
+coded picture itself at 11.3 (denoised clean, the grain living only in the table) and a no-synth
+control at 13.2 (an encode without the feature strips the grain, which is the point of it). The
+same session asserted the app's side of the contract out of the built assembly: SVT gets
+`--film-grain 50 --film-grain-denoise 1` or `--fgs-table <path>` and never both, aomenc its
+`--enable-dnl-denoising`/`--denoise-noise-level` or `--film-grain-table=` pair, table over strength
+on each. What no web session can run is the bundled SvtAv1EncApp itself, so the `--fgs-table`
+acceptance and a full av1an measured-grain run stay real-machine checks, as they always were.
+
 **`GrainDelivery` has two values and there is deliberately no third.** A mode either hands the encoder a
 strength or hands it a table; a table it cannot take is a **refusal**, naming the utility as the way to
 put that grain in afterwards. `GetTableDeliveryProblem` is where that is decided, and it has three
