@@ -1493,6 +1493,59 @@ kind of still-wired remnant somebody later feeds again. Existing configs still c
 `Av1anCustomArgsBox`/`Av1anCustomEncArgsBox` keys; nothing reads them. Holding Shift on Run still opens
 the command in an edit window, which is the escape hatch that replaces both boxes.
 
+## Driving the encoder binaries directly
+
+**Quick Convert is moving from ffmpeg's built-in encoder libraries to the standalone binaries** -
+`SvtAv1EncApp`, `aomenc`, `vpxenc`, `x264`, `x265`, the same ones `bin/av1an/enc/` already carries for
+av1an. NVENC stays on ffmpeg, having no CLI equivalent at all, and so do GIF, PNG, JPEG and stream copy.
+A codec whose binary is not on the machine **refuses** the run naming it, the way a missing mkvmerge or
+grav1synth is handled - macOS bundles no encoders, and vpxenc's bundling is best-effort, so this is not
+a hypothetical.
+
+`VideoEncodersDirect.cs` holds the five encoder classes and `IBinaryEncoder`. **They are landed and
+measured; `QuickConvert.Run` does not use them yet** - the tab still builds one ffmpeg command, so
+nothing about its behaviour has changed. What follows is what was established by running it.
+
+The shape is `ffmpeg (decode + filters) -f yuv4mpegpipe - | <encoder> <io> <settings>`, then a second
+ffmpeg muxing the elementary stream with the audio, subtitles, chapters and metadata that never went
+down the pipe. The encoded video goes in as the **last** `-i`, which is the trick `DeinterlacePipeInput`
+already uses: every input the stream maps were built against keeps its index, and only the first video
+track is remapped.
+
+**These are the same binaries the AV1AN tab drives and deliberately not the same argument builders.**
+`VideoEncodersBin` writes an *av1an* command - `-e svt-av1 --force -v "…"` with the encoder's parameters
+inside a string av1an splits again - where these write the command line the binary is launched with.
+av1an owns the input, the output, the chunking and the pixel format; all four are this app's to state
+when it is the one launching the encoder, so the two cannot share a builder.
+
+**y4m carries the frame size, the rate and the range and nothing else.** Measured, the header is
+`YUV4MPEG2 W320 H240 F24:1 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2 XCOLORRANGE=LIMITED` - no primaries, no
+transfer curve, no matrix. So colour has to be handed to the encoder by flag in each one's own spelling,
+which is the same reason the av1an classes do it, and why `ColorDataUtils`' aom and x264 name tables are
+load-bearing here too.
+
+**Raw Annex B cannot be `-c copy`'d into Matroska, and that is what decides the intermediate format.**
+Measured on ffmpeg 6.1 *and* on the BtbN master build this project bundles: a `.264` or `.265` read back
+with `-framerate N` yields packets with no timestamps, and Matroska refuses them - "Timestamps are unset
+in a packet for stream 0", then "Error muxing a packet", and no output. `-fflags +genpts`, `+igndts`,
+`-fps_mode` and an output-side `-r` all fail the same way. MP4 stamps them on the way in, so an Annex B
+stream is containerised into MP4 first and the mux reads that. **The `setts` bitstream filter looks like
+the cheaper answer and must not be used**: its packet index counts in *decode* order, so on any stream
+with B-frames it stamps the frames into the wrong presentation order - it "works" on a test clip encoded
+without them and scrambles a real encode.
+
+So the intermediates are `.ivf` for SVT-AV1, aomenc and vpxenc, whose IVF header carries the frame rate
+and mux straight in; and raw Annex B plus an MP4 containerise step for x264 and x265. x264 *can* mux
+Matroska itself where its build has the muxer, and that is a build option rather than a promise - both
+Annex B encoders take the same route rather than each taking its own.
+
+Verified by running the real classes out of the built assembly against the real binaries: all five, in
+both CRF and target-bitrate modes, each encoding a 48-frame source through the pipe, containerising
+where needed, muxing with its audio, and coming back 48 frames with the right codec and two streams.
+34 checks, no failures. What that does **not** cover, because the encode was never wired to the tab:
+two-pass, the target-filesize division, the progress bar, and the grain table modes that these binaries
+- unlike ffmpeg's libraries - can actually be handed.
+
 ## The Quick Convert command
 
 **One ffmpeg command line is built in `QuickConvert.Run`, and the order things are worked out in is
