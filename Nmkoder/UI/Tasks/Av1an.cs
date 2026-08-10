@@ -1056,6 +1056,17 @@ namespace Nmkoder.UI.Tasks
                 return outPath;
             }
 
+            // The denoised copy the grain passes want is written as a second output of this same
+            // command whenever one will be wanted at all - one source decode and one tone-map render
+            // where separate passes cost two. RenderDenoisedInput below recognises the file by its
+            // existence and goes straight to the measurement. A resume that kept the tone-mapped file
+            // but lost the denoised one never lands here - the reuse branch above returned first - so
+            // the separate DenoisePass remains its repair path, denoising from disk without
+            // re-rendering the tone map.
+            GrainPlan grainPlan = Av1anUi.CurrentGrain;
+            bool fuseDenoise = grainPlan != null && grainPlan.NeedsDenoisePass;
+            string denoisedPath = Av1anUi.GetDenoisedInputPath(tempDir);
+
             Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with " +
                 (config.UseLibplacebo
                     ? $"libplacebo, into {ToneMapPass.DescribeOutput()} that av1an will then encode. Its peak detection " +
@@ -1064,15 +1075,24 @@ namespace Nmkoder.UI.Tasks
                     : $"FFmpeg's zscale chain, into {ToneMapPass.DescribeOutput()} that av1an will then encode. The grain " +
                         $"pass that follows must measure the SDR frames the encoder will get - measured on the HDR source, " +
                         $"the grain table would carry the wrong amplitudes - so the tone map runs once here in front; ") +
-                $"this is a full pass over the video and its output is a temporary file the size of one.");
+                $"this is a full pass over the video, and lossless output means a temporary file several times the source's size." +
+                (fuseDenoise ? $" The denoised copy the grain synthesis needs ({grainPlan.Config.GetDenoiseFilter()}, " +
+                    $"{DenoisePass.DescribeOutput()}) is written by the same command, so the film is decoded once for both." : ""));
 
-            string problem = await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file);
+            string problem = fuseDenoise
+                ? await ToneMapPass.RunFusedAsync(config, srcColor, grainPlan.Config, inPath, outPath, denoisedPath, file)
+                : await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file);
 
             if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
             {
                 // Whatever is on disk stops partway through the video, and the reuse above would take
                 // it for a finished pass on the next resume - so a stopped pass leaves nothing behind.
+                // Both halves of a fused run go together: each is the other's reason to be trusted, and
+                // a kept denoised file with no sibling would be measured against nothing.
                 IoUtils.TryDeleteIfExists(outPath);
+
+                if (fuseDenoise)
+                    IoUtils.TryDeleteIfExists(denoisedPath);
 
                 if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
                     RunTask.Fail($"The tone-map pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
@@ -1116,39 +1136,53 @@ namespace Nmkoder.UI.Tasks
             string outPath = Av1anUi.GetDenoisedInputPath(tempDir);
             string tablePath = plan.TablePath;
 
-            // Same reasoning as the deinterlaced input above: re-denoising an hour of video to change a
-            // CRF would cost more than the encode being resumed, and re-measuring it costs far more than
-            // that. Only ever files this same encode wrote - a fresh run mints a temp folder from the
-            // clock, so there is never a pair sitting there already. Both halves or neither where both
-            // were made: a denoised file with no table beside it is half a measured run.
-            if (resume && IoUtils.GetFilesize(outPath) > 0 &&
-                (!plan.NeedsMeasurement || GrainSynthConfig.LooksLikeGrainTable(tablePath)))
+            // Keyed on the files rather than on the resume flag, because two different runs can put
+            // them here: a resume reusing what a previous attempt wrote, and the fused tone-map pass
+            // above, which writes the denoised copy as its second output on a fresh run. A fresh run's
+            // temp folder is minted from the clock, so a file beside it is always this encode's own
+            // work either way. Both halves or neither where both were made: a denoised file with no
+            // table beside it is half a measured run, so it skips only the render, never the diff.
+            bool haveDenoised = IoUtils.GetFilesize(outPath) > 0;
+            string origin = resume ? "the run being resumed" : "the fused tone-map pass above";
+
+            if (haveDenoised && (!plan.NeedsMeasurement || GrainSynthConfig.LooksLikeGrainTable(tablePath)))
             {
-                Logger.Log($"Reusing the denoised file this encode was started from ('{Path.GetFileName(outPath)}')" +
-                    $"{(plan.NeedsMeasurement ? " and the grain table measured against it" : "")}. It is not made " +
-                    $"again - delete it to redo the pass.");
+                Logger.Log($"The denoised file ('{Path.GetFileName(outPath)}'" +
+                    $"{(plan.NeedsMeasurement ? ", with the grain table measured against it" : "")}) was written by " +
+                    $"{origin}, so it is not made again - delete it to redo the pass.");
                 return outPath;
             }
 
             MediaFile file = TrackList.current?.File;
-            Logger.Log($"Denoising '{file?.Name.Trunc(40)}' with {plan.Config.GetDenoiseFilter()}, into " +
-                $"{DenoisePass.DescribeOutput()} that av1an will then encode. " +
-                (plan.NeedsMeasurement
-                    ? "The grain taken out of it is what grav1synth measures next, and the encoder is handed the " +
-                        "clean picture plus the description."
-                    : "The encoder is handed the clean picture, and the grain table supplies the grain that was " +
-                        "taken out - so the strength here wants to be the one the table was measured at."));
 
-            string problem = await DenoisePass.RunAsync(plan.Config, inPath, outPath);
-
-            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            if (haveDenoised)
             {
-                IoUtils.TryDeleteIfExists(outPath);
+                // The fused pass rendered it, or a resumed run died between the render and the diff -
+                // either way the expensive half is on disk and only the measurement is owed.
+                Logger.Log($"The denoised file ('{Path.GetFileName(outPath)}') was written by {origin}, " +
+                    $"so only the grain measurement runs.");
+            }
+            else
+            {
+                Logger.Log($"Denoising '{file?.Name.Trunc(40)}' with {plan.Config.GetDenoiseFilter()}, into " +
+                    $"{DenoisePass.DescribeOutput()} that av1an will then encode. " +
+                    (plan.NeedsMeasurement
+                        ? "The grain taken out of it is what grav1synth measures next, and the encoder is handed the " +
+                            "clean picture plus the description."
+                        : "The encoder is handed the clean picture, and the grain table supplies the grain that was " +
+                            "taken out - so the strength here wants to be the one the table was measured at."));
 
-                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
-                    RunTask.Fail($"The denoise pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
+                string renderProblem = await DenoisePass.RunAsync(plan.Config, inPath, outPath);
 
-                return "";
+                if (RunTask.canceled || RunTask.failed || renderProblem.IsNotEmpty())
+                {
+                    IoUtils.TryDeleteIfExists(outPath);
+
+                    if (renderProblem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                        RunTask.Fail($"The denoise pass this encode needs did not finish, so av1an was not started.\n\n{renderProblem}");
+
+                    return "";
+                }
             }
 
             if (!plan.NeedsMeasurement)
@@ -1158,18 +1192,18 @@ namespace Nmkoder.UI.Tasks
                 $"every frame of both, single-threaded, and prints no progress of its own while this app is " +
                 $"collecting its output - so the bar below only says that it is still running.");
 
-            problem = await Grav1synth.DiffAsync(inPath, outPath, tablePath);
+            string diffProblem = await Grav1synth.DiffAsync(inPath, outPath, tablePath);
 
-            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
+            if (RunTask.canceled || RunTask.failed || diffProblem.IsNotEmpty())
             {
                 // The denoised file goes with the table: kept, it would be reused by the next resume as
                 // though it had been measured, and encoded with no grain description at all.
                 IoUtils.TryDeleteIfExists(outPath);
                 IoUtils.TryDeleteIfExists(tablePath);
 
-                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
+                if (diffProblem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
                     RunTask.Fail($"The grain measurement this encode needs did not finish, so av1an was not started." +
-                        $"\n\n{problem}");
+                        $"\n\n{diffProblem}");
 
                 return "";
             }

@@ -31,27 +31,26 @@ namespace Nmkoder.Media
     /// map still inside av1an the grain would be measured on HDR frames while the encoder received SDR
     /// ones, and a grain table's amplitudes live in its file's own signal domain.
     /// <para/>
-    /// Near-lossless x264 like the deinterlace pass, not lossless like the denoise pass, because the
-    /// output is encoded again rather than measured against. **The settings were chosen by measuring
-    /// what survives them, and the thing measured was grain** - this file is what av1an encodes, so
-    /// texture the intermediate loses is texture the final encode cannot have, and the grain passes
-    /// downstream measure this very file. High-frequency energy of heavy synthetic grain through CRF
-    /// 12: <c>veryfast</c> keeps 90.5% - the preset's trellis 0 and thin analysis, not the CRF, since
-    /// even CRF 3 veryfast only reaches 96.4% - <c>medium</c> keeps 98.5%, and <c>fast</c> with
-    /// <c>-tune grain</c> keeps 100% while sitting a whole preset step quicker than medium at the UHD
-    /// sizes this pass routinely runs at. So: fast, tuned for grain, unconditionally - a clean
-    /// source pays a little bitrate on a temporary file, and fidelity is this file's entire job.
+    /// **Lossless FFV1, like the denoise pass and unlike the deinterlace one, at the user's own
+    /// request: the intermediate is the file av1an encodes, so its generation is the ceiling on the
+    /// final picture, and losslessness takes the generation out of the chain entirely.** It costs a
+    /// temporary file several times the source's size, which the announce log says out loud. The
+    /// history is worth keeping because the fallback knob is real: x264 CRF 12 with <c>-tune grain</c>
+    /// at <c>fast</c> measured 100% of grain high-frequency energy retained and tone values
+    /// band-identical, at about a tenth of the size - that is the measured-transparent choice if the
+    /// disk cost ever has to come back down, and the codec line below is the whole change. x264's own
+    /// lossless mode is not an option here, and that was measured rather than assumed: 10-bit
+    /// <c>-qp 0</c> comes back with differing frame hashes - high-bit-depth x264 shifts its QP scale,
+    /// so 0 is no longer the lossless point - and ffmpeg's wrapper refuses the negative QP that scale
+    /// would need. FFV1 round-trips bit-exact, and it is the codec the denoised file beside this one
+    /// already uses, so the encode arguments are <see cref="DenoisePass.Ffv1Args"/>, stated once.
     /// </summary>
     class ToneMapPass
     {
-        private const int Crf = 12;
-        private const string Preset = "fast";
-        private const string Tune = "grain";
-
         /// <summary> What the finished file will be, for the log line that announces the run. </summary>
         public static string DescribeOutput()
         {
-            return $"a near-lossless SDR MKV (x264, CRF {Crf})";
+            return "a lossless SDR FFV1 MKV";
         }
 
         /// <summary>
@@ -73,35 +72,114 @@ namespace Nmkoder.Media
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
 
-            string filter = config.GetFilterArgs(srcColor);
+            string filter = PrepareFilter(config, srcColor);
 
             if (filter.IsEmpty())
                 return "Nothing to tone-map - the chain came out empty.";
 
-            // For libplacebo, spliced onto the chain's own ":range=tv" tail rather than passed as an
-            // output -pix_fmt, because the two are not the same statement: inside the filter,
-            // libplacebo itself renders and dithers to 10 bits, where an output option lets the format
-            // negotiation pick the filter's output first and convert after - and a negotiation that
-            // lands on 8 bits there would bake the banding in before the conversion back up. The
-            // zscale chain gets a trailing format filter instead - zscale has no format option, and
-            // the requirement placed directly downstream makes zimg's own final conversion produce
-            // 10 bits, with the format filter itself left a no-op.
-            filter = config.UseLibplacebo
-                ? filter.Replace(":range=tv", ":range=tv:format=yuv420p10le")
-                : $"{filter},format=yuv420p10le";
-
-            // The device argument only for the backend that needs a device - on the zscale path this
-            // machine has no usable Vulkan, and asking ffmpeg to create one would fail the pass over
-            // an option its filters never read. It sits where the probe proved it works - after the
-            // input, in front of the filter - and everything that is not video is copied through, the
-            // deinterlace pass's reasoning: re-encoding audio would cost quality for nothing.
-            string device = config.UseLibplacebo ? $"{ToneMapConfig.DeviceArgs} " : "";
-
             string args = $"-i {inPath.Wrap()} -map 0:v:0 -map 0:a? -map 0:s? -map 0:t? " +
-                $"{device}-vf \"{filter}\" " +
-                $"-c:v libx264 -crf {Crf} -preset {Preset} -tune {Tune} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
+                $"{GetDeviceArgs(config)}-vf \"{filter}\" " +
+                $"{DenoisePass.Ffv1Args} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
                 $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()}";
 
+            string problem = await RunAndJudgeAsync(args, outPath);
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            return "";
+        }
+
+        /// <summary>
+        /// The fused shape: the tone map rendered once, with the denoised copy the grain passes need
+        /// written as a second output of the same command - one source decode and one tone-map render
+        /// where the separate passes cost two, which at UHD sizes is the pass this saves. The graph
+        /// splits *after* the whole tone-map chain (format pinning included), so both outputs carry
+        /// identical SDR frames, and with both outputs lossless the grain measurement downstream is
+        /// exact: the diff reference *is* the rendered frames, with no encode generation between.
+        /// <para/>
+        /// Both files or neither: the caller deletes the pair on any failure, because each half is the
+        /// other's reason to be trusted - a denoised file without its tone-mapped sibling would be
+        /// diffed against nothing, and a resume that found one half would mistake a dead fused run for
+        /// a finished pass. The separate <see cref="RunAsync"/> and <see cref="DenoisePass.RunAsync"/>
+        /// stay as the repair path for exactly that resume: a kept tone-mapped file with the denoised
+        /// half missing is denoised from disk without re-rendering the tone map.
+        /// </summary>
+        public static async Task<string> RunFusedAsync(ToneMapConfig config, VideoColorData srcColor, GrainSynthConfig grain,
+            string inPath, string outPath, string denoisedOutPath, MediaFile source)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(outPath));
+
+            string filter = PrepareFilter(config, srcColor);
+
+            if (filter.IsEmpty())
+                return "Nothing to tone-map - the chain came out empty.";
+
+            string graph = $"[0:v:0]{filter},split=2[tm][dn];[dn]{grain.GetDenoiseFilter()}[den]";
+
+            // Output options bind to the output that follows them, so the tone-mapped file keeps the
+            // exact shape RunAsync gives it - every track carried, metadata and chapters included -
+            // and the denoised one keeps DenoisePass's: video only, FFV1.
+            string args = $"-i {inPath.Wrap()} {GetDeviceArgs(config)}-filter_complex \"{graph}\" " +
+                $"-map \"[tm]\" -map 0:a? -map 0:s? -map 0:t? " +
+                $"{DenoisePass.Ffv1Args} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
+                $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()} " +
+                $"-map \"[den]\" -an -sn -dn {DenoisePass.Ffv1Args} {denoisedOutPath.Wrap()}";
+
+            string problem = await RunAndJudgeAsync(args, outPath);
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            // A stopped run is not a failure to word - same convention as the artifact judge itself.
+            if (RunTask.canceled || RunTask.failed)
+                return "";
+
+            if (!RunTask.OutputExists(denoisedOutPath))
+                return $"FFmpeg reported no error, but '{Path.GetFileName(denoisedOutPath)}' was not written.";
+
+            return "";
+        }
+
+        /// <summary>
+        /// The chain with its output depth pinned, or "" where the config builds none.
+        /// <para/>
+        /// For libplacebo the pin is spliced onto the chain's own ":range=tv" tail rather than passed
+        /// as an output -pix_fmt, because the two are not the same statement: inside the filter,
+        /// libplacebo itself renders and dithers to 10 bits, where an output option lets the format
+        /// negotiation pick the filter's output first and convert after - and a negotiation that lands
+        /// on 8 bits there would bake the banding in before the conversion back up. The zscale chain
+        /// gets a trailing format filter instead - zscale has no format option, and the requirement
+        /// placed directly downstream makes zimg's own final conversion produce 10 bits, with the
+        /// format filter itself left a no-op.
+        /// </summary>
+        private static string PrepareFilter(ToneMapConfig config, VideoColorData srcColor)
+        {
+            string filter = config.GetFilterArgs(srcColor);
+
+            if (filter.IsEmpty())
+                return "";
+
+            return config.UseLibplacebo
+                ? filter.Replace(":range=tv", ":range=tv:format=yuv420p10le")
+                : $"{filter},format=yuv420p10le";
+        }
+
+        /// <summary> The device argument only for the backend that needs a device - on the zscale path
+        /// this machine has no usable Vulkan, and asking ffmpeg to create one would fail the pass over
+        /// an option its filters never read. It sits where the probe proved it works: after the input,
+        /// in front of the filter. </summary>
+        private static string GetDeviceArgs(ToneMapConfig config)
+        {
+            return config.UseLibplacebo ? $"{ToneMapConfig.DeviceArgs} " : "";
+        }
+
+
+        /// <summary> Runs the command and judges the named artifact. The failure libplacebo is known
+        /// for exits 0 having written nothing - the probe's own reason for muxing to md5 - so the
+        /// artifact is judged, not the exit code. </summary>
+        private static async Task<string> RunAndJudgeAsync(string args, string outPath)
+        {
             var settings = new AvProcess.FfmpegSettings
             {
                 Args = args,
@@ -118,8 +196,6 @@ namespace Nmkoder.Media
             if (settings.Problem.IsNotEmpty())
                 return settings.Problem;
 
-            // The failure libplacebo is known for exits 0 having written nothing - the probe's own
-            // reason for muxing to md5 - so the artifact is judged, not the exit code.
             if (!RunTask.OutputExists(outPath))
                 return $"FFmpeg reported no error, but '{Path.GetFileName(outPath)}' was not written.";
 

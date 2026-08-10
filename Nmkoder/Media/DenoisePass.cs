@@ -22,6 +22,17 @@ namespace Nmkoder.Media
     /// </summary>
     class DenoisePass
     {
+        /// <summary>
+        /// The FFV1 encode both writers of a denoised file share - this pass, and
+        /// <see cref="ToneMapPass.RunFusedAsync"/>, which writes the same file as the second output of
+        /// the fused tone-map command. One statement, because a denoised file that came out of either
+        /// door must be the same kind of file: -level 3 -g 1 is FFV1's intra-only mode - every frame
+        /// stands alone, which costs a little size and buys seeking, and both readers of this file seek
+        /// it (av1an splits it into chunks and grav1synth is asked for frames one at a time); slicecrc
+        /// off, since nothing here is transporting the file anywhere; slices for the threading.
+        /// </summary>
+        public const string Ffv1Args = "-c:v ffv1 -level 3 -g 1 -slices 16 -slicecrc 0 -threads 0";
+
         /// <summary> What the finished file will be, for the log line that announces the run. </summary>
         public static string DescribeOutput()
         {
@@ -44,12 +55,8 @@ namespace Nmkoder.Media
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
 
-            // -level 3 -g 1 is FFV1's intra-only mode: every frame stands alone, which costs a little size
-            // and buys seeking, and both readers of this file seek it - av1an splits it into chunks and
-            // grav1synth is asked for frames one at a time. slicecrc off, since nothing here is
-            // transporting the file anywhere; slices for the threading.
             string args = $"-i {inPath.Wrap()} -map 0:v:0 -an -sn -dn " +
-                $"-vf {config.GetDenoiseFilter()} -c:v ffv1 -level 3 -g 1 -slices 16 -slicecrc 0 -threads 0 " +
+                $"-vf {config.GetDenoiseFilter()} {Ffv1Args} " +
                 $"{outPath.Wrap()}";
 
             var settings = new AvProcess.FfmpegSettings
