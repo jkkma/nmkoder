@@ -2757,12 +2757,23 @@ Vulkan device argument any more; the pass's own command has both.
 
 The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trim and QTGMC passes and
 for their reason - av1an empties its temp at startup - sits after the deinterlace and before the
-grain denoise (grain must be measured on the SDR frames being encoded), is reused by a resume, is
-in `GetPreparedInputs` so it is cleaned with the rest, and near-lossless x264 CRF 12 like the
-QTGMC pass but at `veryfast`: this one routinely runs at UHD sizes, where `medium` costs hours for
-size nothing downstream can see. Output pinned to 10-bit inside the filter itself
-(`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation land
-on 8 bits first and convert up after, baking banding in. A failed pass fails the encode the way a
+grain denoise (grain must be measured on the SDR frames being encoded), is reused by a resume, and
+is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bit inside the filter
+itself (`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation
+land on 8 bits first and convert up after, baking banding in.
+
+**The intermediate's encode settings were chosen by measuring what survives them, and the thing to
+measure is grain.** This file is what av1an encodes and what the grain passes measure, so texture it
+loses is gone from the final encode - and the first cut shipped `veryfast` on the claim that nothing
+downstream would notice, which a measurement then contradicted: high-frequency energy of heavy
+grain through x264 CRF 12 is **90.5% at veryfast** (the preset's trellis 0 and thin analysis, not
+the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5% at medium, and **100% at `fast` with
+`-tune grain`**, a preset step quicker than medium at the UHD sizes this pass runs at. That is what
+it uses, unconditionally: a clean source pays a little bitrate on a temporary file, and fidelity is
+the file's entire job. Note the grain *pipeline* was never at risk of mismatch from this - the
+denoiser, grav1synth and av1an all read this same file, so a measured table's reconstruction target
+is exactly the file being encoded whatever the intermediate kept; what the retention buys is the
+intermediate not softening the film on the way in. A failed pass fails the encode the way a
 failed QTGMC pass does - the probe has already proven libplacebo renders on this machine, so a
 failure here is the machine changing mid-run, not a normal path. Two things it buys beside
 correctness: the target-quality probes score the SDR frames actually being encoded (per-chunk
