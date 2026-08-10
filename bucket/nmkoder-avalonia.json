@@ -1,5 +1,5 @@
 {
-    "version": "2.8.49",
+    "version": "2.8.50",
     "description": "Video encoding, muxing and analysis GUI wrapping FFmpeg, FFprobe and av1an - the Avalonia rebuild of Nmkoder, distinct from the WinForms original in extras/nmkoder",
     "homepage": "https://github.com/jkkma/nmkoder",
     "license": {
@@ -13,8 +13,8 @@
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/jkkma/nmkoder/releases/download/v2.8.49/Nmkoder-2.8.49-win-x64.zip",
-            "hash": "128653c1252e6aaf836f345249d12c7e0772bc3bdaceaa9bccac5ac099afa4ee"
+            "url": "https://github.com/jkkma/nmkoder/releases/download/v2.8.50/Nmkoder-2.8.50-win-x64.zip",
+            "hash": "b7090b42d52b20ceee8cb593cde2983b3ba1ffb44c6d3515cd0050e3d009baa7"
         }
     },
     "extract_dir": "Nmkoder",
