@@ -83,10 +83,6 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static bool KeepSamples = false;
 
-        /// <summary> The last finished run, so the results window can be reopened from the card without
-        /// encoding anything again. </summary>
-        public static CrfLadder.Result LastResult;
-
         public static IEncoder GetEncoder()
         {
             return CodecUtils.GetCodec(Encoders.Contains(Encoder) ? Encoder : Encoders[0]);
@@ -178,12 +174,20 @@ namespace Nmkoder.UI.Tasks
         {
             IEncoder enc = GetEncoder();
             int[] crfs = GetCrfs();
-            int runs = crfs.Length * (file == null ? SampleCount : CrfLadder.PlanSamples(file.DurationMs, SampleCount, SampleSeconds).Count);
+            // Planned once here and reused: a file that reports no duration - an image sequence, or
+            // anything ffprobe read no length from - yields an empty list, which is exactly the state
+            // the dialog reaches with no file check, so the readout must not index it.
+            List<CrfLadder.Sample> samples = file == null ? null : CrfLadder.PlanSamples(file.DurationMs, SampleCount, SampleSeconds);
 
-            string source = file == null
-                ? "No file is loaded. The settings are saved either way, and applied to whichever file is loaded when this runs."
-                : $"{file.Name.Trunc(50)} — {FormatUtils.Time(file.DurationMs)}, sampled " +
-                  $"{DescribeSampling(file)}.";
+            if (file == null)
+                return "No file is loaded. The settings are saved either way, and applied to whichever file is loaded when this runs.";
+
+            if (samples.Count < 1)
+                return $"'{file.Name.Trunc(50)}' cannot be sampled: it reports no duration, so there is nowhere to place a " +
+                    $"section. Remux it to MKV first - the Concatenate utility does that for a single file. The settings are " +
+                    $"saved either way.";
+
+            int runs = crfs.Length * samples.Count;
 
             string scoring = Score == CrfLadder.Metric.None ? "no quality metric"
                 : Score == CrfLadder.Metric.Vmaf ? $"VMAF ({GetVmafModelName()})"
@@ -194,17 +198,17 @@ namespace Nmkoder.UI.Tasks
                   "reason if it cannot be computed here."
                 : "";
 
-            return $"{source}\n\n{runs} sample encode{(runs == 1 ? "" : "s")} with {enc.FriendlyName} at preset " +
+            return $"{file.Name.Trunc(50)} — {FormatUtils.Time(file.DurationMs)}, sampled {DescribeSampling(samples, file.DurationMs)}." +
+                $"\n\n{runs} sample encode{(runs == 1 ? "" : "s")} with {enc.FriendlyName} at preset " +
                 $"{GetPreset()}, {GetPixelFormat()}, scored with {scoring}. A CRF is only meaningful for the encoder " +
                 $"and preset that produced it - the AV1AN tab drives different binaries, so treat a number from here " +
                 $"as a starting point there rather than as the same setting.{ssimu2Note}";
         }
 
-        private static string DescribeSampling(MediaFile file)
+        private static string DescribeSampling(List<CrfLadder.Sample> samples, long durationMs)
         {
-            List<CrfLadder.Sample> samples = CrfLadder.PlanSamples(file.DurationMs, SampleCount, SampleSeconds);
             long total = samples.Sum(x => x.Ms);
-            double share = file.DurationMs > 0 ? total * 100d / file.DurationMs : 0;
+            double share = durationMs > 0 ? total * 100d / durationMs : 0;
             return $"{samples.Count}×{FormatUtils.Time(samples[0].Ms)} ({share.ToString("0.#")}% of it)";
         }
 
@@ -221,6 +225,9 @@ namespace Nmkoder.UI.Tasks
         {
             Program.MainWin.SetWorking(true);
             string workDir = "";
+            // Hoisted so the finally reads the snapshot the run was governed by rather than the live
+            // KeepSamples, which the dialog can flip while the run is under way.
+            bool runKeep = false;
 
             try
             {
@@ -233,22 +240,34 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // The metric is snapshotted before the gate, not read twice around the await inside it:
+                // the dialog can flip it while the availability probe runs, and gating on one metric
+                // then encoding for another is exactly the split the snapshot exists to prevent.
+                CrfLadder.Metric metric = Score;
+
                 // Checked before a single frame is cut or encoded, because the metric is the one thing
                 // that can be impossible on this machine and it is not cheap to find out at the end: a
                 // ladder with SSIMULACRA2 picked on a build with no vszip would otherwise encode the
                 // whole grid and then report every rung on size alone. The other two metrics are ffmpeg
                 // filters that are always present.
-                if (Score == CrfLadder.Metric.Ssimulacra2 && !await Media.Ssimulacra2.IsAvailableAsync())
+                if (metric == CrfLadder.Metric.Ssimulacra2 && !await Media.Ssimulacra2.IsAvailableAsync())
                 {
                     RunTask.Cancel($"SSIMULACRA2 cannot be scored here.\n\n{Media.Ssimulacra2.GetUnavailableReason()}\n\n" +
                         $"Pick VMAF or XPSNR in the Sample Encodes settings, or score with nothing and read the sizes alone.");
                     return;
                 }
 
-                workDir = GetWorkDir(file);
-                Directory.CreateDirectory(workDir);
+                // Everything else the run is governed by is read once, here, and never off the statics
+                // again - the Configure dialog stays reachable while the ladder runs (SetWorking
+                // disables only Run), and a mid-run change to the encoder, the metric, the model or
+                // this flag would otherwise corrupt or kill a run already under way. The result object
+                // carries the encoder, preset, colour format, metric and model; keep and the encoder
+                // object are the two the result does not hold, so they are locals threaded through.
                 IEncoder enc = GetEncoder();
+                runKeep = KeepSamples;
                 int[] crfs = GetCrfs();
+                workDir = GetWorkDir(file, runKeep);
+                Directory.CreateDirectory(workDir);
 
                 var result = new CrfLadder.Result
                 {
@@ -258,7 +277,7 @@ namespace Nmkoder.UI.Tasks
                     EncoderName = enc.FriendlyName,
                     Preset = GetPreset(),
                     PixelFormat = GetPixelFormat(),
-                    ScoredWith = Score,
+                    ScoredWith = metric,
                     VmafModel = GetVmafModelName(),
                     Samples = CrfLadder.PlanSamples(file.DurationMs, SampleCount, SampleSeconds),
                 };
@@ -269,22 +288,24 @@ namespace Nmkoder.UI.Tasks
 
                 Logger.Log($"Cutting {result.Samples.Count} sample{(result.Samples.Count == 1 ? "" : "s")} out of " +
                     $"'{file.Name.Trunc(40)}' and encoding {crfs.Length} of them at CRF {CrfLadder.Format(crfs)} with " +
-                    $"{enc.FriendlyName}, preset {GetPreset()}, {GetPixelFormat()}.");
+                    $"{result.EncoderName}, preset {result.Preset}, {result.PixelFormat}.");
 
                 if (!await ExtractSamples(file, result, workDir))
                     return;
 
-                if (!await EncodeLadder(file, result, crfs, enc, workDir))
+                if (!await EncodeLadder(file, result, crfs, enc, workDir, runKeep))
                     return;
 
-                LastResult = result;
                 Report(result);
 
-                if (KeepSamples)
+                if (runKeep)
                 {
                     RunTask.ReportOutput(new[] { file.SourcePath }, workDir);
-                    Logger.Log($"The samples and their encodes are in '{Path.GetFileName(workDir)}', beside the source - " +
-                        $"one lossless cut per section and one encode per rung, so a score can be checked against the frames.");
+                    // The full path, not just the folder name: with a default output directory set, the
+                    // samples are there rather than beside the source, and naming only the folder sent a
+                    // user looking in the wrong place.
+                    Logger.Log($"The samples and their encodes are in '{workDir}' - one lossless cut per section and one " +
+                        $"encode per rung, so a score can be checked against the frames.");
                 }
 
                 await CrfLadderResultsWindow.ShowAsync(result);
@@ -299,8 +320,9 @@ namespace Nmkoder.UI.Tasks
                 // The cuts and the encodes both, unless they were asked for - a ladder over three
                 // samples writes a dozen short clips, and they are scratch by default. A run that was
                 // stopped or failed clears them either way: what is left of it is a partial ladder,
-                // which is worth nothing and is several hundred megabytes of somebody's disk.
-                if (workDir.IsNotEmpty() && (!KeepSamples || RunTask.canceled || RunTask.failed))
+                // which is worth nothing and is several hundred megabytes of somebody's disk. Read off
+                // the snapshot rather than the live KeepSamples, for the reason the snapshot exists.
+                if (workDir.IsNotEmpty() && (!runKeep || RunTask.canceled || RunTask.failed))
                     IoUtils.TryDeleteIfExists(workDir);
 
                 FfmpegOutputHandler.overrideTargetDurationMs = -1;
@@ -314,9 +336,9 @@ namespace Nmkoder.UI.Tasks
         /// that dies partway does not leave a pile of clips behind, and a run that is being kept puts
         /// them where the source is rather than four levels down inside the app's data directory.
         /// </summary>
-        private static string GetWorkDir(MediaFile file)
+        private static string GetWorkDir(MediaFile file, bool keep)
         {
-            if (!KeepSamples)
+            if (!keep)
                 return Path.Combine(Paths.GetSessionDataPath(), "crf-ladder");
 
             string preferred = $"{UiData.GetDefaultOutPath(file.SourcePath)}_crfladder";
@@ -395,8 +417,13 @@ namespace Nmkoder.UI.Tasks
             return true;
         }
 
-        /// <summary> Encodes every sample at every CRF and scores each one. </summary>
-        private static async Task<bool> EncodeLadder(MediaFile file, CrfLadder.Result result, int[] crfs, IEncoder enc, string workDir)
+        /// <summary>
+        /// Encodes every sample at every CRF and scores each one. Everything read here comes from the
+        /// run's snapshot - <paramref name="enc"/>, <paramref name="keep"/>, and the encode/metric
+        /// fields on <paramref name="result"/> - never from the live statics, so the dialog cannot
+        /// change what a run in progress does.
+        /// </summary>
+        private static async Task<bool> EncodeLadder(MediaFile file, CrfLadder.Result result, int[] crfs, IEncoder enc, string workDir, bool keep)
         {
             int step = 0;
             int steps = crfs.Length * result.Samples.Count;
@@ -412,7 +439,7 @@ namespace Nmkoder.UI.Tasks
                     Logger.Log($"Encoding sample {sample.Index + 1}/{result.Samples.Count} at CRF {crf} ({step}/{steps})...");
 
                     var sw = Stopwatch.StartNew();
-                    bool wrote = await EncodeSample(file, enc, crf, sample.Path, outPath);
+                    bool wrote = await EncodeSample(file, enc, crf, result.Preset, result.PixelFormat, sample, outPath);
                     sw.Stop();
 
                     if (RunTask.canceled)
@@ -424,7 +451,7 @@ namespace Nmkoder.UI.Tasks
                         // every rung is the same encoder with the same arguments, so what stopped one
                         // stops all of them, and a machine with no NVIDIA card would otherwise be told
                         // the same thing a dozen times over.
-                        RunTask.Fail($"{enc.FriendlyName} wrote nothing at CRF {crf}, so the ladder was stopped before " +
+                        RunTask.Fail($"{result.EncoderName} wrote nothing at CRF {crf}, so the ladder was stopped before " +
                             $"the rest of it. The log has FFmpeg's output - a missing encoder or a colour format the " +
                             $"build does not support is the usual reason.");
                         return false;
@@ -438,12 +465,9 @@ namespace Nmkoder.UI.Tasks
                         EncodeMs = sw.ElapsedMilliseconds,
                     };
 
-                    // Off the result rather than the static setting, so one run is governed by one
-                    // choice: the dialog is reachable while this is going and a metric changed halfway
-                    // would put two different measurements in one column.
                     if (result.ScoredWith != CrfLadder.Metric.None)
                     {
-                        double score = await ScoreAsync(file, outPath, sample.Path, result.ScoredWith);
+                        double score = await ScoreAsync(file, outPath, sample, result.ScoredWith, result.VmafModel);
 
                         if (RunTask.canceled)
                             return false;
@@ -454,7 +478,7 @@ namespace Nmkoder.UI.Tasks
 
                     rung.Samples.Add(rungSample);
 
-                    if (!KeepSamples)
+                    if (!keep)
                         IoUtils.TryDeleteIfExists(outPath);
                 }
 
@@ -471,26 +495,27 @@ namespace Nmkoder.UI.Tasks
         /// <para/>
         /// The source file is what the encoder arguments are built against rather than the cut, so the
         /// keyframe interval and the tile count are the ones a real encode of this file would get -
-        /// both are worked out from the video's frame rate and frame size, which the cut shares.
+        /// both are worked out from the video's frame rate and frame size, which the cut shares. The
+        /// preset and colour format are the run's snapshot, not the live settings.
         /// </summary>
-        private static async Task<bool> EncodeSample(MediaFile file, IEncoder enc, int crf, string inPath, string outPath)
+        private static async Task<bool> EncodeSample(MediaFile file, IEncoder enc, int crf, string preset, string pixFmt, CrfLadder.Sample sample, string outPath)
         {
             var encArgs = new Dictionary<string, string>
             {
                 { "q", crf.ToString() },
-                { "preset", GetPreset() },
+                { "preset", preset },
                 { "qMode", ((int)QuickConvert.QualityMode.Crf).ToString() },
             };
-
-            string pixFmt = GetPixelFormat();
 
             if (pixFmt.IsNotEmpty())
                 encArgs["pixFmt"] = pixFmt;
 
             CodecArgs codecArgs = enc.GetArgs(encArgs, file, Pass.OneOfOne);
-            string args = $"-i {Shell.WrapArg(inPath)} {codecArgs.Arguments} -an -sn -dn {Shell.WrapArg(outPath)}";
+            string args = $"-i {Shell.WrapArg(sample.Path)} {codecArgs.Arguments} -an -sn -dn {Shell.WrapArg(outPath)}";
 
-            FfmpegOutputHandler.overrideTargetDurationMs = await FfmpegCommands.GetDurationMs(inPath);
+            // The cut's length is already in hand from ExtractSamples - no need to re-probe it once per
+            // rung just to set the progress bar's target.
+            FfmpegOutputHandler.overrideTargetDurationMs = sample.Ms;
 
             await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings
             {
@@ -515,8 +540,10 @@ namespace Nmkoder.UI.Tasks
         /// unrelated files into one frame of reference. VMAF and XPSNR are ffmpeg filters; SSIMULACRA2
         /// goes to VapourSynth instead, since no ffmpeg build computes it.
         /// </summary>
-        private static async Task<double> ScoreAsync(MediaFile file, string encPath, string refPath, CrfLadder.Metric scoreWith)
+        private static async Task<double> ScoreAsync(MediaFile file, string encPath, CrfLadder.Sample sample, CrfLadder.Metric scoreWith, string vmafModel)
         {
+            string refPath = sample.Path;
+
             if (scoreWith == CrfLadder.Metric.Ssimulacra2)
                 return await ScoreSsimulacra2Async(encPath, refPath);
 
@@ -525,12 +552,13 @@ namespace Nmkoder.UI.Tasks
             // pair their inputs up by timestamp.
             Fraction rate = file.VideoStreams.FirstOrDefault()?.Rate ?? Fraction.Zero;
             string r = rate.GetFloat() > 0f ? $"-r {rate}" : "";
-            string metric = scoreWith == CrfLadder.Metric.Xpsnr ? "xpsnr" : GetVmafFilter();
+            string metric = scoreWith == CrfLadder.Metric.Xpsnr ? "xpsnr" : GetVmafFilter(vmafModel);
 
             string graph = Shell.WrapArg($"[0:v][1:v]{metric}");
             string args = $"{r} -i {Shell.WrapArg(encPath)} {r} -i {Shell.WrapArg(refPath)} -filter_complex {graph} -f null -";
 
-            FfmpegOutputHandler.overrideTargetDurationMs = await FfmpegCommands.GetDurationMs(refPath);
+            // The reference cut's measured length, already in hand - not a fresh ffprobe per rung.
+            FfmpegOutputHandler.overrideTargetDurationMs = sample.Ms;
 
             string output = await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings
             {
@@ -579,9 +607,9 @@ namespace Nmkoder.UI.Tasks
         /// gives at length: libvmaf's first positional option is the log path, not the model, and a
         /// path there overwrites the bundled model file with an XML log.
         /// </summary>
-        private static string GetVmafFilter()
+        private static string GetVmafFilter(string vmafModel)
         {
-            return $"libvmaf=model='version\\={GetVmafModelName()}':n_threads={Environment.ProcessorCount}";
+            return $"libvmaf=model='version\\={vmafModel}':n_threads={Environment.ProcessorCount}";
         }
 
         /// <summary> "VMAF score: 94.155506" </summary>

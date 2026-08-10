@@ -96,12 +96,44 @@ namespace Nmkoder.Media
             return Path.Combine(Paths.GetBinPath(), "av1an", "vsynth");
         }
 
-        /// <summary> The bundled embeddable Python, or "" when there is none - which off Windows there
-        /// never is, the portable VapourSynth being a Windows-only bundle. </summary>
-        private static string PythonPath()
+        /// <summary>
+        /// The Python that will run the scoring script, and whether it is the bundled embeddable one.
+        /// <para/>
+        /// The bundle is Windows-only, so off Windows - and on a Windows machine using its own
+        /// VapourSynth install - this falls back to a system interpreter found on PATH, python3 first
+        /// since that is what a Linux VapourSynth builds against. That fallback is what makes the
+        /// advertised "install it through your package manager" route real: without it, ResolveExecutable
+        /// hands back the bare name "python" as its last resort and a File.Exists on that is always
+        /// false, so the probe never ran and the run refused forever whatever the user installed.
+        /// <para/>
+        /// The bundled/system distinction is load-bearing for how the process is launched - see
+        /// <see cref="RunPython"/> - because the bundle needs its own folder pinned onto PATH and as the
+        /// working directory, where a system Python needs the inherited environment left alone so its
+        /// own vapoursynth module and native libraries resolve.
+        /// </summary>
+        private static (string path, bool bundled) ResolvePython()
         {
-            string resolved = Shell.ResolveExecutable("python", new[] { VsynthDir() });
-            return File.Exists(resolved) ? resolved : "";
+            string bundled = Path.Combine(VsynthDir(), Shell.IsWindows ? "python.exe" : "python");
+
+            if (File.Exists(bundled))
+                return (bundled, true);
+
+            foreach (string name in new[] { "python3", "python" })
+            {
+                string resolved = Shell.ResolveExecutable(name, PathDirs());
+
+                if (File.Exists(resolved)) // A real file, not ResolveExecutable's bare-name fallback
+                    return (resolved, false);
+            }
+
+            return ("", false);
+        }
+
+        /// <summary> The directories on PATH, for resolving a system Python. </summary>
+        private static string[] PathDirs()
+        {
+            return (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Shell.PathSeparator)
+                .Where(x => x.IsNotEmpty()).ToArray();
         }
 
         #region Probe
@@ -115,15 +147,14 @@ namespace Nmkoder.Media
         /// </summary>
         private static async Task<bool?> Probe()
         {
-            string python = PythonPath();
+            (string python, bool bundled) = ResolvePython();
 
             if (python.IsEmpty())
             {
-                // Not cached - see IsAvailableAsync. Off Windows the reason is the platform; on it,
-                // a missing bundle or PATH entry.
-                _reason = Shell.IsWindows
-                    ? "VapourSynth is not bundled with this build and Python is not on your PATH, so SSIMULACRA2 cannot be scored."
-                    : "";
+                // Not cached - see IsAvailableAsync. No Python anywhere the app looked: neither the
+                // Windows bundle nor a system python3/python on PATH.
+                _reason = "No Python could be found to run the SSIMULACRA2 scorer - not the Windows bundle, " +
+                    "and no python3 or python on your PATH.";
                 return null;
             }
 
@@ -133,7 +164,9 @@ namespace Nmkoder.Media
             try
             {
                 File.WriteAllText(script, ProbeScript);
-                var result = await RunPython(python, $"{script.Wrap()}", 90000);
+                // Background like the QTGMC and Vship probes: short (a blank clip, one frame), and it
+                // must not be killed by Stop the way a real scoring run must be.
+                var result = await RunPython(python, bundled, $"{script.Wrap()}", 90000, NmkoderProcess.ProcessType.Background);
 
                 if (result == null)
                 {
@@ -167,11 +200,15 @@ namespace Nmkoder.Media
         {
             string o = (output ?? "").ToLowerInvariant();
 
+            // "bundled" is deliberately not said - the Python may be a system one found on PATH off
+            // Windows, and the fix is the same either way: make 'import vapoursynth' work.
             if (o.Contains("no module named 'vapoursynth'") || o.Contains("no module named vapoursynth"))
-                return "the bundled Python cannot import VapourSynth.";
+                return "Python was found but cannot import VapourSynth. Install VapourSynth (and the vszip plugin) so " +
+                    "\"import vapoursynth\" works, or pick VMAF or XPSNR instead.";
 
             if (o.Contains("ssimu2_no_plugin") || o.Contains("no attribute 'vszip'") || o.Contains("no attribute 'ssimulacra2'") || o.Contains("no attribute 'metrics'"))
-                return "VapourSynth is present but the vszip plugin (which computes SSIMULACRA2) is not loaded.";
+                return "VapourSynth is present but the vszip plugin (which computes SSIMULACRA2) is not loaded. Install it " +
+                    "so \"core.vszip\" exists, or pick VMAF or XPSNR instead.";
 
             string firstError = (output ?? "").SplitIntoLines().LastOrDefault(x => x.Contains("Error") || x.Contains("error"));
             return firstError.IsNotEmpty() ? firstError.Trim().Trunc(200) : "the VapourSynth check produced no score.";
@@ -238,7 +275,7 @@ except Exception as e:
         /// </summary>
         public static async Task<Score> ScoreAsync(string referencePath, string distortedPath, int timeoutMs = 1_800_000)
         {
-            string python = PythonPath();
+            (string python, bool bundled) = ResolvePython();
 
             if (python.IsEmpty())
                 return new Score { Problem = GetUnavailableReason() };
@@ -250,7 +287,11 @@ except Exception as e:
             try
             {
                 File.WriteAllText(script, BuildScoreScript(referencePath, distortedPath, cacheDir));
-                var result = await RunPython(python, $"{script.Wrap()}", timeoutMs);
+                // Primary, not Background: this is minutes of compute a Stop must be able to kill, the
+                // same as the ffmpeg scoring runs beside it. RunTask.Cancel kills Primary and Secondary
+                // and leaves Background alone, so a Background scoring run ran on past a cancel to its
+                // half-hour timeout while the UI said it had stopped.
+                var result = await RunPython(python, bundled, $"{script.Wrap()}", timeoutMs, NmkoderProcess.ProcessType.Primary);
 
                 if (result == null)
                     return new Score { Problem = "the SSIMULACRA2 scoring run did not finish in time." };
@@ -372,19 +413,27 @@ sys.stdout.write('NMKODER_SSIMU2 %.6f %d\n' % ((total / count) if count else 0.0
         #region Process plumbing
 
         /// <summary>
-        /// Runs the bundled Python with the vsynth folder as both the working directory and the sole
-        /// PATH entry, so the embeddable interpreter finds its own DLLs and the vapoursynth module -
-        /// the same launch <see cref="VshipStager.ProbeDll"/> makes, and for the same reasons.
+        /// Runs a Python script and returns its exit code and combined output.
+        /// <para/>
+        /// The bundled embeddable interpreter needs the vsynth folder pinned as both the working
+        /// directory and the sole PATH entry, so it finds its own DLLs and the vapoursynth module - the
+        /// same launch <see cref="VshipStager.ProbeDll"/> makes. A system Python is the opposite: its
+        /// environment is left inherited untouched, or its own vapoursynth module and native libraries
+        /// would not resolve. The process type decides whether Stop can kill it - Primary for a scoring
+        /// run, Background for the short probe.
         /// </summary>
-        private static async Task<(int exitCode, string output)?> RunPython(string python, string args, int timeoutMs)
+        private static async Task<(int exitCode, string output)?> RunPython(string python, bool bundled, string args, int timeoutMs, NmkoderProcess.ProcessType type)
         {
-            string vsynth = VsynthDir();
+            System.Diagnostics.Process proc = OsUtils.NewProcess(true, type, python);
 
-            System.Diagnostics.Process proc = OsUtils.NewProcess(true, NmkoderProcess.ProcessType.Background, python);
-            OsUtils.SetPathVar(proc, new[] { vsynth });
+            if (bundled)
+            {
+                string vsynth = VsynthDir();
+                OsUtils.SetPathVar(proc, new[] { vsynth });
 
-            if (Directory.Exists(vsynth))
-                proc.StartInfo.WorkingDirectory = vsynth;
+                if (Directory.Exists(vsynth))
+                    proc.StartInfo.WorkingDirectory = vsynth;
+            }
 
             proc.StartInfo.Arguments = args;
             Logger.Log($"Running: {python} {args}", true);
