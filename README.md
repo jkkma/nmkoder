@@ -196,8 +196,8 @@ Each heading below expands.
   losslessly and each encode is scored against the cut it came from, so the picture measured and the
   picture encoded are the same frames. The Advanced tabs' content presets can be applied to the sample
   encodes too, so the ladder measures the encode actually being planned - SVT-AV1's are written for the
-  AV1AN tab's svt-av1-hdr, so only the settings FFmpeg's own SVT-AV1 has are applied, and the run names
-  what did not carry. Its own encoder, preset, colour format, CRF list and sampling, under Configure
+  AV1AN tab's svt-av1-hdr, so only the settings FFmpeg's own SVT-AV1 takes are applied, and the run
+  names what did not carry. Its own encoder, preset, colour format, CRF list and sampling, under Configure
 - **Get Metrics**: calculate quality metrics like **VMAF**, SSIM, PSNR
 - **Transfer Color Metadata**: copy colour properties and HDR metadata from one file to another
   (e.g. from a Bluray remux to an encode)
@@ -536,12 +536,16 @@ the modes and the utility that do name the missing binary and why rather than fa
 <summary><b>SVT-AV1 comes from the PSY line</b></summary>
 
 Nmkoder bundles the [svt-av1-hdr](https://github.com/juliobbv-p/svt-av1-hdr) build, which continues
-the SVT-AV1-PSY line, and the AV1AN tab's content presets are written for the parameters only that
-line has. Mainline SVT-AV1 - which is what Homebrew's `svt-av1` is - rejects those parameters
-outright rather than ignoring them, so Nmkoder drops them and says so in the log. On macOS, build
-svt-av1-hdr from source and put `SvtAv1EncApp` on your `PATH` to get the presets as intended. There
-is deliberately no mainline fallback: a substituted binary under the same filename is worse than a
-visible skip.
+the SVT-AV1-PSY line, and the AV1AN tab's content presets are written for that line's parameters and
+defaults. Mainline SVT-AV1 - which is what Homebrew's `svt-av1` is - has absorbed much of the PSY
+surface by now, but not all of it: the noise family, `fgs-table`, `tx-bias` and
+`noise-adaptive-filtering` are still the fork's alone, and a mainline binary rejects a parameter it
+does not know outright rather than ignoring it - so Nmkoder asks the binary and drops what it lacks,
+saying so in the log. What no check can put back is the defaults: features mainline accepts it keeps
+off (`enable-qm`, variance boost) where the PSY line has them on, so the same command means less
+there. On macOS, build svt-av1-hdr from source and put `SvtAv1EncApp` on your `PATH` to get the
+presets as intended. There is deliberately no mainline fallback: a substituted binary under the same
+filename is worse than a visible skip.
 
 </details>
 
