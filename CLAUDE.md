@@ -1590,6 +1590,44 @@ the built assembly against the real binaries - all five, CRF and target-bitrate,
 the run was wired to it; the wired-up tab's own verification is the harness described at the end of
 this section.
 
+**Verified by running it, through the real controls rather than a model of them.** A headless
+Avalonia harness constructs the real `MainWindow`, loads fixtures through `FileList.HandleFiles`,
+drives the actual boxes and grids, starts each encode through `RunTask.Start`, and judges the
+outputs with ffprobe - against real x264, x265, aomenc, vpxenc, the shipped SVT-AV1-HDR binary
+pulled back out of the published linux-x64 release, and the BtbN master ffmpeg the app bundles.
+94 checks across 17 scenarios, no failures. What passed, frame-exact and stream-complete: all five
+encoders in CRF and in two-pass target bitrate (whole-file bitrate landing at video target plus the
+audio's share); 10-bit through x264, x265 and SVT; an HDR source tone-mapped through DirectX265
+coming out tagged bt709/bt709 with zero HDR side data, which is the ColorData swap doing its job;
+a crop+resize+borders chain landing exactly on `GetEncodedFrameSize`'s prediction;
+all three trim modes with the audio length matching the video, frame mode exact at 96/96; a
+23.976-to-30 resample whose containerise rate, frame count and duration all came out right; titles,
+languages, chapters, dispositions, an attachment and a copied-audio track surviving the mux; muxing
+mode carrying video from one file and audio from another; a two-file batch; and GIF's palette
+graph, stream copy and NVENC untouched on the single-command path - NVENC asserted by command shape
+in the log, this box having no GPU. The refusals were run, not just read: a missing binary (with
+the process PATH squeezed - a real x265 on the user's PATH rightly satisfies the availability
+check, which is the check working), a second ticked video track, Measured-from-source, and a grain
+table against a *mainline* SvtAv1EncApp swapped in for the run, which the encode asks per run. The
+`vspipe | ffmpeg | encoder` three-stage shape was proven with a producer stand-in - ffmpeg reading
+one pipe on stdin while writing y4m on stdout - since no web session has VapourSynth; a real QTGMC
+run through the pipe remains a real-machine check.
+
+**The grain table path is field-verified on both AV1 encoders now.** grav1synth measured a real
+table off a grainy fixture, the tab was driven through Grain table file mode, and `grav1synth
+inspect` read film grain back out of both finished outputs - aomenc's through `--film-grain-table`,
+and SVT's through `--fgs-table` on the shipped SVT-AV1-HDR binary. That closes half of the gap the
+grain section has carried since the row was written: `--fgs-table` acceptance is no longer a
+real-machine-only check, the PSY binary being extractable from a published release. A full av1an
+measured-grain run still is one.
+
+**The harness paid for itself before the checks did: it found a crash on master.** The ffmpeg
+ignore-path scan takes the text between a command line's last two double quotes, and on Linux the
+paths are single-quoted - so what it finds is whatever double-quoted value comes last, and the
+metadata grid writes `language=""` for a track that has none. That empty extraction made
+`String.Replace` throw inside the output reader and took the process down mid-encode, on the old
+single command as much as the new chain; the scan skips empty extractions now.
+
 ## The Quick Convert command
 
 **One ffmpeg command line is built in `QuickConvert.Run`, and the order things are worked out in is
@@ -2563,8 +2601,9 @@ control at 13.2 (an encode without the feature strips the grain, which is the po
 same session asserted the app's side of the contract out of the built assembly: SVT gets
 `--film-grain 50 --film-grain-denoise 1` or `--fgs-table <path>` and never both, aomenc its
 `--enable-dnl-denoising`/`--denoise-noise-level` or `--film-grain-table=` pair, table over strength
-on each. What no web session can run is the bundled SvtAv1EncApp itself, so the `--fgs-table`
-acceptance and a full av1an measured-grain run stay real-machine checks, as they always were.
+on each. The `--fgs-table` acceptance stopped being a real-machine-only check when Quick Convert's
+direct-encoder harness ran it against the shipped SVT-AV1-HDR binary pulled out of a published
+release - see "Driving the encoder binaries directly". A full av1an measured-grain run still is one.
 
 **`GrainDelivery` has two values and there is deliberately no third.** A mode either hands the encoder a
 strength or hands it a table; a table it cannot take is a **refusal**, naming the utility as the way to
