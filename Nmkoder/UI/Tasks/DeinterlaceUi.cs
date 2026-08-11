@@ -15,12 +15,12 @@ namespace Nmkoder.UI.Tasks
     /// <summary>
     /// The Deinterlace controls, which both encode tabs carry.
     /// <para/>
-    /// The row is hidden for a file with no fields worth discussing, and the setting behind it defaults
-    /// to QTGMC at Very Slow - so a tape capture gets the best deinterlacer there is without anyone
-    /// having had to know to ask, and a file that plainly says it is progressive never shows the
-    /// control at all. <see cref="IsRowRelevant"/> decides which of those a file is, and it shows the
-    /// row for anything whose fields were actually measured as well as for anything called interlaced,
-    /// so a verdict a person can see is wrong is one they can still act on.
+    /// The row is hidden for a file with no fields worth discussing, and on Quick Convert the setting
+    /// behind it defaults to QTGMC at Very Slow - so a tape capture gets the best deinterlacer there is
+    /// without anyone having had to know to ask, and a file that plainly says it is progressive never
+    /// shows the control at all. <see cref="IsRowRelevant"/> decides which of those a file is, and it
+    /// shows the row for anything whose fields were actually measured as well as for anything called
+    /// interlaced, so a verdict a person can see is wrong is one they can still act on.
     /// <para/>
     /// Two things keep that from arming an expensive filter on video that does not need it, because a
     /// default of QTGMC is an engine picked *by name* and <see cref="Media.Deinterlace.ResolveAsync"/>
@@ -34,60 +34,79 @@ namespace Nmkoder.UI.Tasks
     /// engine by name was how that used to be overruled. The Deinterlace Video utility takes no notice
     /// of any of this and deinterlaces what it is given, so that is where such a file goes.
     /// <para/>
-    /// Both tabs offer the same five engines, and they get there differently. Quick Convert runs QTGMC
-    /// inline, ffmpeg reading its frames from a VapourSynth pipe; the AV1AN tab cannot do that - av1an
-    /// applies filters with ffmpeg once per chunk and there is nowhere in that to put a script - so it
-    /// runs QTGMC as a pass of its own first and gives av1an the progressive file that comes out. See
-    /// <see cref="Av1anAutoQtgmcProblem"/> for why Automatic there does not reach for it.
+    /// **The two tabs no longer offer the same engines, and the difference is where QTGMC can be run
+    /// without paying for it twice.** Quick Convert runs it inline, ffmpeg reading its frames from a
+    /// VapourSynth pipe, so it costs one pipelined pass. av1an cannot do that at all - it applies
+    /// filters with ffmpeg once per chunk and there is nowhere in that to evaluate a script - so that
+    /// tab used to render the whole file through QTGMC into a lossless intermediate and hand av1an the
+    /// result. On the sources QTGMC is for, that is strictly the slower shape: QTGMC is the bottleneck
+    /// rather than the encoder, so the serial pass plus the parallel encode always exceeds the two
+    /// pipelined, and it writes the largest temporary file this app produces to get there.
+    /// <para/>
+    /// So the AV1AN box offers <see cref="Av1anModes"/> - the same list without QTGMC - and
+    /// <see cref="Av1anQtgmcProblem"/> is the standing reason, which Automatic there has always been
+    /// resolved through. A tape that wants QTGMC goes to Quick Convert, or through the Deinterlace
+    /// Video utility and then to this tab.
     /// </summary>
     class DeinterlaceUi
     {
         private static MainWindow Form { get { return Program.MainWin; } }
 
-        /// <summary> Modes in dropdown order, the same list everywhere the setting appears: both encode
-        /// tabs and the Deinterlace utility's own dialog. The Quick Convert box saves its index, so
-        /// entries may be appended but not reordered. The AV1AN box saves nothing at all - its whole
-        /// tab starts each session at its defaults - which is what retired the name-versus-index
-        /// migration this list used to need there. </summary>
+        /// <summary> Modes in dropdown order, as Quick Convert and the Deinterlace utility's own dialog
+        /// offer them. The Quick Convert box saves its index, so entries may be appended but not
+        /// reordered. </summary>
         public static readonly DeinterlaceMode[] AllModes =
             { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Qtgmc, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
 
+        /// <summary> What the AV1AN tab offers: <see cref="AllModes"/> without QTGMC, which that tab
+        /// cannot run without turning a parallel encode into a serial pass and a lossless copy of the
+        /// video - see the class summary and <see cref="Av1anQtgmcProblem"/>. Its own list rather than
+        /// an index into the other, so nothing on that tab can select an engine it will not run; that
+        /// box saves nothing, its whole tab starting each session at its defaults, so there is no saved
+        /// index for the shorter list to disturb. </summary>
+        public static readonly DeinterlaceMode[] Av1anModes =
+            { DeinterlaceMode.Automatic, DeinterlaceMode.Disabled, DeinterlaceMode.Bwdif, DeinterlaceMode.Yadif };
+
         /// <summary>
-        /// Why Automatic on the AV1AN tab settles for an ffmpeg deinterlacer instead of reaching for
-        /// QTGMC the way Automatic elsewhere does.
+        /// Why nothing on the AV1AN tab reaches QTGMC - the reason Automatic there resolves to bwdif,
+        /// and now the reason the engine is not on that tab's list at all.
         /// <para/>
-        /// QTGMC cannot run inside av1an at all, so the tab runs it beforehand, over the whole file,
-        /// into a near-lossless intermediate - hours of work and tens of gigabytes on the sources this
-        /// is for. That is a fine trade when it is what was asked for and a rude surprise when it is
-        /// not, and Automatic's entire job is to be the setting nobody has to think about: it should
-        /// clean up an interlaced source and otherwise stay out of the way. So the expensive engine is
-        /// the one that has to be picked by name, and Automatic gets bwdif - which is what it has
-        /// always got here.
+        /// av1an composes an ffmpeg command per chunk and there is nowhere in one to evaluate a
+        /// VapourSynth script, so QTGMC there means rendering the whole file through it into a lossless
+        /// intermediate first and encoding that. On the captures QTGMC exists for, QTGMC is the
+        /// bottleneck rather than the encoder - so that shape spends the pass *and* the encode where
+        /// Quick Convert's pipe overlaps them, and writes tens of gigabytes doing it. The engine is
+        /// worth having; it is not worth having here.
         /// </summary>
-        public const string Av1anAutoQtgmcProblem = "QTGMC cannot run inside av1an, so this tab renders it into an " +
-            "intermediate file first - which Automatic will not start on its own; pick QTGMC to run that pass";
+        public const string Av1anQtgmcProblem = "av1an filters each chunk with ffmpeg, which cannot evaluate a " +
+            "VapourSynth script, so QTGMC here would mean a serial pass over the whole file into a lossless " +
+            "intermediate before the encode starts. Quick Convert pipes QTGMC straight into its encoder instead, " +
+            "and the Deinterlace Video utility exports a deinterlaced file to encode here";
 
         /// <summary> Which plugin sets a background availability check has already been started for,
         /// so hovering over a file list does not queue one per file - and so switching to a preset
         /// with different requirements still gets asked about. </summary>
         private static readonly HashSet<string> probed = new HashSet<string>();
 
-        /// <summary> The engine both tabs take for a file that is interlaced - what they open on, what
-        /// Reset On New File goes back to, and what <see cref="ApplyScanVerdict"/> selects. QTGMC
-        /// because on a genuinely interlaced source the motion-compensated deinterlacer is the right
-        /// answer often enough to be the one nobody has to go and pick. It is not the cheap answer: on
-        /// the AV1AN tab it is a whole extra pass into a near-lossless intermediate before av1an
-        /// starts, which is why nothing but a measured "interlaced" selects it. </summary>
+        /// <summary> The engine Quick Convert takes for a file that is interlaced - what it opens on,
+        /// what Reset On New File goes back to, and what <see cref="ApplyScanVerdict"/> selects there.
+        /// QTGMC because on a genuinely interlaced source the motion-compensated deinterlacer is the
+        /// right answer often enough to be the one nobody has to go and pick, and on that tab it costs
+        /// one pipelined pass rather than a pass of its own. </summary>
         public const DeinterlaceMode DefaultMode = DeinterlaceMode.Qtgmc;
+
+        /// <summary> The same for the AV1AN tab, which has no QTGMC to default to. Automatic rather
+        /// than Bwdif outright: the two do the same thing to an interlaced file - Automatic resolves
+        /// through <see cref="Av1anQtgmcProblem"/> to bwdif - and Automatic also does nothing to a
+        /// progressive one, which is the safer of the two to leave sitting in a box. </summary>
+        public const DeinterlaceMode Av1anDefaultMode = DeinterlaceMode.Automatic;
 
         public static void Init()
         {
-            int mode = Array.IndexOf(AllModes, DefaultMode);
             int preset = Array.IndexOf(Qtgmc.Presets, Qtgmc.DefaultPreset);
-            Form.EncDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), mode);
-            Form.Av1anDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), mode);
+            Form.EncDeintModeBox.SetItems(AllModes.Select(m => (object)GetLabel(m)), Array.IndexOf(AllModes, DefaultMode));
+            Form.Av1anDeintModeBox.SetItems(Av1anModes.Select(m => (object)GetLabel(m)), Array.IndexOf(Av1anModes, Av1anDefaultMode));
             Form.EncDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), preset);
-            Form.Av1anDeintPresetBox.SetItems(Qtgmc.Presets.Select(p => (object)p), preset);
         }
 
         /// <summary>
@@ -117,7 +136,7 @@ namespace Nmkoder.UI.Tasks
             // Forgotten as well as overwritten: a reset is a person asking for the default back, so
             // there is no longer an earlier choice for a later interlaced file to reinstate.
             pickedQuickConvertMode = pickedAv1anMode = null;
-            SetModeBoxes(DefaultMode, DefaultMode);
+            SetModeBoxes(DefaultMode, Av1anDefaultMode);
 
             // A reset is already a reset, so the preference gate inside does not apply here - what is
             // being asked for is the default, and the verdict decides what the default means for this
@@ -200,10 +219,12 @@ namespace Nmkoder.UI.Tasks
             }
 
             // Demoting a file that is not interlaced to Automatic happens whatever the settings say, and
-            // takes nothing away: Automatic does nothing to progressive video. Selecting DefaultMode for
-            // one that *is* is a preference, which is why it sits behind the reset above.
-            DeinterlaceMode mode = interlaced ? DefaultMode : DeinterlaceMode.Automatic;
-            SetModeBoxes(mode, mode);
+            // takes nothing away: Automatic does nothing to progressive video. Selecting the default for
+            // one that *is* is a preference, which is why it sits behind the reset above. Per tab,
+            // because the two have different defaults - Quick Convert can afford QTGMC and this is the
+            // one place that difference is chosen rather than merely offered.
+            SetModeBoxes(interlaced ? DefaultMode : DeinterlaceMode.Automatic,
+                interlaced ? Av1anDefaultMode : DeinterlaceMode.Automatic);
         }
 
         /// <summary> The engine a person last chose in each tab's box, or null while nobody has. What
@@ -216,7 +237,10 @@ namespace Nmkoder.UI.Tasks
         /// choice it is meant to be undoing. </summary>
         private static bool writingModeBoxes;
 
-        /// <summary> Writes both tabs' mode boxes, leaving either alone for a null. </summary>
+        /// <summary> Writes both tabs' mode boxes, leaving either alone for a null. Each is indexed
+        /// against its own list, and a mode the AV1AN tab does not offer - QTGMC, arriving from a
+        /// caller that only knows <see cref="DefaultMode"/> - lands on Automatic rather than on the -1
+        /// <c>IndexOf</c> would hand back, which would leave the box showing nothing at all. </summary>
         private static void SetModeBoxes(DeinterlaceMode? quickConvert, DeinterlaceMode? av1an)
         {
             try
@@ -227,7 +251,7 @@ namespace Nmkoder.UI.Tasks
                     Form.EncDeintModeBox.SelectedIndex = Array.IndexOf(AllModes, quickConvert.Value);
 
                 if (av1an != null)
-                    Form.Av1anDeintModeBox.SelectedIndex = Array.IndexOf(AllModes, av1an.Value);
+                    Form.Av1anDeintModeBox.SelectedIndex = Math.Max(0, Array.IndexOf(Av1anModes, av1an.Value));
             }
             finally
             {
@@ -245,17 +269,17 @@ namespace Nmkoder.UI.Tasks
             if (writingModeBoxes)
                 return;
 
-            DeinterlaceMode mode = ModeOf(av1anTab ? Form.Av1anDeintModeBox : Form.EncDeintModeBox);
-
             if (av1anTab)
-                pickedAv1anMode = mode;
+                pickedAv1anMode = ModeOf(Form.Av1anDeintModeBox, Av1anModes);
             else
-                pickedQuickConvertMode = mode;
+                pickedQuickConvertMode = ModeOf(Form.EncDeintModeBox, AllModes);
         }
 
-        private static DeinterlaceMode ModeOf(ComboBox box)
+        /// <summary> A box's selection as a mode, against whichever list fills that box - the two are
+        /// different lengths, so reading one against the other would name the wrong engine. </summary>
+        private static DeinterlaceMode ModeOf(ComboBox box, DeinterlaceMode[] modes)
         {
-            return AllModes[box.SelectedIndex.Clamp(0, AllModes.Length - 1)];
+            return modes[box.SelectedIndex.Clamp(0, modes.Length - 1)];
         }
 
         /// <summary>
@@ -312,12 +336,12 @@ namespace Nmkoder.UI.Tasks
         /// out to be interlaced, because <see cref="Media.Deinterlace.ResolveAsync"/> waits for that
         /// answer itself.
         /// </summary>
-        private static DeinterlaceMode ModeInEffect(ComboBox box, MediaFile file)
+        private static DeinterlaceMode ModeInEffect(ComboBox box, DeinterlaceMode[] modes, MediaFile file)
         {
             if (!IsRowRelevant(file))
                 return DeinterlaceMode.Automatic;
 
-            return AllModes[box.SelectedIndex.Clamp(0, AllModes.Length - 1)];
+            return ModeOf(box, modes);
         }
 
         /// <summary>
@@ -338,35 +362,42 @@ namespace Nmkoder.UI.Tasks
         {
             return new DeinterlaceRequest
             {
-                Mode = ModeInEffect(Form.EncDeintModeBox, GetQuickConvertSourceFile()),
+                Mode = ModeInEffect(Form.EncDeintModeBox, AllModes, GetQuickConvertSourceFile()),
                 QtgmcPreset = Form.EncDeintPresetBox.GetText().IsEmpty() ? Qtgmc.DefaultPreset : Form.EncDeintPresetBox.GetText(),
                 DoubleRate = Form.EncDeintDoubleRateBox.IsChecked == true,
             };
         }
 
         /// <summary>
-        /// The AV1AN tab's request.
+        /// The AV1AN tab's request, which can only ever name an ffmpeg deinterlacer - QTGMC is not on
+        /// <see cref="Av1anModes"/> and <see cref="Av1anQtgmcProblem"/> resolves Automatic away from it.
         /// <para/>
-        /// One frame per field is only on the table for QTGMC, which runs as a pass of its own into a
-        /// file av1an is then given - so the doubled rate is the rate of the source av1an measures,
-        /// and everything downstream of it agrees. The ffmpeg engines run *inside* av1an, where it is
-        /// forbidden: av1an works out the output's frame rate from the source and hands each encoder a
-        /// fixed number of frames per chunk, so a filter emitting one frame per field would write
-        /// twice the frames under the source's own rate - a file that plays at half speed.
+        /// Neither of the two settings beside the box on the other tab is asked for here, and both fall
+        /// out of the same fact rather than being separately withheld. The preset is QTGMC's own speed
+        /// setting. One frame per field was only ever offered where QTGMC ran as a pass in front, whose
+        /// doubled rate is simply the rate of the file av1an then opens: a filter emitting one frame per
+        /// field *inside* av1an writes twice the frames its chunking expects under the source's own
+        /// rate, which is a file that plays at half speed.
+        /// <para/>
+        /// **<see cref="DeinterlaceRequest.DoubleRate"/> is therefore set to false rather than left
+        /// out, and that is not tidiness.** Its default is *true* - one frame per field being the right
+        /// answer for a deinterlacer that can have it - so a request that simply does not mention it
+        /// asks for exactly the thing this tab must never send: measured, an omitted field here comes
+        /// back as <c>bwdif=mode=send_field</c> in av1an's per-chunk chain. There used to be a line in
+        /// <see cref="Av1an"/>'s run clearing it after the fact, for the case where a QTGMC pick fell
+        /// back to bwdif; with QTGMC gone from the box the clearing belongs here, at the one place the
+        /// request is built.
         /// </summary>
         public static DeinterlaceRequest GetAv1anRequest()
         {
-            // The AV1AN tab encodes the loaded file itself, so this one is not asked through
-            // GetQuickConvertSourceFile - av1an is given TrackList.current and nothing else.
-            DeinterlaceMode mode = ModeInEffect(Form.Av1anDeintModeBox, TrackList.current?.File);
-            bool qtgmc = mode == DeinterlaceMode.Qtgmc;
-
             return new DeinterlaceRequest
             {
-                Mode = mode,
-                QtgmcPreset = Form.Av1anDeintPresetBox.GetText().IsEmpty() ? Qtgmc.DefaultPreset : Form.Av1anDeintPresetBox.GetText(),
-                DoubleRate = qtgmc && Form.Av1anDeintDoubleRateBox.IsChecked == true,
-                QtgmcUnavailableHere = qtgmc ? "" : Av1anAutoQtgmcProblem,
+                // The AV1AN tab encodes the loaded file itself, so this one is not asked through
+                // GetQuickConvertSourceFile - av1an is given TrackList.current and nothing else.
+                Mode = ModeInEffect(Form.Av1anDeintModeBox, Av1anModes, TrackList.current?.File),
+                QtgmcPreset = Qtgmc.DefaultPreset, // Never reached; the field is not nullable
+                DoubleRate = false,                // Must be explicit - the field defaults to true
+                QtgmcUnavailableHere = Av1anQtgmcProblem,
             };
         }
 
@@ -395,21 +426,14 @@ namespace Nmkoder.UI.Tasks
                 Form.EncDeintPresetBox.IsVisible = qtgmcPossible;
                 Form.EncDeintDoubleRateBox.IsEnabled = enc.Mode != DeinterlaceMode.Disabled;
 
-                // Only for QTGMC picked by name, because that is the only mode on this tab either
-                // control means anything for: Automatic here is an ffmpeg filter, and one frame per
-                // field is not something av1an's own chunking can be given.
-                bool av1anQtgmc = av1an.Mode == DeinterlaceMode.Qtgmc;
-                Form.Av1anDeintPresetBox.IsVisible = av1anQtgmc;
-                Form.Av1anDeintDoubleRateBox.IsVisible = av1anQtgmc;
-
                 Form.EncDeintInfoLabel.Text = Deinterlace.DescribeForUi(file, enc);
                 Form.Av1anDeintInfoLabel.Text = Deinterlace.DescribeForUi(file, av1an);
 
+                // Quick Convert only: the AV1AN row cannot reach QTGMC at all, so asking whether this
+                // machine could run it would launch a VapourSynth probe for an answer that changes
+                // nothing on that tab.
                 if (qtgmcPossible)
                     StartProbeIfNeeded(enc.QtgmcPreset, RefreshInfo);
-
-                if (av1anQtgmc)
-                    StartProbeIfNeeded(av1an.QtgmcPreset, RefreshInfo);
             }
             catch (Exception e)
             {

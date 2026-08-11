@@ -315,7 +315,7 @@
                       <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="Av1anGrainModeBox" Width="300" SelectionChanged="Av1anGrainMode_SelectionChanged"
-                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Measured from source denoises the file, measures what came out with grav1synth, and encodes the clean picture with the result: the accurate way, and an expensive one. Grain table file takes a table measured earlier, and denoises to match it if you tick the box. To put grain into a file that is already encoded - a film stock preset, photon noise, or a table - use the Film Grain utility on the Utilities tab instead." />
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Grain table file hands the encoder a table measured earlier. Neither costs this tab a pass of its own, which is the whole of what it offers: measuring a source's grain is hours of single-threaded work before av1an could even start, so it lives on the Film Grain utility instead - measure once there, then point this row at the table. To denoise the source to match a table you bring, use the Quick Convert tab, where that is one filter in a chain it already builds." />
 
                           <StackPanel x:Name="Av1anGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
                             <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
@@ -325,19 +325,13 @@
                                       ToolTip.Tip="Encode the denoised picture rather than the original. This is where the bitrate saving comes from - left off, the grain is still in the frames being coded and the synthetic grain is laid on top of it." />
                           </StackPanel>
 
+                          <!-- No Denoise tick beside the table here, and no strength spinner: taking the
+                               grain out of the picture is a filter Quick Convert adds to a chain it is
+                               building anyway, where this tab would have to render a lossless copy of
+                               the whole film in front of av1an to do it. See GrainSynthConfig.EncodeModes. -->
                           <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
                             <TextBox x:Name="Av1anGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
                             <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
-                            <CheckBox x:Name="Av1anGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="Av1anGrainTableDenoise_Changed"
-                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same pass the Measured mode runs. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is. Set the strength to whatever the table was measured at." />
-                          </StackPanel>
-
-                          <!-- Shared by Measured and by Table with Denoise ticked: it is the same pass. -->
-                          <StackPanel x:Name="Av1anGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <TextBlock x:Name="Av1anGrainDenoiseLabel" Classes="dim" Text="Denoise" VerticalAlignment="Center" />
-                            <NumericUpDown x:Name="Av1anGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
-                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
-                                           ToolTip.Tip="How hard the denoise pass runs, as a proportion of ffmpeg's own hqdn3d defaults - 4 is exactly those defaults. It decides both what the grain table measures and what the encoder is handed, so too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
                           </StackPanel>
 
                         </WrapPanel>
@@ -350,11 +344,7 @@
                       <StackPanel Grid.Row="3" Grid.Column="1" x:Name="Av1anDeintPanel" Spacing="4" IsVisible="False">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="Av1anDeintModeBox" Width="300" SelectionChanged="Av1anDeintMode_SelectionChanged"
-                                    ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC is the motion-compensated deinterlacer - far better, and far slower. av1an cannot run it on its own (it filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script), so picking it here renders the whole file through QTGMC into a near-lossless intermediate first and encodes that. Expect a long extra pass and a large temporary file. It falls back to bwdif where VapourSynth cannot run it." />
-                          <ComboBox x:Name="Av1anDeintPresetBox" Width="125" SelectionChanged="Av1anDeintPreset_SelectionChanged"
-                                    ToolTip.Tip="QTGMC's own speed setting. Its documented default is Slower; Very Slow is the default here, which also turns on QTGMC's noise processing. It is the slowest setting worth using and the sources this runs on are usually hour-long captures, so expect the pass to take a while." />
-                          <CheckBox x:Name="Av1anDeintDoubleRateBox" Content="One frame per field" IsChecked="True" IsCheckedChanged="Av1anDeintRate_Changed"
-                                    ToolTip.Tip="The two fields of an interlaced frame were shot at different moments, so keeping both doubles the frame rate and preserves all of the motion. Only offered for QTGMC: it runs before av1an, so the doubled rate is simply the rate of the file av1an is given, where a filter inside av1an emitting one frame per field would write twice the frames its chunking expects." />
+                                    ToolTip.Tip="Automatic only does something when the source really is interlaced, which a tape or DVD capture is and a modern download is not, and it uses bwdif. QTGMC - the motion-compensated deinterlacer, far better and far slower - is not offered here: av1an filters each chunk with ffmpeg, which cannot evaluate a VapourSynth script, so it would have to be rendered into a lossless intermediate in a serial pass before the parallel encode even started. On a tape capture QTGMC is slower than the encoder, so that shape costs more than it saves. Use the Quick Convert tab, which pipes QTGMC straight into its encoder, or the Deinterlace Video utility to export a deinterlaced file and encode that here." />
                         </WrapPanel>
                         <TextBlock x:Name="Av1anDeintInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
@@ -587,16 +577,16 @@
                            driven by the same GrainSynthUi. Only one of the panels is ever visible; see
                            GrainSynthUi.ApplyControlVisibility.
 
-                           What differs is not the row but the encoder behind it. This tab runs the AV1
-                           libraries compiled into FFmpeg, where SVT-AV1 is mainline and has no fgs-table,
-                           so Encoder analysis is the mode that works here and the two table modes are
-                           refused with the Film Grain utility named as the way to get the same result.
-                           GrainSynthUi.GetTableFlag(VideoCodec) is the one statement of that. -->
+                           Both rows offer the same modes and this one has two controls the other does
+                           not: the Denoise tick beside the table, and the strength it brings with it.
+                           This tab's encode is one ffmpeg chain, so taking the grain out of the picture
+                           is one more filter in it, where the AV1AN tab would have to render a lossless
+                           copy of the whole film in front of av1an. See GrainSynthConfig.EncodeModes. -->
                       <TextBlock Grid.Row="2" Grid.Column="0" Classes="field rowhead" Text="Grain Synthesis" />
                       <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="EncGrainModeBox" Width="300" SelectionChanged="EncGrainMode_SelectionChanged"
-                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and is the mode this tab can carry out: the AV1 encoders here are the ones inside FFmpeg, and neither of them can be handed a grain table, so the two table modes are refused with the Film Grain utility named as the way to apply one afterwards. To put grain into a file that is already encoded - a film stock preset, photon noise, or a table - use that utility on the Utilities tab." />
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Grain table file hands the encoder a table measured earlier, and ticking Denoise beside it takes the source's own grain out to match - which is what makes a saved table reproduce the encode it was measured for. The measuring itself is the Film Grain utility's Measure operation on the Utilities tab: it is hours of single-threaded work, worth doing once per source rather than once per encode. That utility is also where grain goes into a file that is already encoded - a film stock preset, photon noise, or a table." />
 
                           <StackPanel x:Name="EncGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
                             <NumericUpDown x:Name="EncGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
@@ -610,12 +600,14 @@
                             <TextBox x:Name="EncGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="EncGrainTable_Changed" />
                             <Button Content="…" Classes="icon" Click="EncGrainTableBrowse_Click" />
                             <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainTableDenoise_Changed"
-                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Measured mode uses. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is." />
+                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Film Grain utility measured the table with. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is. Set the strength to whatever the table was measured at." />
                           </StackPanel>
 
-                          <!-- Shared by Measured and by Table with Denoise ticked: it is the same denoiser. -->
+                          <!-- The strength for the tick beside the table - the only thing that brings this
+                               panel on screen now. It carried a "Denoise" label of its own for the Measured
+                               mode, which is the Film Grain utility's; under Table the tickbox to its left
+                               already says the word, and two of it in a row read as two settings. -->
                           <StackPanel x:Name="EncGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <TextBlock x:Name="EncGrainDenoiseLabel" Classes="dim" Text="Denoise" VerticalAlignment="Center" />
                             <NumericUpDown x:Name="EncGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
                                            ValueChanged="EncGrainSynthStrength_ValueChanged"
                                            ToolTip.Tip="How hard the denoiser runs, as a proportion of FFmpeg's own hqdn3d defaults - 4 is exactly those defaults. Too high takes picture detail with the grain and too low leaves grain in the frames being coded." />

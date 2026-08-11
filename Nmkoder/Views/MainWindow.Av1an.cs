@@ -144,17 +144,6 @@ namespace Nmkoder.Views
             GrainSynthUi.RefreshInfo();
         }
 
-        /// <summary> Unlike the other tickboxes on this row, this one decides what else is on screen: the
-        /// denoise strength beside it belongs to the pass, and the pass only runs for a table when this is
-        /// ticked. So it goes through the visibility pass rather than only the readout. </summary>
-        private void Av1anGrainTableDenoise_Changed(object sender, RoutedEventArgs e)
-        {
-            if (!_initialized)
-                return;
-
-            GrainSynthUi.ApplyControlVisibility();
-        }
-
         private void Av1anGrainMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)
@@ -219,12 +208,10 @@ namespace Nmkoder.Views
             DeinterlaceUi.ModeBoxEdited(av1anTab: true); // Remembered, so a progressive file in a queue cannot take it away
             Av1anDeinterlaceSetting_Changed();
         }
-        private void Av1anDeintPreset_SelectionChanged(object sender, SelectionChangedEventArgs e) => Av1anDeinterlaceSetting_Changed();
-        private void Av1anDeintRate_Changed(object sender, RoutedEventArgs e) => Av1anDeinterlaceSetting_Changed();
-
         /// <summary> The readout under the dropdown describes the loaded file, so it is rewritten
-        /// whenever any part of the setting moves - not only on the dropdown itself. Nothing is saved:
-        /// the Video tab's settings last as long as the session. </summary>
+        /// whenever the setting moves. The QTGMC preset and the field-doubling box that used to sit
+        /// beside it are gone with QTGMC itself - see DeinterlaceUi.Av1anQtgmcProblem. Nothing is
+        /// saved: the Video tab's settings last as long as the session. </summary>
         private void Av1anDeinterlaceSetting_Changed()
         {
             if (!_initialized)

@@ -1036,9 +1036,9 @@ selecting that encoder writes into the rest - and `LoadAv1anEncodeSettings` rest
 is down to the Audio & Tracks rows and the filter grid - not the Advanced
 tab's argument grid, which stopped being saved when Quick Convert's did; `LoadConfigAv1an`
 keeps the audio codec and the Av1an Options tab. Those settings describe a job rather than a
-preference, and every way they go wrong is expensive and quiet: a QTGMC left armed spends hours and
-tens of gigabytes on a progressive source, a resize left on 720p halves a 4K encode nobody meant to
-shrink, a CRF picked for a grainy film is the wrong number for line art. Reset On New File already
+preference, and every way they go wrong is expensive and quiet: a resize left on 720p halves a 4K
+encode nobody meant to shrink, a CRF picked for a grainy film is the wrong number for line art, a
+grain table from another source describes grain this one does not have. Reset On New File already
 made that argument for Trim, Crop and Deinterlace; this carries it to the whole tab and to the
 boundary that is even easier to lose track of, which is a session that ended days ago.
 
@@ -2147,9 +2147,11 @@ against the binaries rather than derived from whose tree they come from.
 
 ## Deinterlacing
 
-**Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and the
-setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore arrives with the
-best deinterlacer there is already selected, and a modern download never shows the control at all.
+**Both encode tabs hide the Deinterlace row for a file with no fields worth discussing**, and on
+Quick Convert the setting behind it defaults to QTGMC at Very Slow. A Hi8 or VHS capture therefore
+arrives with the best deinterlacer there is already selected, and a modern download never shows the
+control at all. The AV1AN tab offers no QTGMC and defaults to Automatic - see the section on it
+below, and `DeinterlaceUi.Av1anModes`.
 
 `DeinterlaceUi.IsRowRelevant` decides which a file is, and it is true for two different reasons. One
 is the obvious one: the verdict says interlaced. The other is that the file's fields were actually
@@ -2212,9 +2214,10 @@ that case for good; the resets below still matter for the file the row *is* show
 
 `ResetSettingsOnNewFile.ResetDeinterlace` is the other half, on by default beside Trim and Crop - the
 three whose value describes the file that was just replaced rather than how the user likes to
-encode. `DeinterlaceUi.ResetModes` puts both tabs back to `DefaultMode` and touches neither the preset
-nor the field doubling, which say *how* to deinterlace rather than *whether*. Only where a person
-loaded the file: a batch clears each one with `resetSettings: false`.
+encode. `DeinterlaceUi.ResetModes` puts each tab back to its own default - `DefaultMode` for Quick
+Convert, `Av1anDefaultMode` for the AV1AN tab - and touches neither the preset nor the field
+doubling, which say *how* to deinterlace rather than *whether*. Only where a person loaded the file:
+a batch clears each one with `resetSettings: false`.
 
 That setting is also what `ApplyScanVerdict` reads before it selects an engine for an interlaced file,
 which is what makes turning it off mean something across a queue: a stack of tapes keeps the engine
@@ -2225,8 +2228,9 @@ sessions at all, so its mode is the default on every launch whatever was picked 
 Convert's is still saved, and still relies on this reset, because deinterlacing there is one filter
 in a chain rather than a pass of its own.
 
-The default is stated in exactly two places and nowhere else: `DeinterlaceUi.DefaultMode` for the
-engine, `Qtgmc.DefaultPreset` for the preset. The second is not only a default - it is also the
+The default is stated in exactly three places and nowhere else: `DeinterlaceUi.DefaultMode` for Quick
+Convert's engine, `DeinterlaceUi.Av1anDefaultMode` for the AV1AN tab's, and `Qtgmc.DefaultPreset` for
+the preset. The last is not only a default - it is also the
 fallback for an empty preset box and, through `Qtgmc.NeedsNoisePlugins`, the thing that decides which
 plugin set has to be present, since Very Slow is one of the two presets that turn QTGMC's noise
 processing on and pull in `fft3dfilter`. Moving it moves what the probe and the release check verify.
@@ -2403,9 +2407,8 @@ QTGMC needs (eedi3m) - … requires API R4.2" rather than the flatly misleading 
 **A trim is the one thing QTGMC does not cover on the Quick Convert tab**, because that trim is
 ffmpeg's - a seek and a duration on the command line - and neither reaches the script that reads the
 source, so the video would arrive whole while the audio arrived cut. Both together means cutting
-first; the Cut utility does that without re-encoding, and the log says so. The AV1AN tab's trim is
-not ffmpeg's - it cuts a copy before av1an starts - so there the two compose, and `Av1an.Run` runs
-the cut first and QTGMC over what it produced.
+first; the Cut utility does that without re-encoding, and the log says so. That is the only tab the
+pairing can arise on: the AV1AN tab has no QTGMC to compose with its trim.
 
 **All three trim modes are a seek and a duration, and the modes differ only in what the user types
 and how exact the start is.** The keyframe mode seeks the input, which is instant and lands on the
@@ -2460,40 +2463,55 @@ empty file without complaining. `ResolveSection` reads the section through the m
 rather than off the fields, because in frame mode those hold frame numbers and comparing a frame
 count against a duration compares nothing.
 
-**QTGMC cannot run inside av1an, so the AV1AN tab renders it in front.** av1an applies video
-filters with ffmpeg once per chunk and there is nowhere in that to put a script; and it
+**QTGMC is not on the AV1AN tab at all, and the reason is arithmetic rather than taste.** av1an
+applies video filters with ffmpeg once per chunk and there is nowhere in that to put a script; and it
 evaluates its input for scene detection, again for every chunk, and again for every probe a
-target-quality mode runs, so a filter costing more than the encoder would be paid for several
-times over. `Av1an.RenderDeinterlacedInput` therefore runs `DeinterlacePass` over the whole
-video into `{tempDir}.deint.mkv` - beside the temp folder, where the trimmed input goes, because
-av1an empties its own temp folder at startup - and av1an is given that. Paid for exactly once,
-sequentially, and the encoder gets a progressive, seekable, frame-accurate file.
+target-quality mode runs, so a filter costing more than the encoder would be paid for several times
+over. The tab therefore used to render the whole video through QTGMC into a lossless
+`{tempDir}.deint.mkv` and hand av1an that - one serial pass, then the parallel encode.
 
-That is why **one frame per field is offered for QTGMC there and for nothing else**. The pass
-runs before av1an, so the doubled rate is simply the rate of the file av1an opens; a filter
-*inside* av1an emitting one frame per field would write twice the frames its chunking expects
-under the source's own rate, and the file would play at half speed. A QTGMC that falls back to
-bwdif - no VapourSynth, an RGB source - falls back into exactly that position, so `Av1an.Run`
-clears `DoubleRate` on any plan that is not the pipe. Do not remove that line.
+**On the sources QTGMC exists for that is strictly the slower shape.** A tape capture is standard
+definition, so QTGMC is the bottleneck and the encoder is not: pass plus encode is always more than
+Quick Convert's `vspipe | ffmpeg | encoder`, which overlaps the two, and the pass writes the largest
+temporary file this app produces to get there. `DeinterlaceUi.Av1anModes` is `AllModes` without
+QTGMC, `DeinterlaceUi.Av1anQtgmcProblem` is the standing reason, and a tape that wants QTGMC goes to
+Quick Convert or through the Deinterlace Video utility and then to this tab. `Av1an.RenderDeinterlacedInput`,
+the QTGMC preset box, the field-doubling box and `DeinterlacePass`'s lossless branch went with it.
 
-**Automatic on the AV1AN tab stays on bwdif**, where Automatic everywhere else reaches for
-QTGMC. Automatic's whole job is to be the setting nobody thinks about, and starting an
-hours-long pass and a tens-of-gigabytes intermediate is not that. The expensive engine is the
-one you pick by name - `DeinterlaceUi.Av1anAutoQtgmcProblem` is how that is said, through the
-same `QtgmcUnavailableHere` field the tabs use for their real impossibilities.
+**One frame per field went too, and the trap it leaves behind bit immediately.** That option only
+ever made sense with the pass in front, whose doubled rate is simply the rate of the file av1an
+opens; a filter *inside* av1an emitting one frame per field writes twice the frames its chunking
+expects under the source's own rate, and the file plays at half speed. `Av1an.Run` used to clear
+`DoubleRate` for any plan that was not the pipe, and this file used to say "do not remove that line".
+Removing the checkbox is not the same as removing the setting: **`DeinterlaceRequest.DoubleRate`
+defaults to `true`**, so `GetAv1anRequest` merely *omitting* it asks for exactly the forbidden thing -
+measured through the real controls, `bwdif=mode=send_field` in av1an's per-chunk chain. It is set to
+`false` explicitly there now, with a comment saying why the omission is not enough. A field whose
+default is the dangerous value has to be written, not left out.
 
-That is a statement about Automatic, not about what the tab opens on, and the two have come apart:
-the default is QTGMC now, so a file *measured as interlaced* on the AV1AN tab gets the expensive pass
-unless someone changes the row. Nothing weaker than that selects it - a scan that says progressive
-lands on Automatic, and so does a hidden row - and Automatic is still bwdif when a person picks it
-deliberately.
+**Automatic on that tab has always resolved to bwdif** and still does, through the same
+`QtgmcUnavailableHere` field the tabs use for their real impossibilities - so removing the entry
+changed nothing about how Automatic behaves, only about what can be picked beside it. What did
+change is the tab's default: `DeinterlaceUi.Av1anDefaultMode` is Automatic where Quick Convert's
+`DefaultMode` is still QTGMC, so `ApplyScanVerdict` now selects per tab. Automatic rather than Bwdif
+outright because the two do the same thing to an interlaced file and Automatic also does nothing to
+a progressive one, which is the safer of the two to leave sitting in a box.
 
-Both tabs' dropdowns are `DeinterlaceUi.AllModes` in one order, and the Quick Convert box saves
-its index - so entries may be appended to that list but not reordered. The AV1AN box saved the
-mode's **name** for a while, because adding QTGMC in its proper place moved Bwdif and Yadif down
-one and a saved index of 2 would have started an unwanted QTGMC pass for someone who had picked
-Bwdif. That box now saves nothing at all, its whole tab starting each session at the defaults, so
-the migration that read the old integer is gone with it.
+Verified headless through the real `MainWindow`, which is how the `DoubleRate` default above was
+caught rather than shipped: the two boxes hold what they should, the AV1AN tab opens on Automatic and
+Quick Convert on QTGMC, the preset and field-doubling controls are gone from the window, and **every
+one of the four AV1AN entries resolves through the real `Deinterlace.ResolveAsync` to a plan whose
+`UsesPipe` is false** - which is the property the deleted pass existed to serve, so it is the one
+worth asserting per entry rather than once.
+
+The Quick Convert dropdown is `DeinterlaceUi.AllModes` and saves its index - so entries may be
+appended to that list but not reordered. The AV1AN dropdown is `Av1anModes`, its own array rather
+than an index into the other, so nothing on that tab can select an engine it will not run; both
+`ModeOf` and `ModeInEffect` take the array to read a box against, because the two are different
+lengths and reading one against the other would name the wrong engine. Removing QTGMC could not
+disturb a saved index there because that box saves nothing at all, its whole tab starting each
+session at the defaults - which is also what retired the name-versus-index migration it once needed,
+from when adding QTGMC in its proper place moved Bwdif and Yadif down one.
 
 Feeding av1an a `.vpy` directly is possible and is still the wrong trade. Measured rather than
 assumed: chunking does not damage a temporal filter - frames 300-319 rendered as a chunk come
@@ -2535,20 +2553,30 @@ ask SVT-AV1 for grain and they silently overrode each other. `--film-grain` sat 
 per chunk into a log `HandleTempFolder` deletes on a successful run. `GetGrainSynthProblem` existed to
 report that collision after the fact. One control that writes at most one of them cannot express it.
 
-The five modes are in `GrainSynthMode`, and what separates them is not how the grain looks:
+The modes are in `GrainSynthMode`, and what separates them is not how the grain looks:
 
 | Mode | Where the description comes from | Cost |
 |---|---|---|
 | Encoder analysis | the encoder, from a strength | one number |
-| Measured from source | grav1synth diffing the source against a denoised copy | a lossless intermediate and a full extra pass |
-| Grain table file | a table the user already has | nothing, or the denoise pass on request |
+| Grain table file | a table the user already has | nothing, or Quick Convert's denoise filter on request |
 
-**The row is what the encoder does while it encodes, and nothing else.** Grain written into a file that is
-already encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
-utility's job and is not on this row at all. That is the division CLAUDE.md already states for Cut and
-Deinterlace Video: utilities write a file, the tabs' own settings apply during an encode, and neither
-reads the other's. `GrainSynthConfig.EncodeModes` is the row's list; the enum keeps `Preset` and
-`PhotonNoise` because the utility uses this same class to say where its grain comes from.
+**The row is what the encoder does while it encodes and costs no pass of its own, and both halves of
+that are load-bearing.** Grain written into a file that is already encoded - a film stock preset,
+photon noise, or a table applied afterwards - is the Film Grain utility's job and is not on this row
+at all. That is the division CLAUDE.md already states for Cut and Deinterlace Video: utilities write
+a file, the tabs' own settings apply during an encode, and neither reads the other's.
+
+**Measured from source left later, and for the second half of that rule rather than the first.** It
+*was* an encode mode on the AV1AN tab: a lossless denoise render of the whole film and a grav1synth
+diff, both in front of av1an, at about 3.7 fps at 1080p - a working day of single-threaded measuring
+before the parallel encode began, on every run of it. Measuring is a thing to do once per source, not
+once per encode, and the Film Grain utility's Measure operation already did exactly that and stated
+its cost up front; its table then feeds Grain table file here for nothing. Quick Convert had refused
+the mode outright from the day it was ported, having no measuring pass, so this closed the last place
+it could be picked. `GrainSynthConfig.EncodeModes` is what both rows offer; `IsUtilityOnly` now covers
+all three of `Measured`, `Preset` and `PhotonNoise`, and `DescribeUtilityOnly` words them apart -
+telling somebody that measuring "writes grain into a finished file" would send them to the wrong
+operation.
 
 **Both encode tabs carry the row, and both drive the same binaries now - what still differs is the
 pipeline behind it.** `GrainSynthUi` drives both the way `ToneMapUi` and `DeinterlaceUi` do - one
@@ -2559,19 +2587,20 @@ the readout and the refusals are one implementation rather than two that drift. 
 and everything downstream reads that: which delivery is likely, what the readout says, and what `Run`
 refuses.
 
-**So Quick Convert carries out three of the four modes and refuses exactly one.** Encoder analysis
-works on both its AV1 encoders, spelled by the Direct classes themselves. Grain table file works too,
-including a path with spaces in it - the table travels as one `Shell.WrapArg` argument, where the
-AV1AN tab has to refuse a spaced path that av1an's one-quoted-string re-split would break - and its
-Denoise tick runs hqdn3d as a chain filter after the geometry, this tab's one-ffmpeg chain making the
-lossless intermediate that costs the AV1AN tab a whole pass unnecessary. The binary is still asked
-about the flag at encode time, exactly as on the AV1AN tab, because a user's own SVT-AV1 may be
-mainline and refuses the whole command over the parameter. What refuses structurally is **Measured
-from source**: it is made of the denoise render and the grav1synth diff that run in front of av1an,
-and this tab's encode is a command chain with no measuring pass - the refusal, in the readout the
-moment the mode is picked, names where a table comes from instead (the Film Grain utility's Measure
-operation, or an AV1AN-tab Measured encode's kept `.grain.tbl`), after which Grain table file with
-Denoise ticked at the same strength is the measured encode.
+**Both tabs carry out both modes, and the one control only Quick Convert has is the Denoise tick
+beside the table.** Encoder analysis works on either tab's AV1 encoders, spelled by the Direct and
+Av1an classes themselves. Grain table file works on both, and on Quick Convert with a path containing
+spaces - the table travels as one `Shell.WrapArg` argument, where the AV1AN tab still refuses a spaced
+path that av1an's one-quoted-string re-split would break. The binary is asked about the flag at encode
+time on both, because a user's own SVT-AV1 may be mainline and refuses the whole command over it.
+
+The tick is Quick Convert's because of what denoising costs each tab, which is the same asymmetry
+QTGMC has: there it is one `hqdn3d` entry in a chain that ffmpeg is building anyway, and on the AV1AN
+tab it was `DenoisePass` rendering a lossless copy of the entire film before av1an could start. So the
+AV1AN row is the dropdown and a path box, `GrainSynthUi.Read` is passed nulls for the tick and the
+strength there, and `NeedsDenoisePass` is structurally false for anything that tab can produce.
+Measure once in the utility and encode with the table on either tab; tick Denoise on Quick Convert to
+reproduce the encode the table was measured for.
 
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
@@ -2658,8 +2687,11 @@ predicting a winner.
 filters and transforms stop averaging the source's own grain away; synthesis takes that grain out of the
 picture and describes it instead. They are alternatives, and running both means spending bitrate and
 encoding time protecting texture that is no longer in the frames. Reported only where the row actually
-denoises - Measured from source, or Encoder analysis with Denoise ticked - and `tune` only at 5; a
-strength with Denoise unticked is *consistent* with retention and says nothing.
+denoises, which on this tab is now exactly one thing - Encoder analysis with Denoise ticked - and
+`tune` only at 5; a strength with Denoise unticked is *consistent* with retention and says nothing.
+`Av1anUi.GetGrainRetentionProblem` therefore passes a constant clause where it used to pick between
+"the source is denoised before av1an sees it" and the encoder's own flag: the pass that made the first
+of those true is gone.
 
 **The SVT-AV1 Grainy Film / 35mm Scan preset is gone**, at the user's request, and it was the only thing
 that could raise that warning by being clicked: it set `tune 5` and `noise-norm-strength 2` for exactly
@@ -2792,87 +2824,70 @@ a property of how BtbN configured that build, not something this script can know
 an exe that will not start. `--features ffmpeg_static` is the alternative and was rejected: it builds
 ffmpeg from source on every release.
 
-### The passes, and where they sit
+### The passes that used to sit here
 
-`RenderDenoisedInput` is the third of the AV1AN tab's input passes, after the trim and the deinterlace
-and on whatever they left: the grain has to be measured on the frames that will be encoded. It writes
-`{tempDir}.denoised.mkv` and `{tempDir}.grain.tbl` beside the temp folder, exactly as the trimmed and
-deinterlaced inputs are and for the same reason - av1an empties its own temp folder at startup, and a
-resume must find both rather than spend the hours again. Both are deleted together on a failure: a
-denoised file with no table beside it would be reused by the next resume as though it had been
-measured, and encoded with no grain description at all.
+**The AV1AN tab has no grain passes any more, and this section is kept as the account of what they
+cost and what has to be rebuilt if a measuring mode ever comes back.** `RenderDenoisedInput` was the
+third of that tab's input passes, after the trim and the deinterlace: it wrote `{tempDir}.denoised.mkv`
+and `{tempDir}.grain.tbl`, and `ToneMapPass.RunFusedAsync` wrote the denoised half as the second output
+of the tone-map command whenever both would run - one source decode and one render where separate
+passes cost two. `SaveMeasuredGrainTable` then kept the table beside the finished encode, since a
+measured table took hours and is worth more than the encode it belongs to. All of it is deleted; the
+Film Grain utility's Measure operation does the same work, once per source, and states its cost up
+front. `DenoisePass` stays as that utility's pass.
 
-**"The frames that will be encoded" includes their size, and for an SDR source that took a third
-file to make true.** With a tone map in front the fused pass splits after the folded geometry, so
-both halves of the measurement are the encoded frame; without one, the denoise pass renders the
-geometry itself - and the raw input then no longer matches the denoised copy's frame size, so
-grav1synth has nothing legal to diff against. `DenoisePass.RunWithReferenceAsync` therefore writes
-a geometried copy of the input as a second output of the same command - `{tempDir}.grainref.mkv`,
-video-only, split off before the denoiser so the pair differs by exactly the removed grain - and
-the diff runs between the two renders. The reference is deleted the moment the diff succeeds: its
-one reader is done, and it is a lossless file the length of the film. It is in `GetPreparedInputs`
-anyway, for the run that dies mid-measurement, and the repair path re-makes it alone -
-`RunReferenceAsync`, a geometry-only render - when a crash took it but left the denoised half. Both
-this pass and the kept-file reuse guard share the tone-map pass's size check, because with geometry
-baked into files a resume that changed the resize would otherwise encode at the wrong size with a
-wrong-domain table beside it.
+Four things about it are worth carrying forward, because each was measured rather than reasoned out
+and each would have to be got right again:
 
-**The denoised copy carries the source's audio, subtitles and chapters, because av1an has no other
-supply of them - and for as long as it was video-only, every Measured-mode encode was silent.**
-av1an takes every non-video track from its `-i` input: the `-a` arguments are applied to that file,
-and the attachment step waits on the `audio.mkv` its audio ffmpeg writes from that file. The
-denoised file is that input in Measured mode, and `DenoisePass` wrote it `-map 0:v:0 -an` on the
-strength of a comment claiming av1an "is given the audio separately out of the original" -
-machinery that does not exist anywhere in this app. Found by reading the `-a` flow while folding
-the geometry, not by a report: the mode is hours long and new enough that nobody had filed one. The
-fused pass's second output had inherited the same shape and is fixed the same way; the tracks are
-stream copies, and the disk they cost is the price of the output having sound.
+**"The frames that will be encoded" includes their size.** A grain table's amplitudes live in its
+frames' own domain, so grain measured at the source's size is the wrong grain for the resized frames
+it is synthesised onto - which is why the fused pass split *after* the folded geometry, and why an
+SDR source with a resize needed a third file (`{tempDir}.grainref.mkv`) for grav1synth to have
+something its own size to diff against. Any measurement that feeds an encode has to happen at the
+encoded frame.
 
-**`DenoisePass` is lossless, and what began as its distinction is the whole pipeline's now: the
-difference is what an output is for.** `DeinterlacePass` stays near-lossless x264 only for the
-Deinterlace Video utility's deliverable, a file to be looked at, where CRF 12 is indistinguishable
-and a tenth of the size; every AV1AN input pass - deinterlace included - is lossless FFV1. This one writes a file to be *measured
-against*, and whatever a lossy codec adds is a difference between the two files that is not grain -
-grain being precisely the small high-frequency signal a quantiser disturbs first. Hence FFV1, and a
-temporary file larger than the source, which the row says before the run rather than a full disk saying
-it during one.
+**The denoised copy carried the source's audio, subtitles and chapters, because av1an had no other
+supply of them.** av1an takes every non-video track from its `-i` input: the `-a` arguments apply to
+that file, and the attachment step waits on the `audio.mkv` its audio ffmpeg writes from it. That
+file was av1an's input in Measured mode, and `DenoisePass` wrote it `-map 0:v:0 -an` on the strength
+of a comment claiming av1an "is given the audio separately out of the original" - machinery that does
+not exist anywhere in this app - so every Measured-mode encode came out silent. **Anything written
+for av1an to encode has to carry the tracks.**
 
-**The denoiser is hqdn3d and spatial only**, its temporal halves pinned to 0. hqdn3d's temporal filter
-is not motion compensated, so on anything that moves it blends the previous frame into the current one
-and the difference between the two files there is a ghost rather than grain. It is not the best
-denoiser ffmpeg has - nlmeans and bm3d both are - and it is the only one whose speed survives a whole
-film, which this pass has to.
+**`DenoisePass` is lossless, and the rule behind that is what an output is *for*.** `DeinterlacePass`
+is near-lossless x264 for the Deinterlace Video utility's deliverable, a file to be looked at, where
+CRF 12 is indistinguishable and a tenth of the size; the tone-map pass is the same for the same
+reason, its output being only ever encoded. A file to be *measured against* cannot be: whatever a
+lossy codec adds is a difference between the two files that is not grain, grain being precisely the
+small high-frequency signal a quantiser disturbs first.
 
-**The table is kept and the denoised copy is not.** `SaveMeasuredGrainTable` copies a measured table
-beside the encode as `<output>.grain.tbl` before the temp data goes, because it is the one thing in there
-worth more than the encode it belongs to: it took hours to measure, it is a few tens of kilobytes, and it
-describes the source's grain rather than that encode's bitstream - so it is the input to every later
-encode of the same film through the row's Grain table file mode. One caveat travels with it now that the
-measurement happens at the encoded frame: the table fits later encodes with the same geometry and
-tone-map settings, not any encode of the file, and the kept-table log line says so. The denoised
-intermediate goes with the rest of the scratch
-data, and `GetPreparedInputs` had to be taught about it: it matched `.trim.` and `.deint.` only, so every
-measured encode leaked a lossless FFV1 copy of the whole video - the largest file this app writes - onto
-the disk for good.
+**The denoiser is hqdn3d and spatial only**, its temporal halves pinned to 0. hqdn3d's temporal
+filter is not motion compensated, so on anything that moves it blends the previous frame into the
+current one and the difference between the two files there is a ghost rather than grain. It is not
+the best denoiser ffmpeg has - nlmeans and bm3d both are - and it is the only one whose speed
+survives a whole film.
+
+**`GetPreparedInputs` still matches `.deint.`, `.denoised.`, `.grainref.` and `.grain.`, and those
+four entries must stay.** Nothing in this build writes them, but earlier releases did, and two of
+them are lossless FFV1 - the largest files this app has ever written. Whichever run deletes such a
+temp folder is the last chance anything has to take them with it. That list already learned this
+lesson once from the other side: `.denoised.` was left off when the grain modes were added, and every
+measured encode leaked a lossless copy of the whole video onto the disk for good.
 
 `ApplyGrainToOutput` runs after av1an and writes beside the output before replacing it, rather than in
 place: this is a bitstream rewrite of a file that may have taken hours, from a young tool that says
 itself that some videos fail to take grain properly, and the failure worth guarding against is the one
 that leaves neither the original nor a working copy.
 
-**A resume that replays a saved av1an command cannot post-apply**, because the saved command is av1an's
-arguments and nothing else - there is nowhere in it for a grain setting to live, and the row on screen
-describes the next encode rather than that one. It logs that rather than producing a file quietly
-without grain. Resuming *with current settings* rebuilds the command and works normally.
-
 ### The Film Grain utility
 
-The card is the same tool with the encode taken out of it, and it owns everything done to a file that is
-already encoded: a table measured off a source before committing to the encode that will use it, a table
-read back out of somebody else's encode, and grain written onto or stripped off a finished file - the film
-stock presets and the photon noise among them, which is why the row does not offer either. `UtilFilmGrain` holds the four
-operations; a utility that writes a file and stops, like Cut and Deinterlace Video beside it, with its own
-settings and nothing reaching the encode tabs.
+The card owns everything the encode rows do not: grain written onto or stripped off a file that is
+already encoded - the film stock presets and the photon noise among them - a table read back out of
+somebody else's encode, and **measuring**, which is now this card alone. Measure was an encode mode on
+the AV1AN tab as well until it became clear it was hours of serial work in front of a parallel encode,
+repeated on every run; here it happens once per source and the table feeds either tab's Grain table
+file mode. `UtilFilmGrain` holds the four operations; a utility that writes a file and stops, like Cut
+and Deinterlace Video beside it, with its own settings and nothing reaching the encode tabs.
 
 **One card and four operations rather than four cards.** Three of them take about as long as a remux, so a
 card each would give the Utilities tab three more rows for something almost nobody does twice, and they act
@@ -2881,8 +2896,11 @@ on the same loaded file through the same binary.
 **Measure is the odd one out twice over.** It is the only operation that does not need an AV1 input - it
 diffs decoded frames, so it reads the grain off a ProRes master or a DVD rip perfectly well - and it is the
 only one that costs anything, which is why the dialog states the estimate for the loaded file before the
-operation is picked rather than after. The other three read and rewrite an AV1 bitstream and say so plainly
-when handed anything else.
+operation is picked rather than after. That estimate is the whole reason measuring belongs here rather
+than on an encode row: grav1synth's diff runs at about 7.2 megapixels a second, single-threaded, so a
+1080p feature is a working day, and a number that large should be read before the work starts rather
+than met at hour two. The other three read and rewrite an AV1 bitstream and say so plainly when handed
+anything else.
 
 The denoised copy Measure produces goes to the session folder and is deleted, unless "Keep the denoised
 video too" is ticked, in which case it lands beside the table as `<name>_denoised.mkv`. Off by default,
@@ -2907,6 +2925,14 @@ libsvtav1 inside ffmpeg has no such option. What was measured end to end is the 
 denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1 encode of the denoised file, `apply` with
 the resulting table, and an `inspect` round trip reading the grain back out. The table format is aom's
 own `filmgrn1`, which is what the parameter takes.
+
+What the removal of the AV1AN measuring modes *was* verified against is the rows themselves, headless
+through the real `MainWindow`: both tabs offer the same three modes and neither offers Measured; the
+AV1AN row has no denoise tick, no strength spinner and no denoise-mode label; an AV1AN Table config
+comes back with `Denoise` false and `NeedsDenoisePass` false, where Quick Convert's comes back with
+`hqdn3d=4:3:0:0`; `Measured` reads as `IsUtilityOnly` and its message names the Measure operation
+rather than the already-encoded wording a film stock preset gets; and a zscale tone map beside a
+denoise-wanting grain plan no longer pulls a pass in front while libplacebo still does.
 
 ## Tone mapping
 
@@ -2995,30 +3021,26 @@ priced everything for the 10000-nit ceiling: measured through the real pipe shap
 zscale chain in `-f` (whose peak is a number in the string, immune to the pipe) and carries no
 Vulkan device argument any more; the pass's own command has both.
 
-**The zscale chain renders in front too when a grain denoise pass follows, and
-`Av1anUi.ToneMapRendersInFront` is the one statement of the whole decision.** The chain is
-stateless, so per-chunk is normally fine for it - but the grain passes run on *files*, before av1an
-starts, so a tone map still sitting inside av1an means the grain is measured on HDR frames while
-the encoder receives SDR ones. A grain table's amplitudes live in its file's own signal domain:
-measured off PQ and synthesised onto BT.709, the grain comes out wrong-strength, worst in what
-used to be the highlights. The GPU path closed that mismatch by construction the day the pass
-existed; the gate closes it for machines without one, at the cost of the pass those machines were
-otherwise spared - paid only where a grain pass was already being paid for. Encoder-analysis grain
-(`--film-grain N`) needs none of this per-chunk or in front: the encoder analyses the frames it is
-handed, which are post-chain either way. On the zscale pass the command carries no Vulkan device
-argument - that machine has none, and asking ffmpeg to create one fails the pass - and the 10-bit
-pinning is a trailing `format=yuv420p10le` filter, zscale having no format option of its own.
+**`Av1anUi.ToneMapRendersInFront` is the one statement of the whole decision, and it is now
+libplacebo and nothing else.** The zscale chain is stateless, so per-chunk is right for it: no pass,
+no intermediate. It used to be pulled in front as well whenever a grain denoise pass followed, and
+the reason is worth keeping against a measuring mode ever returning - those passes ran on *files*,
+before av1an started, so a tone map still sitting inside av1an had the grain measured on HDR frames
+while the encoder received SDR ones. A grain table's amplitudes live in its file's own signal domain:
+measured off PQ and synthesised onto BT.709, the grain comes out wrong-strength, worst in what used
+to be the highlights. With the grain passes gone that clause has nothing to gate, and machines
+without a GPU are spared the pass again. Encoder-analysis grain (`--film-grain N`) never needed it
+either way: the encoder analyses the frames it is handed, which are post-chain in both shapes.
 
-The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trim and QTGMC passes and
-for their reason - av1an empties its temp at startup - sits after the deinterlace and before the
-grain denoise (grain must be measured on the SDR frames being encoded), is reused by a resume, and
-is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bit inside the filter
+The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trimmed input and for its
+reason - av1an empties its temp at startup - is the only input pass left after the trim, is reused
+by a resume, and is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bit inside the filter
 itself (`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation
 land on 8 bits first and convert up after, baking banding in.
 
 **The pass renders the tab's geometry too - the crop, the mod-2 pad, the resize or de-squeeze, and
 the borders - and that fold is what sizes the intermediate to the encode instead of the source.**
-Written at the source's frame, lossless FFV1 pays for pixels the encoder never sees: the resize
+Written at the source's frame, the intermediate pays for pixels the encoder never sees: the resize
 still sat in av1an's `-f`, so a 4K film scaled to 1080p rendered a 4K intermediate that every chunk
 then scaled down - four times the pixels, reported as ~40 GB of tonemap.mkv for a *five-minute*
 test clip. `Av1anFrame.GeometryInPass` is the statement of where the geometry runs and
@@ -3040,57 +3062,41 @@ and the memory estimate prices the worker's decode at the encoded size
 (`Av1anMemory.GetProblem`'s source argument), where it used to warn a 32 GB machine off a 1080p
 encode for the 4K decodes it no longer does. The target-quality probes score the pass's output, so
 `GetFilteredTargetQualityNote`'s size clause stands down when the geometry folded - it would
-otherwise claim the probes run at a size they no longer do. The fused pass splits after the
-geometry, so a measured grain table now lives in the *encoded* frame's domain rather than the
-source's - and the standalone denoise pass folds the same way for SDR sources (see the grain
-section's account of the reference file), so no measured table is in the wrong domain any more. And the resume guard exists because reuse got a new way to be wrong: a resume
-with current settings re-reads the resize, and a kept file with the *old* geometry baked in would
-be scaled twice or not at all - so `RenderToneMappedInput` ffprobes the kept file's frame size
-against what this run expects (folded: `frame.Encoded`; unfolded: the source's), and a mismatch
-re-renders, taking the denoised sibling and the grain table with it, since both were measured
-against frames that are no longer the ones being encoded.
+otherwise claim the probes run at a size they no longer do. And the resume guard exists because reuse
+got a new way to be wrong: a resume with current settings re-reads the resize, and a kept file with
+the *old* geometry baked in would be scaled twice or not at all - so `RenderToneMappedInput` ffprobes
+the kept file's frame size against what this run expects (folded: `frame.Encoded`; unfolded: the
+source's), and a mismatch re-renders.
 
-**The solo pass writes the measured-transparent x264 and the fused pass writes lossless FFV1, and
-the whole history is worth keeping because every turn of it was either measured or the user's own
-call.** The first cut shipped x264 CRF 12 `veryfast` on the claim that nothing downstream would
-notice, and a measurement contradicted it: heavy grain keeps 90.5% of its high-frequency energy
-through that (the preset's trellis 0, not the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5%
-through medium, and **100% through `fast` with `-tune grain`** - which is what 2.8.49 shipped,
-measured transparent on grain energy and tone values alike at about a tenth of the source's size.
-The user then chose lossless FFV1 over it - the intermediate is the file av1an encodes, so its
-generation is the ceiling on the final picture - and traded the solo pass back to the x264 after
-living with what lossless costs in practice: the first 4K test clip wrote ~40 GB of tonemap.mkv
-for five minutes of video, and even with the geometry fold above taking three quarters of that
-away, a lossless film is a temporary file in the tens of gigabytes. **The fused pair stays FFV1,
-and that half is not a preference**: the graph splits into two independent encoders and grav1synth
-then diffs the tone-mapped file against its denoised sibling, so a lossy reference would put the
-quantizer's noise into the grain table as though it were grain - precisely the small
-high-frequency signal a quantiser disturbs first. The solo shape has no diff, and the one way a
-solo x264 file meets a measurement - the repair path - derives the denoised copy *from* that
-file's own decoded frames, so both sides share one generation and the difference is still exactly
-the grain. **x264's own lossless mode is not an FFV1 under another name: measured, 10-bit `-qp 0`
-is not lossless** - high-bit-depth x264 shifts its QP scale, so 0 is no longer the lossless point -
-and ffmpeg's wrapper refuses the negative QP that scale would need, where FFV1 round-trips
-bit-exact. The fused outputs and the denoised file share `DenoisePass.Ffv1Args` for that reason;
-the solo pass's x264 line lives in `ToneMapPass` beside the measurements that chose it.
+**The pass writes the measured-transparent x264, and the whole history is worth keeping because every
+turn of it was either measured or the user's own call.** The first cut shipped x264 CRF 12 `veryfast`
+on the claim that nothing downstream would notice, and a measurement contradicted it: heavy grain
+keeps 90.5% of its high-frequency energy through that (the preset's trellis 0, not the CRF - even
+CRF 3 veryfast only reaches 96.4%), 98.5% through medium, and **100% through `fast` with
+`-tune grain`** - which is what 2.8.49 shipped, measured transparent on grain energy and tone values
+alike at about a tenth of the source's size. The user then chose lossless FFV1 over it - the
+intermediate is the file av1an encodes, so its generation is the ceiling on the final picture - and
+traded it back to the x264 after living with what lossless costs in practice: the first 4K test clip
+wrote ~40 GB of tonemap.mkv for five minutes of video, and even with the geometry fold above taking
+three quarters of that away, a lossless film is a temporary file in the tens of gigabytes.
 
-**The tone map and the grain denoise render as one fused command when both would run** -
-`ToneMapPass.RunFusedAsync`, gated exactly where the two passes meet: the graph splits after the
-whole tone-map chain and writes the tone-mapped file and its denoised copy as two outputs of one
-ffmpeg, so the film is decoded and tone-mapped once where the separate passes cost two. With both
-outputs lossless, the grain measurement is exact - grav1synth diffs the rendered frames themselves,
-no encode generation between. Failure semantics are the pair's: both files or neither, because a
-resume that found one half would mistake a dead fused run for a finished pass -
-`RenderToneMappedInput` deletes both on any failure, and `RenderDenoisedInput` keys its reuse on
-the files rather than on the resume flag, so a denoised file the fused pass wrote is recognised on
-a fresh run, and one missing its grain table skips only the render and still gets measured. The
-separate `DenoisePass` remains as the repair path (a resume that kept the tone-mapped file but lost
-the denoised half denoises from disk without re-rendering) and as the Film Grain utility's pass,
-which is why the FFV1 statement lives on it. A failed pass fails the encode the way a
-failed QTGMC pass does - the probe has already proven libplacebo renders on this machine, so a
-failure here is the machine changing mid-run, not a normal path. Two things it buys beside
-correctness: the target-quality probes score the SDR frames actually being encoded (per-chunk
-filters are invisible to them), and a resume replays it for free.
+**There was a fused shape beside it, and the reason it had to be lossless is the rule to remember
+rather than the code.** `ToneMapPass.RunFusedAsync` split the graph after the whole tone-map chain
+and wrote the tone-mapped file and a denoised copy as two outputs of one ffmpeg, so the film was
+decoded and tone-mapped once where separate passes cost two - and grav1synth then diffed the two
+frame for frame, which is why *that* pair could not be x264: a lossy reference puts the quantizer's
+noise into the grain table as though it were grain, precisely the small high-frequency signal a
+quantiser disturbs first. It went with the AV1AN tab's measuring modes, which is what leaves this
+pass free to be the cheap x264 in every case rather than in most of them. (**x264's own lossless mode
+would not have substituted for FFV1 either: measured, 10-bit `-qp 0` is not lossless** - high-bit-depth
+x264 shifts its QP scale, so 0 is no longer the lossless point - and ffmpeg's wrapper refuses the
+negative QP that scale would need. `DenoisePass.Ffv1Args` still carries that statement for the Film
+Grain utility's pass.)
+
+A failed pass fails the encode the way a failed QTGMC pass used to - the probe has already proven
+libplacebo renders on this machine, so a failure here is the machine changing mid-run, not a normal
+path. Two things it buys beside correctness: the target-quality probes score the SDR frames actually
+being encoded (per-chunk filters are invisible to them), and a resume replays it for free.
 
 **The probe is `ToneMap.GetLibplaceboProblem`, and asking only whether the device came up is not
 enough.** Three things have to hold. The filter has to be in this ffmpeg - BtbN's builds carry it,
@@ -3128,18 +3134,14 @@ shapes, composed with a crop, a scale and a pad, each landing on the predicted f
 bt709/bt709/bt709 limited. libplacebo hands software frames back to the filters after it, so the
 geometry needs no `hwdownload` and none is emitted. The probe itself was run through the real code
 against lavapipe and correctly refused it. The geometry fold was verified the same way, through the
-real `ToneMapPass` out of the built assembly: the folded pass and the folded fused pass both land on
-the encoded frame size at 10 bits, the pass geometry string is the real `ResizeConfig`'s own chain,
-an unfolded frame hands back "", and the folded output is framemd5-identical to rendering the pass
-at the source's size and scaling afterwards - same filters, same order, one process instead of two.
-That identity proof lives on the fused FFV1 shape on purpose - two x264 encodes at different sizes
-are not bit-comparable, so the lossless pair is where a filter-ordering difference would have
-nowhere to hide - and the codec split itself is asserted beside it: solo outputs probe as h264
-(High 10, encoded size, folded and unfolded), fused outputs as ffv1. The denoise pass's shapes are
-proven the same way: the two-output render's reference is framemd5-identical to a geometry-only
-render of the input and its denoised half to denoise-of-geometry, both at the encoded size, the
-reference video-only and the denoised copy carrying the input's audio - as does the fused tone-map
-pass's second output, which is the assertion that Measured encodes have sound again.
+real `ToneMapPass` out of the built assembly: the folded pass lands on the encoded frame size at 10
+bits, the pass geometry string is the real `ResizeConfig`'s own chain, an unfolded frame hands back
+"", and the folded output is framemd5-identical to rendering the pass at the source's size and
+scaling afterwards - same filters, same order, one process instead of two. **That identity proof was
+made on the fused FFV1 shape, which no longer exists**, and the reason is worth knowing before
+re-running it: two x264 encodes at different sizes are not bit-comparable, so a lossless output is
+the only place a filter-ordering difference has nowhere to hide. Checking the fold again means
+publishing to FFV1 for the run, not comparing the shipped x264 files.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 
