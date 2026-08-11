@@ -146,6 +146,17 @@ over the column beside it. The middle column's control cell is 360 rather than
 Configure button, which overflowed the old 320 cell and got away with it only
 because the filler column it spilled into was empty.
 
+**The geometry rows sit together in the middle column now, right below the trim, at the user's
+request** - Crop, then Resize, then Borders, the order the chain runs them in, on both Video tabs,
+leaving the last column to Grain Synthesis, Deinterlace and Tone Mapping. What makes readout rows
+legal in a middle column is the wrap above: a wrapped readout is as wide as its own column and no
+wider, so Resize's and Borders' readouts stay inside the 300 cell instead of drawing over the
+column beside them - the "every readout row goes last" rule dates from when readouts were unbounded
+and set their column's width. Crop's Configure button folds under its 260 dropdown in a `WrapPanel`,
+the 300 cell being narrower than the pair. Verified headless through the real window: on both tabs
+the crop, resize, borders and frame-rate boxes share the middle grid in rows 3/4/5/1, the grain box
+sits in the last grid at row 0, and both tabs were rendered to PNG and looked at.
+
 ## The palette
 
 `App.axaml` carries a Discord-style dark palette, and it is the only place
