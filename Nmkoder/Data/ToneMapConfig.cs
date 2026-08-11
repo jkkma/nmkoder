@@ -348,6 +348,30 @@ namespace Nmkoder.Data
             "sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL",
             "sidedata=mode=delete:type=DOVI_METADATA",
             "sidedata=mode=delete:type=DOVI_RPU_BUFFER",
+            // The dynamic three, which the static four above left behind. HDR10+ is the one that is
+            // ordinary rather than exotic - a per-scene tone-mapping curve, carried by a good deal of
+            // streaming and disc content and by every file this app's own encoders can be told to write
+            // one into - and a set of curves describing scene brightnesses that have since been mapped
+            // away is the same staleness the mastering display was deleted for, one level more specific.
+            // HDR Vivid is the same thing under another standard. The ambient viewing environment is a
+            // statement about the room the grade was checked in, which an SDR BT.709 file has no use for.
+            //
+            // Every one of these names was read out of `ffmpeg -h filter=sidedata` on the bundled build
+            // rather than guessed, because the type option takes an enum and a name it does not have
+            // fails the filter graph outright - which on this chain is every tone-mapped encode, not an
+            // edge case. The list it prints holds DYNAMIC_HDR_PLUS at 17, DYNAMIC_HDR_VIVID at 25 and
+            // AMBIENT_VIEWING_ENVIRONMENT at 26, beside the four already here.
+            //
+            // What reaches an output today is narrower than this list, and that is deliberately not the
+            // measure of it: Quick Convert's direct encoders take y4m, which carries no side data at
+            // all, so only the ffmpeg-library encoders can leak any of it. The four above were added
+            // after exactly that discovery - libsvtav1 dropped them and libx265 wrote them back out, so
+            // "the chain drops it" was an encoder's behaviour mistaken for the chain's. The ffmpeg
+            // underneath this app is BtbN's rolling master; a wrapper that gains passthrough next month
+            // reopens the hole in a build nobody here chose.
+            "sidedata=mode=delete:type=DYNAMIC_HDR_PLUS",
+            "sidedata=mode=delete:type=DYNAMIC_HDR_VIVID",
+            "sidedata=mode=delete:type=AMBIENT_VIEWING_ENVIRONMENT",
         };
 
         /// <summary>

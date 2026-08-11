@@ -213,13 +213,36 @@ namespace Nmkoder.UI.Tasks
         /// because the alternative is an ffmpeg that exits on "No such filter" once the run is under way -
         /// and on the AV1AN tab, once per chunk.
         /// </summary>
-        public static async Task<string> GetProblem(ToneMapConfig config)
+        public static async Task<string> GetProblem(ToneMapConfig config, VideoColorData src)
         {
+            if (config == null || !config.RunsOn(src))
+                return "";
+
+            // A profile 5 source has no ordinary picture under its RPU, so the CPU chain - which does no
+            // reshaping whatever - cannot produce the right colours from one. That is a property of the
+            // bitstream rather than a guess about a tool, which is what earns a refusal here beside the
+            // crop and frame-size ones rather than a warning: the output would be the magenta-and-green
+            // picture, over a whole encode, looking exactly like a broken app.
+            //
+            // libplacebo is the other half and is deliberately not refused: it applies an RPU where its
+            // build carries libdovi, so the same file may well come out right on the GPU path. Whether
+            // the bundled build does carry it is **not measured** - no web session has a Dolby Vision
+            // file to ask with - so that path warns instead, in ResolveBackendAsync, and the run goes
+            // ahead. Refusing there on the strength of an unmeasured guess would take away a conversion
+            // that probably works.
+            if (ColorDataUtils.HasUnusableBaseLayer(src) && !config.UseLibplacebo)
+            {
+                return $"this file is Dolby Vision profile {ColorDataUtils.DescribeDolbyVisionProfile(src)}, whose picture only exists " +
+                    $"once its dynamic metadata has been applied - and this machine is tone mapping on the CPU, which cannot apply it. " +
+                    $"The colours would come out wrong rather than merely different. Encode it as it is to keep the file intact, or " +
+                    $"convert it to a profile with an ordinary HDR10 layer underneath (dovi_tool's mode 2) and load that instead";
+            }
+
             // Only the zscale chain's filters are worth refusing over. Where libplacebo is doing the
             // work, zscale and tonemap are not in the command at all - which is the case an ffmpeg
             // built without libzimg lands in, and it used to be told it could not tone-map by a check
             // that was asking about filters its chain would never name.
-            if (config == null || !config.Runs || config.UseLibplacebo)
+            if (config.UseLibplacebo)
                 return "";
 
             return await ToneMap.GetProblem();
@@ -258,8 +281,11 @@ namespace Nmkoder.UI.Tasks
             if (config.UseLibplacebo)
             {
                 Logger.Log("Tone mapping with libplacebo on the GPU, measuring the picture's real brightness as it goes.");
+                LogDolbyVision(src, libplacebo: true);
                 return;
             }
+
+            LogDolbyVision(src, libplacebo: false);
 
             Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
 
@@ -291,6 +317,44 @@ namespace Nmkoder.UI.Tasks
                 Logger.Log($"The picture's own peak could not be measured, so the declared metadata answers: " +
                     $"{(declared > 0 ? $"{declaredNote}, with highlights above {ToneMapConfig.GetWhitePointNits(declared):0} nits clipping to white" : $"nothing declared, so {ToneMapConfig.AssumedPeakNits:0} nits is assumed")}.");
             }
+        }
+
+        /// <summary>
+        /// What becomes of a Dolby Vision layer on the backend that was just picked, said once per run
+        /// and only for a file that has one.
+        /// <para/>
+        /// It is worth a line because nothing else can carry it. The readout is drawn when the file
+        /// loads, where the backend is not known; the output carries no trace either way, the dynamic
+        /// metadata being deleted from an SDR file by the chain's own side-data tail; and the two
+        /// backends genuinely differ here, where for every other property of this row they differ only
+        /// by a few code values.
+        /// <para/>
+        /// **The GPU line is the one to be careful about, and it says "where this build carries libdovi"
+        /// rather than promising.** libplacebo applies an RPU only when it was built against libdovi,
+        /// and which way BtbN's ffmpeg is built is not something any session here could measure - a
+        /// Dolby Vision file is not a thing that can be synthesised from a colour bar. So it is written
+        /// as the conditional it is. The base layer is what comes out otherwise, which for every profile
+        /// but 5 is the graded HDR10 or HLG picture and perfectly good; profile 5 is the one where that
+        /// is not true, and <see cref="GetProblem"/> is what stands in front of it.
+        /// </summary>
+        private static void LogDolbyVision(VideoColorData src, bool libplacebo)
+        {
+            if (!ColorDataUtils.HasDolbyVision(src))
+                return;
+
+            string profile = ColorDataUtils.DescribeDolbyVisionProfile(src);
+
+            if (!libplacebo)
+            {
+                Logger.Log($"This file carries Dolby Vision (profile {profile}), which FFmpeg's own chain does not read - " +
+                    $"the {(ColorDataUtils.HasUnusableBaseLayer(src) ? "picture underneath it" : "HDR10 base layer")} is what gets mapped, " +
+                    $"and the dynamic metadata is dropped with the rest of the HDR data.");
+                return;
+            }
+
+            Logger.Log($"This file carries Dolby Vision (profile {profile}); libplacebo applies its dynamic metadata where this " +
+                $"FFmpeg was built with libdovi, and maps the base layer where it was not. Either way the output is SDR " +
+                $"BT.709 with no Dolby Vision data left in it.");
         }
     }
 }

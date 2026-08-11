@@ -138,8 +138,98 @@ namespace Nmkoder.Utils
                 }
             }
 
+            await ReadDolbyVision(path, data);
+
             return data;
         }
+
+        /// <summary>
+        /// Fills in <see cref="VideoColorData.DvProfile"/> and
+        /// <see cref="VideoColorData.DvBlCompatId"/> off the stream's Dolby Vision configuration record.
+        /// <para/>
+        /// **This is a second ffprobe rather than two more flags on the one above, and that is not
+        /// tidiness - it is the one arrangement that is safe.** The record is *stream* side data, so
+        /// <c>-show_frames</c> never prints it; and adding <c>-show_streams</c> to that command puts the
+        /// <c>[STREAM]</c> section **after** <c>[FRAME]</c> - measured against the bundled build, frames
+        /// at line 1 and streams at line 59 - where the loop above keeps whichever match it sees last.
+        /// The stream section's own <c>color_transfer</c> would therefore win, and this file's own notes
+        /// already record a Matroska reading <c>unknown</c> from <c>-show_streams</c> and
+        /// <c>smpte2084</c> from <c>-show_frames</c>. So the cheap-looking repair is the one that would
+        /// stop every such file reading as HDR at all. Leave that command alone.
+        /// <para/>
+        /// The keys were read out of the binary rather than assumed: ffprobe's DOVI block prints
+        /// <c>dv_version_major</c>, <c>dv_version_minor</c>, <c>dv_profile</c>, <c>dv_level</c>, the
+        /// three present flags, <c>dv_bl_signal_compatibility_id</c> and <c>dv_md_compression</c>.
+        /// <c>dv_profile</c> does not appear in the binary's string table on its own because it is
+        /// shared as the tail of <c>s-&gt;cfg.dv_profile</c>, which is what suffix-merging does and is
+        /// worth knowing before reading a <c>strings</c> dump as evidence of absence.
+        /// <para/>
+        /// A file with no Dolby Vision prints none of them and leaves the defaults, so the cost of this
+        /// on the ordinary file is one process that finds nothing. It never throws: a probe that fails
+        /// leaves the file reading as plain HDR10, which is what it was before this existed.
+        /// </summary>
+        private static async Task ReadDolbyVision(string path, VideoColorData data)
+        {
+            try
+            {
+                AvProcess.FfprobeSettings settings = new AvProcess.FfprobeSettings() { Args = $"-show_streams -select_streams v:0 {path.Wrap()}", LogLevel = "quiet" };
+                string info = await AvProcess.RunFfprobe(settings);
+
+                foreach (string line in info.SplitIntoLines())
+                {
+                    if (line.StartsWith("dv_profile="))
+                        data.DvProfile = line.Split('=').Last().GetInt();
+
+                    else if (line.StartsWith("dv_bl_signal_compatibility_id="))
+                        data.DvBlCompatId = line.Split('=').Last().GetInt();
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read Dolby Vision data: {e.Message}", true);
+            }
+        }
+
+        /// <summary>
+        /// <see cref="GetColorData"/> keyed by path, for callers that have a path rather than a
+        /// <see cref="MediaFile"/> to hang the answer on - which is every preview extractor.
+        /// <para/>
+        /// The stored value is the **Task** rather than its result, which is what makes this single
+        /// flight: <see cref="Media.FfmpegExtract.ExtractThumbs"/> launches its frames all at once, so a
+        /// cache holding finished answers would have every one of them miss together and start its own
+        /// probe. Handing each the same in-flight task costs one.
+        /// <para/>
+        /// Keyed on the file's length and last write as well as its path, for the reason
+        /// <c>GetVideoInfo</c>'s own cache had to learn: a temp file at a fixed path, rewritten per run,
+        /// is otherwise answered from the previous run's reading.
+        /// </summary>
+        public static Task<VideoColorData> GetColorDataCached(string path)
+        {
+            string key;
+
+            try
+            {
+                FileInfo info = new FileInfo(path);
+                key = $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+            }
+            catch
+            {
+                key = path;
+            }
+
+            lock (colorDataCache)
+            {
+                if (!colorDataCache.TryGetValue(key, out Task<VideoColorData> task))
+                {
+                    task = GetColorData(path);
+                    colorDataCache[key] = task;
+                }
+
+                return task;
+            }
+        }
+
+        private static readonly Dictionary<string, Task<VideoColorData>> colorDataCache = new Dictionary<string, Task<VideoColorData>>();
 
         private static string FractionToFloat(string fracString)
         {
@@ -200,8 +290,69 @@ namespace Nmkoder.Utils
                 return "";
 
             string curve = d.ColorTransfer == TransferPq ? "HDR10 (PQ)" : "HLG";
-            return d.ColorPrimaries == PrimariesBt2020 ? $"{curve}, BT.2020" : curve;
+            string what = d.ColorPrimaries == PrimariesBt2020 ? $"{curve}, BT.2020" : curve;
+
+            // Named where it is there, because it is the one property of an HDR file this app treats
+            // differently and the readout is the only place a user finds out that it did.
+            return HasDolbyVision(d) ? $"{what} + Dolby Vision {DescribeDolbyVisionProfile(d)}" : what;
         }
+
+        /// <summary> Whether the file carries a Dolby Vision configuration record at all. Everything
+        /// else here is about *which* one, and answers nothing for a file that has none. </summary>
+        public static bool HasDolbyVision(VideoColorData d)
+        {
+            return d != null && d.DvProfile > 0;
+        }
+
+        /// <summary>
+        /// The profile as people write it - <c>8.1</c>, <c>8.4</c>, <c>5</c>, <c>7</c>.
+        /// <para/>
+        /// Profile 8's sub-profile *is* the base layer compatibility id rather than a second field, so
+        /// the dot is that number: 8.1 is the HDR10-compatible one, 8.2 SDR, 8.4 HLG. Every other
+        /// profile is written as its bare number, which is how they are named.
+        /// </summary>
+        public static string DescribeDolbyVisionProfile(VideoColorData d)
+        {
+            if (!HasDolbyVision(d))
+                return "";
+
+            return d.DvProfile == DvProfileSingleLayer && d.DvBlCompatId > 0 ? $"8.{d.DvBlCompatId}" : d.DvProfile.ToString();
+        }
+
+        /// <summary>
+        /// Whether this file's pictures are wrong without the Dolby Vision RPU being applied - which is
+        /// profile 5 and nothing else the app is likely to meet.
+        /// <para/>
+        /// Every other profile in circulation carries a base layer that is an ordinary HDR10 or HLG
+        /// signal, which is the whole point of the compatibility id: a decoder that ignores the RPU
+        /// shows the graded HDR picture, just without the dynamic metadata refining it. Profile 5's base
+        /// layer is **IPT-PQ-c2**, which is not YCbCr at all - read as though it were, the colours come
+        /// out the notorious magenta and green.
+        /// <para/>
+        /// So this is a property of the bitstream rather than a guess about a tool: a chain that does no
+        /// RPU reshaping cannot produce the right picture from one of these, whatever else it does
+        /// right. <see cref="UI.Tasks.ToneMapUi.GetProblem"/> refuses over it where the CPU chain would
+        /// be doing the work, and warns where libplacebo would, since that one *can* apply an RPU when
+        /// its build carries libdovi - see that method for what is measured there and what is not.
+        /// <para/>
+        /// Both fields are checked because either can be the one a file states: the id is the direct
+        /// answer, and the profile number covers a record that names a profile without one.
+        /// </summary>
+        public static bool HasUnusableBaseLayer(VideoColorData d)
+        {
+            return HasDolbyVision(d) && (d.DvProfile == DvProfileIpt || d.DvBlCompatId == DvBlCompatNone);
+        }
+
+        /// <summary> Dolby Vision profile 5 - single layer, IPT-PQ-c2, no ordinary signal underneath it.
+        /// See <see cref="HasUnusableBaseLayer"/> for why it is the one profile named here. </summary>
+        public const int DvProfileIpt = 5;
+
+        /// <summary> Profile 8, the single-layer one whose sub-profile is its compatibility id. </summary>
+        public const int DvProfileSingleLayer = 8;
+
+        /// <summary> Base layer compatibility id 0: nothing can read this file's pictures without
+        /// applying its RPU. 1 is HDR10, 2 is SDR and 4 is HLG, and all three are readable. </summary>
+        public const int DvBlCompatNone = 0;
 
         /// <summary>
         /// The peak brightness in nits the file itself declares, or 0 where it declares none.
