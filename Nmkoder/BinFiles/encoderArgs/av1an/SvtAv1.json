@@ -334,5 +334,21 @@
     "HDR Metadata",
     "Points the encoder at an HDR10+ metadata JSON file. Each frame's dynamic tone-mapping window data is parsed out and attached to the matching picture as an ITU-T T.35 metadata OBU, so displays get per-scene tone mapping layered on top of the static HDR10 mastering data.\n\nThe file comes from hdr10plus_tool extract run over the original HDR10+ source, and is plain JSON with one entry per frame, so it can be read and edited before encoding. It only means anything for a PQ HDR source that carried HDR10+ to begin with; it will not manufacture dynamic metadata for a plain HDR10 master.\n\nThe JSON is applied by frame position, so it has to line up with exactly the frames being encoded; trimming or changing the frame rate desynchronises it. The encoder must also be built with hdr10plus support.",
     "/path/to/metadata.json|The conventional output name from hdr10plus_tool extract.\n/media/uhd/movie/hdr10plus_metadata.json|Metadata extracted from the source and kept alongside it.\nC:\\Encodes\\movie_hdr10plus_edited.json|An extracted JSON hand-edited to adjust its per-scene windows before encoding."
+  ],
+  [
+    "complex-hvs",
+    "",
+    "0-1 (default 0) - The encoder's most expensive perceptual model, weighing detail the way an eye does rather than the way an error metric does",
+    "Psychovisual & Sharpness",
+    "Switches the encoder's human-visual-system model to its highest complexity setting. The model is what decides how much a given distortion actually matters to a viewer, so a more careful one spends bits nearer where they are seen and less where they are not - most visibly on texture and on the busy areas a plain error metric treats as cheap.\n\nIt costs encoding time and nothing else, and the gain is small and content-dependent, which is why it is off by default.\n\nTune 5 sets this to 1 for itself, and does so after the whole command line has been parsed, so a 0 typed here is overwritten rather than respected. That is the one case worth knowing about: it is not a collision the encoder reports anywhere you can see.",
+    "0|The default, and the right answer unless encoding time is cheap.\n1|Slow, high-fidelity encodes where the extra time is affordable. Tune 5 sets this anyway."
+  ],
+  [
+    "enable-variance-boost",
+    "",
+    "0-1 (default 1 in this build) - The switch for the variance boost family; turn it off to encode flat and dark areas at the quantiser they were given",
+    "Quantization & Bit Allocation",
+    "Variance boost lowers the quantiser on low-variance blocks - flat gradients, skies, dark scenes - where banding and blocking show first and where a plain rate-distortion decision happily spends nothing. This is the switch for the whole mechanism; variance-boost-strength, variance-octile and variance-boost-curve shape it and do nothing at all with this off.\n\nThis build ships it on, where mainline SVT-AV1 defaults it off - so a preset or a parameter written for one is not describing the other.\n\nTurning it off is a deliberate choice for content with no flat areas worth protecting, or for a comparison against an encoder that does not have it. For ordinary video, leaving it on is what keeps skies and fades clean.",
+    "1|The default in this build, and what the three shaping parameters need to mean anything.\n0|Disables the whole family, for comparisons or content with nothing flat to protect."
   ]
 ]

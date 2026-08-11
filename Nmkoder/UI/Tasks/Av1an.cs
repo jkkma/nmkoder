@@ -288,7 +288,7 @@ namespace Nmkoder.UI.Tasks
                     // trimmed encode overstates the section at worst, a direction the roll-off forgives
                     // where measuring the cut copy would mean waiting for the cut to run first.
                     await ToneMapUi.ResolveBackendAsync(Av1anUi.CurrentToneMap, TrackList.current.File);
-                    string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap);
+                    string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap, TrackList.current.File?.ColorData);
 
                     if (toneMapProblem.IsNotEmpty())
                     {

@@ -674,9 +674,17 @@ bundle without saying it is applied last.
 halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
 a user told the wrong one will go looking for the wrong thing. A row set to what the tune sets anyway
 is **not** reported - `ac-bias 4` against the tune's `4.00` is agreement, not a collision, and sending
-someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` is in the
-message but not in the check: the tune sets it and the parameter list has no row for it, so there is
-nothing to overwrite.
+someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` used to be
+in the message and not in the check, there being no row for the tune to overwrite; the row exists now
+and the check covers it, so all six of the bundle's assignments are reported alike.
+
+Two rows were added to `SvtAv1.json` with it, both read out of the shipped binary's own `--help` and
+then passed to it: `complex-hvs` (0-1, default 0) is the encoder's most expensive perceptual model,
+and the one tune 5 sets for itself; `enable-variance-boost` (0-1) is the switch for a family the grid
+already carried three shaping parameters for - `variance-boost-strength`, `variance-octile` and
+`variance-boost-curve` all did nothing without it and there was no way to turn it off. This build
+ships it **on** where mainline SVT-AV1 defaults it off, which is one more place a parameter written
+for one line does not describe the other.
 
 **The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
@@ -835,6 +843,50 @@ outright. Three per-kind tables replace it, mirroring the x264 trio beside them.
 was read out of `aomenc --help` and *then* confirmed by passing it to the binary - including
 the names that pass straight through - because what a tool documents and what it accepts are
 two questions, and this file's whole history with av1an says to ask the second one.
+
+**The mastering display and the light levels go by flag too, and for eighteen months they went
+nowhere.** The four tags above are handed over as numbers because y4m carries no side data; the
+static HDR metadata is the same argument and was simply never finished, so **every HDR-preserving
+encode this app has ever made came out declaring no peak brightness at all.** Measured against the
+shipped SvtAv1EncApp with nothing passed: a source carrying a mastering display and MaxCLL 9978
+encodes to an output with **zero** HDR side data on it. The file still says PQ and BT.2020, so it
+plays - and a display handed no mastering metadata falls back to its own assumption, which is the
+crushed-mid-tone case this file already documents from the other direction. Nothing about it looks
+wrong until it is played on real hardware, which is why nobody reported it.
+
+`ColorDataUtils.GetSvtHdrMetadataArgs` closes it for SVT-AV1 on both tabs. **The units are the
+file's own decimals, not x265's scaled integers, and getting that wrong is silent** - measured,
+`G(0.265,0.690)…L(4000,0.005)` reads back out of the bitstream as exactly those values, where
+x265's `G(13250,34500)…L(40000000,50)` spelling is clipped to 1.0 on every coordinate and 6445568
+nits of luminance behind one `Svt[warn]: Invalid mastering display info will be clipped`, on the
+encoder's stderr, which av1an collects per chunk into a log `HandleTempFolder` deletes on a
+successful run. What `GetColorData` already parses is the decimal form, off ffprobe's fractions and
+mkvinfo alike, so nothing is converted.
+
+Three things about it are load-bearing. **A tone-mapped encode suppresses it for free**, because both
+callers sit inside the `GetOutputColorData` swap, which hands back the four BT.709 tags and nothing
+else - so the helper reads empty coordinates and emits "". **The quoting differs by tab and is not
+cosmetic**: the mastering display's parentheses are shell syntax off Windows, so Quick Convert, which
+launches the binary itself, wraps them, where the AV1AN tab must not - everything there lands inside
+av1an's own `-v "…"` string, whose quotes already protect them and which is split again on
+whitespace, the same split the grain table's bare path is written for. And **`--content-light` needs
+both numbers**: measured, a lone value is `Error: Invalid parameter 'content-light'` and the encode
+does not start, so a file stating only MaxCLL is given a MaxFALL of 0, which is the "unknown" that
+field already means.
+
+**x265 is deliberately not covered.** `X265.json` already carries `master-display` and `max-cll` as
+hand-typed grid rows, so automatic passthrough would be the same argument written twice - and its
+format is the scaled-integer one, a conversion that wants measuring against a real x265 binary. The
+linux release ships only `SvtAv1EncApp` under `bin/av1an/enc`, so that measurement could not be made
+here. Do it before wiring x265, and take the manual rows out in the same change rather than leaving
+both.
+
+Verified by running it: 25 checks through the built assembly and the shipped SVT-AV1-HDR binary
+pulled out of the published 2.8.57 linux tarball - both encoder classes' own `GetArgs` carrying the
+flags with the right quoting, the binary accepting the AV1AN tab's generated string without clipping
+it, and ffprobe reading `red_x=44564/65536`, `white_point_x=20493/65536`, `max_luminance=1024000/256`,
+`max_content=9978` and `max_average=279` back out of the bitstream, against a no-flag control that
+carries none of it.
 
 **ffprobe's printed names are a fourth vocabulary**, and reading them with this file's own is
 what made HLG unreadable. It prints `arib-std-b67` where these tables say `bt2100`,
@@ -3292,6 +3344,46 @@ cost is per pixel. It is paid anyway: tone-mapping before and after a downscale 
 maximum difference of 3 code values out of 255, so the position is a subtitle question and not a
 picture one.
 
+### The previews were the other half, and they were showing the wrong picture
+
+**A preview of an HDR file drawn without a tone map is not a neutral picture of it - it is wrong, in
+the direction that looks like a fault in this app.** PQ code values shown as though they were BT.709
+come out washed out and grey, and that is what every thumbnail, the Cut window's scrubber and the
+crop preview showed for exactly the files this row exists for. The row itself was answering
+correctly the whole time; only the pictures beside it were not. `FfmpegExtract.GetPreviewFilters` is
+the fix. It is display-side only and reaches no encode: the previews are the one place in this app
+that tone-maps without being asked to, and that is safe precisely because nothing is written from it.
+
+It reuses `ToneMapConfig` rather than composing a chain of its own: a fresh config has
+`UseLibplacebo` false and `MeasuredPeakNits` 0, so what comes out is the zscale chain rolled off to
+the file's declared peak. Both defaults are right here rather than merely convenient - the GPU probe
+is a whole ffmpeg run and the peak scan a dozen more, which is not a thing to spend on a thumbnail,
+and neither buys anything at this size. Hable for the curve, being the closest of the three to what
+the GPU path would draw.
+
+**After the scale, where the encode chain puts it before everything.** That position is a subtitle
+question - graphics composited into an HDR frame get dragged through the roll-off - and there are no
+subtitles here; what is left is this filter's cost, which is per pixel and runs through `gbrpf32le`
+at 12 bytes of it. Tone-mapping a 4K frame to draw 360 pixels of it is four hundred times the work
+for the 3 code values measured above.
+
+`ColorDataUtils.GetColorDataCached` is what keeps it cheap, and it stores the **Task** rather than
+the answer: `ExtractThumbs` launches its frames all at once, so a cache holding finished results
+would have every one of them miss together and start its own probe. It is keyed on the file's length
+and last write beside its path, for the reason `GetVideoInfo`'s own cache had to learn - a temp file
+at a fixed path is otherwise answered from the previous run's reading.
+
+Verified against exact PQ patches rather than by eye: a strip of bands at 10, 100, 203, 400 and 1000
+nits (code values computed through the ST 2084 inverse), declared at a 1000-nit mastering display.
+Untone-mapped - what shipped - those bands read **77 / 130 / 148 / 167 / 192**, the washed-out
+picture: 10 nits is a light grey and the file's own peak never reaches white. Through the real chain
+they read **51 / 129 / 179 / 248 / 255**. The middle two are the check that matters: this file's own
+notes give 126 and 169 for this chain at a declared 1000 nits, and a preview is written full-range
+JPEG, where 126 and 169 expand to 128 and 178 - one code value off each, so the preview is doing
+exactly what the encode does. All three entry points were then driven through the real
+`FfmpegExtract` out of the built assembly, with an SDR control that must stay untouched and the
+thumbnail grid that exercises the shared probe.
+
 ### The output colour, and the trap on the AV1AN tab
 
 On Quick Convert nothing has to be said about the output *to ffmpeg*: the final `zscale` retags the
@@ -3307,11 +3399,32 @@ observation mistaken for a chain property.** Through libsvtav1 nothing carries f
 the file, so it looked dropped; through libx265 - a wrapper that maps mastering-display and
 light-level side data straight to encoder parameters - both chains produced an SDR BT.709 file
 declaring a 4000-nit mastering display and a MaxCLL of 9978. `ToneMapConfig.HdrSideDataDeletes` now
-ends both chains: four `sidedata=mode=delete` filters taking out the mastering display, the light
+ends both chains: `sidedata=mode=delete` filters taking out the mastering display, the light
 levels and both Dolby Vision entries, the last because an RPU describing the reshaping of frames
 that have since been tone-mapped is not merely stale but wrong, and the x265 wrapper can write RPUs
 too. Verified through x265 on both backends: zero HDR side data entries on the output, band values
 unchanged.
+
+**The list is seven rather than four, and the three that were missing are the *dynamic* ones.**
+HDR10+ (`DYNAMIC_HDR_PLUS`) is the one that is ordinary rather than exotic - a per-scene tone-mapping
+curve carried by a good deal of streaming and disc content - and a set of curves describing scene
+brightnesses that have since been mapped away is the same staleness the mastering display was deleted
+for, one level more specific. `DYNAMIC_HDR_VIVID` is the same thing under another standard, and
+`AMBIENT_VIEWING_ENVIRONMENT` describes the room the grade was checked in, which an SDR BT.709 file
+has no use for. Every name was read out of `ffmpeg -h filter=sidedata` on the bundled build rather
+than guessed: that option takes an enum, a name it does not have fails the filter graph outright, and
+on this chain that is *every* tone-mapped encode rather than an edge case. The build prints
+`DYNAMIC_HDR_PLUS` at 17, `DYNAMIC_HDR_VIVID` at 25 and `AMBIENT_VIEWING_ENVIRONMENT` at 26.
+
+What can reach an output today is narrower than that list, and it is deliberately not the measure of
+it: Quick Convert's direct encoders take y4m, which carries no side data at all, so only the
+ffmpeg-library encoders can leak any of it. The original four were added after exactly that
+discovery - libsvtav1 dropped them and libx265 wrote them back out, so "the chain drops it" was an
+encoder's behaviour mistaken for the chain's - and the ffmpeg underneath this app is BtbN's rolling
+master, where a wrapper that gains passthrough next month reopens the hole in a build nobody here
+chose. Re-verified after the widening: the seven-delete chain renders (a wrong name would not), and a
+PQ source carrying a mastering display and MaxCLL comes out through libx265 tagged
+bt709/bt709/bt709/tv with no HDR side data left on it.
 
 The AV1AN tab is the opposite: its encoders are *told* what they are encoding, as H.273 integers out
 of `MediaFile.ColorData`. Unaccounted for, a tone-mapped encode produces the worst possible outcome -
@@ -3331,6 +3444,59 @@ Measured, a source ffprobe reads as `color_range=pc` comes out of this chain as 
 `GetVideoFilterArgs` on that tab therefore takes the source colour as a parameter rather than
 reading it off the file - the chain has to describe what is going in and the encoder arguments what
 is coming out, so the two cannot share a source.
+
+### Dolby Vision
+
+**`IsHdr` reads the transfer curve and stops there, which is right - and it leaves one property of an
+HDR file that this row has to treat differently.** A Dolby Vision file's dynamic metadata rides in an
+RPU beside the picture, and what is underneath it depends entirely on the profile: 8.1 is an ordinary
+HDR10 signal, 8.4 an HLG one, 7 an HDR10 base with an enhancement layer - all of which a decoder that
+ignores the RPU shows perfectly well, just without the per-scene refinement. **Profile 5 is the
+exception and the reason any of this is here**: its base layer is IPT-PQ-c2, which is not YCbCr at
+all, so read as though it were, the colours come out the notorious magenta and green.
+
+`VideoColorData.DvProfile` and `DvBlCompatId` carry it, `ColorDataUtils.HasUnusableBaseLayer` is the
+question the row asks, and **the compatibility id is the field that matters rather than the profile
+number** - it is the direct statement of "can a decoder that ignores the RPU show this", 0 meaning no
+and 1/2/4 meaning HDR10/SDR/HLG. Both are checked anyway, since either can be the one a file states.
+
+**The refusal is on the CPU path and only there.** A zscale chain does no reshaping whatever, so it
+cannot produce the right picture from a profile 5 file - that is a property of the bitstream rather
+than a guess about a tool, which is what earns it a place beside the crop and frame-size refusals
+rather than a warning. libplacebo is the other half and is deliberately *not* refused: it applies an
+RPU where its build carries libdovi, so the same file may well come out right there. Whether the
+bundled build carries it is **not measured and cannot be from here**, so that path warns in the log
+and the run goes ahead - refusing on an unmeasured guess would take away a conversion that probably
+works. `ToneMapUi.LogDolbyVision` is written as the conditional it is ("where this FFmpeg was built
+with libdovi") rather than as a promise.
+
+**The probe is a second ffprobe, and that is the one arrangement that is safe rather than a tidiness
+failure.** The configuration record is *stream* side data, so `-show_frames` never prints it -
+measured, zero occurrences of `dv_profile` in the frames output of a file that has one. And the
+obvious repair of adding `-show_streams` to the existing command is the thing that must never be done
+to it: measured against the bundled build, the sections come out `[FRAME]` at line 1 and `[STREAM]`
+at line 59, and `GetColorData`'s loop keeps whichever match it sees **last** - so the stream section's
+own `color_transfer` would win, and this file already records a Matroska reading `unknown` from
+`-show_streams` and `smpte2084` from `-show_frames`. The cheap-looking repair is the one that would
+stop every such file reading as HDR at all. `ColorDataUtils.ReadDolbyVision` is separate for that
+reason and says so.
+
+The keys were read out of the binary before being parsed. ffprobe's DOVI block prints
+`dv_version_major`, `dv_version_minor`, `dv_profile`, `dv_level`, the three present flags,
+`dv_bl_signal_compatibility_id` and `dv_md_compression`. **`dv_profile` does not appear in a `strings`
+dump on its own**, because it is shared as the tail of `s->cfg.dv_profile` - which is what suffix
+merging does, and is worth knowing before reading such a dump as evidence of absence.
+
+**A web session cannot obtain a Dolby Vision file, so one was built.** The record is a fixed 24-byte
+`dvcC` box in the MP4 sample entry, so `scratchpad`'s `mkdovi.py` injects one into an ordinary HEVC
+MP4 and grows the parent boxes - safe because ffmpeg writes `moov` after `mdat`, so nothing shifts a
+sample offset. Real ffprobe then prints the whole record, and the app's own `GetColorData` was run
+over four of them: profiles 8.1, 8.4, 7 and 5 all read back with the right profile, the right
+compatibility id, the right name in the readout and the right answer from `HasUnusableBaseLayer`, with
+an un-injected control reading as no Dolby Vision and a Matroska control still reading transfer 16 and
+MaxCLL 9978 - which is the regression that mattered, the new probe leaving the old reading alone. 32
+checks, no failures. What that does **not** settle is what libplacebo does with a real RPU, the
+injected record having no RPU behind it; that is the real-machine check.
 
 ### What it does not cover
 

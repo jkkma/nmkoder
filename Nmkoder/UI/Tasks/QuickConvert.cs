@@ -270,7 +270,7 @@ namespace Nmkoder.UI.Tasks
                 // also measures the file's real peak, off the whole source - a trim only narrows what
                 // the section can contain, which the roll-off's headroom forgives.
                 await ToneMapUi.ResolveBackendAsync(QuickConvertUi.CurrentToneMap, QuickConvertUi.GetVideoSourceFile());
-                string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap);
+                string toneMapProblem = await ToneMapUi.GetProblem(QuickConvertUi.CurrentToneMap, ToneMapUi.GetQuickConvertColorData());
 
                 if (toneMapProblem.IsNotEmpty())
                 {
