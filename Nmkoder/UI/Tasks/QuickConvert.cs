@@ -314,8 +314,11 @@ namespace Nmkoder.UI.Tasks
                 // working directory - and that is wherever the app happens to have been launched from.
                 // An install the user cannot write to failed the first pass outright, and every two-pass
                 // encode that did work left a log and an x264 mbtree file sitting beside the exe. This
-                // run's scratch folder is where the rest of its temporary files already go.
-                string passLog = twoPass ? $"-passlogfile {Shell.WrapArg(Path.Combine(Paths.GetSessionDataPath(), "ffmpeg2pass"))}" : "";
+                // run's scratch folder is where the rest of its temporary files already go. ffmpeg's
+                // own two-pass machinery, so the encoder binaries - which carry their stats through
+                // GetPassArgs instead - build none.
+                string passLog = twoPass && directEnc == null
+                    ? $"-passlogfile {Shell.WrapArg(Path.Combine(Paths.GetSessionDataPath(), "ffmpeg2pass"))}" : "";
 
                 string a = anyAudioStreams ? CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi(), TrackList.current.File).Arguments : "";
                 string s = CodecUtils.GetCodec(sCodec).GetArgs().Arguments;
@@ -387,7 +390,11 @@ namespace Nmkoder.UI.Tasks
                 // of the encoder reads as a clean end of stream.
                 ReportFailure = vsRuns < 1 && directFiles == null,
                 PipeFrom = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath),
-                ExtraPathDirs = vsLogPath.IsEmpty() ? new string[0] : Qtgmc.GetPathDirs(),
+                // The encoder dir rides along for a direct run, the same one the availability check
+                // searched. The encoder itself is invoked by resolved full path, so this is not what
+                // makes it launch - it keeps the shell's PATH agreeing with what was vouched for.
+                ExtraPathDirs = (vsLogPath.IsEmpty() ? new string[0] : Qtgmc.GetPathDirs())
+                    .Concat(directFiles != null ? new[] { Paths.GetEncoderBinPath() } : new string[0]).ToArray(),
             };
 
             await AvProcess.RunFfmpeg(settings);
