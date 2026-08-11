@@ -3164,6 +3164,19 @@ traded it back to the x264 after living with what lossless costs in practice: th
 wrote ~40 GB of tonemap.mkv for five minutes of video, and even with the geometry fold above taking
 three quarters of that away, a lossless film is a temporary file in the tens of gigabytes.
 
+**The CRF stepped down from 12 to 6 at the user's request, and the whole ladder was measured before
+the number moved** - the same harness as the original choice, heavy synthetic grain at 1080p10
+through the pass's exact settings. Grain retention and the tone bands are flat across every rung
+(99.9-100.2%, bands exact to the code value), so PSNR and size discriminate: 48.5 dB at CRF 12, then
+50.5 / 52.4 / 54.4 / 56.3 / 58.1 / 60.0 at 10 / 8 / 6 / 4 / 2 / 0, against sizes of 0.70 / 0.76 /
+0.81 / 0.88 / 0.95 / 1.02 / 1.11 of the *same frames as lossless FFV1*. The last two ratios are the
+finding: on the heavy-grain content where this intermediate is biggest, x264's bottom rungs cost
+more disk than FFV1 while still being lossy - CRF 0 at 10 bits is not lossless (the QP-scale shift
+above, confirmed again by framemd5 against the current build) - so everything below 6 pays
+lossless-class disk for a lossy file and is dominated by FFV1 outright. 6 is the deepest rung
+clearly cheaper than the lossless option: +5.9 dB over the measured-transparent 12, at 1.25x its
+size on the worst case. `ToneMapPass`'s own doc carries the same table beside the constant.
+
 **There was a fused shape beside it, and the reason it had to be lossless is the rule to remember
 rather than the code.** `ToneMapPass.RunFusedAsync` split the graph after the whole tone-map chain
 and wrote the tone-mapped file and a denoised copy as two outputs of one ffmpeg, so the film was
