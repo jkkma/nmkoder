@@ -185,6 +185,11 @@ namespace Nmkoder.UI.Tasks
                 if (retentionProblem.IsNotEmpty())
                     Logger.Log(retentionProblem);
 
+                string tuneProblem = QuickConvertUi.GetFilmGrainTuneProblem(GetCurrentCodecV());
+
+                if (tuneProblem.IsNotEmpty())
+                    Logger.Log(tuneProblem);
+
                 // Not read straight off the mode box: the fixed formats have no rate control and that box
                 // is disabled over whatever was last picked in it, so a Target Bitrate left over from
                 // H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG read a "q". Both fell

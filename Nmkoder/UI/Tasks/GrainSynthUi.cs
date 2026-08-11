@@ -26,13 +26,13 @@ namespace Nmkoder.UI.Tasks
     /// encoded, which is a filter on the video like the rest of that column, and the ones that do not are
     /// exactly the ones the readout has to warn about.
     /// <para/>
-    /// **The two tabs drive different binaries and that is the whole of the difference between them.** The
-    /// AV1AN tab drives standalone encoders, where SVT-AV1 is the svt-av1-hdr build this project bundles
-    /// and has <c>--fgs-table</c>; Quick Convert drives the libraries compiled into ffmpeg, where SVT-AV1
-    /// is mainline and has no such parameter. <see cref="GetTableFlag(CodecUtils.VideoCodec)"/> is the one
-    /// statement of that, and everything downstream of it - which modes can run, what the readout says,
-    /// what the encode refuses - follows from that single answer rather than from a second copy of this
-    /// logic.
+    /// **Both tabs drive the same standalone binaries now, and what still separates them is the
+    /// pipeline, not the encoder.** The AV1AN tab has passes in front of av1an - which is what Measured
+    /// from source is made of - where Quick Convert is a command chain with no measuring pass, so that
+    /// one mode refuses there and points at where a table comes from. The two per-tab
+    /// <c>GetTableFlag</c> overloads are the one statement of which codecs take a table and how each
+    /// spells it, and everything downstream - which modes can run, what the readout says, what the
+    /// encode refuses - follows from that single answer rather than from a second copy of this logic.
     /// </summary>
     class GrainSynthUi
     {
@@ -114,12 +114,12 @@ namespace Nmkoder.UI.Tasks
             return codec == CodecUtils.Av1anCodec.SvtAv1 || codec == CodecUtils.Av1anCodec.AomAv1;
         }
 
-        /// <summary> The same question on Quick Convert, whose AV1 encoders are the libraries inside
-        /// ffmpeg rather than the standalone binaries. A stream copy falls out of this too, being neither
-        /// of them - and a copy builds no encoder arguments at all. </summary>
+        /// <summary> The same question on Quick Convert, whose AV1 encoders are the same standalone
+        /// binaries now - the Direct* pair, not ffmpeg's libraries. A stream copy falls out of this too,
+        /// being neither of them - and a copy builds no encoder arguments at all. </summary>
         public static bool IsRowRelevant(CodecUtils.VideoCodec codec)
         {
-            return codec == CodecUtils.VideoCodec.LibSvtAv1 || codec == CodecUtils.VideoCodec.LibAomAv1;
+            return codec == CodecUtils.VideoCodec.DirectSvtAv1 || codec == CodecUtils.VideoCodec.DirectAomAv1;
         }
 
         /// <summary>
@@ -187,12 +187,10 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The same, for Quick Convert - and here the answer is not a guess at all, which is the one place
-        /// the two tabs genuinely differ. Whether an av1an-driven binary has <c>--fgs-table</c> depends on
-        /// which SVT-AV1 is on the machine, so the AV1AN version above assumes the bundled one and lets the
-        /// encode ask; whether the library compiled into ffmpeg has it is settled by that build and stated
-        /// once in <see cref="GetTableFlag(CodecUtils.VideoCodec)"/>. So a table that cannot be delivered
-        /// is known here, before the encode and while the readout is being drawn.
+        /// The same, for Quick Convert - the same guess for the same reason now that this tab drives the
+        /// standalone binaries too: it assumes the bundled SVT-AV1, and whether the one actually on the
+        /// machine is mainline is the encode's question. What stays knowable here is the structure -
+        /// a codec with no table flag at all delivers nothing, whatever binary is behind it.
         /// </summary>
         public static GrainDelivery GetLikelyDelivery(GrainSynthConfig config, CodecUtils.VideoCodec codec)
         {
@@ -225,25 +223,23 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The same for the libraries inside ffmpeg, which is **"" for both of them** - so Quick Convert
-        /// can analyse the source but cannot be handed a table, and the two table modes refuse there.
-        /// <para/>
-        /// The two are absent for different reasons and only one of them could change. libsvtav1 is
-        /// *mainline* SVT-AV1 - BtbN's ffmpeg pins <c>AOMediaCodec/SVT-AV1</c>, not the PSY fork av1an gets
-        /// - and <c>fgs-table</c> is one of the parameters this project has measured absent from it, which
-        /// is why <c>LibSvtAv1.json</c> has no row for it either. libaom's <c>film-grain-table</c> is a
-        /// different case: aomenc takes it, and whether it survives ffmpeg's <c>-aom-params</c> to reach
-        /// the library **has not been measured**, so it is not claimed. This file's rule is the project's:
-        /// a parameter is shipped once it has been passed to the real binary and seen to be accepted, and
-        /// libaom is the one encoder here that refuses the whole encode over a parameter it does not know.
-        /// <para/>
-        /// Returning the flag here is the entire change needed to light the two table modes up on this tab
-        /// once that has been measured - <see cref="GetLikelyDelivery(GrainSynthConfig, CodecUtils.VideoCodec)"/>,
-        /// the readout, the refusal and <c>LibAomAv1.GetArgs</c> all read this one answer.
+        /// The same for Quick Convert's Direct* pair, which are the very binaries the map above names -
+        /// the tab pipes frames into <c>SvtAv1EncApp</c> and <c>aomenc</c> now, so the flags carry over
+        /// rather than being re-measured. While the tab drove ffmpeg's libraries this returned "" for
+        /// both: <c>fgs-table</c> is PSY-line only and libsvtav1 is mainline, and whether
+        /// <c>film-grain-table</c> survived <c>-aom-params</c> was never measured. Neither limit
+        /// applies to a binary this app launches itself, and SVT's remaining uncertainty - the binary
+        /// on the machine may still be mainline - is the encode-time question
+        /// <see cref="GetProblemAsync(GrainSynthConfig, CodecUtils.VideoCodec)"/> asks of its help text.
         /// </summary>
         private static string GetTableFlag(CodecUtils.VideoCodec codec)
         {
-            return "";
+            switch (codec)
+            {
+                case CodecUtils.VideoCodec.DirectSvtAv1: return "--fgs-table";
+                case CodecUtils.VideoCodec.DirectAomAv1: return "--film-grain-table";
+                default: return "";
+            }
         }
 
         /// <summary>
@@ -293,23 +289,35 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The same on Quick Convert, where it is a fact about the ffmpeg build rather than a question for
-        /// a binary - so it needs no await and can be asked while the readout is drawn.
+        /// The structural half of the same question on Quick Convert: what can be known without asking a
+        /// binary anything, which is what the readout can afford - the encode's own check,
+        /// <see cref="GetProblemAsync(GrainSynthConfig, CodecUtils.VideoCodec)"/>, asks the binary too.
+        /// Two things are structural. A codec with no table parameter cannot take one however it is
+        /// spelled; and Measured from source cannot run here at all - it needs the denoise render and the
+        /// grav1synth diff that run in front of av1an, and this tab's encode is a command chain with no
+        /// measuring pass in it. The table is the thing to bring: the Film Grain utility's Measure
+        /// operation writes one, and an AV1AN-tab Measured encode keeps one beside its output.
         /// <para/>
-        /// The space check does not carry over: an ffmpeg argument goes through <c>Shell.WrapArg</c> and
-        /// survives a space perfectly well. It is av1an's re-splitting of one quoted string that cannot.
+        /// The AV1AN overload's space check does not carry over in the other direction either: these
+        /// encoders are launched by this app with the path as one <c>Shell.WrapArg</c> argument, which
+        /// survives a space. It is av1an's re-splitting of one quoted string that cannot.
         /// </summary>
-        private static string GetTableDeliveryProblem(CodecUtils.VideoCodec codec)
+        private static string GetQuickConvertModeProblem(GrainSynthConfig config, CodecUtils.VideoCodec codec)
         {
-            if (GetTableFlag(codec).IsNotEmpty())
+            if (!config.Runs)
                 return "";
 
-            return $"{CodecUtils.GetCodec(codec).FriendlyName} on this tab is the library compiled into FFmpeg, " +
-                $"which has no parameter for applying a grain table" +
-                (codec == CodecUtils.VideoCodec.LibSvtAv1
-                    ? " - fgs-table belongs to the svt-av1-hdr build the AV1AN tab drives, not to the mainline " +
-                        "SVT-AV1 inside FFmpeg"
-                    : "") + ".";
+            if (config.NeedsMeasurement)
+                return "Measured from source needs the denoise render and the grav1synth diff that run in front of " +
+                    "av1an, and this tab has no measuring pass. Measure the table once - the Film Grain utility's " +
+                    "Measure operation writes one, and an AV1AN-tab Measured encode keeps one beside its output - " +
+                    "then pick Grain table file here, with Denoise ticked at the same strength.";
+
+            if (config.UsesTable && GetTableFlag(codec).IsEmpty())
+                return DescribeUndeliverableTable($"{CodecUtils.GetCodec(codec).FriendlyName} has no parameter for " +
+                    $"applying a grain table");
+
+            return "";
         }
 
         /// <summary>
@@ -363,33 +371,44 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// The same for Quick Convert. It awaits nothing - every question this tab has to ask is answered
-        /// by the build rather than by a binary - but it is kept async so both tabs' runs read alike, and
-        /// so a future measured <c>film-grain-table</c> can put a probe back here without moving callers.
+        /// The same for Quick Convert, and genuinely async now: the tab drives the standalone binaries,
+        /// so a table mode has to ask the binary in front of it about the flag exactly as the AV1AN
+        /// overload does - the bundled SVT-AV1 has <c>--fgs-table</c> and a user's own may be mainline,
+        /// which refuses the whole command over it. The Measured refusal comes first, being structural:
+        /// this tab has no measuring pass, however capable the binary -
+        /// <see cref="GetQuickConvertModeProblem"/> says where to get the table instead. grav1synth is
+        /// not asked after: the one mode that needs it is that refused one.
         /// </summary>
-        public static Task<string> GetProblemAsync(GrainSynthConfig config, CodecUtils.VideoCodec codec)
+        public static async Task<string> GetProblemAsync(GrainSynthConfig config, CodecUtils.VideoCodec codec)
         {
             if (!config.Runs)
-                return Task.FromResult("");
+                return "";
 
             string problem = config.GetProblem();
 
             if (problem.IsNotEmpty())
-                return Task.FromResult(problem);
+                return problem;
 
             if (config.IsUtilityOnly)
-                return Task.FromResult($"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, " +
-                    $"which is the Film Grain utility's job rather than an encode setting. Use the Utilities tab.");
+                return $"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, " +
+                    $"which is the Film Grain utility's job rather than an encode setting. Use the Utilities tab.";
 
-            if (config.NeedsGrav1synth() && !Grav1synth.IsAvailable())
-                return Task.FromResult(Grav1synth.DescribeMissing());
+            string modeProblem = GetQuickConvertModeProblem(config, codec);
+
+            if (modeProblem.IsNotEmpty())
+                return modeProblem;
 
             if (!config.UsesTable)
-                return Task.FromResult("");
+                return "";
 
-            string cannot = GetTableDeliveryProblem(codec);
+            string encoderName = codec == CodecUtils.VideoCodec.DirectSvtAv1 ? "svt-av1" : "aom";
 
-            return Task.FromResult(cannot.IsEmpty() ? "" : DescribeUndeliverableTable(cannot));
+            if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(encoderName, GetTableFlag(codec)))
+                return DescribeUndeliverableTable($"this SVT-AV1 build has no {GetTableFlag(codec)} - it is a " +
+                    $"parameter of the PSY line (svt-av1-hdr), which is what this project bundles, and not of " +
+                    $"mainline SVT-AV1");
+
+            return "";
         }
 
         /// <summary> The refusal both tabs give for a table the encoder in front of them will not take.
@@ -414,13 +433,16 @@ namespace Nmkoder.UI.Tasks
                 Form.Av1anGrainInfoLabel.Text = Describe(av1an, GetLikelyDelivery(av1an, Av1anUi.GetCurrentCodecV()),
                     TrackList.current?.File, "");
 
-                // Quick Convert knows one thing the AV1AN tab cannot know until the encode starts: whether
-                // its encoder can be handed a table at all. That is the difference between a mode that will
-                // work and one the run is going to refuse, so the readout says it rather than describing an
-                // encode that is not going to happen.
+                // Quick Convert knows one thing the AV1AN tab cannot know until the encode starts:
+                // whether the mode can run here at all - Measured has no pass to run in, and a codec
+                // without a table parameter cannot be handed one. That is the difference between a mode
+                // that will work and one the run is going to refuse, so the readout says it rather than
+                // describing an encode that is not going to happen. What is not asked here is the
+                // binary: that costs a process launch, so whether this SVT-AV1 is mainline stays the
+                // encode's question, exactly as it is on the AV1AN tab.
                 CodecUtils.VideoCodec encCodec = QuickConvertUi.GetCurrentCodecV();
                 GrainSynthConfig enc = GetQuickConvertConfig();
-                string undeliverable = enc.UsesTable ? GetTableDeliveryProblem(encCodec) : "";
+                string undeliverable = GetQuickConvertModeProblem(enc, encCodec);
 
                 Form.EncGrainInfoLabel.Text = Describe(enc, GetLikelyDelivery(enc, encCodec),
                     DeinterlaceUi.GetQuickConvertSourceFile(), undeliverable);
@@ -443,8 +465,10 @@ namespace Nmkoder.UI.Tasks
             if (problem.IsNotEmpty())
                 return problem;
 
+            // The message carries its own way out - Encoder analysis, the utility, or where to measure
+            // a table - so nothing is appended to it here.
             if (undeliverable.IsNotEmpty())
-                return $"{undeliverable} Use Encoder analysis, or apply the table afterwards with the Film Grain utility.";
+                return undeliverable;
 
             string note = config.GetNote(delivery);
             string cost = DescribeCost(config, file);
