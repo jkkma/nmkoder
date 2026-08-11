@@ -791,23 +791,25 @@ namespace Nmkoder.UI.Tasks
         /// With the list explicit, the box's index is an index into *this* and not into the enum, which
         /// is what <see cref="GetCurrentCodecV"/> and <see cref="VidEncoderSelected"/> read it as.
         /// <para/>
-        /// The Direct* five are absent for now: they are the standalone binaries, and
-        /// <see cref="QuickConvert.Run"/> still builds a single ffmpeg command that cannot drive one.
-        /// Adding them here is the switch, and it is not thrown until Run can pipe to them - offering
-        /// an encoder the run would splice into an ffmpeg command line as though it were an AVOption
-        /// set is a broken encode rather than a missing feature.
+        /// The five re-encoders are the Direct* standalone binaries - the same slots the Lib* five
+        /// held, so the dropdown reads as it always did. NVENC stays on ffmpeg, having no CLI
+        /// equivalent; so do GIF, PNG, JPEG and the two copies, which encode through nothing at all. A
+        /// codec whose binary is missing refuses the run naming it - see the availability check in
+        /// <see cref="QuickConvert.Run"/> - rather than falling back to ffmpeg's library or vanishing
+        /// from this list, either of which would quietly encode on a different encoder than the one
+        /// this dropdown named.
         /// </summary>
         public static readonly CodecUtils.VideoCodec[] OfferedCodecs =
         {
             CodecUtils.VideoCodec.CopyVideo,
             CodecUtils.VideoCodec.StripVideo,
-            CodecUtils.VideoCodec.Libx264,
-            CodecUtils.VideoCodec.Libx265,
+            CodecUtils.VideoCodec.DirectX264,
+            CodecUtils.VideoCodec.DirectX265,
             CodecUtils.VideoCodec.H264Nvenc,
             CodecUtils.VideoCodec.H265Nvenc,
-            CodecUtils.VideoCodec.LibVpx,
-            CodecUtils.VideoCodec.LibSvtAv1,
-            CodecUtils.VideoCodec.LibAomAv1,
+            CodecUtils.VideoCodec.DirectVpx,
+            CodecUtils.VideoCodec.DirectSvtAv1,
+            CodecUtils.VideoCodec.DirectAomAv1,
             CodecUtils.VideoCodec.Gif,
             CodecUtils.VideoCodec.Png,
             CodecUtils.VideoCodec.Jpg,
@@ -815,7 +817,7 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary> What the tab opens on. Nothing here is restored between sessions, so this is what
         /// every session starts at. </summary>
-        public const CodecUtils.VideoCodec DefaultCodec = CodecUtils.VideoCodec.LibSvtAv1;
+        public const CodecUtils.VideoCodec DefaultCodec = CodecUtils.VideoCodec.DirectSvtAv1;
 
         /// <summary> The codec the box is showing. The index is into <see cref="OfferedCodecs"/>, not
         /// into the enum - the two stopped agreeing when the direct encoders were appended. </summary>

@@ -1354,11 +1354,14 @@ inside the `ItemsControl`, so an Auto column on its own measures that row alone 
 starts somewhere different on every line. It is capped at 340 because x265's `master-display` examples are
 69 characters and would take the window; those wrap inside the chip instead.
 
-The lists are filed apart - `bin/encoderArgs/av1an` against `bin/encoderArgs/ffmpeg`, keyed by the encoder
-class name - and the values under a key each, because they are **different vocabularies rather than
-different files**. The AV1AN tab drives standalone binaries and names their CLI parameters; Quick Convert
-drives ffmpeg and names what the *wrapper* takes, which for VP9 and NVENC is not the same set of names at
-all. Both folders are in the release workflow's post-publish check, for the reason the csproj gives.
+The lists are filed apart - `bin/encoderArgs/av1an` against `bin/encoderArgs/ffmpeg` - because they are
+**different vocabularies rather than different files**: the av1an folder names the CLI parameters the
+standalone binaries take, the ffmpeg folder what the *wrapper* takes, which for VP9 and NVENC is not the
+same set of names at all. **The folder follows the encoder rather than the tab** now that Quick Convert
+drives both kinds - `EncoderArgs.FolderFor` sends an `IBinaryEncoder` to the av1an lists whichever tab is
+asking, so `DirectX264` reads `X264.json` while NVENC still reads its ffmpeg list, and the ffmpeg folder's
+x264/x265/SVT/VPX/AOM lists remain the CRF ladder's, which deliberately runs ffmpeg's encoders. Both
+folders are in the release workflow's post-publish check, for the reason the csproj gives.
 
 **Four of ffmpeg's encoders take their whole parameter table through one option and the rest do not.**
 `-x264-params`, `-x265-params`, `-svtav1-params` and `-aom-params` each hold a `:`-separated `key=value`
@@ -1387,35 +1390,28 @@ preset/profile entry points rather than by its parameter parser, so `-x264-param
 AVOptions, which a params-style encoder's grid cannot emit - so neither list has a row for them, and that
 is a limit rather than an oversight.
 
-**The SVT-AV1 behind Quick Convert is not the one behind the AV1AN tab.** `bundle-tools.sh` fetches
-svt-av1-hdr as `SvtAv1EncApp`, which is av1an's encoder and nothing else's; Quick Convert runs `libsvtav1`
-*inside* BtbN's ffmpeg, a library the bundler does not choose. Measured against that build - which reports
-`SVT-AV1 Encoder Lib v4.1.0` - `hbd-mds`, `luminance-qp-bias`, `chroma-qm-min`, `ac-bias`, `max-tx-size`,
+**The SVT-AV1 split runs between the encode tabs and the CRF ladder now, not between the tabs.**
+`bundle-tools.sh` fetches svt-av1-hdr as `SvtAv1EncApp`, and both encode tabs drive that binary - the
+AV1AN tab through av1an, Quick Convert by launching it. The `libsvtav1` *inside* BtbN's ffmpeg - a
+mainline library the bundler does not choose - is the CRF ladder's SVT, and the ladder's preset
+translation is what still reads `LibSvtAv1.json`: measured against that build (which reports `SVT-AV1
+Encoder Lib v4.1.0`), `hbd-mds`, `luminance-qp-bias`, `chroma-qm-min`, `ac-bias`, `max-tx-size`,
 `variance-boost-curve` and `adaptive-film-grain` are all there, while `noise-adaptive-filtering`,
 `tx-bias`, `cdef-scaling`, `kf-tf-strength`, `sharp-tx`, `alt-ssim-tuning`, `fgs-table` and the whole
-`noise*` family are not. So `SvtAv1.json` and `LibSvtAv1.json` are two files on purpose and the second is
-the shorter one. Do not "fix" it by pointing Quick Convert at the PSY list: those rows would be accepted
-by ffmpeg, dropped by the library with a warning nothing here reads, and encode as though they had never
-been set.
+`noise*` family are not. So `SvtAv1.json` and `LibSvtAv1.json` are still two files on purpose, they
+simply have different readers than they used to: Quick Convert's grid reads the PSY list now, because
+the PSY binary is what runs - guarded by the same runtime mainline check as the AV1AN tab
+(`QuickConvertUi.GetUnsupportedAdvancedArgsProblem`), since the binary on a user's machine is still a
+build-time accident.
 
-**Four rows now name an argument the Grain Synthesis row also writes, and the grid wins all four.**
-`denoise-noise-level` and `enable-dnl-denoising` on libaom, `film-grain` and `film-grain-denoise` on
-libsvtav1. On libaom that precedence is measured rather than arranged: the grid's `-aom-params
-denoise-noise-level=N` beats the AVOption `LibAomAv1.GetArgs` writes - the files differ, and with
-denoising on, `enable-dnl-denoising=0` changes the output again. On libsvtav1 both copies land in the
-one `":"`-joined `-svtav1-params`, which ffmpeg parses with `av_dict_parse_string` into an AVDictionary
-that replaces an equal key unless asked for `AV_DICT_MULTIKEY` - so the later entry is the one handed to
-the library, and `GetArgs` appends the grid *after* the row deliberately to give both encoders the same
-rule rather than a wash between them. That half is ffmpeg's documented dictionary behaviour rather than
-something measured here; the libaom half is measured. Worth re-checking with a real encode.
-`QuickConvertUi.GetGrainSynthProblem` names whichever pair has met, because from the outside the
-number that runs is not the one the row is showing. Every other row is a parameter the app does not set.
-
-Two of those four predate the row and were the whole of AV1 grain synthesis on this tab: with no
-control to own it, `LibAomAv1.GetArgs` sent a hardcoded `-denoise-noise-level 0` and `enable-dnl-denoising`
-sat in the grid beside it unable to do anything, that parameter only applying where the denoiser is on.
-The partner row was added rather than the orphan deleted, which is why the grid can still reach all of
-it - a grain setting typed there is still a supported thing to do, it is only no longer the only door.
+**The grain collision on Quick Convert is the AV1AN tab's now, decided by the encoder rather than by
+ffmpeg's option plumbing.** While this tab drove the libraries, the row's grain arguments and the
+grid's copies met inside `-svtav1-params`/`-aom-params`, and which won was AVDictionary behaviour;
+with the binaries it is SVT's own three-way precedence - fgs-table over noise over film-grain - and
+`GrainGridChecks` states it once for both tabs. aomenc's list has no grain rows, so only SVT can
+collide. The libaom measurements from the library era (the grid's `-aom-params` beating the AVOption,
+`enable-dnl-denoising=0` changing the output again) still describe `LibAomAv1`, which the CRF ladder
+runs - they are just no longer reachable from a grid, the ladder having no grain control.
 
 **`LibSvtAv1` used to send a `-rc vbr` that did nothing, and `Gif` used to let the palette size go
 below what its own filter accepts.** Neither came from this tab; both were found by running its
@@ -1435,14 +1431,19 @@ would otherwise read. A value containing a *space* cannot survive either path, t
 encoders one space-separated `key=value` string - the same limit `BuildCli` has always had on the AV1AN
 side, and no parameter either list offers takes one.
 
-**x264 and x265 get content presets; the other ffmpeg encoders do not, and the SVT-AV1 ones do not
-carry over.** `EncoderArgPresets` is keyed by encoder name and the preset row hides itself for a name it
-does not know, so an encoder without a considered set simply has no row rather than a bad one. The
-SVT-AV1 presets are the AV1AN tab's and are written for parameters the library above does not have, so
-they are not offered on the other tab at all. The two that were added were verified value by value
-against the library inside the bundled ffmpeg - there is no runtime check to catch them the way there is
-for av1an's, `Av1anEncoderName` answering "" for everything but SVT-AV1, so a wrong value there would be
-dropped in silence.
+**SVT-AV1's content presets are both tabs' now, and the x264/x265 sets are the CRF ladder's - they do
+not carry to the Direct pair, and that is measured rather than forgotten.** `EncoderArgPresets` is keyed
+by encoder name and the preset row hides itself for a name it does not know, so an encoder without a
+considered set simply has no row rather than a bad one. `DirectSvtAv1` shares the AV1AN tab's SVT set
+outright - same binary, same `SvtAv1.json` rows, and `Av1anEncoderName` answers for it too, so applying
+a preset drops what a mainline binary lacks with the same named log line. The x264/x265 sets stay where
+the libraries are: written as library parameters, four of their values are boolean-only flags on the
+CLI binaries - x264 has `--no-dct-decimate` and refuses `--dct-decimate 0` outright, and x265's
+`--sao`, `--cutree` and `--rc-grain` take no value, so `--sao 0` *enables* SAO and strands the 0 as a
+stray argument x265 only warns about. A value grid cannot express any of that, so a carried-over preset
+would quietly apply the opposite of its loudest entries; a Direct x264/x265 set wants writing against
+the CLI vocabulary and measuring, not mapping. The library sets were verified value by value against
+the library inside the bundled ffmpeg, which the CRF ladder still runs.
 
 **Both encoders' defaults move with the speed preset, which is what makes "a deliberate departure from
 the default" a question you cannot answer without saying which preset.** Measured: x265 at `medium` runs
@@ -1495,22 +1496,60 @@ the command in an edit window, which is the escape hatch that replaces both boxe
 
 ## Driving the encoder binaries directly
 
-**Quick Convert is moving from ffmpeg's built-in encoder libraries to the standalone binaries** -
-`SvtAv1EncApp`, `aomenc`, `vpxenc`, `x264`, `x265`, the same ones `bin/av1an/enc/` already carries for
-av1an. NVENC stays on ffmpeg, having no CLI equivalent at all, and so do GIF, PNG, JPEG and stream copy.
-A codec whose binary is not on the machine **refuses** the run naming it, the way a missing mkvmerge or
-grav1synth is handled - macOS bundles no encoders, and vpxenc's bundling is best-effort, so this is not
-a hypothetical.
+**Quick Convert drives the standalone encoder binaries now** - `SvtAv1EncApp`, `aomenc`, `vpxenc`,
+`x264`, `x265`, the same ones `bin/av1an/enc/` already carries for av1an, and the same five slots of
+the dropdown the ffmpeg libraries used to hold. NVENC stays on ffmpeg, having no CLI equivalent at
+all, and so do GIF, PNG, JPEG and stream copy. A codec whose binary is not on the machine **refuses**
+the run naming it and `bin/av1an/enc`, the way a missing mkvmerge or grav1synth is handled - macOS
+bundles no encoders, and vpxenc's bundling is best-effort, so this is not a hypothetical. There is
+deliberately no fallback to ffmpeg's library for the same codec: an encode that quietly ran on a
+different encoder than the one picked would be worse than the message. The Lib* five stay in the enum
+and the codebase for the CRF ladder, which deliberately measures ffmpeg's own encoders and persists
+the enum's numeric values.
 
-`VideoEncodersDirect.cs` holds the five encoder classes and `IBinaryEncoder`. **They are landed and
-measured; `QuickConvert.Run` does not use them yet** - the tab still builds one ffmpeg command, so
-nothing about its behaviour has changed. What follows is what was established by running it.
+`VideoEncodersDirect.cs` holds the five encoder classes and `IBinaryEncoder`; `QuickConvert.Run`
+branches on `CodecUtils.GetBinaryCodec` and builds the chain in `BuildDirectCommand`. What follows is
+what was established by running it.
 
-The shape is `ffmpeg (decode + filters) -f yuv4mpegpipe - | <encoder> <io> <settings>`, then a second
-ffmpeg muxing the elementary stream with the audio, subtitles, chapters and metadata that never went
-down the pipe. The encoded video goes in as the **last** `-i`, which is the trick `DeinterlacePipeInput`
-already uses: every input the stream maps were built against keeps its index, and only the first video
-track is remapped.
+The shape is `ffmpeg (decode + filters) -f yuv4mpegpipe -strict -1 - | <encoder> <io> <settings>` per
+pass - the pixel format conversion rides the pipe side, and `-strict -1` is what lets the y4m muxer
+write its "non-official" formats, the 10-bit ones among them - then a second ffmpeg muxing the
+elementary stream with the audio, subtitles, chapters and metadata that never went down the pipe. The
+encoded video goes in as the **last** `-i`, which is the trick `DeinterlacePipeInput` already uses:
+every input the stream maps were built against keeps its index, so the metadata and chapter *source*
+indices stay right - and the maps put the encoded video at the position the first video track held in
+`TrackList.GetMappedStreams`, so the output stream order is the one `GetMetadataArgs` numbers its
+`-metadata:s:N` against. QTGMC composes as a third stage in front (`vspipe | ffmpeg | encoder`),
+exactly as it prefixes the single command.
+
+**The trim has to reach both halves, and the mux's copy cannot be the same spelling.** The pipe
+commands carry the ordinary input/output trim, so the video is cut exactly as the single command cut
+it. The mux then has to cut the audio to match - but its output-side seek would also apply to the
+encoded video input, taking the section's own length off the front of a video that was already
+trimmed. So `TrimSettings.GetMuxInputArgs` turns all three modes into an input-side `-ss` in front of
+each *original* input (never the encoded one), where ffmpeg's default `accurate_seek` keeps a decoded
+- which is to say re-encoded - stream sample-exact, and `GetMuxOutputArgs` is the duration alone.
+
+**The chain's exit status is the mux's, and that is why success is judged by artifacts.** `&&` stops
+the chain on any nonzero step, so encoder and mux failures do surface - but a decode ffmpeg dying
+mid-file upstream of the encoder is invisible: the encoder sees an ordinary end of stream and every
+later step finishes normally over a truncated video. Each pass's decode ffmpeg therefore writes a
+`-progress` file whose final `progress=end` is its completion marker - the same idea as
+`Qtgmc.ReadRunProblem` one pipe further up - and the run checks those, then that the mux holds every
+mapped stream. The encoder's own stderr goes to a log file, not the live stream: its progress spam is
+not ffmpeg's format, its vocabulary trips `FfmpegOutputHandler.LooksLikeTrouble`, and on failure the
+log's tail is quoted in the report. ffmpeg's stderr stays live, which is what keeps the progress bar
+fed - producer-side progress, slightly ahead of the encoder, which is fine for a bar. The scratch
+files (intermediate, stats stem and its `.cutree`/`.mbtree` siblings, logs, markers) live in the
+session folder and are deleted on success, because that folder is only emptied at the *next* launch
+and the intermediate is the whole video.
+
+A tone-mapped encode swaps `MediaFile.ColorData` for `ToneMapConfig.GetOutputColorData` around the
+`GetArgs` calls - the same swap `Av1an.Run` makes, because these encoders are told their colour by
+flag where ffmpeg's libraries read it off the frames; without it the output is SDR pixels tagged PQ
+and BT.2020. The direct classes are also handed `GetVideoSourceFile()` rather than the loaded file,
+which in Muxing Mode is a different file - possibly an audio file, with no colour and no frame rate
+to derive a keyframe interval from.
 
 **These are the same binaries the AV1AN tab drives and deliberately not the same argument builders.**
 `VideoEncodersBin` writes an *av1an* command - `-e svt-av1 --force -v "…"` with the encoder's parameters
@@ -1537,14 +1576,19 @@ without them and scrambles a real encode.
 So the intermediates are `.ivf` for SVT-AV1, aomenc and vpxenc, whose IVF header carries the frame rate
 and mux straight in; and raw Annex B plus an MP4 containerise step for x264 and x265. x264 *can* mux
 Matroska itself where its build has the muxer, and that is a build option rather than a promise - both
-Annex B encoders take the same route rather than each taking its own.
+Annex B encoders take the same route rather than each taking its own. **The containerise step's
+`-framerate` is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an fps resample or a bob
+changes what the frames leave the chain at, the raw stream knows nothing a demuxer could check against,
+and the y4m header's rate died with the pipe - so a resampled x264/x265 encode stated at the source's
+rate would play at the wrong speed with its audio drifting away from it.
 
-Verified by running the real classes out of the built assembly against the real binaries: all five, in
-both CRF and target-bitrate modes, each encoding a 48-frame source through the pipe, containerising
-where needed, muxing with its audio, and coming back 48 frames with the right codec and two streams.
-34 checks, no failures. What that does **not** cover, because the encode was never wired to the tab:
-two-pass, the target-filesize division, the progress bar, and the grain table modes that these binaries
-- unlike ffmpeg's libraries - can actually be handed.
+Two-pass runs the pipe twice against one stats stem - `--pass N --stats` on x264, x265 and SVT,
+`--passes=2 --pass=N --fpf=` on aomenc and vpxenc, which also want `--passes=1` stating for a
+single-pass run - with the first pass writing its bitstream to the same intermediate the second
+overwrites, `/dev/null` and `NUL` not being the same word. The first cut of this was verified out of
+the built assembly against the real binaries - all five, CRF and target-bitrate, 34 checks - before
+the run was wired to it; the wired-up tab's own verification is the harness described at the end of
+this section.
 
 ## The Quick Convert command
 
@@ -2468,30 +2512,28 @@ Deinterlace Video: utilities write a file, the tabs' own settings apply during a
 reads the other's. `GrainSynthConfig.EncodeModes` is the row's list; the enum keeps `Preset` and
 `PhotonNoise` because the utility uses this same class to say where its grain comes from.
 
-**Both encode tabs carry the row, and the only thing that differs between them is which binary is
-behind it.** `GrainSynthUi` drives both the way `ToneMapUi` and `DeinterlaceUi` do - one `Init`, one
-`RefreshInfo` writing both readouts, per-tab config getters - so the modes, the panels, the readout
-and the refusals are one implementation rather than two that drift. The AV1AN tab drives standalone
-encoders, where SVT-AV1 is the svt-av1-hdr build this project bundles and has `--fgs-table`; Quick
-Convert drives the libraries inside ffmpeg, where SVT-AV1 is mainline and has none.
-`GrainSynthUi.GetTableFlag(VideoCodec)` is the one statement of that, and everything downstream reads
-it: which delivery is likely, what the readout says, and what `Run` refuses.
+**Both encode tabs carry the row, and both drive the same binaries now - what still differs is the
+pipeline behind it.** `GrainSynthUi` drives both the way `ToneMapUi` and `DeinterlaceUi` do - one
+`Init`, one `RefreshInfo` writing both readouts, per-tab config getters - so the modes, the panels,
+the readout and the refusals are one implementation rather than two that drift. The two per-tab
+`GetTableFlag` overloads are the one statement of which codecs take a table and how each spells it -
+`--fgs-table` on SVT-AV1, `--film-grain-table` on aomenc, for the Av1an* and Direct* pairs alike -
+and everything downstream reads that: which delivery is likely, what the readout says, and what `Run`
+refuses.
 
-**So Quick Convert offers all four modes and can carry out two of them.** Encoder analysis works on
-both its AV1 encoders - `film-grain`/`film-grain-denoise` into `-svtav1-params`, `-denoise-noise-level`
-/`-enable-dnl-denoising` as AVOptions on libaom - and the two table modes are **refused**, naming the
-Film Grain utility as the way to put that table into the finished file. That is the same refusal the
-AV1AN tab gives against a mainline SVT-AV1, and it is stated in the readout the moment the mode is
-picked rather than only at Run, because on this tab the answer needs no binary: which parameters a
-library inside ffmpeg has is settled by that build. Offering a mode this tab cannot deliver is
-deliberate - the row was moved whole, and a mode that silently vanished per encoder would be the
-setting-dropped-without-saying-so failure the rest of this file keeps arguing against.
-
-`film-grain-table` is the one thing that could change that. aomenc takes it, and whether it survives
-ffmpeg's `-aom-params` to reach libaom **has not been measured** - so `LibAomAv1.json` has no row for
-it and `GetTableFlag` does not claim it, libaom being the one encoder here that refuses the whole
-encode over a parameter it does not know. Returning the flag from that one method is the entire change
-needed to light both table modes up on this tab once it has been measured.
+**So Quick Convert carries out three of the four modes and refuses exactly one.** Encoder analysis
+works on both its AV1 encoders, spelled by the Direct classes themselves. Grain table file works too,
+including a path with spaces in it - the table travels as one `Shell.WrapArg` argument, where the
+AV1AN tab has to refuse a spaced path that av1an's one-quoted-string re-split would break - and its
+Denoise tick runs hqdn3d as a chain filter after the geometry, this tab's one-ffmpeg chain making the
+lossless intermediate that costs the AV1AN tab a whole pass unnecessary. The binary is still asked
+about the flag at encode time, exactly as on the AV1AN tab, because a user's own SVT-AV1 may be
+mainline and refuses the whole command over the parameter. What refuses structurally is **Measured
+from source**: it is made of the denoise render and the grav1synth diff that run in front of av1an,
+and this tab's encode is a command chain with no measuring pass - the refusal, in the readout the
+moment the mode is picked, names where a table comes from instead (the Film Grain utility's Measure
+operation, or an AV1AN-tab Measured encode's kept `.grain.tbl`), after which Grain table file with
+Denoise ticked at the same strength is the measured encode.
 
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
@@ -3211,9 +3253,13 @@ picture one.
 
 ### The output colour, and the trap on the AV1AN tab
 
-On Quick Convert nothing has to be said about the output at all. The final `zscale` retags the
+On Quick Convert nothing has to be said about the output *to ffmpeg*: the final `zscale` retags the
 frames as it goes, so the file comes out tagged bt709/bt709/bt709 - verified in the real
-`-filter_complex`/`[vf]`/`-map`/`-pix_fmt` command shape, not just as a bare `-vf`.
+`-filter_complex`/`[vf]`/`-map`/`-pix_fmt` command shape, not just as a bare `-vf`. The direct
+encoder binaries are the exception on that tab now, and they take the AV1AN tab's answer: they are
+*told* their colour by flag out of `MediaFile.ColorData`, so `QuickConvert.BuildVideoCodecArgs` makes
+the same swap around `GetArgs` that `Av1an.Run` makes - without it a tone-mapped direct encode is SDR
+pixels tagged PQ and BT.2020.
 
 **The HDR side data is a separate matter, and "the chain drops it" was an encoder-dependent
 observation mistaken for a chain property.** Through libsvtav1 nothing carries frame side data into
@@ -3344,10 +3390,10 @@ Re-Encoding - a tab that encodes nothing - and dragged the quality, the preset a
 with it, since all three are filled per encoder. `QuickConvertUi.Init` names SVT-AV1 and Opus where the
 boxes are filled instead, and that is now the only statement anywhere of what the tab opens as.
 
-The numbers those two pull in are the encoders' own: `LibSvtAv1.QDefault` is 30 and its `PresetDefault`
-is 4, `Opus.QDefault` is already 128, and `InitQuickConvert` puts the channel box on stereo. `LibSvtAv1`
-is Quick Convert's alone - the AV1AN tab drives SVT through `VideoEncodersBin.SvtAv1` - so moving those
-two numbers moves nothing on the other tab.
+The numbers those two pull in are the encoders' own: `DirectSvtAv1.QDefault` is 30 and its
+`PresetDefault` is 4, `Opus.QDefault` is already 128, and `InitQuickConvert` puts the channel box on
+stereo. `DirectSvtAv1` is Quick Convert's alone - the AV1AN tab drives the same binary through
+`VideoEncodersBin.SvtAv1` - so moving those two numbers moves nothing on the other tab.
 
 Not writing them matters as much as not reading them, for the reason the AV1AN section gives: a value
 saved and never restored is one the next person to touch that method will restore, reasonably enough,

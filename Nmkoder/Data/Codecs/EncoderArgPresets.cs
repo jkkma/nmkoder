@@ -20,10 +20,11 @@ namespace Nmkoder.Data.Codecs
     /// no-op on every build they are. Parameters mainline lacks are dropped before the encode, and
     /// parameters it merely ignores go quiet on their own.
     /// <para/>
-    /// The x264 and x265 sets are Quick Convert's, and every value in them was passed to the library
-    /// inside the bundled ffmpeg and observed to be accepted. Those two encoders take no such runtime
-    /// check - see <c>Av1anEncoderName</c> - so an argument list written against the wrong build would
-    /// go missing quietly there, which is what the measuring is for.
+    /// The x264 and x265 sets belong to ffmpeg's Lib* encoders, which the CRF ladder still runs, and
+    /// every value in them was passed to the library inside the bundled ffmpeg and observed to be
+    /// accepted. Those two encoders take no runtime check - see <c>Av1anEncoderName</c> - so an
+    /// argument list written against the wrong build would go missing quietly there, which is what the
+    /// measuring is for.
     /// </summary>
     public static class EncoderArgPresets
     {
