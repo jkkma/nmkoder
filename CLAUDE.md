@@ -720,7 +720,11 @@ applies "when denoise-noise-level is enabled", and SVT-AV1 answers one set again
 with "ignored when film grain is off" - so at a strength of 0 it was a tickable box that did
 nothing. `Av1anUi.ApplyGrainDenoiseEnabled` is the one statement of that, called from
 `VidEncoderSelected` and from the strength box's own handler. It does not *clear* the tick, only
-disable it: a strength dropped to 0 and put back should bring the choice back with it.
+disable it: a strength dropped to 0 and put back should bring the choice back with it. The readout
+states the strength against its 0-50 scale, and from `GrainSynthConfig.HeavyDenoiseStrength` (30) up
+names the denoise as a cost of its own - both encoders denoise at the number the strength sets, so the
+top of the scale is maximum smoothing of the real picture as well as maximum synthetic grain, and
+nothing else on screen said the two rise together.
 
 **An advanced row naming a parameter the binary does not have refuses the encode, and only for
 SVT-AV1.** The grid is filled from a JSON list written against the build this project bundles,
@@ -3594,7 +3598,11 @@ Stream copy is not decoded, so the box is disabled for one and `GetLoudnessConfi
 AV1AN tab does not offer this**, and not by oversight: its audio arguments are deliberately unindexed -
 av1an's own `-map 0` carries every track and the tab has one bitrate and one channel count for all of
 them - so there is nowhere to put per-track measurements, and one track's numbers applied to all of them
-would move the others to the wrong loudness.
+would move the others to the wrong loudness. A file with more than one audio track has that stated
+before the run - `Av1anUi.GetMultiTrackAudioNote` names the count, the one treatment every track gets,
+and the remux-first way to choose otherwise, because on an ordinary remux that is a dozen tracks in
+half a dozen languages and every one of them quietly getting the one setting is expensive and quiet.
+FLAC is named without a bitrate, its arguments taking none (`QMax` 0).
 
 Verified by running it: six source/channel/target combinations through the real `LoudnessConfig`,
 measured and re-encoded through ffmpeg, every one landing within 0.01 dB of its target - the 5.1 to
