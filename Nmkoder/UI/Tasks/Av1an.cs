@@ -813,6 +813,14 @@ namespace Nmkoder.UI.Tasks
             // unrelated startup failure costs one extra attempt that fails the same way, logged.
             if (exitCode != 0 && !RunTask.canceled && !RunTask.failed && scenesArg.IsNotEmpty() && !AnyChunkEncoded(tempDir))
             {
+                // In the visible-console mode nothing above said anything at all - the window closed
+                // itself five seconds after the refusal - so what av1an reported is read back out of
+                // its log file, which exists in every launch mode.
+                string startupTail = Av1anOutputHandler.ReadFailureTail(tempDir);
+
+                if (startupTail.IsNotEmpty())
+                    Logger.LogWarn($"av1an reported:\n\n{startupTail.Trunc(900)}", "av1an");
+
                 Logger.LogWarn("av1an stopped before encoding anything, and this run handed it a pre-detected scene " +
                     "list - retrying once without the list in case that is what it refused. The lines above say what " +
                     "av1an itself reported.");
@@ -834,7 +842,16 @@ namespace Nmkoder.UI.Tasks
 
             if (!succeeded && !RunTask.canceled)
             {
-                RunTask.Fail($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.");
+                // The reason lives in av1an's own log and nowhere this app was reading: the visible
+                // console (the Windows default) has no output redirection, and its window closes itself
+                // five seconds after a failure - so a died-mid-encode run was reported as nothing but
+                // an exit code, with the actual error gone unread. Read before HandleTempFolder runs,
+                // which is what decides whether that log file survives at all.
+                string logTail = Av1anOutputHandler.ReadFailureTail(tempDir);
+                string tailNote = logTail.IsEmpty() ? "" :
+                    $"\n\nav1an's log ends with:\n\n{logTail.Trunc(900)}\n\nThe full log is '{Path.Combine(tempDir, "av1an.log")}'.";
+
+                RunTask.Fail($"av1an did not finish{(exitCode != 0 ? $" (exit code {exitCode})" : $" - '{Path.GetFileName(outPath)}' was not written")}.{tailNote}");
             }
 
             if (succeeded)

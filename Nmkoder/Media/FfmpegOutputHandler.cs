@@ -89,6 +89,10 @@ namespace Nmkoder.Media
 
             bool replaceLastLine = logMode == LogMode.OnlyLastLine;
 
+            // Read before the beautify rewrites the key: 'Lsize=' marks the run's final stats line,
+            // whose time= the overrun check below must not judge.
+            bool finalStatsLine = line.Contains("Lsize=");
+
             if (line.Contains("time=") && (line.StartsWith("frame=") || line.StartsWith("size=")))
                 line = FormatUtils.BeautifyFfmpegStats(line);
 
@@ -104,7 +108,7 @@ namespace Nmkoder.Media
             if (!hidden && showProgressBar && line.Contains("Time:"))
             {
                 Regex timeRegex = new Regex("(?<=Time:).*(?= )");
-                UpdateFfmpegProgress(timeRegex.Match(line).Value, line);
+                UpdateFfmpegProgress(timeRegex.Match(line).Value, line, finalStatsLine);
             }
 
             if (errors != null && evidence && errors.Evidence.IsEmpty())
@@ -212,7 +216,7 @@ namespace Nmkoder.Media
             return s;
         }
 
-        static void UpdateFfmpegProgress(string ffmpegTime, string statsLine)
+        static void UpdateFfmpegProgress(string ffmpegTime, string statsLine, bool finalStatsLine = false)
         {
             try
             {
@@ -255,7 +259,19 @@ namespace Nmkoder.Media
                 // overshoots - which proves the target wrong, since an encode cannot write more of a
                 // file than there is. What is being encoded is fine; what was measured against is
                 // not, and a bar sitting on 100% for the rest of an hour says the opposite.
-                bool overrun = currentMs > durationMs + TargetToleranceMs(durationMs);
+                bool pastTarget = currentMs > durationMs + TargetToleranceMs(durationMs);
+
+                // Unless it is the final stats line proving it alone, whose time= is the muxer's
+                // flush rather than the encode. A stream copy with sparse subtitle tracks - a remux's
+                // forced PGS tracks carry seconds of packets across a whole film - buffers the other
+                // streams against them and drains the queue at the end, timestamps and all. Measured
+                // on a UHD remux's trim: every progress line at 04:00, the final line at 48:32, and
+                // the target was declared wrong on a cut that was exactly right. A duration that is
+                // genuinely wrong trips this on ordinary lines long before the last one.
+                if (finalStatsLine && pastTarget && !pastTargetDuration)
+                    return;
+
+                bool overrun = pastTarget;
 
                 if (overrun)
                     NoteOverrun(durationMs);
@@ -287,9 +303,16 @@ namespace Nmkoder.Media
                 return;
 
             pastTargetDuration = true;
-            Logger.Log($"This run has passed {FormatUtils.Time(durationMs)}, which is all the loaded file says it is - " +
-                $"so the progress bar cannot say how far along it is, and shows that rather than sitting at 100%. " +
-                $"Usually that means the file's own duration is wrong, which a tape capture's often is. The run itself is fine.");
+
+            // With an override the target is a computed length - a cut's section, a pass's measured
+            // frame count - and not the loaded file's own duration, so the message must not send
+            // anyone off to distrust a duration nothing here was measured against.
+            Logger.Log(overrideTargetDurationMs > 0
+                ? $"This run has passed the {FormatUtils.Time(durationMs)} this step was measured against - so the " +
+                  $"progress bar cannot say how far along it is, and shows that rather than sitting at 100%. The run itself is fine."
+                : $"This run has passed {FormatUtils.Time(durationMs)}, which is all the loaded file says it is - " +
+                  $"so the progress bar cannot say how far along it is, and shows that rather than sitting at 100%. " +
+                  $"Usually that means the file's own duration is wrong, which a tape capture's often is. The run itself is fine.");
         }
 
         /// <summary> Footer status line: percentage and ETA, plus the speed figures ffmpeg reported.
@@ -316,7 +339,7 @@ namespace Nmkoder.Media
             string action = task == RunTask.TaskType.Convert || task == RunTask.TaskType.Av1an ? "Encoding" : "Processing";
 
             string state = progress < 0
-                ? $"{FormatUtils.Time(currentMs)} in, past the {FormatUtils.Time(durationMs)} this file claims"
+                ? $"{FormatUtils.Time(currentMs)} in, past the {FormatUtils.Time(durationMs)} {(overrideTargetDurationMs > 0 ? "expected" : "this file claims")}"
                 : $"{progress.Clamp(0, 100)}%";
 
             List<string> parts = new List<string> { $"{action} - {state}" };

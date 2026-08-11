@@ -324,13 +324,22 @@ namespace Nmkoder.Media
                     Program.MainWin?.SetProgress(-1);
 
                 proc.Start();
-                proc.PriorityClass = ProcessPriorityClass.BelowNormal;
 
                 if (!show)
                 {
                     proc.BeginOutputReadLine();
                     proc.BeginErrorReadLine();
                 }
+
+                // After the readers, and allowed to miss: the listing runs ('presets', '--help') can
+                // be finished before this line runs, and asking a finished process to change priority
+                // throws. When the set came first, that throw also skipped the reader hookup above, so
+                // a fast run's entire output was lost and the startup probe misread the tool as broken.
+                try
+                {
+                    proc.PriorityClass = ProcessPriorityClass.BelowNormal;
+                }
+                catch (InvalidOperationException) { } // Already exited - there is nothing left to deprioritize
 
                 while (!proc.HasExited)
                     await Task.Delay(50);
