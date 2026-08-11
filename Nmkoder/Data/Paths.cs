@@ -130,6 +130,23 @@ namespace Nmkoder.Data
             return path;
         }
 
+        /// <summary>
+        /// Where the bundled encoder binaries live - <c>SvtAv1EncApp</c>, <c>aomenc</c>, <c>vpxenc</c>,
+        /// <c>x264</c>, <c>x265</c>. <c>bundle-tools.sh</c> stages them there for av1an, which is put on
+        /// its PATH by <see cref="Media.AvProcess.RunAv1an"/>, and Quick Convert launches the same
+        /// binaries itself.
+        /// <para/>
+        /// It is a method rather than four inline <c>Path.Combine</c>s because it was already three by
+        /// the time Quick Convert wanted a fourth, and a set of copies is how the bundler's layout and
+        /// the app's idea of it come apart. Not created if it is missing - unlike
+        /// <see cref="GetBinPath"/>, nothing here ever writes to it, and a directory conjured up empty
+        /// would make "the encoder is not bundled" harder to tell from "the folder is not there".
+        /// </summary>
+        public static string GetEncoderBinPath()
+        {
+            return Path.Combine(GetBinPath(), "av1an", "enc");
+        }
+
         public static string GetDataPath()
         {
             string path = Path.Combine(GetRootDir(), "data");

@@ -139,8 +139,8 @@ namespace Nmkoder.UI.Tasks
             // Video Without Re-Encoding, a tab that encodes nothing - and dragged the quality, the preset
             // and the colour formats with it, since all three are filled per encoder. The same trap the
             // AV1AN tab hit when its own persistence went.
-            Form.EncVidCodecsBox.SetItems(Enum.GetValues<CodecUtils.VideoCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
-                Array.IndexOf(Enum.GetValues<CodecUtils.VideoCodec>(), CodecUtils.VideoCodec.LibSvtAv1));
+            Form.EncVidCodecsBox.SetItems(OfferedCodecs.Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                Array.IndexOf(OfferedCodecs, DefaultCodec));
 
             // Load quality modes
             Form.EncQualModeBox.SetItems(Enum.GetValues<QualityMode>()
@@ -507,7 +507,7 @@ namespace Nmkoder.UI.Tasks
             if (index < 0)
                 return;
 
-            CodecUtils.VideoCodec c = (CodecUtils.VideoCodec)index;
+            CodecUtils.VideoCodec c = OfferedCodecs[index.Clamp(0, OfferedCodecs.Length - 1)];
             IEncoder enc = CodecUtils.GetCodec(c);
             Form.FfmpegContainerBox.IsVisible = !enc.IsFixedFormat; // Disable container selection for fixed formats (GIF, PNG etc)
             bool noRateControl = c == CodecUtils.VideoCodec.Gif || c == CodecUtils.VideoCodec.Png || c == CodecUtils.VideoCodec.Jpg;
@@ -781,9 +781,47 @@ namespace Nmkoder.UI.Tasks
 
         #region Get Current Codec
 
+        /// <summary>
+        /// The video encoders this tab offers, in dropdown order.
+        /// <para/>
+        /// **An explicit list rather than every member of the enum, and that is now load-bearing.** The
+        /// enum carries ffmpeg's Lib* five as well, which this tab no longer offers - they are kept
+        /// because the CRF ladder deliberately runs on ffmpeg's own encoders and saves this enum's
+        /// numeric value - so "every member" would put five duplicate-looking entries on the dropdown.
+        /// With the list explicit, the box's index is an index into *this* and not into the enum, which
+        /// is what <see cref="GetCurrentCodecV"/> and <see cref="VidEncoderSelected"/> read it as.
+        /// <para/>
+        /// The Direct* five are absent for now: they are the standalone binaries, and
+        /// <see cref="QuickConvert.Run"/> still builds a single ffmpeg command that cannot drive one.
+        /// Adding them here is the switch, and it is not thrown until Run can pipe to them - offering
+        /// an encoder the run would splice into an ffmpeg command line as though it were an AVOption
+        /// set is a broken encode rather than a missing feature.
+        /// </summary>
+        public static readonly CodecUtils.VideoCodec[] OfferedCodecs =
+        {
+            CodecUtils.VideoCodec.CopyVideo,
+            CodecUtils.VideoCodec.StripVideo,
+            CodecUtils.VideoCodec.Libx264,
+            CodecUtils.VideoCodec.Libx265,
+            CodecUtils.VideoCodec.H264Nvenc,
+            CodecUtils.VideoCodec.H265Nvenc,
+            CodecUtils.VideoCodec.LibVpx,
+            CodecUtils.VideoCodec.LibSvtAv1,
+            CodecUtils.VideoCodec.LibAomAv1,
+            CodecUtils.VideoCodec.Gif,
+            CodecUtils.VideoCodec.Png,
+            CodecUtils.VideoCodec.Jpg,
+        };
+
+        /// <summary> What the tab opens on. Nothing here is restored between sessions, so this is what
+        /// every session starts at. </summary>
+        public const CodecUtils.VideoCodec DefaultCodec = CodecUtils.VideoCodec.LibSvtAv1;
+
+        /// <summary> The codec the box is showing. The index is into <see cref="OfferedCodecs"/>, not
+        /// into the enum - the two stopped agreeing when the direct encoders were appended. </summary>
         public static CodecUtils.VideoCodec GetCurrentCodecV()
         {
-            return (CodecUtils.VideoCodec)Math.Max(0, Form.EncVidCodecsBox.SelectedIndex);
+            return OfferedCodecs[Form.EncVidCodecsBox.SelectedIndex.Clamp(0, OfferedCodecs.Length - 1)];
         }
 
         public static CodecUtils.AudioCodec GetCurrentCodecA()
@@ -837,10 +875,16 @@ namespace Nmkoder.UI.Tasks
                 dict.Add("grainTable", grain.TablePath);
             }
 
-            // Bare "key=value" pairs. Each encoder re-spells them for itself, four of them into a
-            // single ":"-joined parameter option and the rest as AVOptions of their own - see
-            // FfmpegEncoderArgs, which is where that difference is stated.
-            dict.Add("advanced", EncoderArgs.BuildPairs(Form.EncArgRows));
+            // Two spellings, because this tab now drives two kinds of encoder. A binary this app
+            // launches gets "--key=value", the form BuildCli writes and the form av1an's lists are
+            // written in - the direct classes space-separate it where their binary wants that. An
+            // ffmpeg encoder gets bare "key=value" pairs and re-spells them for itself, four of them
+            // into a single ":"-joined parameter option and the rest as AVOptions of their own; see
+            // FfmpegEncoderArgs. Sending either form to the other is silent on three of the five
+            // binaries, so it follows the same discriminator EncoderArgs.FolderFor uses.
+            dict.Add("advanced", enc is Data.Codecs.Video.IBinaryEncoder
+                ? EncoderArgs.BuildCli(Form.EncArgRows)
+                : EncoderArgs.BuildPairs(Form.EncArgRows));
 
             return dict;
         }

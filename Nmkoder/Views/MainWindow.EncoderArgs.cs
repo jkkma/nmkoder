@@ -82,9 +82,17 @@ namespace Nmkoder.Views
                 CategoryTabs = EncArgCategoryTabs,
                 Encoder = () => CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()),
                 Save = SaveEncAdvancedArgs,
-                Spell = a => FfmpegEncoderArgs.Spell(CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()).Name, a),
-                Describe = rows => FfmpegEncoderArgs.Render(CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()).Name,
-                    EncoderArgs.BuildPairs(rows)),
+                // Both follow the selected encoder rather than the tab: this one drives standalone
+                // binaries, whose parameters are written "--key value" on a command line of their own,
+                // as well as ffmpeg's, whose are an option of ffmpeg's. Asked per call, because the
+                // section is built before any codec box has a selection.
+                Spell = a => CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()) is Data.Codecs.Video.IBinaryEncoder
+                    ? $"--{(a ?? "").TrimStart('-')}"
+                    : FfmpegEncoderArgs.Spell(CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()).Name, a),
+                Describe = rows => CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()) is Data.Codecs.Video.IBinaryEncoder
+                    ? EncoderArgs.BuildCli(rows)
+                    : FfmpegEncoderArgs.Render(CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()).Name,
+                        EncoderArgs.BuildPairs(rows)),
             };
         }
 

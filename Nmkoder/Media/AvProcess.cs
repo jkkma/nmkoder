@@ -583,14 +583,21 @@ namespace Nmkoder.Media
         /// win-x64 alone, so mkvmerge, mkvextract and mkvinfo are routinely absent on Linux and macOS
         /// and this is the difference between naming the missing package and reporting a mystery.
         /// </summary>
-        public static bool IsToolAvailable(string name)
+        public static bool IsToolAvailable(string name, params string[] extraDirs)
         {
             // Searched over the PATH the tool will be launched with, not the one this process holds.
             // Every runner here goes through OsUtils.SetPathVar, and on Windows that keeps bin/ and
             // C:\Windows and drops the rest - so checking the full PATH would vouch for an mkvmerge
             // installed in Program Files that the launcher then cannot resolve, leaving exactly the
             // unexplained failure this check exists to replace.
-            IEnumerable<string> dirs = OsUtils.GetPathVar(new[] { Paths.GetBinPath() }).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            //
+            // extraDirs is for a caller that will *add* directories to that PATH itself. Quick Convert's
+            // encoder binaries live in bin/av1an/enc, which nothing puts on the default PATH: asked
+            // without it, this answers "missing" for a perfectly well bundled SvtAv1EncApp. Whatever a
+            // caller passes here it must also pass to the runner, or the two disagree in the direction
+            // that is worst - vouching for a binary the launch then cannot resolve.
+            string[] roots = new[] { Paths.GetBinPath() }.Concat(extraDirs ?? new string[0]).ToArray();
+            IEnumerable<string> dirs = OsUtils.GetPathVar(roots).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
             return File.Exists(Shell.ResolveExecutable(name, dirs));
         }
 

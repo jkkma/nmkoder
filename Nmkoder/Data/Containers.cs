@@ -16,25 +16,31 @@ namespace Nmkoder.Data
 
         public static VC[] GetSupportedVideoCodecs (Container c)
         {
+            // A container holds a *codec*, so each Direct* entry sits wherever its ffmpeg counterpart
+            // does: DirectX264 is H.264 however it was produced. They are listed beside them rather than
+            // replacing them because the Lib* members are still reachable through the CRF ladder.
+
             // VP9 does go into MP4, contrary to what this used to say
             if (c == Container.Mp4)
-                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
+                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1,
+                    VC.DirectX264, VC.DirectX265, VC.DirectVpx, VC.DirectSvtAv1, VC.DirectAomAv1 };
 
             if (c == Container.Mkv)
-                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1, VC.Png, VC.Jpg };
+                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1, VC.Png, VC.Jpg,
+                    VC.DirectX264, VC.DirectX265, VC.DirectVpx, VC.DirectSvtAv1, VC.DirectAomAv1 };
 
             if (c == Container.Webm)
-                return new VC[] { VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1 };
+                return new VC[] { VC.LibVpx, VC.LibSvtAv1, VC.LibAomAv1, VC.DirectVpx, VC.DirectSvtAv1, VC.DirectAomAv1 };
 
             // MOV takes H.264/H.265 but not VP9 or AV1
             if (c == Container.Mov)
-                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc };
+                return new VC[] { VC.Libx264, VC.Libx265, VC.H264Nvenc, VC.H265Nvenc, VC.DirectX264, VC.DirectX265 };
 
             // .m4a goes to the ipod muxer, not the mp4 one, and that muxer's tag table is much shorter:
             // H.264 muxes, H.265 and VP9 and AV1 do not. Listing it does not put video in an audio file,
             // it only stops a working combination being called invalid.
             if (c == Container.M4a)
-                return new VC[] { VC.Libx264, VC.H264Nvenc };
+                return new VC[] { VC.Libx264, VC.H264Nvenc, VC.DirectX264 };
 
             return new VC[0]; // OGG holds none of the video codecs offered here
         }

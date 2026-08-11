@@ -32,6 +32,19 @@ namespace Nmkoder.Data.Codecs.Video
         /// <summary> The executable, as <see cref="Media.AvProcess.IsToolAvailable"/> would look for it. </summary>
         string ToolName { get; }
 
+        /// <summary>
+        /// Which parameter list in <c>bin/encoderArgs/av1an/</c> describes this binary's own CLI.
+        /// <para/>
+        /// It is the AV1AN tab's list because it is the same binary: those files name the parameters
+        /// <c>SvtAv1EncApp</c> and friends actually take, where <c>bin/encoderArgs/ffmpeg/</c> names
+        /// what ffmpeg's *wrapper* takes, and the two are different vocabularies rather than different
+        /// spellings. Feeding an ffmpeg list to a CLI binary is silent on three of the five encoders -
+        /// x264, x265 and SVT-AV1 warn and encode anyway - so this is not something to leave to a
+        /// filename coincidence. Named separately from <see cref="IEncoder.Name"/> because the class is
+        /// <c>DirectX264</c> and the list has always been <c>X264.json</c>.
+        /// </summary>
+        string ArgListName { get; }
+
         /// <summary> What the encoder writes: the extension of the elementary stream or bare container
         /// it produces before anything else is muxed into it. </summary>
         string StreamExt { get; }
@@ -53,6 +66,21 @@ namespace Nmkoder.Data.Codecs.Video
         /// <summary> How this encoder is told to read the pipe and where to write, which is the half of
         /// the command line that is not a setting. </summary>
         string GetIoArgs(string outPath);
+
+        /// <summary>
+        /// The rate-control pass flags, given the file the first pass writes its statistics to.
+        /// <para/>
+        /// **All five take a two-pass run and they spell it two ways**, measured rather than read:
+        /// x264, x265 and SvtAv1EncApp take <c>--pass N --stats FILE</c>, while aomenc and vpxenc take
+        /// <c>--passes=2 --pass=N --fpf=FILE</c> and need <c>--passes=1</c> stating explicitly for a
+        /// single-pass run. x265 writes a second file beside the one it is given (<c>FILE.cutree</c>),
+        /// so the stats path is a *stem* to clean up rather than one file.
+        /// <para/>
+        /// The first pass writes its bitstream to the same intermediate the second pass overwrites,
+        /// rather than to a null sink - <c>/dev/null</c> and <c>NUL</c> are not the same word, and there
+        /// is nothing to be gained by discovering that on Windows.
+        /// </summary>
+        string GetPassArgs(Pass pass, string statsPath);
     }
 
     /// <summary> Shared spellings for the direct encoders. </summary>
@@ -76,6 +104,25 @@ namespace Nmkoder.Data.Codecs.Video
             return encArgs != null && encArgs.ContainsKey(key) ? encArgs[key] : fallback;
         }
 
+        /// <summary> The "--pass N --stats FILE" spelling, which x264, x265 and SvtAv1EncApp share. </summary>
+        public static string StatsPassArgs(Pass pass, string statsPath)
+        {
+            if (pass == Pass.OneOfOne)
+                return "";
+
+            return $"--pass {(pass == Pass.OneOfTwo ? 1 : 2)} --stats {Shell.WrapArg(statsPath)}";
+        }
+
+        /// <summary> The "--passes=N --pass=N --fpf=FILE" spelling aomenc and vpxenc share. Unlike the
+        /// three above, these two want the *total* pass count stating even for a single-pass run. </summary>
+        public static string FpfPassArgs(Pass pass, string statsPath)
+        {
+            if (pass == Pass.OneOfOne)
+                return "--passes=1";
+
+            return $"--passes=2 --pass={(pass == Pass.OneOfTwo ? 1 : 2)} --fpf={Shell.WrapArg(statsPath)}";
+        }
+
         /// <summary> The advanced grid's "--key=value" pairs in the "--key value" form SVT-AV1, x264 and
         /// x265 take. Only the first '=' separates the two, because a value can hold one - which is how
         /// SVT's own grouped parameters are written. Copied in behaviour from
@@ -96,6 +143,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "AV1 (SVT-AV1)";
         public string ToolName { get; } = "SvtAv1EncApp";
+        public string ArgListName { get; } = "SvtAv1";
         // IVF carries the frame rate in its header, so the mux needs to be told nothing.
         public string StreamExt { get; } = "ivf";
         public bool StreamCarriesTiming { get; } = true;
@@ -109,9 +157,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string QInfo { get; } = "CRF (0-63 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
-        // SVT-AV1's own two-pass wants --pass and a stats file per pass, which is a different shape from
-        // the single stats file x264 and x265 share between theirs. Left off rather than half-wired.
-        public bool SupportsTwoPass { get; } = false;
+        public bool SupportsTwoPass { get; } = true;
         public bool ForceTwoPass { get; } = false;
         public bool DoesNotEncode { get; } = false;
         public bool IsFixedFormat { get; } = false;
@@ -120,6 +166,11 @@ namespace Nmkoder.Data.Codecs.Video
         public string GetIoArgs(string outPath)
         {
             return $"-i stdin -b {Shell.WrapArg(outPath)}";
+        }
+
+        public string GetPassArgs(Pass pass, string statsPath)
+        {
+            return DirectEncoderUtils.StatsPassArgs(pass, statsPath);
         }
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
@@ -160,6 +211,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "AV1 (AOM)";
         public string ToolName { get; } = "aomenc";
+        public string ArgListName { get; } = "AomAv1";
         public string StreamExt { get; } = "ivf";
         public bool StreamCarriesTiming { get; } = true;
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6", "7", "8" };
@@ -172,7 +224,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string QInfo { get; } = "CQ level (0-63 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
-        public bool SupportsTwoPass { get; } = false;
+        public bool SupportsTwoPass { get; } = true;
         public bool ForceTwoPass { get; } = false;
         public bool DoesNotEncode { get; } = false;
         public bool IsFixedFormat { get; } = false;
@@ -182,6 +234,11 @@ namespace Nmkoder.Data.Codecs.Video
         public string GetIoArgs(string outPath)
         {
             return $"--ivf -o {Shell.WrapArg(outPath)} -";
+        }
+
+        public string GetPassArgs(Pass pass, string statsPath)
+        {
+            return DirectEncoderUtils.FpfPassArgs(pass, statsPath);
         }
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
@@ -217,7 +274,7 @@ namespace Nmkoder.Data.Codecs.Video
                 : $"--denoise-noise-level={DirectEncoderUtils.Get(encArgs, "grainSynthStrength", "0")} " +
                   $"--enable-dnl-denoising={(DirectEncoderUtils.Get(encArgs, "grainSynthDenoise", "False").GetBool() ? 1 : 0)}";
 
-            return new CodecArgs($"--passes=1 {rc} --cpu-used={preset} {kf} --row-mt=1 {grainArgs} {colors} {tiles} {adv}");
+            return new CodecArgs($"{rc} --cpu-used={preset} {kf} --row-mt=1 {grainArgs} {colors} {tiles} {adv}");
         }
     }
 
@@ -227,6 +284,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "VP9 (VPX)";
         public string ToolName { get; } = "vpxenc";
+        public string ArgListName { get; } = "Vpx";
         public string StreamExt { get; } = "ivf";
         public bool StreamCarriesTiming { get; } = true;
         public string[] Presets { get; } = new string[] { "0", "1", "2", "3", "4", "5", "6", "7", "8" };
@@ -239,7 +297,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string QInfo { get; } = "CQ level (0-63 - Lower is better)";
         public string PresetInfo { get; } = "Lower = Better compression";
 
-        public bool SupportsTwoPass { get; } = false;
+        public bool SupportsTwoPass { get; } = true;
         public bool ForceTwoPass { get; } = false;
         public bool DoesNotEncode { get; } = false;
         public bool IsFixedFormat { get; } = false;
@@ -248,6 +306,11 @@ namespace Nmkoder.Data.Codecs.Video
         public string GetIoArgs(string outPath)
         {
             return $"--ivf -o {Shell.WrapArg(outPath)} -";
+        }
+
+        public string GetPassArgs(Pass pass, string statsPath)
+        {
+            return DirectEncoderUtils.FpfPassArgs(pass, statsPath);
         }
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
@@ -272,7 +335,7 @@ namespace Nmkoder.Data.Codecs.Video
                 : $"--end-usage=q --cq-level={q}";
             string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : "";
 
-            return new CodecArgs($"--codec=vp9 --profile={profile} --bit-depth={depth} --passes=1 {rc} " +
+            return new CodecArgs($"--codec=vp9 --profile={profile} --bit-depth={depth} {rc} " +
                 $"--cpu-used={preset} {kf} --row-mt=1 {tiles} {adv}");
         }
     }
@@ -283,6 +346,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "H.264 / AVC (x264)";
         public string ToolName { get; } = "x264";
+        public string ArgListName { get; } = "X264";
         // Raw Annex B. x264 can mux Matroska itself where its build has the muxer, but that is a build
         // option rather than a promise - and the containerise step below is needed for x265 regardless,
         // so both Annex B encoders take the same route rather than each taking its own.
@@ -298,7 +362,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string QInfo { get; } = "CRF (0-51 - Lower is better)";
         public string PresetInfo { get; } = "Slower = Better compression";
 
-        public bool SupportsTwoPass { get; } = false;
+        public bool SupportsTwoPass { get; } = true;
         public bool ForceTwoPass { get; } = false;
         public bool DoesNotEncode { get; } = false;
         public bool IsFixedFormat { get; } = false;
@@ -307,6 +371,11 @@ namespace Nmkoder.Data.Codecs.Video
         public string GetIoArgs(string outPath)
         {
             return $"--demuxer y4m -o {Shell.WrapArg(outPath)} -";
+        }
+
+        public string GetPassArgs(Pass pass, string statsPath)
+        {
+            return DirectEncoderUtils.StatsPassArgs(pass, statsPath);
         }
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
@@ -345,6 +414,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string Name { get { return GetType().Name; } }
         public string FriendlyName { get; } = "H.265 / HEVC (x265)";
         public string ToolName { get; } = "x265";
+        public string ArgListName { get; } = "X265";
         // x265 has no muxer at all - "infile can be YUV or Y4M" and the output is a raw bitstream.
         public string StreamExt { get; } = "265";
         public bool StreamCarriesTiming { get; } = false;
@@ -358,7 +428,7 @@ namespace Nmkoder.Data.Codecs.Video
         public string QInfo { get; } = "CRF (0-51 - Lower is better)";
         public string PresetInfo { get; } = "Slower = Better compression";
 
-        public bool SupportsTwoPass { get; } = false;
+        public bool SupportsTwoPass { get; } = true;
         public bool ForceTwoPass { get; } = false;
         public bool DoesNotEncode { get; } = false;
         public bool IsFixedFormat { get; } = false;
@@ -367,6 +437,11 @@ namespace Nmkoder.Data.Codecs.Video
         public string GetIoArgs(string outPath)
         {
             return $"--y4m --input - --output {Shell.WrapArg(outPath)}";
+        }
+
+        public string GetPassArgs(Pass pass, string statsPath)
+        {
+            return DirectEncoderUtils.StatsPassArgs(pass, statsPath);
         }
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)

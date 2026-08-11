@@ -42,6 +42,27 @@ namespace Nmkoder.UI.Tasks
         public const string FfmpegFolder = "ffmpeg";
 
         /// <summary>
+        /// Which folder an encoder's list lives in - the tab's own, unless the encoder is a binary this
+        /// app launches itself, in which case it is av1an's whichever tab is asking.
+        /// <para/>
+        /// The folder follows the *encoder* rather than the tab because Quick Convert now drives both
+        /// kinds: the standalone binaries take the CLI parameters av1an's lists name, while NVENC, GIF,
+        /// PNG and JPEG are still ffmpeg's own. The CRF ladder is unaffected - it runs ffmpeg encoders
+        /// deliberately, and none of them is an <see cref="Data.Codecs.Video.IBinaryEncoder"/>.
+        /// </summary>
+        public static string FolderFor(IEncoder enc, string tabDefault)
+        {
+            return enc is Data.Codecs.Video.IBinaryEncoder ? Av1anFolder : tabDefault;
+        }
+
+        /// <summary> The list file's name, which is the class name except for the direct encoders -
+        /// <c>DirectX264</c> reads <c>X264.json</c>, the list already written for that binary. </summary>
+        public static string ListNameFor(IEncoder enc)
+        {
+            return (enc as Data.Codecs.Video.IBinaryEncoder)?.ArgListName ?? enc.Name;
+        }
+
+        /// <summary>
         /// The parameters documented for an encoder, as [argument, value, description, category,
         /// details, examples] rows. Values come through blank: the list is there to be read and
         /// filled in, and only rows with a value reach the command line. An encoder with no file
@@ -52,7 +73,7 @@ namespace Nmkoder.UI.Tasks
         public static List<EncoderArgRow> ReadRows(IEncoder enc, string folder)
         {
             List<EncoderArgRow> rows = new List<EncoderArgRow>();
-            string jsonPath = Path.Combine(Paths.GetBinPath(), ArgsFolder, folder, enc.Name + ".json");
+            string jsonPath = Path.Combine(Paths.GetBinPath(), ArgsFolder, FolderFor(enc, folder), ListNameFor(enc) + ".json");
 
             if (!File.Exists(jsonPath))
                 return rows;

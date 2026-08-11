@@ -25,7 +25,24 @@ namespace Nmkoder.Data
         // Appended rather than ordered by codec: the dropdown is built straight from this enum and
         // the selected index is what gets saved, so inserting anywhere else repoints saved settings.
         public enum Av1anCodec { AomAv1, SvtAv1, Vpx, X265, X264 };
-        public enum VideoCodec { CopyVideo, StripVideo, Libx264, Libx265, H264Nvenc, H265Nvenc, LibVpx, LibSvtAv1, LibAomAv1, Gif, Png, Jpg };
+
+        // **Appended, never reordered, and the reason is no longer the one above.** Neither codec
+        // dropdown saves its index any more - Quick Convert restores nothing - but the CRF ladder does
+        // save this enum's *numeric* value (Config.Key.UtilCrfLadderEncoder, read back in
+        // UtilCrfLadder.Load), so a member replaced at an existing ordinal repoints every config file
+        // that already exists. Its Encoders.Contains guard does not catch that: a different member at
+        // the same ordinal is still in the array.
+        //
+        // The Direct* five are the standalone binaries Quick Convert now drives; the Lib* five are
+        // ffmpeg's own, kept because the CRF ladder deliberately runs on ffmpeg's encoders rather than
+        // av1an's - see "ffmpeg's own encoders, not av1an's" in CLAUDE.md - even though Quick Convert
+        // no longer offers them.
+        public enum VideoCodec
+        {
+            CopyVideo, StripVideo, Libx264, Libx265, H264Nvenc, H265Nvenc, LibVpx, LibSvtAv1, LibAomAv1,
+            Gif, Png, Jpg,
+            DirectX264, DirectX265, DirectVpx, DirectSvtAv1, DirectAomAv1,
+        };
         public enum AudioCodec { CopyAudio, StripAudio, Aac, Opus, Vorbis, Eac3, Mp3, Flac };
         public enum SubtitleCodec { CopySubs, StripSubs, MovText, Srt, WebVtt };
 
@@ -43,7 +60,19 @@ namespace Nmkoder.Data
             if (c == VideoCodec.Gif) return new Gif();
             if (c == VideoCodec.Png) return new Png();
             if (c == VideoCodec.Jpg) return new Jpg();
+            if (c == VideoCodec.DirectX264) return new DirectX264();
+            if (c == VideoCodec.DirectX265) return new DirectX265();
+            if (c == VideoCodec.DirectVpx) return new DirectVpx();
+            if (c == VideoCodec.DirectSvtAv1) return new DirectSvtAv1();
+            if (c == VideoCodec.DirectAomAv1) return new DirectAomAv1();
             return null;
+        }
+
+        /// <summary> The encoder as a binary this app launches itself, or null where it is one of
+        /// ffmpeg's own. The one place the two kinds are told apart. </summary>
+        public static IBinaryEncoder GetBinaryCodec(VideoCodec c)
+        {
+            return GetCodec(c) as IBinaryEncoder;
         }
 
         public static IEncoder GetCodec(Av1anCodec c)

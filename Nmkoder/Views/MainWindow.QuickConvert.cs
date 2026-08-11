@@ -145,7 +145,7 @@ namespace Nmkoder.Views
             }
             else
             {
-                IEncoder enc = CodecUtils.GetCodec((CodecUtils.VideoCodec)Math.Max(0, EncVidCodecsBox.SelectedIndex));
+                IEncoder enc = CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV());
                 EncVidQualityBox.FormatString = "0";
                 EncVidQualityBox.SetRange(enc.QMin.Clamp(0, int.MaxValue), enc.QMax.Clamp(0, int.MaxValue));
 
