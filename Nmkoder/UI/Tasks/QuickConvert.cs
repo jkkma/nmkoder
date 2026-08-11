@@ -503,8 +503,9 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// The whole command chain for an encoder binary: one decode-and-filter ffmpeg per pass piping
-        /// y4m into the encoder, an MP4 containerise step where the encoder writes raw Annex B, and a
-        /// final ffmpeg muxing the encoded video with everything that never went down the pipe.
+        /// y4m into the encoder, an MP4 containerise step where the encoder writes raw Annex B *and*
+        /// the output container will not stamp it, and a final ffmpeg muxing the encoded video with
+        /// everything that never went down the pipe.
         /// <para/>
         /// The mux reads the original inputs exactly as the single command did - same files, same
         /// indices - with the encoded video appended as the **last** '-i', which is the trick the QTGMC
@@ -572,26 +573,41 @@ namespace Nmkoder.UI.Tasks
             }
 
             string encodedVideo = files.Intermediate;
+            // The demuxer arguments the encoded video's own '-i' needs, which is nothing at all for a
+            // stream in a container that already states its timing.
+            string encodedVideoIn = "";
 
-            // Raw Annex B cannot be -c copy'd into Matroska: read back with -framerate, its packets
-            // carry no timestamps at all, and Matroska refuses them outright. MP4 stamps them on the
-            // way in, so the stream is containerised first and the mux reads that. The setts bitstream
-            // filter is not the cheaper answer it looks like - its packet index counts in decode
-            // order, so on any stream with B-frames it stamps the frames into the wrong presentation
-            // order. The rate is the post-filter one: an fps resample or a bob changes what the frames
-            // arrive at, and the raw stream knows nothing the demuxer could check it against.
+            // Raw Annex B carries no timestamps: read back with -framerate, its packets arrive at the
+            // muxer with none at all, and only some muxers will stamp them - see
+            // Containers.StampsUntimedPackets, which is where that measurement lives. Into MP4, MOV or
+            // M4A the stream goes straight to the mux as its last '-i'; into Matroska it has to be
+            // containerised into MP4 first, because Matroska refuses it. The setts bitstream filter is
+            // not the cheaper answer it looks like - its packet index counts in decode order, so on any
+            // stream with B-frames it stamps the frames into the wrong presentation order. The rate is
+            // the post-filter one: an fps resample or a bob changes what the frames arrive at, and the
+            // raw stream knows nothing the demuxer could check it against.
             if (!enc.StreamCarriesTiming)
             {
                 Fraction rate = QuickConvertUi.GetPostFilterRate();
                 string rateArg = rate.GetFloat() > 0.01f ? $"-framerate {rate} " : "";
+                string rawIn = $"{rateArg}-f {(enc.StreamExt == "265" ? "hevc" : "h264")} ";
 
                 if (rateArg.IsEmpty())
                     Logger.Log($"The source's frame rate could not be read, so the raw {enc.StreamExt} stream is " +
-                        $"containerised at FFmpeg's default rate - the output's timing may be wrong.", true);
+                        $"read back at FFmpeg's default rate - the output's timing may be wrong.", true);
 
-                cmd += $" && ffmpeg -y -loglevel warning -stats {rateArg}-f {(enc.StreamExt == "265" ? "hevc" : "h264")} " +
-                    $"-i {Shell.WrapArg(files.Intermediate)} -c copy {Shell.WrapArg(files.Mp4)}";
-                encodedVideo = files.Mp4;
+                if (Containers.StampsUntimedPackets(GetCurrentContainer()))
+                {
+                    // Saves writing and reading a second whole copy of the encoded video, which for a
+                    // feature-length encode is the largest scratch file this tab produces.
+                    encodedVideoIn = rawIn;
+                }
+                else
+                {
+                    cmd += $" && ffmpeg -y -loglevel warning -stats {rawIn}" +
+                        $"-i {Shell.WrapArg(files.Intermediate)} -c copy {Shell.WrapArg(files.Mp4)}";
+                    encodedVideo = files.Mp4;
+                }
             }
 
             // The same input index convention as DeinterlacePipeInput: batch mode passes one original
@@ -599,7 +615,7 @@ namespace Nmkoder.UI.Tasks
             int encodedInput = RunTask.currentFileListMode == RunTask.FileListMode.Batch ? 1 : FileList.Items.Count;
             string muxIn = TrackList.GetInputFilesString(QuickConvertUi.GetMuxTrimInputArgs());
 
-            cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} -i {Shell.WrapArg(encodedVideo)} " +
+            cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} {encodedVideoIn}-i {Shell.WrapArg(encodedVideo)} " +
                 $"{TrackList.GetMuxMapArgs(encodedInput)} -c:v copy {a} {s} {meta} " +
                 $"{QuickConvertUi.GetMuxTrimOutputArgs()} {muxing} {Shell.WrapArg(outPath)}";
 
@@ -685,8 +701,10 @@ namespace Nmkoder.UI.Tasks
             /// <summary> What the encoder writes: an IVF, or a raw Annex B stream. </summary>
             public readonly string Intermediate;
 
-            /// <summary> The containerised Annex B stream, written only for the encoders whose raw
-            /// output carries no timing. </summary>
+            /// <summary> The containerised Annex B stream, written only where the encoder's raw output
+            /// carries no timing *and* the output container refuses an unstamped packet - so for x264
+            /// and x265 into Matroska, and nothing else. Named unconditionally all the same, since the
+            /// cleanup has to sweep it after a run that changed container mid-session. </summary>
             public readonly string Mp4;
 
             /// <summary> The two-pass statistics stem. x265 writes a second file beside it

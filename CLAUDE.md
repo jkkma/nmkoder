@@ -1567,20 +1567,36 @@ load-bearing here too.
 Measured on ffmpeg 6.1 *and* on the BtbN master build this project bundles: a `.264` or `.265` read back
 with `-framerate N` yields packets with no timestamps, and Matroska refuses them - "Timestamps are unset
 in a packet for stream 0", then "Error muxing a packet", and no output. `-fflags +genpts`, `+igndts`,
-`-fps_mode` and an output-side `-r` all fail the same way. MP4 stamps them on the way in, so an Annex B
-stream is containerised into MP4 first and the mux reads that. **The `setts` bitstream filter looks like
-the cheaper answer and must not be used**: its packet index counts in *decode* order, so on any stream
-with B-frames it stamps the frames into the wrong presentation order - it "works" on a test clip encoded
-without them and scrambles a real encode.
+`-fps_mode` and an output-side `-r` all fail the same way. (The wording has drifted since - a current
+master build says "Can't write packet with unknown timestamp" - so match the shape, not the sentence.)
+**The `setts` bitstream filter looks like the cheaper answer and must not be used**: its packet index
+counts in *decode* order, so on any stream with B-frames it stamps the frames into the wrong
+presentation order - it "works" on a test clip encoded without them and scrambles a real encode.
 
 So the intermediates are `.ivf` for SVT-AV1, aomenc and vpxenc, whose IVF header carries the frame rate
-and mux straight in; and raw Annex B plus an MP4 containerise step for x264 and x265. x264 *can* mux
-Matroska itself where its build has the muxer, and that is a build option rather than a promise - both
-Annex B encoders take the same route rather than each taking its own. **The containerise step's
-`-framerate` is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an fps resample or a bob
-changes what the frames leave the chain at, the raw stream knows nothing a demuxer could check against,
-and the y4m header's rate died with the pipe - so a resampled x264/x265 encode stated at the source's
-rate would play at the wrong speed with its audio drifting away from it.
+and mux straight in; and raw Annex B for x264 and x265. x264 *can* mux Matroska itself where its build
+has the muxer, and that is a build option rather than a promise - both Annex B encoders take the same
+route rather than each taking its own.
+
+**The MP4 containerise step is Matroska's alone, because it is only the muxer that refuses that decides
+it.** The MP4-family muxers stamp an unstamped packet themselves, so into MP4, MOV or M4A the raw stream
+goes straight to the mux as its last `-i` and no intermediate MP4 is written - one whole extra write and
+read of the encoded video saved, which on a feature-length encode is the largest scratch file this tab
+produces. `Containers.StampsUntimedPackets` is the one statement of which containers those are.
+Measured against a current BtbN master build over H.264 and H.265 streams carrying B-frames and a
+b-pyramid, comparing the two routes: same packet count, same PTS and DTS in presentation order, and
+bit-identical decoded frames, differing only in a stream duration field by one unit of a 1/1200000
+timebase. Matroska refusing it also leaves a **796-byte stub** behind, which is the `File.Exists` trap
+this file already warns about twice - the run is judged by its stream count, not by a file existing.
+
+**The `-framerate` is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an fps resample or a
+bob changes what the frames leave the chain at, the raw stream knows nothing a demuxer could check
+against, and the y4m header's rate died with the pipe - so a resampled x264/x265 encode stated at the
+source's rate would play at the wrong speed with its audio drifting away from it. It rides in front of
+the encoded video's own `-i` now rather than on a containerise command, which is the same position and
+the same argument. Worth knowing before reading a mismatch into it: x264 and x265 write VUI timing from
+the y4m header, and **the bitstream's own timing wins over `-framerate`** where the two disagree - which
+the app cannot produce, both numbers coming from the same post-filter rate.
 
 Two-pass runs the pipe twice against one stats stem - `--pass N --stats` on x264, x265 and SVT,
 `--passes=2 --pass=N --fpf=` on aomenc and vpxenc, which also want `--passes=1` stating for a
