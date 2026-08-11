@@ -6,11 +6,22 @@ namespace Nmkoder.Data
     /// Trim configuration produced by the trim dialog. Used to live as a nested class inside the
     /// WinForms TrimForm; it is plain data, so it belongs with the rest of the model.
     /// <para/>
-    /// The three modes differ in what the user types and in how accurate the start point is, and no
-    /// longer in the mechanism. Both time modes and the frame mode come out as a seek and a duration:
-    /// the keyframe mode seeks the input, which is instant and lands on the nearest keyframe before the
-    /// point; the other two seek the output, which decodes and discards its way there and so stops
-    /// exactly where it was asked to.
+    /// The three modes differ in what the user types and in how the seek is carried out, and - against
+    /// what this comment used to say - not in how accurate the start point is. Both time modes and the
+    /// frame mode come out as a seek and a duration: <see cref="Mode.TimeKeyframe"/> seeks the input,
+    /// the other two seek the output, which decodes and discards its way there.
+    /// <para/>
+    /// The input-side seek is exact too wherever the video is re-encoded, accurate_seek being on by
+    /// default: FFmpeg seeks to the keyframe and then decodes and discards up to the point. Measured on
+    /// a source with keyframes every 48 frames, a section asked for at frame 30 begins on frame 30
+    /// through every one of the three modes, and the two time modes agreed at every point tried on
+    /// MKV/H.264, MP4/HEVC and an MPEG program stream alike. What the input seek buys is *speed* - it
+    /// does not decode the video in front of the start point, which the other two do: 0.07s against
+    /// 0.30s seeking to 55s of a 60s file, and on a feature that gap is the whole preceding runtime.
+    /// <para/>
+    /// The name is the exception rather than the rule, then: it lands on a keyframe only where the
+    /// video is *copied* rather than re-encoded, there being no decode to discard with. That is the one
+    /// case the mode is forced into - see <see cref="AsKeyframeCopy"/>.
     /// <para/>
     /// Frame mode used to be the exception, and was wrong three ways for it. It emitted a
     /// "select=gte(n,X)" video filter and "-vframes N", so: the kept frames carried their original
@@ -72,7 +83,10 @@ namespace Nmkoder.Data
 
         /// <summary>
         /// What goes in front of the '-i', which is only ever the keyframe mode's seek: that one is
-        /// fast because it is the demuxer skipping ahead, and inexact for the same reason.
+        /// fast because it does not decode the video in front of the start point. It is *not* inexact
+        /// for the same reason, which this comment used to claim - over a re-encode accurate_seek
+        /// finishes the job by decoding and discarding up to the point, and only a stream copy lands on
+        /// the keyframe itself. The class doc above carries the measurement.
         /// </summary>
         public string GetInputArgs(Fraction rate)
         {

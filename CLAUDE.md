@@ -2543,12 +2543,30 @@ regardless. It goes through `TrimSettings.AsKeyframeCopy`, which converts the un
 frame *numbers* in the fields the time modes hold milliseconds in, so changing the mode on its own
 would read frame 240 as 240 ms.
 
-Verified headless through the real dialog and the real controls, 34 checks: all four shapes (Quick
+**The mode labels were reworded off the same measurement, because two of the three were selling the
+wrong thing.** They read "Time (snap to keyframe - fast, no re-encode needed)" and "Time (exact -
+slower, requires re-encoding)", which offered accuracy as the reason to pay for the slow one - and
+the row is only shown for a re-encode, where all three are exact. So all three say "exact" now and
+the parenthetical states the mechanism instead: the first seeks straight to the point, the other two
+decode the video from its start and throw it away until they arrive. Measured, that is 0.07s against
+0.30s seeking to 55s of a 60s file, and on a feature it is the entire runtime in front of the start
+point for the same frame. The two time modes were checked for agreement at four points on an MPEG
+program stream as well as on MKV/H.264 and MP4/HEVC - identical every time, so the slow one is a
+fallback for a source that seeks badly rather than the accurate one. The `ModeBox` tooltip carries
+that reasoning, the labels having no room for it, and each label was measured against the box it sits
+in: the longest is 436px in a 578px control.
+
+`TrimSettings.Mode.TimeKeyframe` keeps its name, which is now the exception rather than the rule - it
+names what the seek does over a *copy*. The class doc and `GetInputArgs` both used to state the old
+belief outright ("inexact for the same reason") and now carry the measurement instead; do not restore
+either, and do not read the enum's name as a description of what a re-encode does.
+
+Verified headless through the real dialog and the real controls, 35 checks: all four shapes (Quick
 Convert re-encode and copy, AV1AN, the Cut utility) for their mode row, snap button, keyframe note,
 snapped-or-not start point and built mode; every one of the three re-encode modes leaving the start
-point alone and showing no keyframe note; and the coercion firing for frame mode against Copy with
+point alone and showing no keyframe note; the coercion firing for frame mode against Copy with
 frames 30-54 becoming 1250-2250 ms, standing down for a re-encode, and saying nothing where the mode
-was already the keyframe one.
+was already the keyframe one; and every mode label measured against its dropdown.
 
 Frame mode was the exception and was wrong three ways for being one. It emitted a
 `select=gte(n,X)` video filter plus `-vframes N`, so the kept frames carried their original

@@ -47,10 +47,14 @@
 
     <Grid ColumnDefinitions="110,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
       <TextBlock Grid.Row="0" Grid.Column="0" x:Name="ModeLabel" Classes="field" Text="Mode" />
-      <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ModeBox" SelectionChanged="Mode_SelectionChanged" Margin="0,0,0,6">
-        <ComboBoxItem Content="Time (snap to keyframe - fast, no re-encode needed)" />
-        <ComboBoxItem Content="Time (exact - slower, requires re-encoding)" />
-        <ComboBoxItem Content="Frame Numbers" />
+      <!-- All three are exact, which is why none of them says otherwise: this row is only shown for a
+           re-encode, and there FFmpeg's accurate_seek lands on the frame that was asked for whichever
+           side of the '-i' the seek is written. What they differ in is how they get there. -->
+      <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ModeBox" SelectionChanged="Mode_SelectionChanged" Margin="0,0,0,6"
+                ToolTip.Tip="All three start on exactly the frame you set - measured against the bundled FFmpeg rather than assumed, on a source with keyframes every 48 frames. What they differ in is how they get to it: the first seeks straight to the point, where the other two decode the video from its start and throw it away until they arrive - on a feature that is the entire runtime in front of your start point, for the same frame. Pick the first one unless a source seeks badly. Frame numbers are the second one stated in frames rather than in time, and cut to an exact frame count.">
+        <ComboBoxItem Content="Time (exact - seeks straight to the point)" />
+        <ComboBoxItem Content="Time (exact - decodes from the start, much slower)" />
+        <ComboBoxItem Content="Frame numbers (exact - decodes from the start, much slower)" />
       </ComboBox>
 
       <TextBlock Grid.Row="1" Grid.Column="0" Classes="field" Text="Start" />
