@@ -500,6 +500,44 @@ namespace Nmkoder.UI
             return string.Join(" ", args);
         }
 
+        /// <summary>
+        /// The maps for the mux that follows a direct-encoder pipe: the encoded video where the first
+        /// video track sits, and every other kept track straight out of its original file.
+        /// <para/>
+        /// The encoded video is mapped *at the first video entry's position* rather than always first,
+        /// because <see cref="QuickConvertUi.GetMetadataArgs"/> numbers output streams by
+        /// <see cref="GetMappedStreams"/> order - so the mux has to produce exactly that order, and in
+        /// Muxing Mode with an audio file loaded ahead of the video file, the video is not first in it.
+        /// In batch mode the two spellings are the same thing.
+        /// </summary>
+        /// <param name="encodedVideoInput"> Where the encoded video sits among the '-i' arguments -
+        /// the last input, so every original file keeps the index the metadata and chapter sources
+        /// were built against. </param>
+        public static string GetMuxMapArgs(int encodedVideoInput)
+        {
+            List<string> args = new List<string>();
+            bool mappedEncodedVideo = false;
+
+            foreach (StreamListEntry entry in GetMappedStreams(videoOnly: false, logDropped: true))
+            {
+                if (entry.Stream.Type == Stream.StreamType.Video && !mappedEncodedVideo)
+                {
+                    args.Add($"-map {encodedVideoInput}:v:0");
+                    mappedEncodedVideo = true;
+                    continue;
+                }
+
+                FileListEntry correspondingFileEntry = FileList.Items.FirstOrDefault(x => x.File == entry.MediaFile);
+                int fileIdx = RunTask.currentFileListMode == RunTask.FileListMode.Batch || correspondingFileEntry == null
+                    ? 0
+                    : FileList.Items.IndexOf(correspondingFileEntry);
+
+                args.Add($"-map {fileIdx}:{entry.Stream.Index}");
+            }
+
+            return string.Join(" ", args);
+        }
+
         #region Stream Selection
 
         public static void CheckAll(bool check)

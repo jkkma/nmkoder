@@ -233,7 +233,14 @@ namespace Nmkoder.Media
                     if (indexOfEndQuote != -1)
                     {
                         string inputFilePath = afterInputFlag.Substring(indexOfStartQuote + 1, indexOfEndQuote - indexOfStartQuote - 1).Trim();
-                        paths.Add(inputFilePath);
+
+                        // Only a non-empty extraction: String.Replace throws outright on "", and on
+                        // Linux and macOS the paths are single-quoted, so what this scan finds is
+                        // whatever double-quoted value comes last - the metadata grid writes
+                        // 'language=""' for a track with none, and that empty pair crashed the output
+                        // reader mid-encode.
+                        if (inputFilePath.Length > 0)
+                            paths.Add(inputFilePath);
                     }
                 }
             }
@@ -246,7 +253,10 @@ namespace Nmkoder.Media
                 if (secondLastIndexOfQuote != -1)
                 {
                     string outputFilePath = cmd.Substring(secondLastIndexOfQuote + 1, lastIndexOfQuote - secondLastIndexOfQuote - 1).Trim();
-                    paths.Add(outputFilePath);
+
+                    // As above: an empty extraction is not a path, and Replace("") throws.
+                    if (outputFilePath.Length > 0)
+                        paths.Add(outputFilePath);
                 }
             }
 
@@ -583,15 +593,39 @@ namespace Nmkoder.Media
         /// win-x64 alone, so mkvmerge, mkvextract and mkvinfo are routinely absent on Linux and macOS
         /// and this is the difference between naming the missing package and reporting a mystery.
         /// </summary>
-        public static bool IsToolAvailable(string name)
+        public static bool IsToolAvailable(string name, params string[] extraDirs)
         {
             // Searched over the PATH the tool will be launched with, not the one this process holds.
             // Every runner here goes through OsUtils.SetPathVar, and on Windows that keeps bin/ and
             // C:\Windows and drops the rest - so checking the full PATH would vouch for an mkvmerge
             // installed in Program Files that the launcher then cannot resolve, leaving exactly the
             // unexplained failure this check exists to replace.
-            IEnumerable<string> dirs = OsUtils.GetPathVar(new[] { Paths.GetBinPath() }).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            //
+            // extraDirs is for a caller that will *add* directories to that PATH itself. Quick Convert's
+            // encoder binaries live in bin/av1an/enc, which nothing puts on the default PATH: asked
+            // without it, this answers "missing" for a perfectly well bundled SvtAv1EncApp. Whatever a
+            // caller passes here it must also pass to the runner, or the two disagree in the direction
+            // that is worst - vouching for a binary the launch then cannot resolve.
+            string[] roots = new[] { Paths.GetBinPath() }.Concat(extraDirs ?? new string[0]).ToArray();
+            IEnumerable<string> dirs = OsUtils.GetPathVar(roots).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
             return File.Exists(Shell.ResolveExecutable(name, dirs));
+        }
+
+        /// <summary>
+        /// The full path of a tool, resolved over the same directories <see cref="IsToolAvailable"/>
+        /// searches - so what the check vouched for is the file that runs, not merely a name the
+        /// shell's PATH is trusted to agree about. That matters twice for the encoder pipes: a shell
+        /// command names its tools mid-line, where the console debug modes run through UseShellExecute
+        /// and <see cref="OsUtils.SetPathVar"/> therefore cannot put bin/ on the PATH at all; and a
+        /// user's own PATH may hold a second copy of the same binary that the availability check never
+        /// looked at. Returns the bare name when nothing is found, like
+        /// <see cref="Shell.ResolveExecutable"/> - callers gate on IsToolAvailable first.
+        /// </summary>
+        public static string ResolveToolPath(string name, params string[] extraDirs)
+        {
+            string[] roots = new[] { Paths.GetBinPath() }.Concat(extraDirs ?? new string[0]).ToArray();
+            IEnumerable<string> dirs = OsUtils.GetPathVar(roots).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            return Shell.ResolveExecutable(name, dirs);
         }
 
         /// <summary>

@@ -49,6 +49,64 @@ namespace Nmkoder.Views
             QuickConvertUi.ValidateContainer();
         }
 
+        #region Grain Synthesis
+
+        // The AV1AN tab's handlers, one for one - the row is the same row, driven by the same
+        // GrainSynthUi, so anything that differs between the two would be a difference in behaviour
+        // rather than in wiring. Nothing here is saved; this tab restores nothing between sessions.
+
+        /// <summary> Every spinner on the row decides what the readout says, and the strength also decides
+        /// whether the Denoise box beside it can do anything - so they share one handler. </summary>
+        private void EncGrainSynthStrength_ValueChanged(object sender, NumericUpDownValueChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
+        private void EncGrainSetting_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.RefreshInfo();
+        }
+
+        /// <summary> Unlike the other tickboxes on this row, this one decides what else is on screen: the
+        /// denoise strength beside it belongs to the denoiser, which only runs for a table when this is
+        /// ticked. So it goes through the visibility pass rather than only the readout. </summary>
+        private void EncGrainTableDenoise_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
+        private void EncGrainMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
+        private void EncGrainTable_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            GrainSynthUi.RefreshInfo();
+        }
+
+        private async void EncGrainTableBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            await GrainSynthUi.PickTableAsync(av1anTab: false);
+        }
+
+        #endregion
+
         private void EncQualityMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_initialized)
@@ -87,7 +145,7 @@ namespace Nmkoder.Views
             }
             else
             {
-                IEncoder enc = CodecUtils.GetCodec((CodecUtils.VideoCodec)Math.Max(0, EncVidCodecsBox.SelectedIndex));
+                IEncoder enc = CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV());
                 EncVidQualityBox.FormatString = "0";
                 EncVidQualityBox.SetRange(enc.QMin.Clamp(0, int.MaxValue), enc.QMax.Clamp(0, int.MaxValue));
 

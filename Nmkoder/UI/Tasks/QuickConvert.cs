@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Nmkoder.Data;
 using Nmkoder.Data.Codecs;
+using Nmkoder.Data.Codecs.Video;
+using Nmkoder.Data.Colors;
 using Nmkoder.Data.Ui;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
@@ -35,6 +37,12 @@ namespace Nmkoder.UI.Tasks
             // that died two thirds of the way through is not mistaken for a finished encode.
             string vsLogPath = "";
             int vsRuns = 0;
+            // Set when this run drives an encoder binary through a pipe rather than one of ffmpeg's own
+            // libraries. The scratch files it names are read again after the run - they are how a pipe
+            // whose upstream half died is told apart from a finished encode - and deleted on success,
+            // because the session folder is only emptied at the *next* launch and the intermediate is
+            // the whole video.
+            DirectRunFiles directFiles = null;
 
             try
             {
@@ -50,11 +58,40 @@ namespace Nmkoder.UI.Tasks
                 CodecUtils.SubtitleCodec sCodec = ResolveSubtitleCodec(GetCurrentCodecS(), vCodec);
                 bool anyVideoStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Video);
                 bool anyAudioStreams = TrackList.CheckedItems.Any(x => x.Stream.Type == Data.Streams.Stream.StreamType.Audio);
+                // The encoder as a binary this app launches itself, or null for one of ffmpeg's own -
+                // and null too when no video is being encoded, because with no video track ticked the
+                // ordinary single command already does the whole job and there is nothing to pipe.
+                IBinaryEncoder directEnc = anyVideoStreams ? CodecUtils.GetBinaryCodec(GetCurrentCodecV()) : null;
                 string problem = GetContainerProblem(GetCurrentCodecV(), aCodec, sCodec);
 
                 if (problem.IsNotEmpty())
                 {
                     RunTask.Cancel(problem);
+                    return;
+                }
+
+                // Refused before anything is built, naming the binary: a missing one is not a failure
+                // any later step can see - the shell writes "command not found" to a stream nothing
+                // reads and the pipe upstream of it ends normally. Asked with the same extra directory
+                // the launch resolves against, so the check cannot vouch for a binary the run then
+                // fails to find. There is deliberately no fallback to ffmpeg's own library for the
+                // same codec: an encode that quietly ran on a different encoder than the one picked
+                // would be a worse outcome than this message.
+                if (directEnc != null && !AvProcess.IsToolAvailable(directEnc.ToolName, Paths.GetEncoderBinPath()))
+                {
+                    RunTask.Cancel($"{directEnc.FriendlyName} needs the '{directEnc.ToolName}' binary, which is not there.\n\n" +
+                        $"Put it in {Paths.GetEncoderBinPath()} - the folder the AV1AN tab's encoders live in - or on the " +
+                        $"system PATH. Bundling is best-effort, so a release for this platform may simply not carry it.");
+                    return;
+                }
+
+                // One video track is what the pipe carries. The old single command encoded every ticked
+                // video track through the same -c:v, which a raw stream from one encoder process cannot
+                // express - and quietly copying or dropping the extras would be worse than saying so.
+                if (directEnc != null && TrackList.GetMappedStreams(videoOnly: true).Count > 1)
+                {
+                    RunTask.Cancel($"{directEnc.FriendlyName} runs as its own process and encodes one video track. " +
+                        $"Untick the extra video tracks, or pick an FFmpeg encoder (NVENC) for a multi-video output.");
                     return;
                 }
 
@@ -125,6 +162,48 @@ namespace Nmkoder.UI.Tasks
                     }
                 }
 
+                // Settled before the encoder's arguments are built, because the row owns more than one
+                // argument and GetVideoArgsFromUi has to be told which of them this run is writing.
+                QuickConvertUi.CurrentGrain = GrainSynthUi.GetQuickConvertPlan();
+                string grainProblem = await GrainSynthUi.GetProblemAsync(QuickConvertUi.CurrentGrain.Config, GetCurrentCodecV());
+
+                if (grainProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(grainProblem);
+                    return;
+                }
+
+                // Logged rather than refused: the encode runs either way and one of the two settings is
+                // going to reach the encoder. Which one is the thing nobody could otherwise see.
+                string grainCollision = QuickConvertUi.GetGrainSynthProblem(GetCurrentCodecV(), QuickConvertUi.CurrentGrain);
+
+                if (grainCollision.IsNotEmpty())
+                    Logger.Log(grainCollision);
+
+                string retentionProblem = QuickConvertUi.GetGrainRetentionProblem(GetCurrentCodecV(), QuickConvertUi.CurrentGrain.Config);
+
+                if (retentionProblem.IsNotEmpty())
+                    Logger.Log(retentionProblem);
+
+                string tuneProblem = QuickConvertUi.GetFilmGrainTuneProblem(GetCurrentCodecV());
+
+                if (tuneProblem.IsNotEmpty())
+                    Logger.Log(tuneProblem);
+
+                // Refused rather than logged, like the AV1AN tab's version of the same check: a grid
+                // row naming a parameter this SVT-AV1 build does not have fails the whole command at
+                // launch, with the encoder's complaint naming the flag rather than the build.
+                if (directEnc != null)
+                {
+                    string advancedArgsProblem = await QuickConvertUi.GetUnsupportedAdvancedArgsProblem(directEnc);
+
+                    if (advancedArgsProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(advancedArgsProblem);
+                        return;
+                    }
+                }
+
                 // Not read straight off the mode box: the fixed formats have no rate control and that box
                 // is disabled over whatever was last picked in it, so a Target Bitrate left over from
                 // H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG read a "q". Both fell
@@ -139,6 +218,14 @@ namespace Nmkoder.UI.Tasks
 
                 if (!encodedFrame.IsEmpty)
                     videoArgs[CodecUtils.FrameSizeKey] = $"{encodedFrame.Width}x{encodedFrame.Height}";
+
+                // The same note the AV1AN tab logs beside its SVT presets: hbd-mds only acts on a
+                // 10-bit input, and the content presets set it.
+                string hbdProblem = QuickConvertUi.GetHbdModeDecisionProblem(GetCurrentCodecV(),
+                    videoArgs.TryGetValue("pixFmt", out string qcPixFmt) ? qcPixFmt : "");
+
+                if (hbdProblem.IsNotEmpty())
+                    Logger.Log(hbdProblem);
 
                 // Decided once, before anything reads it: the filter arguments and the stream maps are
                 // each built more than once per run, and in Automatic mode answering the question can
@@ -212,14 +299,14 @@ namespace Nmkoder.UI.Tasks
                 // maps have to know whether there is a filtergraph for the first video track to be read
                 // out of - and that is not a question the encoder alone answers, GIF contributing its
                 // whole palette graph through CodecArgs.ForcedFilters. See TrackList.GetMapArgs.
-                CodecArgs codecArgs = vCodec.GetArgs(videoArgs, TrackList.current.File, twoPass ? Pass.OneOfTwo : Pass.OneOfOne);
+                CodecArgs codecArgs = BuildVideoCodecArgs(vCodec, directEnc, videoArgs, twoPass ? Pass.OneOfTwo : Pass.OneOfOne);
                 string v = anyVideoStreams ? codecArgs.Arguments : "";
                 string vf = anyVideoStreams && !vCodec.DoesNotEncode ? await GetVideoFilterArgs(vCodec, codecArgs) : "";
 
                 // Quiet: the second pass builds the same chain from the same controls and has nothing new
                 // to say about it, so the lines that come with it - the resample, the de-squeeze - belong
                 // in the log once rather than twice.
-                CodecArgs codecArgsPass2 = twoPass ? vCodec.GetArgs(videoArgs, TrackList.current.File, Pass.TwoOfTwo) : null;
+                CodecArgs codecArgsPass2 = twoPass ? BuildVideoCodecArgs(vCodec, directEnc, videoArgs, Pass.TwoOfTwo) : null;
                 string v2 = twoPass ? codecArgsPass2.Arguments : "";
                 string vf2 = twoPass ? await GetVideoFilterArgs(vCodec, codecArgsPass2, quiet: true) : "";
 
@@ -227,10 +314,12 @@ namespace Nmkoder.UI.Tasks
                 // working directory - and that is wherever the app happens to have been launched from.
                 // An install the user cannot write to failed the first pass outright, and every two-pass
                 // encode that did work left a log and an x264 mbtree file sitting beside the exe. This
-                // run's scratch folder is where the rest of its temporary files already go.
-                string passLog = twoPass ? $"-passlogfile {Shell.WrapArg(Path.Combine(Paths.GetSessionDataPath(), "ffmpeg2pass"))}" : "";
+                // run's scratch folder is where the rest of its temporary files already go. ffmpeg's
+                // own two-pass machinery, so the encoder binaries - which carry their stats through
+                // GetPassArgs instead - build none.
+                string passLog = twoPass && directEnc == null
+                    ? $"-passlogfile {Shell.WrapArg(Path.Combine(Paths.GetSessionDataPath(), "ffmpeg2pass"))}" : "";
 
-                string map = TrackList.GetMapArgs(vCodec.IsFixedFormat, vCodec.DoesNotEncode, hasFilterChain: vf.IsNotEmpty());
                 string a = anyAudioStreams ? CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi(), TrackList.current.File).Arguments : "";
                 string s = CodecUtils.GetCodec(sCodec).GetArgs().Arguments;
                 string meta = GetMetadataArgs();
@@ -241,8 +330,15 @@ namespace Nmkoder.UI.Tasks
                 // muxer that has never heard of them.
                 string muxing = vCodec.IsFixedFormat ? "" : GetMuxingArgs();
 
-                if (twoPass)
+                if (directEnc != null)
                 {
+                    directFiles = new DirectRunFiles(directEnc);
+                    args = BuildDirectCommand(directEnc, directFiles, twoPass, inFiles, pipeIn, videoArgs,
+                        codecArgs, codecArgsPass2, vf, vf2, miscOut, a, s, meta, muxing, outPath, vsLogPath);
+                }
+                else if (twoPass)
+                {
+                    string map = TrackList.GetMapArgs(vCodec.IsFixedFormat, vCodec.DoesNotEncode, hasFilterChain: vf.IsNotEmpty());
                     // Each pass needs its own VapourSynth process - a pipe feeds one reader - and each
                     // appends to the same log, which is why the check afterwards expects two finished
                     // runs rather than one.
@@ -253,6 +349,7 @@ namespace Nmkoder.UI.Tasks
                 }
                 else
                 {
+                    string map = TrackList.GetMapArgs(vCodec.IsFixedFormat, vCodec.DoesNotEncode, hasFilterChain: vf.IsNotEmpty());
                     args = $"{inFiles} {pipeIn} {map} {v} {vf} {a} {s} {meta} {miscOut} {muxing} {Shell.WrapArg(outPath)}";
                 }
             }
@@ -287,10 +384,17 @@ namespace Nmkoder.UI.Tasks
                 ProgressBar = true,
                 // The exit code decides, and RunFfmpeg reports it - except where VapourSynth is
                 // feeding it, since ffmpeg sees a script that died as an input that ended and its
-                // words for that describe the symptom. Those runs are judged below instead.
-                ReportFailure = vsRuns < 1,
+                // words for that describe the symptom. Those runs are judged below instead - and so
+                // is every direct-encoder pipe, whose failures the exit code alone cannot judge: the
+                // shell reports the last command's status, so an ffmpeg that died mid-file upstream
+                // of the encoder reads as a clean end of stream.
+                ReportFailure = vsRuns < 1 && directFiles == null,
                 PipeFrom = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath),
-                ExtraPathDirs = vsLogPath.IsEmpty() ? new string[0] : Qtgmc.GetPathDirs(),
+                // The encoder dir rides along for a direct run, the same one the availability check
+                // searched. The encoder itself is invoked by resolved full path, so this is not what
+                // makes it launch - it keeps the shell's PATH agreeing with what was vouched for.
+                ExtraPathDirs = (vsLogPath.IsEmpty() ? new string[0] : Qtgmc.GetPathDirs())
+                    .Concat(directFiles != null ? new[] { Paths.GetEncoderBinPath() } : new string[0]).ToArray(),
             };
 
             await AvProcess.RunFfmpeg(settings);
@@ -321,6 +425,22 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
+            if (directFiles != null && !RunTask.canceled && !RunTask.failed)
+            {
+                string directProblem = await GetDirectRunProblemAsync(settings, directFiles, outPath);
+
+                if (directProblem.IsNotEmpty())
+                {
+                    RunTask.Fail(directProblem);
+                    return;
+                }
+
+                // Only on success: a failed run's intermediate and logs are its evidence, and the next
+                // run's DirectRunFiles clears them anyway. The session folder is not emptied until the
+                // next launch, and the intermediate is the whole video.
+                directFiles.CleanUp();
+            }
+
             if (!RunTask.canceled && !RunTask.failed && outPath.IsNotEmpty())
             {
                 // Belt and braces behind the exit code: a run that somehow ends cleanly having
@@ -341,6 +461,275 @@ namespace Nmkoder.UI.Tasks
                 RunTask.ReportOutput(inPaths, outPath);
             }
         }
+
+        #region Direct encoder pipe
+
+        /// <summary>
+        /// The encoder's arguments for one pass, with the colour told the truth about a tone-mapped
+        /// encode: the direct classes read <see cref="MediaFile.ColorData"/> and write it into the
+        /// bitstream as flags, so an HDR source being tone-mapped would otherwise come out as SDR
+        /// pixels tagged PQ and BT.2020 - which every player then expands again, and nothing about it
+        /// looks wrong until it is played. The same swap <c>Av1an.Run</c> makes, for the same reason:
+        /// swapped around the one call rather than assigned, because the field means "the colour of
+        /// this file" everywhere else, and there is no await between the two so nothing can observe it.
+        /// <para/>
+        /// The direct classes are also handed the file the video actually comes from rather than the
+        /// loaded one - in Muxing Mode those differ, and the loaded file can be an audio file with no
+        /// colour and no frame rate to read a keyframe interval from. ffmpeg's own encoders keep the
+        /// loaded file, as they always had: they read neither, and the chain carries colour itself.
+        /// </summary>
+        private static CodecArgs BuildVideoCodecArgs(IEncoder vCodec, IBinaryEncoder directEnc, Dictionary<string, string> videoArgs, Pass pass)
+        {
+            if (directEnc == null)
+                return vCodec.GetArgs(videoArgs, TrackList.current.File, pass);
+
+            MediaFile file = QuickConvertUi.GetVideoSourceFile() ?? TrackList.current.File;
+            VideoColorData sourceColor = file?.ColorData;
+            bool toneMapping = QuickConvertUi.CurrentToneMap.Runs && Utils.ColorDataUtils.IsHdr(sourceColor);
+
+            try
+            {
+                if (toneMapping)
+                    file.ColorData = ToneMapConfig.GetOutputColorData(sourceColor);
+
+                return vCodec.GetArgs(videoArgs, file, pass);
+            }
+            finally
+            {
+                if (toneMapping)
+                    file.ColorData = sourceColor;
+            }
+        }
+
+        /// <summary>
+        /// The whole command chain for an encoder binary: one decode-and-filter ffmpeg per pass piping
+        /// y4m into the encoder, an MP4 containerise step where the encoder writes raw Annex B, and a
+        /// final ffmpeg muxing the encoded video with everything that never went down the pipe.
+        /// <para/>
+        /// The mux reads the original inputs exactly as the single command did - same files, same
+        /// indices - with the encoded video appended as the **last** '-i', which is the trick the QTGMC
+        /// pipe input already uses: the metadata and chapter sources name inputs by index, so every
+        /// original file has to keep the number those settings were built against. The maps then put
+        /// the encoded video where the first video track sat, so the output stream order - and with it
+        /// every -metadata:s:N and -disposition - is the one <see cref="TrackList.GetMappedStreams"/>
+        /// numbers.
+        /// <para/>
+        /// The trim reaches both halves: the pipe commands carry the ordinary input/output trim, so the
+        /// video is cut exactly as the single command cut it, and the mux seeks each *original* input
+        /// to the same point so the audio comes out the same length as the video - see
+        /// <see cref="TrimSettings.GetMuxInputArgs"/> for why the mux cannot reuse the output-side seek.
+        /// <para/>
+        /// The encoder's own output goes to a log file rather than through the app's ffmpeg output
+        /// handler: its progress spam is not ffmpeg's format, its vocabulary trips the handler's
+        /// "looks like trouble" heuristics, and on failure the log is the only place its complaint
+        /// survives. ffmpeg's stderr stays live, which is what keeps the progress bar working - the
+        /// producer side runs slightly ahead of the encoder, which is fine for a bar.
+        /// </summary>
+        private static string BuildDirectCommand(IBinaryEncoder enc, DirectRunFiles files, bool twoPass,
+            string inFiles, string pipeIn, Dictionary<string, string> videoArgs, CodecArgs codecArgs,
+            CodecArgs codecArgsPass2, string vf, string vf2, string miscOut, string a, string s,
+            string meta, string muxing, string outPath, string vsLogPath)
+        {
+            // Resolved to a full path over the same directories the availability check searched, so
+            // the file that runs is the one that was vouched for - and so the console debug modes,
+            // which launch through UseShellExecute and therefore get no PATH from SetPathVar, still
+            // find it. The chained ffmpeg invocations below stay bare names like the two-pass second
+            // pass always has: bin/ is on the PATH the runner sets.
+            string tool = Shell.WrapArg(AvProcess.ResolveToolPath(enc.ToolName, Paths.GetEncoderBinPath()));
+            string io = enc.GetIoArgs(files.Intermediate);
+            string mapVideo = TrackList.GetMapArgs(videoOnly: true, noVideoEncode: false, hasFilterChain: vf.IsNotEmpty());
+            string pixFmt = videoArgs != null && videoArgs.ContainsKey("pixFmt")
+                ? videoArgs["pixFmt"]
+                : PixFmtUtils.GetFormat(enc.ColorFormats[enc.ColorFormatDefault]).Name;
+
+            // The pixel format conversion moves onto the pipe side - the encoder is handed frames, not
+            // a file, and y4m carries the format in its header. -strict -1 is what lets the y4m muxer
+            // write the formats it calls non-official, the 10-bit ones among them. -progress is the
+            // completion marker GetDirectRunProblemAsync reads: the shell only reports the *last*
+            // command's exit status, so this ffmpeg dying mid-file would otherwise read as a clean
+            // end of stream - the encoder finishes normally over a truncated video, exactly the
+            // failure Qtgmc.ReadRunProblem exists to catch one pipe further up.
+            string pipeTail = $"-pix_fmt {pixFmt} {miscOut} -an -sn -dn -f yuv4mpegpipe -strict -1 -";
+
+            Pass firstPass = twoPass ? Pass.OneOfTwo : Pass.OneOfOne;
+            string cmd = $"-progress {Shell.WrapArg(files.Progress1)} {inFiles} {pipeIn} {mapVideo} {vf} {pipeTail} | " +
+                $"{tool} {io} {enc.GetPassArgs(firstPass, files.StatsStem)} {codecArgs.Arguments} > {Shell.WrapArg(files.EncoderLog1)} 2>&1";
+            files.AddPass1();
+
+            if (twoPass)
+            {
+                files.AddPass2();
+                // The first pass writes its bitstream to the same intermediate the second overwrites -
+                // /dev/null and NUL are not the same word, and there is nothing to be gained by
+                // discovering that on Windows. Each pass needs its own VapourSynth process when QTGMC
+                // is feeding the pipe, appending to the same log, which is why the check afterwards
+                // expects two finished runs.
+                string secondPipe = vsLogPath.IsEmpty() ? "" : Qtgmc.BuildVspipeCommand(GetVsScriptPath(), vsLogPath, append: true);
+
+                cmd += $" && {secondPipe}ffmpeg -y -loglevel warning -stats -progress {Shell.WrapArg(files.Progress2)} " +
+                    $"{inFiles} {pipeIn} {mapVideo} {vf2} {pipeTail} | " +
+                    $"{tool} {io} {enc.GetPassArgs(Pass.TwoOfTwo, files.StatsStem)} {codecArgsPass2.Arguments} > {Shell.WrapArg(files.EncoderLog2)} 2>&1";
+            }
+
+            string encodedVideo = files.Intermediate;
+
+            // Raw Annex B cannot be -c copy'd into Matroska: read back with -framerate, its packets
+            // carry no timestamps at all, and Matroska refuses them outright. MP4 stamps them on the
+            // way in, so the stream is containerised first and the mux reads that. The setts bitstream
+            // filter is not the cheaper answer it looks like - its packet index counts in decode
+            // order, so on any stream with B-frames it stamps the frames into the wrong presentation
+            // order. The rate is the post-filter one: an fps resample or a bob changes what the frames
+            // arrive at, and the raw stream knows nothing the demuxer could check it against.
+            if (!enc.StreamCarriesTiming)
+            {
+                Fraction rate = QuickConvertUi.GetPostFilterRate();
+                string rateArg = rate.GetFloat() > 0.01f ? $"-framerate {rate} " : "";
+
+                if (rateArg.IsEmpty())
+                    Logger.Log($"The source's frame rate could not be read, so the raw {enc.StreamExt} stream is " +
+                        $"containerised at FFmpeg's default rate - the output's timing may be wrong.", true);
+
+                cmd += $" && ffmpeg -y -loglevel warning -stats {rateArg}-f {(enc.StreamExt == "265" ? "hevc" : "h264")} " +
+                    $"-i {Shell.WrapArg(files.Intermediate)} -c copy {Shell.WrapArg(files.Mp4)}";
+                encodedVideo = files.Mp4;
+            }
+
+            // The same input index convention as DeinterlacePipeInput: batch mode passes one original
+            // input, muxing passes the whole file list, and the encoded video comes after them all.
+            int encodedInput = RunTask.currentFileListMode == RunTask.FileListMode.Batch ? 1 : FileList.Items.Count;
+            string muxIn = TrackList.GetInputFilesString(QuickConvertUi.GetMuxTrimInputArgs());
+
+            cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} -i {Shell.WrapArg(encodedVideo)} " +
+                $"{TrackList.GetMuxMapArgs(encodedInput)} -c:v copy {a} {s} {meta} " +
+                $"{QuickConvertUi.GetMuxTrimOutputArgs()} {muxing} {Shell.WrapArg(outPath)}";
+
+            return cmd;
+        }
+
+        /// <summary>
+        /// Why a direct-encoder run did not produce what was asked for, or "" when it did. Judged by
+        /// the artifacts rather than the exit code alone, because the exit code is the mux's - the
+        /// last command in the chain - and a decode ffmpeg that died mid-file upstream of the encoder
+        /// leaves every later step finishing normally over a truncated video.
+        /// </summary>
+        private static async Task<string> GetDirectRunProblemAsync(AvProcess.FfmpegSettings settings, DirectRunFiles files, string outPath)
+        {
+            // The exit code and the evidence lines first - RunFfmpeg has already worded these, and the
+            // encoder's own last words are appended where it wrote any, since a nonzero status from
+            // the chain is very often the encoder's and its complaint went to its log, not the stream.
+            if (settings.Problem.IsNotEmpty())
+                return $"{settings.Problem}{GetEncoderLogTail(files)}";
+
+            // Each pass's decode ffmpeg writes "progress=end" as its last block only when it reached
+            // the end of its input. A pass whose marker is missing died mid-file, and nothing else in
+            // the chain can know: the encoder saw an ordinary end of stream.
+            foreach (string progressFile in files.ProgressFiles)
+            {
+                bool ended = File.Exists(progressFile) && File.ReadAllText(progressFile).Contains("progress=end");
+
+                if (!ended)
+                    return $"The FFmpeg process decoding the source stopped before the end of the video, so the encoder " +
+                        $"was handed a truncated stream and finished normally over it. The log above has FFmpeg's own " +
+                        $"output; the result was not kept as a finished encode.";
+            }
+
+            // And the mux's own artifact: every stream that was mapped has to be in the file. Asked of
+            // a fresh path with a fresh size, so the probe cache cannot answer for an older file.
+            int expected = TrackList.GetMappedStreams().Count;
+            int actual = await FfmpegUtils.GetStreamCount(outPath);
+
+            if (actual < expected)
+                return $"The output holds {actual} of the {expected} streams that were mapped into it, so part of the " +
+                    $"mux went missing.{GetEncoderLogTail(files)}";
+
+            return "";
+        }
+
+        /// <summary> The last few meaningful lines of whichever encoder log has any, worded as an
+        /// attachment to a failure message, or "" where neither says anything. The encoders rewrite
+        /// their progress with bare carriage returns, so the split has to count those as line ends. </summary>
+        private static string GetEncoderLogTail(DirectRunFiles files)
+        {
+            try
+            {
+                foreach (string log in new[] { files.EncoderLog2, files.EncoderLog1 })
+                {
+                    if (log.IsEmpty() || !File.Exists(log))
+                        continue;
+
+                    var lines = File.ReadAllText(log).Split('\r', '\n')
+                        .Select(x => x.Trim()).Where(x => x.IsNotEmpty()).ToList();
+
+                    if (lines.Count < 1)
+                        continue;
+
+                    return $"\n\nThe encoder reported:\n{string.Join("\n", lines.TakeLast(4))}";
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read the encoder log: {e.Message}", true);
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// The scratch files one direct-encoder run writes into the session folder, named once so the
+        /// build, the judgment and the cleanup cannot drift. The constructor deletes leftovers from an
+        /// earlier failed run in the same session, so a stale completion marker cannot vouch for this
+        /// run's decode.
+        /// </summary>
+        private class DirectRunFiles
+        {
+            /// <summary> What the encoder writes: an IVF, or a raw Annex B stream. </summary>
+            public readonly string Intermediate;
+
+            /// <summary> The containerised Annex B stream, written only for the encoders whose raw
+            /// output carries no timing. </summary>
+            public readonly string Mp4;
+
+            /// <summary> The two-pass statistics stem. x265 writes a second file beside it
+            /// (.cutree), x264 a third (.mbtree), so it is a stem to clean up rather than one file. </summary>
+            public readonly string StatsStem;
+
+            public readonly string EncoderLog1;
+            public readonly string EncoderLog2;
+            public readonly string Progress1;
+            public readonly string Progress2;
+
+            /// <summary> The decode ffmpegs' completion markers, one per pass that ran. </summary>
+            public readonly List<string> ProgressFiles = new List<string>();
+
+            public DirectRunFiles(IBinaryEncoder enc)
+            {
+                string dir = Paths.GetSessionDataPath();
+                Intermediate = Path.Combine(dir, $"pipe_video.{enc.StreamExt}");
+                Mp4 = Path.Combine(dir, "pipe_video.mp4");
+                StatsStem = Path.Combine(dir, "pipe_2pass.stats");
+                EncoderLog1 = Path.Combine(dir, "pipe_encoder_pass1.log");
+                EncoderLog2 = Path.Combine(dir, "pipe_encoder_pass2.log");
+                Progress1 = Path.Combine(dir, "pipe_progress_pass1.txt");
+                Progress2 = Path.Combine(dir, "pipe_progress_pass2.txt");
+                CleanUp();
+            }
+
+            /// <summary> Marks the second pass as part of this run, so the judgment reads its marker
+            /// too. Called by the command builder, which is where the pass count is known. </summary>
+            public void AddPass1() { ProgressFiles.Add(Progress1); }
+            public void AddPass2() { ProgressFiles.Add(Progress2); }
+
+            public void CleanUp()
+            {
+                foreach (string file in new[] { Intermediate, Mp4, StatsStem, $"{StatsStem}.cutree",
+                    $"{StatsStem}.mbtree", EncoderLog1, EncoderLog2, Progress1, Progress2 })
+                {
+                    IoUtils.TryDeleteIfExists(file);
+                }
+            }
+        }
+
+        #endregion
 
         #region Deinterlacing
 

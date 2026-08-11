@@ -20,10 +20,11 @@ namespace Nmkoder.Data.Codecs
     /// no-op on every build they are. Parameters mainline lacks are dropped before the encode, and
     /// parameters it merely ignores go quiet on their own.
     /// <para/>
-    /// The x264 and x265 sets are Quick Convert's, and every value in them was passed to the library
-    /// inside the bundled ffmpeg and observed to be accepted. Those two encoders take no such runtime
-    /// check - see <c>Av1anEncoderName</c> - so an argument list written against the wrong build would
-    /// go missing quietly there, which is what the measuring is for.
+    /// The x264 and x265 sets belong to ffmpeg's Lib* encoders, which the CRF ladder still runs, and
+    /// every value in them was passed to the library inside the bundled ffmpeg and observed to be
+    /// accepted. Those two encoders take no runtime check - see <c>Av1anEncoderName</c> - so an
+    /// argument list written against the wrong build would go missing quietly there, which is what the
+    /// measuring is for.
     /// </summary>
     public static class EncoderArgPresets
     {
@@ -32,12 +33,25 @@ namespace Nmkoder.Data.Codecs
         /// <summary>
         /// The presets for an encoder, by the same name its argument JSON is filed under. Encoders
         /// without any get an empty list, and no preset row on the Advanced tab.
+        /// <para/>
+        /// Quick Convert's DirectSvtAv1 shares the SVT set outright: it launches the same
+        /// SvtAv1EncApp the AV1AN tab drives, against the same SvtAv1.json rows, so the values carry
+        /// with nothing re-measured. **The x264 and x265 sets do not carry to their Direct
+        /// counterparts, and that is measured rather than forgotten.** Those values were written as
+        /// library parameters, and four of them are spelled as boolean-only flags on the CLI binaries
+        /// - x264 has <c>--no-dct-decimate</c> and no <c>--dct-decimate 0</c> (it refuses the option
+        /// outright), and x265's <c>--sao</c>, <c>--cutree</c> and <c>--rc-grain</c> take no value at
+        /// all, so <c>--sao 0</c> *enables* SAO and leaves the 0 as a stray argument x265 only warns
+        /// about. The grid can only express valued rows, so a carried-over preset would quietly apply
+        /// the opposite of its loudest entries - the silent half-apply these lists exist to prevent.
+        /// A Direct x264/x265 set wants writing against the CLI vocabulary and measuring, not mapping.
         /// </summary>
         public static IReadOnlyList<EncoderArgPreset> For(string encoderName)
         {
             switch (encoderName)
             {
                 case nameof(Video.SvtAv1): return SvtAv1Presets;
+                case nameof(Video.DirectSvtAv1): return SvtAv1Presets;
                 case nameof(Video.Libx264): return Libx264Presets;
                 case nameof(Video.Libx265): return Libx265Presets;
                 default: return None;
@@ -49,7 +63,8 @@ namespace Nmkoder.Data.Codecs
         /// behind it - so a caller can ask that binary whether it has the parameters being set.
         /// "" for an encoder that is not to be asked.
         /// <para/>
-        /// SVT-AV1 alone, and that is a limit on the question rather than an oversight: asking is only
+        /// SVT-AV1 alone - under both of its names, since Quick Convert's DirectSvtAv1 launches the
+        /// same binary - and that is a limit on the question rather than an oversight: asking is only
         /// sound where <c>--help</c> lists every parameter, and SvtAv1EncApp's prints its whole token
         /// table. x264's does not - it is the short list, with the rest behind <c>--longhelp</c> and
         /// <c>--fullhelp</c> - so half of X264.json would come back unsupported from a binary that has
@@ -57,7 +72,7 @@ namespace Nmkoder.Data.Codecs
         /// </summary>
         public static string Av1anEncoderName(string encoderName)
         {
-            return encoderName == nameof(Video.SvtAv1) ? "svt-av1" : "";
+            return encoderName == nameof(Video.SvtAv1) || encoderName == nameof(Video.DirectSvtAv1) ? "svt-av1" : "";
         }
 
         /// <summary>

@@ -47,6 +47,15 @@ namespace Nmkoder.UI.Tasks
         /// and for the same reason. </summary>
         public static LoudnessConfig CurrentLoudness = new LoudnessConfig();
 
+        /// <summary>
+        /// The grain setting this run settled on, snapshotted by <see cref="QuickConvert.Run"/> before the
+        /// encoder's arguments are built. Same reason <c>Av1anUi.CurrentGrain</c> exists: the row owns
+        /// more than one encoder argument and writes at most one of them, and which one is a question that
+        /// has been answered by the time <see cref="GetVideoArgsFromUi"/> is filling a dictionary off the
+        /// controls.
+        /// </summary>
+        public static GrainPlan CurrentGrain = null;
+
         /// <summary> What the measuring pass found, by position among the *ticked* audio tracks - which
         /// is the same numbering the encoder arguments use, so a track that is not being written is not
         /// measured and does not shift the ones that are. </summary>
@@ -130,8 +139,8 @@ namespace Nmkoder.UI.Tasks
             // Video Without Re-Encoding, a tab that encodes nothing - and dragged the quality, the preset
             // and the colour formats with it, since all three are filled per encoder. The same trap the
             // AV1AN tab hit when its own persistence went.
-            Form.EncVidCodecsBox.SetItems(Enum.GetValues<CodecUtils.VideoCodec>().Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
-                Array.IndexOf(Enum.GetValues<CodecUtils.VideoCodec>(), CodecUtils.VideoCodec.LibSvtAv1));
+            Form.EncVidCodecsBox.SetItems(OfferedCodecs.Select(c => (object)CodecUtils.GetCodec(c).FriendlyName),
+                Array.IndexOf(OfferedCodecs, DefaultCodec));
 
             // Load quality modes
             Form.EncQualModeBox.SetItems(Enum.GetValues<QualityMode>()
@@ -180,6 +189,12 @@ namespace Nmkoder.UI.Tasks
                 }
 
                 RefreshFileListRelatedOptions();
+
+                // Writes no setting - it only redraws the readout, which for the Measured mode is an
+                // hours-long estimate worked out from the loaded file's size and length and so describes
+                // the wrong file until it is rewritten. The AV1AN tab's InitFile does the same, and this
+                // one is reached on paths that one is not (loading the file list, and startup).
+                GrainSynthUi.RefreshInfo();
             }
             catch (Exception e)
             {
@@ -492,7 +507,7 @@ namespace Nmkoder.UI.Tasks
             if (index < 0)
                 return;
 
-            CodecUtils.VideoCodec c = (CodecUtils.VideoCodec)index;
+            CodecUtils.VideoCodec c = OfferedCodecs[index.Clamp(0, OfferedCodecs.Length - 1)];
             IEncoder enc = CodecUtils.GetCodec(c);
             Form.FfmpegContainerBox.IsVisible = !enc.IsFixedFormat; // Disable container selection for fixed formats (GIF, PNG etc)
             bool noRateControl = c == CodecUtils.VideoCodec.Gif || c == CodecUtils.VideoCodec.Png || c == CodecUtils.VideoCodec.Jpg;
@@ -513,6 +528,9 @@ namespace Nmkoder.UI.Tasks
             Form.EncToneMapModeBox.IsEnabled = !enc.DoesNotEncode;
             Form.QInfoLabel.Text = enc.QInfo;
             Form.PresetInfoLabel.Text = enc.PresetInfo;
+            // Only the two AV1 encoders have grain synthesis, and each mode brings its own control - so
+            // this both enables the row and settles which panel is beside the dropdown.
+            GrainSynthUi.ApplyControlVisibility();
             LoadQualityLevel(enc);
             LoadPresets(enc);
             LoadColorFormats(enc);
@@ -763,9 +781,49 @@ namespace Nmkoder.UI.Tasks
 
         #region Get Current Codec
 
+        /// <summary>
+        /// The video encoders this tab offers, in dropdown order.
+        /// <para/>
+        /// **An explicit list rather than every member of the enum, and that is now load-bearing.** The
+        /// enum carries ffmpeg's Lib* five as well, which this tab no longer offers - they are kept
+        /// because the CRF ladder deliberately runs on ffmpeg's own encoders and saves this enum's
+        /// numeric value - so "every member" would put five duplicate-looking entries on the dropdown.
+        /// With the list explicit, the box's index is an index into *this* and not into the enum, which
+        /// is what <see cref="GetCurrentCodecV"/> and <see cref="VidEncoderSelected"/> read it as.
+        /// <para/>
+        /// The five re-encoders are the Direct* standalone binaries - the same slots the Lib* five
+        /// held, so the dropdown reads as it always did. NVENC stays on ffmpeg, having no CLI
+        /// equivalent; so do GIF, PNG, JPEG and the two copies, which encode through nothing at all. A
+        /// codec whose binary is missing refuses the run naming it - see the availability check in
+        /// <see cref="QuickConvert.Run"/> - rather than falling back to ffmpeg's library or vanishing
+        /// from this list, either of which would quietly encode on a different encoder than the one
+        /// this dropdown named.
+        /// </summary>
+        public static readonly CodecUtils.VideoCodec[] OfferedCodecs =
+        {
+            CodecUtils.VideoCodec.CopyVideo,
+            CodecUtils.VideoCodec.StripVideo,
+            CodecUtils.VideoCodec.DirectX264,
+            CodecUtils.VideoCodec.DirectX265,
+            CodecUtils.VideoCodec.H264Nvenc,
+            CodecUtils.VideoCodec.H265Nvenc,
+            CodecUtils.VideoCodec.DirectVpx,
+            CodecUtils.VideoCodec.DirectSvtAv1,
+            CodecUtils.VideoCodec.DirectAomAv1,
+            CodecUtils.VideoCodec.Gif,
+            CodecUtils.VideoCodec.Png,
+            CodecUtils.VideoCodec.Jpg,
+        };
+
+        /// <summary> What the tab opens on. Nothing here is restored between sessions, so this is what
+        /// every session starts at. </summary>
+        public const CodecUtils.VideoCodec DefaultCodec = CodecUtils.VideoCodec.DirectSvtAv1;
+
+        /// <summary> The codec the box is showing. The index is into <see cref="OfferedCodecs"/>, not
+        /// into the enum - the two stopped agreeing when the direct encoders were appended. </summary>
         public static CodecUtils.VideoCodec GetCurrentCodecV()
         {
-            return (CodecUtils.VideoCodec)Math.Max(0, Form.EncVidCodecsBox.SelectedIndex);
+            return OfferedCodecs[Form.EncVidCodecsBox.SelectedIndex.Clamp(0, OfferedCodecs.Length - 1)];
         }
 
         public static CodecUtils.AudioCodec GetCurrentCodecA()
@@ -802,13 +860,176 @@ namespace Nmkoder.UI.Tasks
                 dict.Add("pixFmt", PixFmtUtils.GetFormat(enc.ColorFormats[Form.EncVidColorsBox.SelectedIndex]).Name);
 
             dict.Add("qMode", Form.EncQualModeBox.SelectedIndex.ToString());
-            // Bare "key=value" pairs. Each encoder re-spells them for itself, four of them into a
-            // single ":"-joined parameter option and the rest as AVOptions of their own - see
-            // FfmpegEncoderArgs, which is where that difference is stated.
-            dict.Add("advanced", EncoderArgs.BuildPairs(Form.EncArgRows));
+
+            // The Grain Synthesis row owns more than one encoder argument and writes at most one of
+            // them, so which entries exist here is the plan's answer rather than the controls'.
+            // CurrentGrain is what the run settled on a few lines before this is called; the row's own
+            // reading is the guard for a caller that has not settled one - the command preview, mostly.
+            GrainPlan grain = CurrentGrain ?? GrainSynthUi.GetQuickConvertPlan();
+
+            if (grain.IsEncoderAnalysis)
+            {
+                dict.Add("grainSynthStrength", grain.Config.Strength.ToString());
+                dict.Add("grainSynthDenoise", grain.Config.Denoise.ToString());
+            }
+            else if (grain.IsEncoderTable)
+            {
+                dict.Add("grainTable", grain.TablePath);
+            }
+
+            // Two spellings, because this tab now drives two kinds of encoder. A binary this app
+            // launches gets "--key=value", the form BuildCli writes and the form av1an's lists are
+            // written in - the direct classes space-separate it where their binary wants that. An
+            // ffmpeg encoder gets bare "key=value" pairs and re-spells them for itself, four of them
+            // into a single ":"-joined parameter option and the rest as AVOptions of their own; see
+            // FfmpegEncoderArgs. Sending either form to the other is silent on three of the five
+            // binaries, so it follows the same discriminator EncoderArgs.FolderFor uses.
+            dict.Add("advanced", enc is Data.Codecs.Video.IBinaryEncoder
+                ? EncoderArgs.BuildCli(Form.EncArgRows)
+                : EncoderArgs.BuildPairs(Form.EncArgRows));
 
             return dict;
         }
+
+        #region Grain Synthesis
+
+        /// <summary> A filled-in Advanced grid row's value, or "" where that argument has no row or an
+        /// empty one. The AV1AN tab has the same accessor over its own grid. </summary>
+        private static string GetAdvancedArgValue(string argument)
+        {
+            return Form.EncArgRows
+                .Where(x => (x.Argument ?? "").Trim().TrimStart('-').ToLower() == argument)
+                .Select(x => (x.Value ?? "").Trim())
+                .FirstOrDefault(x => x.IsNotEmpty()) ?? "";
+        }
+
+        /// <summary>
+        /// Why an Advanced grid row will not do what it says beside the Grain Synthesis row, or "" if
+        /// none is in its way. Logged rather than refused - the encode is not broken by it, and one of
+        /// the settings is going to run.
+        /// <para/>
+        /// This used to be a different collision from the AV1AN tab's: the same argument written twice
+        /// into ffmpeg's option plumbing, whose AVDictionary decided the winner. With the tab driving
+        /// the standalone binaries, it is now *exactly* the AV1AN tab's - the same svt-av1-hdr build
+        /// reading the same three-way precedence, fgs-table over noise over film-grain - so the shared
+        /// <see cref="GrainGridChecks"/> answers for both, and this keeps the tab's own gate. Only
+        /// SVT-AV1: aomenc's argument list has no grain rows at all, and the grid is reloaded per
+        /// encoder, so no other encoder can be carrying one.
+        /// </summary>
+        public static string GetGrainSynthProblem(CodecUtils.VideoCodec codec, GrainPlan plan)
+        {
+            if (codec != CodecUtils.VideoCodec.DirectSvtAv1 || plan == null || !plan.Config.Runs)
+                return "";
+
+            return GrainGridChecks.GetGrainSynthProblem(GetAdvancedArgValue, plan.Config, plan.Delivery);
+        }
+
+        /// <summary>
+        /// Why the Advanced grid's grain *retention* rows are pulling against the Grain Synthesis row,
+        /// or "" when they are not - see <see cref="GrainGridChecks.GetGrainRetentionProblem"/>. The
+        /// full retention list applies here now: the binary is svt-av1-hdr, whose grid rows carry the
+        /// PSY-line parameters mainline lacks, where this check used to be one entry (ac-bias) against
+        /// the library inside ffmpeg. The denoise clause is this tab's own - a denoised table runs as a
+        /// filter in the chain, not as a pass.
+        /// </summary>
+        public static string GetGrainRetentionProblem(CodecUtils.VideoCodec codec, GrainSynthConfig config)
+        {
+            if (codec != CodecUtils.VideoCodec.DirectSvtAv1 || config == null || !config.DenoisesSource)
+                return "";
+
+            string what = config.NeedsDenoisePass
+                ? "the source is denoised in the filter chain, in front of the encoder"
+                : "Denoise is ticked, so the encoder codes the denoised picture";
+
+            return GrainGridChecks.GetGrainRetentionProblem(GetAdvancedArgValue, config, what);
+        }
+
+        /// <summary>
+        /// Why rows set beside SVT-AV1's tune 5 will not do what they say, or "" if none are - the
+        /// bundle's contents live in <see cref="GrainGridChecks.GetFilmGrainTuneProblem"/>, shared with
+        /// the AV1AN tab. Reachable here since the tab drives the fork's own binary: tune 5 is its film
+        /// grain bundle, where mainline's 5 was VMAF and the old library check had to stay silent.
+        /// </summary>
+        public static string GetFilmGrainTuneProblem(CodecUtils.VideoCodec codec)
+        {
+            if (codec != CodecUtils.VideoCodec.DirectSvtAv1)
+                return "";
+
+            return GrainGridChecks.GetFilmGrainTuneProblem(GetAdvancedArgValue);
+        }
+
+        /// <summary>
+        /// Why the encode cannot start with the advanced grid as it stands, or "" if it can - the same
+        /// question <see cref="Av1anUi.GetUnsupportedAdvancedArgsProblem"/> asks over its own grid, and
+        /// worth asking here for the same reason now that this tab launches the binary itself: the grid
+        /// is filled from SvtAv1.json, which is written for svt-av1-hdr, while the binary that runs is
+        /// whatever is on the machine - and SVT refuses a whole command over one parameter it does not
+        /// know, so with a mainline build the encode would die at launch naming a flag rather than the
+        /// build. Nothing is refused on a failed lookup, and nothing but SVT-AV1 is ever asked - see
+        /// <see cref="EncoderArgPresets.Av1anEncoderName"/> for both limits.
+        /// </summary>
+        public static async Task<string> GetUnsupportedAdvancedArgsProblem(Data.Codecs.Video.IBinaryEncoder enc)
+        {
+            string av1anEncoder = EncoderArgPresets.Av1anEncoderName(enc.Name);
+
+            if (av1anEncoder.IsEmpty())
+                return "";
+
+            var unsupported = new List<string>();
+
+            foreach (EncoderArgRow row in Form.EncArgRows.Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty()))
+            {
+                string arg = row.Argument.Trim().TrimStart('-');
+
+                // Matched with the dashes on, so a parameter is not found inside a longer one's name
+                if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(av1anEncoder, $"--{arg}"))
+                    unsupported.Add(arg);
+            }
+
+            if (unsupported.Count < 1)
+                return "";
+
+            bool one = unsupported.Count == 1;
+
+            // Only SVT-AV1 can reach this, so there is only one thing it ever means - the same cause
+            // the AV1AN tab names, without the chunks: this encode is one command, and it never starts.
+            return $"{string.Join(", ", unsupported)} {(one ? "is" : "are")} set on the Advanced tab, and the " +
+                $"encoder that would run does not have {(one ? "it" : "them")}. An unrecognised parameter is " +
+                $"refused as a whole command, so the encode would never start.\n\nThat means it is mainline " +
+                $"SVT-AV1 rather than the PSY-line build (svt-av1-hdr) this tab's parameter list is written " +
+                $"for.\n\nClear {(one ? "that row" : "those rows")}, or use a build that has {(one ? "it" : "them")}.";
+        }
+
+        /// <summary>
+        /// Why an hbd-mds row will do nothing on this encode, or "" - the same note
+        /// <see cref="Av1anUi.GetHbdModeDecisionProblem"/> logs, mirrored here because the SVT content
+        /// presets set the row and both tabs now offer them. Kept as its own small copy rather than
+        /// shared: the two differ in codec type and grid, and the message is one sentence.
+        /// </summary>
+        public static string GetHbdModeDecisionProblem(CodecUtils.VideoCodec codec, string pixFmt)
+        {
+            // The advanced grid is reloaded per encoder, so no other encoder can be carrying this row.
+            if (codec != CodecUtils.VideoCodec.DirectSvtAv1)
+                return "";
+
+            // 0 means an unrecognised format rather than 8-bit, and guessing at one is not worth a
+            // warning that would then be wrong.
+            if (FormatUtils.GetBitDepthFromPixelFormat(pixFmt) != 8)
+                return "";
+
+            string value = GetAdvancedArgValue("hbd-mds");
+
+            // 0 leaves the choice to the preset, so it is not asking the input for something it does
+            // not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            if (value != "1" && value != "2")
+                return "";
+
+            return $"Note: hbd-mds is set to {value}, which asks for {(value == "1" ? "all of" : "part of")} the mode decision " +
+                $"at 10-bit, but SVT-AV1 only does that on a 10-bit input and the Color Format is 8-bit ({pixFmt}). " +
+                $"Pick a 10 bit Color Format for it to have any effect.";
+        }
+
+        #endregion
 
         private static int GetVideoKbps()
         {
@@ -1171,6 +1392,20 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
+        /// <summary> The trim as the direct-encoder mux spells it, in front of each *original* input -
+        /// the encoded video arrives already cut and must not be seeked again. "" without a trim. </summary>
+        public static string GetMuxTrimInputArgs()
+        {
+            return CurrentTrim != null && !CurrentTrim.IsUnset ? CurrentTrim.GetMuxInputArgs(GetSourceRate()) : "";
+        }
+
+        /// <summary> The mux trim's output half: the duration alone. See
+        /// <see cref="TrimSettings.GetMuxOutputArgs"/>. </summary>
+        public static string GetMuxTrimOutputArgs()
+        {
+            return CurrentTrim != null && !CurrentTrim.IsUnset ? CurrentTrim.GetMuxOutputArgs(GetSourceRate()) : "";
+        }
+
         /// <summary>
         /// The frame the encoder will be handed, or <see cref="Size.Empty"/> where it cannot be stated
         /// here - which leaves whoever asked to fall back on the source's own size.
@@ -1493,6 +1728,23 @@ namespace Nmkoder.UI.Tasks
                 }
             }
 
+            // The Grain Synthesis row's own denoise, for a table the user brings: no encoder will
+            // denoise for a table - SVT reads its denoise flag only on the --film-grain path - so it is
+            // this app's hqdn3d, the same filter the AV1AN tab's DenoisePass runs. A filter here rather
+            // than a pass, because this chain is one ffmpeg over the whole file: nothing re-runs it per
+            // chunk and nothing probes it, so what costs the other tab a lossless intermediate costs
+            // this one a chain entry. After the geometry, where that pass sits too - the table
+            // describes grain at the frame being encoded - and Measured never reaches here, the run
+            // refusing it for want of a measuring pass.
+            GrainPlan grainPlan = CurrentGrain ?? GrainSynthUi.GetQuickConvertPlan();
+
+            if (grainPlan.Config.NeedsDenoisePass)
+            {
+                filters.Add(grainPlan.Config.GetDenoiseFilter());
+                Logger.Log($"Denoising the source for the grain table ({grainPlan.Config.GetDenoiseFilter()}), so the " +
+                    $"synthesised grain replaces the source's own instead of landing on top of it.", quiet);
+            }
+
             filters.AddRange(GetCustomFilters());
 
             // Last of everything, because the one encoder that has any is GIF, whose forced filters are
@@ -1682,6 +1934,26 @@ namespace Nmkoder.UI.Tasks
         public static Fraction GetUiFps()
         {
             return MiscUtils.GetFpsFromString(Form.EncVidFpsBox.Text);
+        }
+
+        /// <summary>
+        /// The rate the frames leave the filter chain at, which is what a raw Annex B stream has to be
+        /// containerised as - x264 and x265 write no timestamps, so the MP4 step is told the rate and
+        /// the rate has to be the *encoded* one. Three things can move it off the file's own: a bob
+        /// deinterlacer doubles it before any other filter sees a frame, the Frame Rate box resamples
+        /// it, and the box only counts when it actually builds a filter - the same tolerance
+        /// <see cref="GetVideoFilterArgs"/> decides that with, read from the same two sources, so the
+        /// two cannot disagree about whether a resample ran.
+        /// </summary>
+        public static Fraction GetPostFilterRate()
+        {
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(GetVideoSourceStream(), CurrentDeinterlace);
+            Fraction fps = GetUiFps();
+
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps))
+                return fps;
+
+            return sourceRate;
         }
     }
 }

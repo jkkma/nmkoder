@@ -13,40 +13,49 @@ using System.Threading.Tasks;
 namespace Nmkoder.UI.Tasks
 {
     /// <summary>
-    /// The AV1AN Video tab's Grain Synthesis row.
+    /// The Grain Synthesis row, which both encode tabs carry.
     /// <para/>
     /// One dropdown owns every way this app can put grain in an AV1 file, which is the point of it rather
     /// than a side effect - see <see cref="GrainSynthConfig"/> for why a row that was a spinner and a
     /// checkbox became a mode selector. Each mode brings its own control beside the box and nothing else
     /// is on screen, so the row is the same height whichever is picked.
     /// <para/>
-    /// It lives in the tab's third column, with the resize, the borders, the deinterlacer and the tone
-    /// map, because it now has a readout - and a readout in a middle column draws over the column beside
+    /// It lives in each tab's third column, with the resize, the borders, the deinterlacer and the tone
+    /// map, because it has a readout - and a readout in a middle column draws over the column beside
     /// it. That is also where it belongs by subject: two of these modes denoise the picture before it is
-    /// encoded, which is a filter on the video like the rest of that column, and the three that do not are
+    /// encoded, which is a filter on the video like the rest of that column, and the ones that do not are
     /// exactly the ones the readout has to warn about.
+    /// <para/>
+    /// **Both tabs drive the same standalone binaries now, and what still separates them is the
+    /// pipeline, not the encoder.** The AV1AN tab has passes in front of av1an - which is what Measured
+    /// from source is made of - where Quick Convert is a command chain with no measuring pass, so that
+    /// one mode refuses there and points at where a table comes from. The two per-tab
+    /// <c>GetTableFlag</c> overloads are the one statement of which codecs take a table and how each
+    /// spells it, and everything downstream - which modes can run, what the readout says, what the
+    /// encode refuses - follows from that single answer rather than from a second copy of this logic.
     /// </summary>
     class GrainSynthUi
     {
         private static MainWindow Form { get { return Program.MainWin; } }
 
-        /// <summary> What the tab opens on, every session - nothing on this tab is saved. Off rather than
+        /// <summary> What both tabs open on, every session - neither saves anything. Off rather than
         /// Encoder: grain synthesis is a deliberate trade of grain accuracy against bitrate, and an
         /// encoder that quietly denoised every source would be making it for people. </summary>
         public const GrainSynthMode DefaultMode = GrainSynthMode.Off;
 
         public static void Init()
         {
-            Form.Av1anGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)),
-                Array.IndexOf(GrainSynthConfig.EncodeModes, DefaultMode));
+            int mode = Array.IndexOf(GrainSynthConfig.EncodeModes, DefaultMode);
+            Form.Av1anGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)), mode);
+            Form.EncGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)), mode);
             ApplyControlVisibility();
         }
 
-        /// <summary> The mode the box is asking for, floored the way every other index read on this tab is
+        /// <summary> The mode a box is asking for, floored the way every other index read on these tabs is
         /// - a box with nothing selected is the default rather than an exception. </summary>
-        private static GrainSynthMode GetMode()
+        private static GrainSynthMode GetMode(ComboBox box)
         {
-            return GrainSynthConfig.EncodeModes[Form.Av1anGrainModeBox.SelectedIndex.Clamp(0, GrainSynthConfig.EncodeModes.Length - 1)];
+            return GrainSynthConfig.EncodeModes[box.SelectedIndex.Clamp(0, GrainSynthConfig.EncodeModes.Length - 1)];
         }
 
         /// <summary>
@@ -60,18 +69,42 @@ namespace Nmkoder.UI.Tasks
             if (!IsRowRelevant(Av1anUi.GetCurrentCodecV()))
                 return new GrainSynthConfig();
 
+            return Read(Form.Av1anGrainModeBox, Form.Av1anGrainSynthStrengthUpDown, Form.Av1anGrainSynthDenoiseBox,
+                Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainDenoiseStrengthUpDown, Form.Av1anGrainTableBox);
+        }
+
+        /// <summary>
+        /// Quick Convert's setting. Same shape as the AV1AN tab's, and the same reason for the guard: the
+        /// row is disabled for a codec that cannot synthesise grain, and a mode left selected behind a
+        /// disabled control must not reach the command.
+        /// </summary>
+        public static GrainSynthConfig GetQuickConvertConfig()
+        {
+            if (!IsRowRelevant(QuickConvertUi.GetCurrentCodecV()))
+                return new GrainSynthConfig();
+
+            return Read(Form.EncGrainModeBox, Form.EncGrainSynthStrengthUpDown, Form.EncGrainSynthDenoiseBox,
+                Form.EncGrainTableDenoiseBox, Form.EncGrainDenoiseStrengthUpDown, Form.EncGrainTableBox);
+        }
+
+        /// <summary> One row's controls, read into a config. </summary>
+        private static GrainSynthConfig Read(ComboBox modeBox, NumericUpDown strength, CheckBox encoderDenoise,
+            CheckBox tableDenoise, NumericUpDown denoiseStrength, TextBox tableBox)
+        {
+            GrainSynthMode mode = GetMode(modeBox);
+
             return new GrainSynthConfig
             {
-                Mode = GetMode(),
-                Strength = Form.Av1anGrainSynthStrengthUpDown.Value.AsInt(),
+                Mode = mode,
+                Strength = strength.Value.AsInt(),
                 // Two controls, because they sit in two panels and mean two mechanisms - the encoder's own
                 // denoise flag under Encoder, this app's denoise pass under Table. Read per mode so a tick
                 // left in the panel that is off screen cannot reach the encode.
-                Denoise = GetMode() == GrainSynthMode.Table
-                    ? Form.Av1anGrainTableDenoiseBox.IsChecked == true
-                    : Form.Av1anGrainSynthDenoiseBox.IsChecked == true,
-                DenoiseStrength = Form.Av1anGrainDenoiseStrengthUpDown.Value.AsInt(),
-                TablePath = (Form.Av1anGrainTableBox.Text ?? "").Trim(),
+                Denoise = mode == GrainSynthMode.Table
+                    ? tableDenoise.IsChecked == true
+                    : encoderDenoise.IsChecked == true,
+                DenoiseStrength = denoiseStrength.Value.AsInt(),
+                TablePath = (tableBox.Text ?? "").Trim(),
             };
         }
 
@@ -79,6 +112,14 @@ namespace Nmkoder.UI.Tasks
         public static bool IsRowRelevant(CodecUtils.Av1anCodec codec)
         {
             return codec == CodecUtils.Av1anCodec.SvtAv1 || codec == CodecUtils.Av1anCodec.AomAv1;
+        }
+
+        /// <summary> The same question on Quick Convert, whose AV1 encoders are the same standalone
+        /// binaries now - the Direct* pair, not ffmpeg's libraries. A stream copy falls out of this too,
+        /// being neither of them - and a copy builds no encoder arguments at all. </summary>
+        public static bool IsRowRelevant(CodecUtils.VideoCodec codec)
+        {
+            return codec == CodecUtils.VideoCodec.DirectSvtAv1 || codec == CodecUtils.VideoCodec.DirectAomAv1;
         }
 
         /// <summary>
@@ -89,21 +130,34 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static void ApplyControlVisibility()
         {
-            bool relevant = IsRowRelevant(Av1anUi.GetCurrentCodecV());
-            GrainSynthMode mode = relevant ? GetMode() : GrainSynthMode.Off;
+            Apply(IsRowRelevant(Av1anUi.GetCurrentCodecV()), Form.Av1anGrainModeBox, Form.Av1anGrainEncoderPanel,
+                Form.Av1anGrainMeasuredPanel, Form.Av1anGrainDenoiseLabel, Form.Av1anGrainTablePanel,
+                Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainSynthDenoiseBox, Form.Av1anGrainSynthStrengthUpDown);
 
-            Form.Av1anGrainModeBox.IsEnabled = relevant;
-            Form.Av1anGrainEncoderPanel.IsVisible = mode == GrainSynthMode.Encoder;
+            Apply(IsRowRelevant(QuickConvertUi.GetCurrentCodecV()), Form.EncGrainModeBox, Form.EncGrainEncoderPanel,
+                Form.EncGrainMeasuredPanel, Form.EncGrainDenoiseLabel, Form.EncGrainTablePanel,
+                Form.EncGrainTableDenoiseBox, Form.EncGrainSynthDenoiseBox, Form.EncGrainSynthStrengthUpDown);
+
+            RefreshInfo();
+        }
+
+        private static void Apply(bool relevant, ComboBox modeBox, StackPanel encoderPanel, StackPanel measuredPanel,
+            TextBlock denoiseLabel, StackPanel tablePanel, CheckBox tableDenoise, CheckBox encoderDenoise, NumericUpDown strength)
+        {
+            GrainSynthMode mode = relevant ? GetMode(modeBox) : GrainSynthMode.Off;
+
+            modeBox.IsEnabled = relevant;
+            encoderPanel.IsVisible = mode == GrainSynthMode.Encoder;
             // The strength belongs to the pass, and the pass runs for Measured always and for Table on
             // request - so it follows the pass rather than the mode.
-            Form.Av1anGrainMeasuredPanel.IsVisible = mode == GrainSynthMode.Measured ||
-                (mode == GrainSynthMode.Table && Form.Av1anGrainTableDenoiseBox.IsChecked == true);
+            measuredPanel.IsVisible = mode == GrainSynthMode.Measured ||
+                (mode == GrainSynthMode.Table && tableDenoise.IsChecked == true);
 
             // The strength names itself in Measured, where nothing else on the row says what it is. Under
             // Table the tickbox immediately to its left is already labelled Denoise, and two of the word
             // in a row reads as two settings.
-            Form.Av1anGrainDenoiseLabel.IsVisible = mode == GrainSynthMode.Measured;
-            Form.Av1anGrainTablePanel.IsVisible = mode == GrainSynthMode.Table;
+            denoiseLabel.IsVisible = mode == GrainSynthMode.Measured;
+            tablePanel.IsVisible = mode == GrainSynthMode.Table;
 
             // The Denoise box follows the strength beside it as well as the encoder: both AV1 encoders
             // read their denoise flag only where they are synthesising grain at all - aomenc's
@@ -111,9 +165,7 @@ namespace Nmkoder.UI.Tasks
             // one set against --film-grain 0 with "ignored when film grain is off". At a strength of 0 it
             // was a tickable box that did nothing. What it is ticked to is left alone rather than cleared,
             // so a strength dropped to 0 and put back brings the choice back with it.
-            Form.Av1anGrainSynthDenoiseBox.IsEnabled = Form.Av1anGrainSynthStrengthUpDown.Value.AsInt() > 0;
-
-            RefreshInfo();
+            encoderDenoise.IsEnabled = strength.Value.AsInt() > 0;
         }
 
         /// <summary>
@@ -135,6 +187,23 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// The same, for Quick Convert - the same guess for the same reason now that this tab drives the
+        /// standalone binaries too: it assumes the bundled SVT-AV1, and whether the one actually on the
+        /// machine is mainline is the encode's question. What stays knowable here is the structure -
+        /// a codec with no table flag at all delivers nothing, whatever binary is behind it.
+        /// </summary>
+        public static GrainDelivery GetLikelyDelivery(GrainSynthConfig config, CodecUtils.VideoCodec codec)
+        {
+            if (!config.Runs || !IsRowRelevant(codec))
+                return GrainDelivery.None;
+
+            if (config.Mode == GrainSynthMode.Encoder)
+                return GrainDelivery.EncoderAnalysis;
+
+            return GetTableFlag(codec).IsNotEmpty() ? GrainDelivery.EncoderTable : GrainDelivery.None;
+        }
+
+        /// <summary>
         /// What the encoder calls its "apply this grain table" parameter, or "" where it has none.
         /// <para/>
         /// Both AV1 encoders av1an drives have one and they are spelled differently, which is the only
@@ -149,6 +218,26 @@ namespace Nmkoder.UI.Tasks
             {
                 case CodecUtils.Av1anCodec.SvtAv1: return "--fgs-table";
                 case CodecUtils.Av1anCodec.AomAv1: return "--film-grain-table";
+                default: return "";
+            }
+        }
+
+        /// <summary>
+        /// The same for Quick Convert's Direct* pair, which are the very binaries the map above names -
+        /// the tab pipes frames into <c>SvtAv1EncApp</c> and <c>aomenc</c> now, so the flags carry over
+        /// rather than being re-measured. While the tab drove ffmpeg's libraries this returned "" for
+        /// both: <c>fgs-table</c> is PSY-line only and libsvtav1 is mainline, and whether
+        /// <c>film-grain-table</c> survived <c>-aom-params</c> was never measured. Neither limit
+        /// applies to a binary this app launches itself, and SVT's remaining uncertainty - the binary
+        /// on the machine may still be mainline - is the encode-time question
+        /// <see cref="GetProblemAsync(GrainSynthConfig, CodecUtils.VideoCodec)"/> asks of its help text.
+        /// </summary>
+        private static string GetTableFlag(CodecUtils.VideoCodec codec)
+        {
+            switch (codec)
+            {
+                case CodecUtils.VideoCodec.DirectSvtAv1: return "--fgs-table";
+                case CodecUtils.VideoCodec.DirectAomAv1: return "--film-grain-table";
                 default: return "";
             }
         }
@@ -200,6 +289,38 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// The structural half of the same question on Quick Convert: what can be known without asking a
+        /// binary anything, which is what the readout can afford - the encode's own check,
+        /// <see cref="GetProblemAsync(GrainSynthConfig, CodecUtils.VideoCodec)"/>, asks the binary too.
+        /// Two things are structural. A codec with no table parameter cannot take one however it is
+        /// spelled; and Measured from source cannot run here at all - it needs the denoise render and the
+        /// grav1synth diff that run in front of av1an, and this tab's encode is a command chain with no
+        /// measuring pass in it. The table is the thing to bring: the Film Grain utility's Measure
+        /// operation writes one, and an AV1AN-tab Measured encode keeps one beside its output.
+        /// <para/>
+        /// The AV1AN overload's space check does not carry over in the other direction either: these
+        /// encoders are launched by this app with the path as one <c>Shell.WrapArg</c> argument, which
+        /// survives a space. It is av1an's re-splitting of one quoted string that cannot.
+        /// </summary>
+        private static string GetQuickConvertModeProblem(GrainSynthConfig config, CodecUtils.VideoCodec codec)
+        {
+            if (!config.Runs)
+                return "";
+
+            if (config.NeedsMeasurement)
+                return "Measured from source needs the denoise render and the grav1synth diff that run in front of " +
+                    "av1an, and this tab has no measuring pass. Measure the table once - the Film Grain utility's " +
+                    "Measure operation writes one, and an AV1AN-tab Measured encode keeps one beside its output - " +
+                    "then pick Grain table file here, with Denoise ticked at the same strength.";
+
+            if (config.UsesTable && GetTableFlag(codec).IsEmpty())
+                return DescribeUndeliverableTable($"{CodecUtils.GetCodec(codec).FriendlyName} has no parameter for " +
+                    $"applying a grain table");
+
+            return "";
+        }
+
+        /// <summary>
         /// Whether a path cannot be written into av1an's encoder arguments.
         /// <para/>
         /// Everything this app sends an av1an-driven encoder goes inside one <c>-v "…"</c> string that
@@ -246,46 +367,113 @@ namespace Nmkoder.UI.Tasks
 
             string cannot = await GetTableDeliveryProblem(config, codec, tablePath);
 
-            if (cannot.IsEmpty())
+            return cannot.IsEmpty() ? "" : DescribeUndeliverableTable(cannot);
+        }
+
+        /// <summary>
+        /// The same for Quick Convert, and genuinely async now: the tab drives the standalone binaries,
+        /// so a table mode has to ask the binary in front of it about the flag exactly as the AV1AN
+        /// overload does - the bundled SVT-AV1 has <c>--fgs-table</c> and a user's own may be mainline,
+        /// which refuses the whole command over it. The Measured refusal comes first, being structural:
+        /// this tab has no measuring pass, however capable the binary -
+        /// <see cref="GetQuickConvertModeProblem"/> says where to get the table instead. grav1synth is
+        /// not asked after: the one mode that needs it is that refused one.
+        /// </summary>
+        public static async Task<string> GetProblemAsync(GrainSynthConfig config, CodecUtils.VideoCodec codec)
+        {
+            if (!config.Runs)
                 return "";
 
-            return $"This encode cannot be given the grain table, because {cannot}.\n\nEncode without grain " +
+            string problem = config.GetProblem();
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            if (config.IsUtilityOnly)
+                return $"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, " +
+                    $"which is the Film Grain utility's job rather than an encode setting. Use the Utilities tab.";
+
+            string modeProblem = GetQuickConvertModeProblem(config, codec);
+
+            if (modeProblem.IsNotEmpty())
+                return modeProblem;
+
+            if (!config.UsesTable)
+                return "";
+
+            string encoderName = codec == CodecUtils.VideoCodec.DirectSvtAv1 ? "svt-av1" : "aom";
+
+            if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(encoderName, GetTableFlag(codec)))
+                return DescribeUndeliverableTable($"this SVT-AV1 build has no {GetTableFlag(codec)} - it is a " +
+                    $"parameter of the PSY line (svt-av1-hdr), which is what this project bundles, and not of " +
+                    $"mainline SVT-AV1");
+
+            return "";
+        }
+
+        /// <summary> The refusal both tabs give for a table the encoder in front of them will not take.
+        /// It names the Film Grain utility, which produces the same grain in the same output by rewriting
+        /// the finished file - the step this row deliberately does not take for itself. </summary>
+        private static string DescribeUndeliverableTable(string cannot)
+        {
+            return $"This encode cannot be given the grain table, because {cannot}\n\nEncode without grain " +
                 $"synthesis, then put the table into the finished file with the Film Grain utility on the " +
                 $"Utilities tab - that is the same grain in the same output, applied afterwards instead of by " +
                 $"the encoder. Encoder analysis is the other way round: it needs no table and works on every " +
                 $"AV1 build.";
         }
 
-        /// <summary> Brings the readout up to date and enables or disables the row. Touches nothing that
-        /// blocks, so it is safe from any handler. </summary>
+        /// <summary> Brings both tabs' readouts up to date. Touches nothing that blocks, so it is safe
+        /// from any handler. </summary>
         public static void RefreshInfo()
         {
             try
             {
-                CodecUtils.Av1anCodec codec = Av1anUi.GetCurrentCodecV();
-                GrainSynthConfig config = GetAv1anConfig();
+                GrainSynthConfig av1an = GetAv1anConfig();
+                Form.Av1anGrainInfoLabel.Text = Describe(av1an, GetLikelyDelivery(av1an, Av1anUi.GetCurrentCodecV()),
+                    TrackList.current?.File, "");
 
-                // A mode that cannot run says so here instead of describing what it would have done. The
-                // shape this is for is Grain table file with no file picked yet, which is where every user
-                // of that mode starts: without this the row read "Table '' · the source's own grain is
-                // coded too", which describes an encode that the run would refuse a moment later.
-                string problem = config.GetProblem();
+                // Quick Convert knows one thing the AV1AN tab cannot know until the encode starts:
+                // whether the mode can run here at all - Measured has no pass to run in, and a codec
+                // without a table parameter cannot be handed one. That is the difference between a mode
+                // that will work and one the run is going to refuse, so the readout says it rather than
+                // describing an encode that is not going to happen. What is not asked here is the
+                // binary: that costs a process launch, so whether this SVT-AV1 is mainline stays the
+                // encode's question, exactly as it is on the AV1AN tab.
+                CodecUtils.VideoCodec encCodec = QuickConvertUi.GetCurrentCodecV();
+                GrainSynthConfig enc = GetQuickConvertConfig();
+                string undeliverable = GetQuickConvertModeProblem(enc, encCodec);
 
-                if (problem.IsNotEmpty())
-                {
-                    Form.Av1anGrainInfoLabel.Text = problem;
-                    return;
-                }
-
-                string note = config.GetNote(GetLikelyDelivery(config, codec));
-                string cost = DescribeCost(config);
-
-                Form.Av1anGrainInfoLabel.Text = cost.IsEmpty() ? note : $"{note} · {cost}";
+                Form.EncGrainInfoLabel.Text = Describe(enc, GetLikelyDelivery(enc, encCodec),
+                    DeinterlaceUi.GetQuickConvertSourceFile(), undeliverable);
             }
             catch (Exception e)
             {
                 Logger.Log($"Failed to describe the grain synthesis setting: {e.Message}", true);
             }
+        }
+
+        /// <summary> One row's readout: why it cannot run, or what it is going to do and what that costs. </summary>
+        private static string Describe(GrainSynthConfig config, GrainDelivery delivery, MediaFile file, string undeliverable)
+        {
+            // A mode that cannot run says so here instead of describing what it would have done. The
+            // shape this is for is Grain table file with no file picked yet, which is where every user
+            // of that mode starts: without this the row read "Table '' · the source's own grain is
+            // coded too", which describes an encode that the run would refuse a moment later.
+            string problem = config.GetProblem();
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            // The message carries its own way out - Encoder analysis, the utility, or where to measure
+            // a table - so nothing is appended to it here.
+            if (undeliverable.IsNotEmpty())
+                return undeliverable;
+
+            string note = config.GetNote(delivery);
+            string cost = DescribeCost(config, file);
+
+            return cost.IsEmpty() ? note : $"{note} · {cost}";
         }
 
         /// <summary>
@@ -298,12 +486,11 @@ namespace Nmkoder.UI.Tasks
         /// see that number before they press Run will trim the source, or pick Encoder analysis, or decide
         /// it is worth it - and any of those three is better than finding out at hour two.
         /// </summary>
-        private static string DescribeCost(GrainSynthConfig config)
+        private static string DescribeCost(GrainSynthConfig config, MediaFile file)
         {
             if (config.Mode != GrainSynthMode.Measured || !config.Runs)
                 return "";
 
-            MediaFile file = TrackList.current?.File;
             VideoStream v = file?.VideoStreams.FirstOrDefault();
 
             if (v == null || file.DurationMs < 1 || v.Rate.GetFloat() <= 0)
@@ -332,15 +519,36 @@ namespace Nmkoder.UI.Tasks
             };
         }
 
-        /// <summary> The table file picker, off the row's own browse button. </summary>
-        public static async Task PickTableAsync()
+        /// <summary>
+        /// Quick Convert's plan, settled for a run. It needs no async counterpart the way the AV1AN tab's
+        /// does: nothing here has to ask a binary, so what the readout showed and what the encode uses are
+        /// the same answer worked out the same way.
+        /// </summary>
+        public static GrainPlan GetQuickConvertPlan()
+        {
+            GrainSynthConfig config = GetQuickConvertConfig();
+
+            return new GrainPlan
+            {
+                Config = config,
+                Delivery = GetLikelyDelivery(config, QuickConvertUi.GetCurrentCodecV()),
+                TablePath = config.Mode == GrainSynthMode.Table ? config.TablePath : "",
+            };
+        }
+
+        /// <summary> The table file picker, off each row's own browse button. </summary>
+        public static async Task PickTableAsync(bool av1anTab)
         {
             string[] paths = await Pickers.PickFiles(Form, "Pick a film grain table", allowMultiple: false);
 
             if (paths == null || paths.Length < 1 || paths[0].IsEmpty())
                 return;
 
-            Form.Av1anGrainTableBox.Text = paths[0];
+            if (av1anTab)
+                Form.Av1anGrainTableBox.Text = paths[0];
+            else
+                Form.EncGrainTableBox.Text = paths[0];
+
             RefreshInfo();
         }
     }
