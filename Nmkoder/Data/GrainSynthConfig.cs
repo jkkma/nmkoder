@@ -95,6 +95,17 @@ namespace Nmkoder.Data
         public int Strength = 0;
 
         /// <summary>
+        /// The encoder-analysis strength from which the readout names the denoise as a cost of its own.
+        /// Both AV1 encoders read the strength on a 0-50 scale and denoise at the same number when their
+        /// denoise flag is set - SVT-AV1's <c>--film-grain</c> drives its own denoiser, and aomenc's
+        /// <c>--denoise-noise-level</c> *is* the denoiser's level - so the top of the scale is maximum
+        /// smoothing of the real picture as well as maximum synthetic grain, and nothing else on screen
+        /// says the two rise together. Ordinary grainy-film settings sit well under this line; from here
+        /// up the smoothing is the louder half of the trade.
+        /// </summary>
+        public const int HeavyDenoiseStrength = 30;
+
+        /// <summary>
         /// Whether the picture being encoded has the source's grain taken out of it first, which is where
         /// the bitrate saving comes from and is a different mechanism in each of the two modes that offer
         /// it. Under <see cref="GrainSynthMode.Encoder"/> it is the encoder's own denoise flag; under
@@ -366,7 +377,10 @@ namespace Nmkoder.Data
             switch (Mode)
             {
                 case GrainSynthMode.Encoder:
-                    parts.Add($"The encoder measures the source itself, at {Strength}");
+                    // "of 50" because the number means nothing without its scale: both encoders read
+                    // it 0-50, and a 50 typed as "more grain" is also asking for the heaviest denoise
+                    // the encoder has - which is what the clause below calls out where it applies.
+                    parts.Add($"The encoder measures the source itself, at {Strength} of 50");
                     break;
                 case GrainSynthMode.Measured:
                     parts.Add($"Denoised ({GetDenoiseFilter()}) and measured by grav1synth");
@@ -377,9 +391,16 @@ namespace Nmkoder.Data
                     break;
             }
 
-            parts.Add(DenoisesSource
-                ? "the picture is coded clean, so the grain costs bytes instead of bitrate"
-                : "the source's own grain is coded too, so this adds grain rather than saving");
+            // The heavy-strength variant qualifies the coded-clean clause rather than replacing it:
+            // it is still the saving mechanism at work, and what changes up here is only that the
+            // denoise doing it stops being free - see HeavyDenoiseStrength.
+            bool heavyDenoise = Mode == GrainSynthMode.Encoder && Denoise && Strength >= HeavyDenoiseStrength;
+
+            parts.Add(!DenoisesSource
+                ? "the source's own grain is coded too, so this adds grain rather than saving"
+                : heavyDenoise
+                    ? "the picture is coded clean - and the denoise runs at that strength too, which this high smooths real detail out with the grain"
+                    : "the picture is coded clean, so the grain costs bytes instead of bitrate");
 
             return string.Join(" · ", parts);
         }
