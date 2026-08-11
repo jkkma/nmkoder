@@ -190,6 +190,20 @@ namespace Nmkoder.UI.Tasks
                 if (tuneProblem.IsNotEmpty())
                     Logger.Log(tuneProblem);
 
+                // Refused rather than logged, like the AV1AN tab's version of the same check: a grid
+                // row naming a parameter this SVT-AV1 build does not have fails the whole command at
+                // launch, with the encoder's complaint naming the flag rather than the build.
+                if (directEnc != null)
+                {
+                    string advancedArgsProblem = await QuickConvertUi.GetUnsupportedAdvancedArgsProblem(directEnc);
+
+                    if (advancedArgsProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(advancedArgsProblem);
+                        return;
+                    }
+                }
+
                 // Not read straight off the mode box: the fixed formats have no rate control and that box
                 // is disabled over whatever was last picked in it, so a Target Bitrate left over from
                 // H.264 had GetVideoArgsFromUi send a bitrate where GIF and JPEG read a "q". Both fell
@@ -204,6 +218,14 @@ namespace Nmkoder.UI.Tasks
 
                 if (!encodedFrame.IsEmpty)
                     videoArgs[CodecUtils.FrameSizeKey] = $"{encodedFrame.Width}x{encodedFrame.Height}";
+
+                // The same note the AV1AN tab logs beside its SVT presets: hbd-mds only acts on a
+                // 10-bit input, and the content presets set it.
+                string hbdProblem = QuickConvertUi.GetHbdModeDecisionProblem(GetCurrentCodecV(),
+                    videoArgs.TryGetValue("pixFmt", out string qcPixFmt) ? qcPixFmt : "");
+
+                if (hbdProblem.IsNotEmpty())
+                    Logger.Log(hbdProblem);
 
                 // Decided once, before anything reads it: the filter arguments and the stream maps are
                 // each built more than once per run, and in Automatic mode answering the question can

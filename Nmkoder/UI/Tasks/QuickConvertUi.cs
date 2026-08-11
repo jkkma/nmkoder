@@ -956,6 +956,77 @@ namespace Nmkoder.UI.Tasks
             return GrainGridChecks.GetFilmGrainTuneProblem(GetAdvancedArgValue);
         }
 
+        /// <summary>
+        /// Why the encode cannot start with the advanced grid as it stands, or "" if it can - the same
+        /// question <see cref="Av1anUi.GetUnsupportedAdvancedArgsProblem"/> asks over its own grid, and
+        /// worth asking here for the same reason now that this tab launches the binary itself: the grid
+        /// is filled from SvtAv1.json, which is written for svt-av1-hdr, while the binary that runs is
+        /// whatever is on the machine - and SVT refuses a whole command over one parameter it does not
+        /// know, so with a mainline build the encode would die at launch naming a flag rather than the
+        /// build. Nothing is refused on a failed lookup, and nothing but SVT-AV1 is ever asked - see
+        /// <see cref="EncoderArgPresets.Av1anEncoderName"/> for both limits.
+        /// </summary>
+        public static async Task<string> GetUnsupportedAdvancedArgsProblem(Data.Codecs.Video.IBinaryEncoder enc)
+        {
+            string av1anEncoder = EncoderArgPresets.Av1anEncoderName(enc.Name);
+
+            if (av1anEncoder.IsEmpty())
+                return "";
+
+            var unsupported = new List<string>();
+
+            foreach (EncoderArgRow row in Form.EncArgRows.Where(x => x.Argument.IsNotEmpty() && x.Value.IsNotEmpty()))
+            {
+                string arg = row.Argument.Trim().TrimStart('-');
+
+                // Matched with the dashes on, so a parameter is not found inside a longer one's name
+                if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(av1anEncoder, $"--{arg}"))
+                    unsupported.Add(arg);
+            }
+
+            if (unsupported.Count < 1)
+                return "";
+
+            bool one = unsupported.Count == 1;
+
+            // Only SVT-AV1 can reach this, so there is only one thing it ever means - the same cause
+            // the AV1AN tab names, without the chunks: this encode is one command, and it never starts.
+            return $"{string.Join(", ", unsupported)} {(one ? "is" : "are")} set on the Advanced tab, and the " +
+                $"encoder that would run does not have {(one ? "it" : "them")}. An unrecognised parameter is " +
+                $"refused as a whole command, so the encode would never start.\n\nThat means it is mainline " +
+                $"SVT-AV1 rather than the PSY-line build (svt-av1-hdr) this tab's parameter list is written " +
+                $"for.\n\nClear {(one ? "that row" : "those rows")}, or use a build that has {(one ? "it" : "them")}.";
+        }
+
+        /// <summary>
+        /// Why an hbd-mds row will do nothing on this encode, or "" - the same note
+        /// <see cref="Av1anUi.GetHbdModeDecisionProblem"/> logs, mirrored here because the SVT content
+        /// presets set the row and both tabs now offer them. Kept as its own small copy rather than
+        /// shared: the two differ in codec type and grid, and the message is one sentence.
+        /// </summary>
+        public static string GetHbdModeDecisionProblem(CodecUtils.VideoCodec codec, string pixFmt)
+        {
+            // The advanced grid is reloaded per encoder, so no other encoder can be carrying this row.
+            if (codec != CodecUtils.VideoCodec.DirectSvtAv1)
+                return "";
+
+            // 0 means an unrecognised format rather than 8-bit, and guessing at one is not worth a
+            // warning that would then be wrong.
+            if (FormatUtils.GetBitDepthFromPixelFormat(pixFmt) != 8)
+                return "";
+
+            string value = GetAdvancedArgValue("hbd-mds");
+
+            // 0 leaves the choice to the preset, so it is not asking the input for something it does
+            // not have. 1 is all 10-bit, 2 hybrid - both want 10-bit samples.
+            if (value != "1" && value != "2")
+                return "";
+
+            return $"Note: hbd-mds is set to {value}, which asks for {(value == "1" ? "all of" : "part of")} the mode decision " +
+                $"at 10-bit, but SVT-AV1 only does that on a 10-bit input and the Color Format is 8-bit ({pixFmt}). " +
+                $"Pick a 10 bit Color Format for it to have any effect.";
+        }
+
         #endregion
 
         private static int GetVideoKbps()
