@@ -9,54 +9,39 @@ namespace Nmkoder.Media
 {
     /// <summary>
     /// Renders the tone map over one whole file into an SDR copy, for the AV1AN tab - the same shape
-    /// as <see cref="DeinterlacePass"/> beside it. Which chain it renders is the config's own
-    /// <see cref="ToneMapConfig.UseLibplacebo"/>, and the two arrive here for different reasons;
-    /// <see cref="UI.Tasks.Av1anUi.ToneMapRendersInFront"/> is where both are stated.
+    /// as <see cref="DeinterlacePass"/> beside it. <see cref="UI.Tasks.Av1anUi.ToneMapRendersInFront"/>
+    /// is the gate, and it is libplacebo alone: the zscale chain is stateless and stays per-chunk.
     /// <para/>
     /// libplacebo is here because a filter with temporal state cannot run inside av1an, which applies
-    /// its <c>-f</c> chain in an ffmpeg it starts and stops around every chunk. For QTGMC the state is
-    /// VapourSynth's; here it is peak detection's history. libplacebo can only learn a file's real
-    /// brightness by measuring it as it goes - there is no option to hand it a peak, it reads only the
-    /// mastering-display side data otherwise, and av1an's y4m pipes carry no side data at all, so
-    /// inside av1an it always assumed the 10000-nit PQ ceiling and every tone-mapped encode came out
-    /// at its darkest possible reading. Run per chunk with detection on instead, the history restarts
-    /// at every boundary: measured, a restart mid-ramp steps the exposure by 6 code values and takes
-    /// ~23 frames to converge, a visible pump at 26 places in a film. One continuous pass has neither
-    /// problem, and it buys two things beside: the target-quality probes score the SDR frames actually
-    /// being encoded (per-chunk filters are invisible to them), and the grain passes downstream
-    /// measure the picture the encoder will get.
+    /// its <c>-f</c> chain in an ffmpeg it starts and stops around every chunk - here that state is
+    /// peak detection's history. libplacebo can only learn a file's real brightness by measuring it as
+    /// it goes: there is no option to hand it a peak, it reads only the mastering-display side data
+    /// otherwise, and av1an's y4m pipes carry no side data at all, so inside av1an it always assumed
+    /// the 10000-nit PQ ceiling and every tone-mapped encode came out at its darkest possible reading.
+    /// Run per chunk with detection on instead, the history restarts at every boundary: measured, a
+    /// restart mid-ramp steps the exposure by 6 code values and takes ~23 frames to converge, a
+    /// visible pump at 26 places in a film. One continuous pass has neither problem, and it buys one
+    /// thing beside: the target-quality probes score the SDR frames actually being encoded, where
+    /// per-chunk filters are invisible to them.
     /// <para/>
-    /// The zscale chain is stateless and normally stays per-chunk; it lands here exactly when a grain
-    /// denoise pass follows, because that pass runs on a file before av1an starts - so with the tone
-    /// map still inside av1an the grain would be measured on HDR frames while the encoder received SDR
-    /// ones, and a grain table's amplitudes live in its file's own signal domain.
-    /// <para/>
-    /// **The solo pass writes near-lossless x264 and the fused pass writes lossless FFV1, and the
-    /// split is who reads the file.** The solo output is only ever *encoded* - av1an decodes it and
-    /// AV1 comes out - and the x264 settings below were chosen by measuring what survives them:
-    /// high-frequency energy of heavy grain through CRF 12 is 90.5% at <c>veryfast</c> (the preset's
-    /// trellis 0, not the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5% at <c>medium</c>, and
-    /// **100% at <c>fast</c> with <c>-tune grain</c>**, with tone values band-identical - transparent
-    /// to the encoder that reads it, at about a tenth of the source's size. Lossless FFV1 replaced
-    /// this for a while at the user's request, and the user traded it back after living with the
-    /// cost: even rendered at the encode's frame size (the folded geometry, see
+    /// **The output is near-lossless x264, and the settings were chosen by measuring what survives
+    /// them** - this file is only ever *encoded*, av1an decoding it and AV1 coming out. High-frequency
+    /// energy of heavy grain through CRF 12 is 90.5% at <c>veryfast</c> (the preset's trellis 0, not
+    /// the CRF - even CRF 3 veryfast only reaches 96.4%), 98.5% at <c>medium</c>, and **100% at
+    /// <c>fast</c> with <c>-tune grain</c>**, with tone values band-identical: transparent to the
+    /// encoder that reads it, at about a tenth of the source's size. Lossless FFV1 replaced this for
+    /// a while at the user's request, and the user traded it back after living with the cost: even
+    /// rendered at the encode's frame size (the folded geometry, see
     /// <see cref="Data.Av1anFrame.GeometryInPass"/> - before that fold a 4K film scaled to 1080p
     /// paid lossless rates for four times the pixels the encoder ever saw, ~40 GB for a five-minute
     /// test clip), lossless 1080p is still a temporary file in the tens of gigabytes per film.
     /// <para/>
-    /// The fused pass cannot follow, because its tone-mapped output is *measured against*, not only
-    /// encoded: the graph splits into two independent encoders, and grav1synth then diffs the
-    /// tone-mapped file against its denoised sibling frame for frame - so a lossy reference would
-    /// put the quantizer's noise into the grain table as though it were grain, which is precisely
-    /// the small high-frequency signal a quantiser disturbs first. The solo shape has no diff; the
-    /// one way a solo x264 file meets a measurement is the repair path, where the denoised copy is
-    /// derived *from* that file's own decoded frames, so both sides share one generation and the
-    /// difference is still exactly the grain that was removed. (x264's own lossless mode is not an
-    /// alternative spelling of FFV1 here, measured rather than assumed: 10-bit <c>-qp 0</c> comes
-    /// back with differing frame hashes - high-bit-depth x264 shifts its QP scale, so 0 is no longer
-    /// the lossless point - and ffmpeg's wrapper refuses the negative QP that scale would need.
-    /// FFV1 round-trips bit-exact, and the fused outputs share <see cref="DenoisePass.Ffv1Args"/>
-    /// with the denoised file for exactly that reason.)
+    /// There was a fused shape beside this one, writing a denoised copy as a second output for the
+    /// grain measurement, and it had to be lossless where this is not: grav1synth diffed the two
+    /// frame for frame, so a lossy reference would have put the quantizer's noise into the grain
+    /// table as though it were grain. It went with the AV1AN tab's measuring modes - see
+    /// <see cref="Data.GrainSynthConfig.EncodeModes"/> - which is what leaves this pass free to be
+    /// the cheap x264 in every case rather than in most of them.
     /// </summary>
     class ToneMapPass
     {
@@ -64,13 +49,10 @@ namespace Nmkoder.Media
         private const string Preset = "fast";
         private const string Tune = "grain";
 
-        /// <summary> What the finished file will be, for the log line that announces the run - which
-        /// depends on the shape: the fused pair is lossless, the solo file is not. See the class
-        /// note for why that split is not a preference. </summary>
-        public static string DescribeOutput(bool lossless)
+        /// <summary> What the finished file will be, for the log line that announces the run. </summary>
+        public static string DescribeOutput()
         {
-            return lossless ? "a lossless SDR FFV1 MKV"
-                : $"a near-lossless SDR MKV (x264, CRF {Crf}, tuned for grain)";
+            return $"a near-lossless SDR MKV (x264, CRF {Crf}, tuned for grain)";
         }
 
         /// <summary>
@@ -116,65 +98,6 @@ namespace Nmkoder.Media
 
             if (problem.IsNotEmpty())
                 return problem;
-
-            return "";
-        }
-
-        /// <summary>
-        /// The fused shape: the tone map rendered once, with the denoised copy the grain passes need
-        /// written as a second output of the same command - one source decode and one tone-map render
-        /// where the separate passes cost two, which at UHD sizes is the pass this saves. The graph
-        /// splits *after* the whole tone-map chain (format pinning included), so both outputs carry
-        /// identical SDR frames, and with both outputs lossless the grain measurement downstream is
-        /// exact: the diff reference *is* the rendered frames, with no encode generation between.
-        /// <para/>
-        /// Both files or neither: the caller deletes the pair on any failure, because each half is the
-        /// other's reason to be trusted - a denoised file without its tone-mapped sibling would be
-        /// diffed against nothing, and a resume that found one half would mistake a dead fused run for
-        /// a finished pass. The separate <see cref="RunAsync"/> and <see cref="DenoisePass.RunAsync"/>
-        /// stay as the repair path for exactly that resume: a kept tone-mapped file with the denoised
-        /// half missing is denoised from disk without re-rendering the tone map.
-        /// </summary>
-        public static async Task<string> RunFusedAsync(ToneMapConfig config, VideoColorData srcColor, GrainSynthConfig grain,
-            string inPath, string outPath, string denoisedOutPath, MediaFile source, string extraFilters = "")
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(outPath));
-
-            // The geometry sits before the split on purpose: both outputs must carry it, because the
-            // denoised copy is the grain measurement's other half and grav1synth diffs the two frame
-            // for frame - and the encoder is handed one of them, so measuring at any other size would
-            // put the table in the wrong domain.
-            string filter = PrepareFilter(config, srcColor, extraFilters);
-
-            if (filter.IsEmpty())
-                return "Nothing to tone-map - the chain came out empty.";
-
-            string graph = $"[0:v:0]{filter},split=2[tm][dn];[dn]{grain.GetDenoiseFilter()}[den]";
-
-            // Output options bind to the output that follows them, so the tone-mapped file keeps the
-            // exact shape RunAsync gives it - every track carried, metadata and chapters included -
-            // and the denoised one carries them too, because it is what av1an encodes in Measured
-            // mode and av1an takes every non-video track from its own -i input. It was video-only
-            // once, which made every Measured encode silent - see the DenoisePass class note.
-            string args = $"-i {inPath.Wrap()} {GetDeviceArgs(config)}-filter_complex \"{graph}\" " +
-                $"-map \"[tm]\" -map 0:a? -map 0:s? -map 0:t? " +
-                $"{DenoisePass.Ffv1Args} -c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
-                $"-map_metadata 0 -map_chapters 0 {outPath.Wrap()} " +
-                $"-map \"[den]\" -map 0:a? -map 0:s? -map 0:t? {DenoisePass.Ffv1Args} " +
-                $"-c:a copy {DeinterlacePass.GetSubtitleArgs(source)} -dn " +
-                $"-map_metadata 0 -map_chapters 0 {denoisedOutPath.Wrap()}";
-
-            string problem = await RunAndJudgeAsync(args, outPath);
-
-            if (problem.IsNotEmpty())
-                return problem;
-
-            // A stopped run is not a failure to word - same convention as the artifact judge itself.
-            if (RunTask.canceled || RunTask.failed)
-                return "";
-
-            if (!RunTask.OutputExists(denoisedOutPath))
-                return $"FFmpeg reported no error, but '{Path.GetFileName(denoisedOutPath)}' was not written.";
 
             return "";
         }

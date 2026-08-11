@@ -69,8 +69,12 @@ namespace Nmkoder.UI.Tasks
             if (!IsRowRelevant(Av1anUi.GetCurrentCodecV()))
                 return new GrainSynthConfig();
 
+            // No table denoise and no denoise strength: this tab runs no denoise pass at all. What
+            // Quick Convert does with one hqdn3d entry in a chain it already builds costs av1an a
+            // lossless copy of the film in front of the encode, so the tick is Quick Convert's - see
+            // GrainSynthConfig.EncodeModes.
             return Read(Form.Av1anGrainModeBox, Form.Av1anGrainSynthStrengthUpDown, Form.Av1anGrainSynthDenoiseBox,
-                Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainDenoiseStrengthUpDown, Form.Av1anGrainTableBox);
+                tableDenoise: null, denoiseStrength: null, tableBox: Form.Av1anGrainTableBox);
         }
 
         /// <summary>
@@ -87,7 +91,9 @@ namespace Nmkoder.UI.Tasks
                 Form.EncGrainTableDenoiseBox, Form.EncGrainDenoiseStrengthUpDown, Form.EncGrainTableBox);
         }
 
-        /// <summary> One row's controls, read into a config. </summary>
+        /// <summary> One row's controls, read into a config. <paramref name="tableDenoise"/> and
+        /// <paramref name="denoiseStrength"/> are null on the AV1AN tab, which has neither control and
+        /// so can never ask for the denoise pass those two describe. </summary>
         private static GrainSynthConfig Read(ComboBox modeBox, NumericUpDown strength, CheckBox encoderDenoise,
             CheckBox tableDenoise, NumericUpDown denoiseStrength, TextBox tableBox)
         {
@@ -101,9 +107,9 @@ namespace Nmkoder.UI.Tasks
                 // denoise flag under Encoder, this app's denoise pass under Table. Read per mode so a tick
                 // left in the panel that is off screen cannot reach the encode.
                 Denoise = mode == GrainSynthMode.Table
-                    ? tableDenoise.IsChecked == true
+                    ? tableDenoise != null && tableDenoise.IsChecked == true
                     : encoderDenoise.IsChecked == true,
-                DenoiseStrength = denoiseStrength.Value.AsInt(),
+                DenoiseStrength = denoiseStrength == null ? 4 : denoiseStrength.Value.AsInt(),
                 TablePath = (tableBox.Text ?? "").Trim(),
             };
         }
@@ -130,33 +136,34 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         public static void ApplyControlVisibility()
         {
+            // The AV1AN row has no denoise-pass controls at all, so it passes nulls where Quick Convert
+            // passes the tick and the strength beside it.
             Apply(IsRowRelevant(Av1anUi.GetCurrentCodecV()), Form.Av1anGrainModeBox, Form.Av1anGrainEncoderPanel,
-                Form.Av1anGrainMeasuredPanel, Form.Av1anGrainDenoiseLabel, Form.Av1anGrainTablePanel,
-                Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainSynthDenoiseBox, Form.Av1anGrainSynthStrengthUpDown);
+                measuredPanel: null, Form.Av1anGrainTablePanel,
+                tableDenoise: null, Form.Av1anGrainSynthDenoiseBox, Form.Av1anGrainSynthStrengthUpDown);
 
             Apply(IsRowRelevant(QuickConvertUi.GetCurrentCodecV()), Form.EncGrainModeBox, Form.EncGrainEncoderPanel,
-                Form.EncGrainMeasuredPanel, Form.EncGrainDenoiseLabel, Form.EncGrainTablePanel,
+                Form.EncGrainMeasuredPanel, Form.EncGrainTablePanel,
                 Form.EncGrainTableDenoiseBox, Form.EncGrainSynthDenoiseBox, Form.EncGrainSynthStrengthUpDown);
 
             RefreshInfo();
         }
 
         private static void Apply(bool relevant, ComboBox modeBox, StackPanel encoderPanel, StackPanel measuredPanel,
-            TextBlock denoiseLabel, StackPanel tablePanel, CheckBox tableDenoise, CheckBox encoderDenoise, NumericUpDown strength)
+            StackPanel tablePanel, CheckBox tableDenoise, CheckBox encoderDenoise, NumericUpDown strength)
         {
             GrainSynthMode mode = relevant ? GetMode(modeBox) : GrainSynthMode.Off;
 
             modeBox.IsEnabled = relevant;
             encoderPanel.IsVisible = mode == GrainSynthMode.Encoder;
-            // The strength belongs to the pass, and the pass runs for Measured always and for Table on
-            // request - so it follows the pass rather than the mode.
-            measuredPanel.IsVisible = mode == GrainSynthMode.Measured ||
-                (mode == GrainSynthMode.Table && tableDenoise.IsChecked == true);
 
-            // The strength names itself in Measured, where nothing else on the row says what it is. Under
-            // Table the tickbox immediately to its left is already labelled Denoise, and two of the word
-            // in a row reads as two settings.
-            denoiseLabel.IsVisible = mode == GrainSynthMode.Measured;
+            // The strength belongs to the denoise pass, which is Quick Convert's alone and runs there
+            // only for a table with the tick set. It used to accompany Measured too, and carried a
+            // "Denoise" label of its own for that mode, where under Table the tickbox immediately to
+            // its left already says the word - with Measured gone the label had nothing left to name.
+            if (measuredPanel != null)
+                measuredPanel.IsVisible = mode == GrainSynthMode.Table && tableDenoise.IsChecked == true;
+
             tablePanel.IsVisible = mode == GrainSynthMode.Table;
 
             // The Denoise box follows the strength beside it as well as the encoder: both AV1 encoders
@@ -292,11 +299,8 @@ namespace Nmkoder.UI.Tasks
         /// The structural half of the same question on Quick Convert: what can be known without asking a
         /// binary anything, which is what the readout can afford - the encode's own check,
         /// <see cref="GetProblemAsync(GrainSynthConfig, CodecUtils.VideoCodec)"/>, asks the binary too.
-        /// Two things are structural. A codec with no table parameter cannot take one however it is
-        /// spelled; and Measured from source cannot run here at all - it needs the denoise render and the
-        /// grav1synth diff that run in front of av1an, and this tab's encode is a command chain with no
-        /// measuring pass in it. The table is the thing to bring: the Film Grain utility's Measure
-        /// operation writes one, and an AV1AN-tab Measured encode keeps one beside its output.
+        /// What is structural is the codec: one with no table parameter cannot take a table however it is
+        /// spelled.
         /// <para/>
         /// The AV1AN overload's space check does not carry over in the other direction either: these
         /// encoders are launched by this app with the path as one <c>Shell.WrapArg</c> argument, which
@@ -306,12 +310,6 @@ namespace Nmkoder.UI.Tasks
         {
             if (!config.Runs)
                 return "";
-
-            if (config.NeedsMeasurement)
-                return "Measured from source needs the denoise render and the grav1synth diff that run in front of " +
-                    "av1an, and this tab has no measuring pass. Measure the table once - the Film Grain utility's " +
-                    "Measure operation writes one, and an AV1AN-tab Measured encode keeps one beside its output - " +
-                    "then pick Grain table file here, with Denoise ticked at the same strength.";
 
             if (config.UsesTable && GetTableFlag(codec).IsEmpty())
                 return DescribeUndeliverableTable($"{CodecUtils.GetCodec(codec).FriendlyName} has no parameter for " +
@@ -356,8 +354,7 @@ namespace Nmkoder.UI.Tasks
             // Nothing on the row can select a utility-only mode, so this is a guard against one arriving
             // from somewhere else rather than something a user can see.
             if (config.IsUtilityOnly)
-                return $"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, which is the " +
-                    $"Film Grain utility's job rather than an encode setting. Use the Utilities tab.";
+                return config.DescribeUtilityOnly();
 
             if (config.NeedsGrav1synth() && !Grav1synth.IsAvailable())
                 return Grav1synth.DescribeMissing();
@@ -390,8 +387,7 @@ namespace Nmkoder.UI.Tasks
                 return problem;
 
             if (config.IsUtilityOnly)
-                return $"'{GrainSynthConfig.GetLabel(config.Mode)}' writes grain into a finished file, " +
-                    $"which is the Film Grain utility's job rather than an encode setting. Use the Utilities tab.";
+                return config.DescribeUtilityOnly();
 
             string modeProblem = GetQuickConvertModeProblem(config, codec);
 
@@ -434,12 +430,11 @@ namespace Nmkoder.UI.Tasks
                     TrackList.current?.File, "");
 
                 // Quick Convert knows one thing the AV1AN tab cannot know until the encode starts:
-                // whether the mode can run here at all - Measured has no pass to run in, and a codec
-                // without a table parameter cannot be handed one. That is the difference between a mode
-                // that will work and one the run is going to refuse, so the readout says it rather than
-                // describing an encode that is not going to happen. What is not asked here is the
-                // binary: that costs a process launch, so whether this SVT-AV1 is mainline stays the
-                // encode's question, exactly as it is on the AV1AN tab.
+                // whether the codec in front of it takes a table at all. That is the difference between
+                // a mode that will work and one the run is going to refuse, so the readout says it
+                // rather than describing an encode that is not going to happen. What is not asked here
+                // is the binary: that costs a process launch, so whether this SVT-AV1 is mainline stays
+                // the encode's question, exactly as it is on the AV1AN tab.
                 CodecUtils.VideoCodec encCodec = QuickConvertUi.GetCurrentCodecV();
                 GrainSynthConfig enc = GetQuickConvertConfig();
                 string undeliverable = GetQuickConvertModeProblem(enc, encCodec);
@@ -470,36 +465,11 @@ namespace Nmkoder.UI.Tasks
             if (undeliverable.IsNotEmpty())
                 return undeliverable;
 
-            string note = config.GetNote(delivery);
-            string cost = DescribeCost(config, file);
-
-            return cost.IsEmpty() ? note : $"{note} · {cost}";
-        }
-
-        /// <summary>
-        /// What the Measured mode is about to spend, for the file in front of the user, and only for that
-        /// mode - it is the only one with a cost worth a sentence.
-        /// <para/>
-        /// It is the same argument the Deinterlace row's QTGMC tooltip makes and it is a good deal
-        /// sharper here: grav1synth's diff runs at about 7.2 megapixels a second, single-threaded, so a
-        /// feature film at 1080p is a working day of measuring before av1an is started. Somebody who can
-        /// see that number before they press Run will trim the source, or pick Encoder analysis, or decide
-        /// it is worth it - and any of those three is better than finding out at hour two.
-        /// </summary>
-        private static string DescribeCost(GrainSynthConfig config, MediaFile file)
-        {
-            if (config.Mode != GrainSynthMode.Measured || !config.Runs)
-                return "";
-
-            VideoStream v = file?.VideoStreams.FirstOrDefault();
-
-            if (v == null || file.DurationMs < 1 || v.Rate.GetFloat() <= 0)
-                return "costs a lossless intermediate and a full extra pass";
-
-            long frames = (long)(file.DurationMs / 1000d * v.Rate.GetFloat());
-            TimeSpan estimate = Grav1synth.EstimateDiffTime(frames, v.Resolution);
-
-            return $"~{FormatUtils.Time(estimate, allowMs: false)} to measure, plus a lossless intermediate";
+            // No cost clause any more: every mode this row offers costs the encode nothing beyond the
+            // encode. What used to be here was the Measured estimate - grav1synth's diff runs at about
+            // 7.2 megapixels a second, single-threaded, so a 1080p feature was a working day of it -
+            // and that number now belongs where the measuring does, on the Film Grain utility's dialog.
+            return config.GetNote(delivery);
         }
 
         /// <summary>

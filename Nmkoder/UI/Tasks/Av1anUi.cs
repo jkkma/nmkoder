@@ -28,15 +28,15 @@ namespace Nmkoder.UI.Tasks
         public static TrimSettings CurrentTrim;
 
         /// <summary> The deinterlacing settled for the encode being built, resolved once in
-        /// <see cref="Av1an.Run"/>. Either an ffmpeg filter that goes into av1an's '-f' chain, or -
-        /// where it is QTGMC - a pass that runs before av1an and replaces its input, since a
-        /// VapourSynth script cannot sit inside av1an's per-chunk filtering. </summary>
+        /// <see cref="Av1an.Run"/>. Always an ffmpeg filter that goes into av1an's '-f' chain: this
+        /// tab offers no QTGMC, a VapourSynth script not being something av1an's per-chunk filtering
+        /// can evaluate - see <see cref="DeinterlaceUi.Av1anQtgmcProblem"/>. </summary>
         public static DeinterlacePlan CurrentDeinterlace = new DeinterlacePlan();
 
         /// <summary> The grain synthesis settled for the encode being built, resolved once in
-        /// <see cref="Av1an.Run"/> - which of the three arguments the encoder is given, or whether
-        /// grav1synth writes the grain into the finished file instead, and where the table is. Null
-        /// outside an encode, where <see cref="GrainSynthUi.GetPreviewPlan"/> answers instead. </summary>
+        /// <see cref="Av1an.Run"/> - whether the encoder is handed a strength or a table, and where
+        /// that table is. Null outside an encode, where <see cref="GrainSynthUi.GetPreviewPlan"/>
+        /// answers instead. </summary>
         public static GrainPlan CurrentGrain = null;
 
         /// <summary> The tone-map this run is doing, snapshotted by <see cref="Av1an.Run"/> before the
@@ -56,22 +56,19 @@ namespace Nmkoder.UI.Tasks
         /// <para/>
         /// libplacebo always renders in front - its peak detection carries history no chunk boundary
         /// may restart, see the note in <see cref="GetVideoFilterArgs"/>. The zscale chain is stateless
-        /// and normally stays per-chunk, except when a grain denoise pass follows: those passes run on
-        /// files, before av1an ever starts, so a tone map still sitting inside av1an would have the
-        /// grain measured on the HDR frames while the encoder receives SDR ones - and a grain table
-        /// carries amplitudes in its file's own signal domain, so an HDR-measured table synthesises
-        /// wrong-strength grain onto an SDR encode, strongest in what used to be its highlights. The
-        /// GPU path closed that mismatch by construction; this closes it for the machines without one.
+        /// and always stays per-chunk, which is the cheap answer: no pass, no intermediate.
+        /// <para/>
+        /// It was pulled in front too when a grain denoise pass followed, and that clause went with the
+        /// passes. The reason is worth keeping, because it is what would have to be rebuilt if a
+        /// measuring mode ever came back to this tab: those passes ran on *files*, before av1an
+        /// started, so a tone map still inside av1an had the grain measured on HDR frames while the
+        /// encoder received SDR ones - and a grain table carries amplitudes in its file's own signal
+        /// domain, so an HDR-measured table synthesises wrong-strength grain onto an SDR encode,
+        /// worst in what used to be the highlights.
         /// </summary>
         public static bool ToneMapRendersInFront(VideoColorData srcColor)
         {
-            if (CurrentToneMap == null || !CurrentToneMap.RunsOn(srcColor))
-                return false;
-
-            if (CurrentToneMap.UseLibplacebo)
-                return true;
-
-            return CurrentGrain != null && CurrentGrain.NeedsDenoisePass;
+            return CurrentToneMap != null && CurrentToneMap.RunsOn(srcColor) && CurrentToneMap.UseLibplacebo;
         }
 
         public static void Init()
@@ -128,9 +125,8 @@ namespace Nmkoder.UI.Tasks
                 ValidateContainer();
 
                 // Outside the batch guard above, which is about not overwriting settings: this writes no
-                // setting at all. The Grain Synthesis readout names an hours-long estimate worked out from
-                // the loaded file's size and length, so it describes the wrong file until it is rewritten -
-                // and during a batch it is the only place that estimate is ever seen.
+                // setting at all, only the readout, which describes what the row will do to the file now
+                // in front of the user.
                 GrainSynthUi.RefreshInfo();
             }
             catch (Exception e)
@@ -558,12 +554,12 @@ namespace Nmkoder.UI.Tasks
             // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
             // the two tabs cannot produce different pixels from the same settings.
             //
-            // Only ever the zscale chain, and only when no grain pass follows - see
-            // ToneMapRendersInFront, which is the one statement of when the tone map is a pass in
-            // front of av1an (Av1an.RenderToneMappedInput) instead of a filter in here. libplacebo is
-            // never in this chain: its peak detection carries history, av1an starts and stops this
-            // chain's ffmpeg around every chunk, and a detector restarting mid-scene steps the
-            // exposure where the chunks meet. Worse, av1an feeds this chain through y4m pipes, which
+            // Only ever the zscale chain - see ToneMapRendersInFront, which is the one statement of when
+            // the tone map is a pass in front of av1an (Av1an.RenderToneMappedInput) instead of a filter
+            // in here. libplacebo is never in this chain: its peak detection carries history, av1an
+            // starts and stops this chain's ffmpeg around every chunk, and a detector restarting
+            // mid-scene steps the exposure where the chunks meet. Worse, av1an feeds this chain
+            // through y4m pipes, which
             // carry no HDR side data - so a libplacebo in here never even saw the mastering display,
             // and priced every file for the 10000-nit PQ ceiling. The zscale chain is immune to both:
             // it is stateless, and its peak arrives as a number in the filter string rather than as
@@ -1186,22 +1182,19 @@ namespace Nmkoder.UI.Tasks
         /// <summary>
         /// Why the Advanced grid's grain *retention* rows are pulling against the Grain Synthesis row,
         /// or "" when they are not - see <see cref="GrainGridChecks.GetGrainRetentionProblem"/>, which
-        /// also says why it is a note rather than a refusal. The denoise clause is this tab's own:
-        /// Measured and a denoised table run as a pass in front of av1an, where Quick Convert denoises
-        /// in its filter chain.
+        /// also says why it is a note rather than a refusal.
+        /// <para/>
+        /// One way of denoising is left on this tab, so the clause naming it is a constant: the
+        /// encoder's own flag under Encoder analysis. Quick Convert has the other, an hqdn3d entry in
+        /// the chain it builds for a table with Denoise ticked, which is why that tab words its own.
         /// </summary>
         public static string GetGrainRetentionProblem(CodecUtils.Av1anCodec vCodec, GrainSynthConfig config)
         {
             if (vCodec != CodecUtils.Av1anCodec.SvtAv1 || config == null || !config.DenoisesSource)
                 return "";
 
-            // Which mechanism took the grain out, since the two look different from the user's side: a
-            // pass of this app's own that writes a file, or a flag the encoder acts on internally.
-            string what = config.NeedsDenoisePass
-                ? "the source is denoised before av1an sees it"
-                : "Denoise is ticked, so the encoder codes the denoised picture";
-
-            return GrainGridChecks.GetGrainRetentionProblem(GetAdvancedArgValue, config, what);
+            return GrainGridChecks.GetGrainRetentionProblem(GetAdvancedArgValue, config,
+                "Denoise is ticked, so the encoder codes the denoised picture");
         }
 
         /// <summary>
@@ -1636,56 +1629,23 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
-        /// Where a run keeps the copy of its input that av1an is actually given - a trimmed one, a
-        /// deinterlaced one, or a trimmed one that was then deinterlaced: beside the temp folder, the
-        /// way the resume arguments are, rather than inside it. av1an empties its own temp folder at
-        /// startup whenever it is not resuming, so the one file its command has to be able to read is
-        /// the one file that cannot live in there.
+        /// Where a run keeps the copy of its input that av1an is actually given: beside the temp
+        /// folder, the way the resume arguments are, rather than inside it. av1an empties its own temp
+        /// folder at startup whenever it is not resuming, so the one file its command has to be able
+        /// to read is the one file that cannot live in there.
         /// </summary>
         public static string GetTrimmedInputPath(string tempDir, string ext)
         {
             return $"{tempDir}.trim{ext}";
         }
 
-        /// <summary> Where the QTGMC pass writes the progressive file av1an is given. Always Matroska:
-        /// it holds one frame per field at any rate, and every track the pass copies over. </summary>
-        public static string GetDeinterlacedInputPath(string tempDir)
-        {
-            return $"{tempDir}.deint.mkv";
-        }
-
-        /// <summary> The denoised copy the Measured grain mode encodes, and the table measured against it.
-        /// Beside the temp folder like the two inputs above, and for the same reasons: av1an empties its
-        /// own temp folder at startup, and a resume has to be able to find both rather than spend the
-        /// hours again. </summary>
-        public static string GetDenoisedInputPath(string tempDir)
-        {
-            return $"{tempDir}.denoised.mkv";
-        }
-
         /// <summary> Where the tone-map pass writes the SDR file av1an is given - see
-        /// <see cref="Media.ToneMapPass"/>. Beside the temp folder like the inputs above and for their
-        /// reasons: av1an empties its own temp folder at startup, and a resume reuses this rather than
-        /// rendering the film again. </summary>
+        /// <see cref="Media.ToneMapPass"/>. Beside the temp folder like the trimmed input above and
+        /// for its reasons: av1an empties its own temp folder at startup, and a resume reuses this
+        /// rather than rendering the film again. </summary>
         public static string GetToneMappedInputPath(string tempDir)
         {
             return $"{tempDir}.tonemap.mkv";
-        }
-
-        public static string GetGrainTablePath(string tempDir)
-        {
-            return $"{tempDir}.grain.tbl";
-        }
-
-        /// <summary> The geometried copy of the source that the grain diff measures against, written by
-        /// the denoise pass when it renders the geometry itself (no tone-map pass in front to fold it
-        /// into). grav1synth needs two files of the same frame size, and with the denoised copy at the
-        /// encoded size the raw input no longer qualifies. Deleted as soon as the diff succeeds - it is
-        /// a lossless file whose only reader has finished with it - so unlike its siblings it is only
-        /// ever found beside a run that died mid-measurement. </summary>
-        public static string GetGrainReferencePath(string tempDir)
-        {
-            return $"{tempDir}.grainref.mkv";
         }
 
         /// <summary> The pre-detected scene list handed to av1an via --scenes when the parallel
@@ -1698,15 +1658,17 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.scenes.json";
         }
 
-        /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container.
-        /// Every suffix, because a run can leave one of each - trimmed, then deinterlaced, then
-        /// tone-mapped, then denoised - plus the grain table measured against the last of them and the
-        /// pre-detected scene list.
+        /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container:
+        /// a trimmed input, a tone-mapped one, and the pre-detected scene list.
         /// <para/>
-        /// The denoised one is the reason to be careful here rather than the trimmed one: it is lossless
-        /// FFV1 and therefore the largest file this app ever writes, several times the size of the source.
-        /// It was left off this list when the grain modes were added, so every measured encode leaked one
-        /// of those onto the disk for good. </summary>
+        /// **Four suffixes here are written by nothing in this build and must stay on the list anyway.**
+        /// The deinterlace pass and the grain measuring passes are gone, but the files they left are
+        /// still sitting beside temp folders on the machines of anyone who ran an earlier release, and
+        /// two of them - the deinterlaced and denoised intermediates - are lossless FFV1 and so the
+        /// largest files this app has ever written. Whichever run of this deletes such a folder is the
+        /// last chance anything has to take them with it. That is the lesson this list already carries:
+        /// the denoised suffix was left off when the grain modes were added, and every measured encode
+        /// leaked a lossless copy of the whole video onto the disk for good. </summary>
         private static IEnumerable<string> GetPreparedInputs(string tempDir)
         {
             try

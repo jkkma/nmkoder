@@ -20,8 +20,11 @@ namespace Nmkoder.Data
         /// <c>--denoise-noise-level</c>. One number, no extra pass, works on every AV1 build. </summary>
         Encoder,
 
-        /// <summary> Measured off this source: denoise it, diff the two with grav1synth, encode the
-        /// denoised picture with the table that came out. The expensive one, and the accurate one. </summary>
+        /// <summary> Measured off this source: denoise it and diff the two with grav1synth to get a
+        /// table. The accurate way to describe a source's grain, and much the most expensive - about
+        /// 3.7 fps at 1080p, so a working day for a feature. **Utility only**: it is the Film Grain
+        /// utility's Measure operation, whose output feeds <see cref="Table"/> on either encode
+        /// tab. </summary>
         Measured,
 
         /// <summary> A grain table file the user already has. </summary>
@@ -159,14 +162,23 @@ namespace Nmkoder.Data
         }
 
         /// <summary>
-        /// What the AV1AN tab's row offers, which is every mode an encoder can actually carry out while it
-        /// encodes. <see cref="GrainSynthMode.Preset"/> and <see cref="GrainSynthMode.PhotonNoise"/> are
-        /// missing on purpose: both are grav1synth writing grain into a finished bitstream, which is the
-        /// Film Grain utility's job and not an encode setting. The enum keeps them because that utility
-        /// uses this same class to say where its grain comes from.
+        /// What both encode tabs' rows offer: the modes an encoder carries out while it encodes, for one
+        /// number or one file and no pass of its own. Three of the six are missing on purpose and the enum
+        /// keeps all six because the Film Grain utility uses this same class to say where its grain comes
+        /// from.
+        /// <para/>
+        /// <see cref="GrainSynthMode.Preset"/> and <see cref="GrainSynthMode.PhotonNoise"/> are grav1synth
+        /// writing grain into a finished bitstream, which no encoder can be asked to do.
+        /// <see cref="GrainSynthMode.Measured"/> left later and for a different reason: it *was* an encode
+        /// mode on the AV1AN tab, made of a lossless denoise render and a grav1synth diff running in front
+        /// of av1an - hours of single-threaded measuring before the parallel encode began, on every run of
+        /// it. Measuring is a thing to do once per source, not once per encode, and the utility's Measure
+        /// operation is where that belongs; its table then feeds <see cref="GrainSynthMode.Table"/> here at
+        /// no cost. Quick Convert had already refused the mode outright, having no measuring pass, so this
+        /// left one place it could be selected and one place it could not.
         /// </summary>
         public static readonly GrainSynthMode[] EncodeModes =
-            { GrainSynthMode.Off, GrainSynthMode.Encoder, GrainSynthMode.Measured, GrainSynthMode.Table };
+            { GrainSynthMode.Off, GrainSynthMode.Encoder, GrainSynthMode.Table };
 
         /// <summary> Whether anything happens at all. Encoder mode at a strength of 0 is Off spelled
         /// differently - both encoders read 0 as "leave the source alone" - so it is reported as such
@@ -233,12 +245,29 @@ namespace Nmkoder.Data
             return delivery == GrainDelivery.EncoderTable ? "fgs-table" : "";
         }
 
-        /// <summary> Whether this mode is one the Film Grain utility owns rather than the encode row -
-        /// grain written into a finished file. Nothing on the row can select one; it is checked so that a
-        /// config or a caller from elsewhere cannot smuggle one in. </summary>
+        /// <summary> Whether this mode is one the Film Grain utility owns rather than the encode row.
+        /// Nothing on either row can select one; it is checked so that a config or a caller from
+        /// elsewhere cannot smuggle one in. </summary>
         public bool IsUtilityOnly
         {
-            get { return Mode == GrainSynthMode.Preset || Mode == GrainSynthMode.PhotonNoise; }
+            get { return Mode == GrainSynthMode.Preset || Mode == GrainSynthMode.PhotonNoise || Mode == GrainSynthMode.Measured; }
+        }
+
+        /// <summary> Why a utility-only mode is not an encode setting, worded for the mode - the two
+        /// reasons are not the same, and telling somebody that measuring "writes grain into a finished
+        /// file" would send them to the wrong operation. Both name the Film Grain utility, which is
+        /// where each of them actually lives. </summary>
+        public string DescribeUtilityOnly()
+        {
+            if (Mode == GrainSynthMode.Measured)
+                return "Measuring a source's grain is a pass of its own - a lossless denoised copy of the whole " +
+                    "video, then a single-threaded diff over every pixel of both, which is hours for a feature. " +
+                    "It is worth doing once per source rather than once per encode, so it is the Film Grain " +
+                    "utility's Measure operation on the Utilities tab. Point Grain table file at the table it " +
+                    "writes, and the encode itself costs nothing extra.";
+
+            return $"'{GetLabel(Mode)}' writes grain into a file that is already encoded, which is not something an " +
+                $"encoder can be asked to do. Use the Film Grain utility on the Utilities tab.";
         }
 
         /// <summary>

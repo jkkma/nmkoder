@@ -68,11 +68,11 @@ namespace Nmkoder.Data
         /// filter chain. Set by Av1an.Run exactly when that pass runs and no per-chunk deinterlacer
         /// sits ahead of the geometry (a deinterlacer must see whole fields, and the pass runs first).
         /// <para/>
-        /// What it buys is the intermediate's size: the pass writes lossless FFV1, and written at the
-        /// source's frame it carries pixels the encoder never sees - a 4K film scaled to 1080p costs
-        /// four times the disk it needs to, reported at tens of gigabytes for a five-minute test clip.
-        /// The frames that come out are the same either way: the pass renders the exact filters, in
-        /// the exact order, that the per-chunk chain would have run on its output.
+        /// What it buys is the intermediate's size: written at the source's frame it carries pixels
+        /// the encoder never sees - a 4K film scaled to 1080p costs four times the disk it needs to,
+        /// reported at tens of gigabytes for a five-minute test clip. The frames that come out are the
+        /// same either way: the pass renders the exact filters, in the exact order, that the per-chunk
+        /// chain would have run on its output.
         /// </summary>
         public bool GeometryInPass;
 
