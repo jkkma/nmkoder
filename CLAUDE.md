@@ -2,9 +2,37 @@
 
 Media encoding/muxing toolkit. Avalonia UI on .NET 10.
 
-Build with `dotnet build Nmkoder/Nmkoder.csproj`. The SessionStart hook in
-`.claude/hooks/` installs the SDK and restores packages, so this works from the
-first prompt of a web session.
+Build with `dotnet build Nmkoder/Nmkoder.csproj`.
+
+**The toolchain is installed by `.claude/setup.sh` and by nothing else.** It is the
+environment's setup script - run once when the environment is created, snapshotted with it -
+and it installs the .NET SDK the csproj targets and the FFmpeg build the app ships against,
+then warms the NuGet cache. Point the environment's setup command at that file rather than
+pasting a copy into the environment's settings, so the two cannot drift.
+
+The SDK comes from the Ubuntu archive rather than the usual dot.net installer script: that
+script redirects to `builds.dotnet.microsoft.com`, which the sandbox's egress proxy refuses
+with a 403, so the download fails before it starts. `apt-get update` has to run first, because
+the preloaded package index points at `.deb`s the mirror has already superseded and every
+download 404s without it.
+
+FFmpeg is BtbN's `master-latest`, which is what `bundle-tools.sh` puts in a release - so
+anything measured in a session is measured against the binary users get. The presence check
+looks for `libplacebo`, `zscale`, `tonemap`, `setparams` and `sidedata` rather than for
+`ffmpeg` on PATH, because a distribution build routinely ships without some of them and the
+app's own probes would then report a machine that cannot tone-map rather than a toolchain that
+was never installed properly.
+
+**The setup script must end in a zero exit**, since a non-zero one fails session startup - so
+it has no `set -e`, every step reports its own failure, and a failure is therefore silent from
+the outside. `.claude/hooks/session-start.sh` is where that surfaces: it installs nothing, and
+its last act is to read `dotnet --version` and `ffmpeg -version` back off PATH and name
+whichever is missing. A session that starts without a toolchain says so in its first line
+instead of failing at the first build. The hook carried a duplicate SDK install until the user
+asked for one installer; do not add it back.
+
+What the hook does keep is the git repair, which cannot move: the staleness *is* the snapshot
+ageing, so it has to run per session rather than once.
 
 The project multi-targets, but only on Windows: `net10.0` everywhere, plus
 `net10.0-windows10.0.19041.0` when the *host* is Windows. That second framework
