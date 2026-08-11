@@ -190,6 +190,60 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
+        /// The end of av1an's own log file, for a run whose exit code says it failed - the one place its
+        /// reason survives every launch mode. With the visible console (the Windows default) this app
+        /// reads no process output at all: the window carries the error and then closes itself five
+        /// seconds later, so a failed encode came back as nothing but "exit code 1" and the reason
+        /// scrolled away unread. The log file has no such mode - <c>Av1an.GetLogFileArgs</c> names it
+        /// into the temp folder for every run - so it is read here, once, after the failure.
+        /// <para/>
+        /// The harvested lines also go through <see cref="NoteChunkFailure"/>, because that explanation
+        /// has to fire in console mode too: a FRAME MISMATCH in the tail is the same out-of-memory shape
+        /// and calls for the same advice. Its once-per-run guard makes the second sight of a line the
+        /// piped mode already saw free.
+        /// <para/>
+        /// The tail starts at the <b>first</b> warning-or-error marker inside the last stretch of the
+        /// file, not the last one: av1an gives up moments after a chunk fails for the final time, so the
+        /// failure sits at the end, and taking the last marker instead would cut a FRAME MISMATCH body
+        /// off the "Encoder failed" header above it.
+        /// </summary>
+        public static string ReadFailureTail(string tempDir)
+        {
+            try
+            {
+                if (tempDir.IsEmpty())
+                    return "";
+
+                string path = Path.Combine(tempDir, "av1an.log");
+
+                if (!File.Exists(path))
+                    return ""; // An av1an without --log-file, or one old enough to append ".log" to the name
+
+                List<string> lines = ReadSharedText(path).SplitIntoLines()
+                    .Select(x => x.TrimEnd()).Where(x => x.Trim().IsNotEmpty()).ToList();
+
+                List<string> window = lines.Skip(Math.Max(0, lines.Count - 40)).ToList();
+                string[] markers = { "ERROR", "WARN", "error:", "panicked" };
+                int first = window.FindIndex(x => markers.Any(x.Contains));
+
+                // No marked line at all still returns something: whatever av1an said last is more of an
+                // answer than the bare exit code the caller is otherwise left with.
+                List<string> tail = (first >= 0 ? window.Skip(first) : window.Skip(Math.Max(0, window.Count - 8))).ToList();
+
+                foreach (string line in tail)
+                    NoteChunkFailure(line);
+
+                ReportChunkFailures();
+                return string.Join("\n", tail).Trim();
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not read av1an's log file: {e.Message}", true);
+                return "";
+            }
+        }
+
+        /// <summary>
         /// Lines worth colouring amber. Only a hint - av1an's own exit code decides whether the
         /// encode failed, exactly as ffmpeg's does, and a chunk that retries is not a failure.
         /// </summary>

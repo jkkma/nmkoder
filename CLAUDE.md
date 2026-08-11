@@ -841,7 +841,10 @@ overwritten within a fraction of a second, every time, and a run that had alread
 as a healthy one sitting at 4%. `Av1anOutputHandler.NoteChunkFailure` says what a short chunk means, once
 per run in a line that is not replaced, and `ReportChunkFailures` tallies the rest when the run ends.
 Short and long are opposite faults and kept apart: short is the frames stopping, long is a filter writing
-more than it read, which is what `--ignore-frame-mismatch` is for.
+more than it read, which is what `--ignore-frame-mismatch` is for. In the visible-console mode those
+lines are never seen live - no output is redirected there - so the failure-tail read described in the
+scene-detection section (`ReadFailureTail`) feeds the same explainer from av1an's log file after the
+exit code lands; its once-per-run guard is what lets the piped mode see a line twice for free.
 
 **Every constant in `Av1anMemory` was measured**, by running the real process at three frame sizes and
 fitting a line through the peak RSS. The fits are near-straight - SVT-AV1 came out at 672, 678 and 623 MB
@@ -1297,9 +1300,18 @@ sets its own instead of writing into the previous attempt's. Left to av1an, the 
 `./logs/av1an.log` *relative to the working directory*, which is `bin/av1an` - so every encode dropped
 a dated file beside the binary, in a folder nothing here knew about and nothing ever cleared. In the
 temp folder it lives exactly as long as the run's other state: `HandleTempFolder` keeps that folder
-when the encode failed, which is when the log is worth reading. Nothing parses it, so the file name is
-not load-bearing - as well, since av1an appended its own `.log` to this value until 0.4.x and does not
-now.
+when the encode failed, which is when the log is worth reading.
+
+**A failed run reads it, so the name `av1an.log` is load-bearing now.** With the visible console -
+the Windows default (`Av1anCmdVisible`) - the app wires no output redirection at all, and the launch
+script's window closes itself five seconds after a failure: an encode that died mid-run was reported
+as "exit code 1" with the actual error gone unread, which is exactly how a real one came back as an
+undiagnosable bug report. `Av1anOutputHandler.ReadFailureTail` reads the log's tail after a nonzero
+exit (from the first WARN/ERROR marker in the last stretch, so a `FRAME MISMATCH` body keeps its
+"Encoder failed" header), quotes it in the failure message with the log's full path, and runs the
+lines through `NoteChunkFailure` so the out-of-memory explanation fires in console mode too. An
+av1an old enough to append its own `.log` to the value (0.4.x and earlier did) just makes the read
+come back empty, which costs the quote and nothing else.
 
 **Nothing under av1an's Scene Detection heading goes out for Split Method "None".** It is `-x` and
 nothing else there, so `--sc-downscale-height` named a resolution for a pass that never ran.
@@ -2432,7 +2444,20 @@ goes indeterminate with the footer reading "01:18:36 in, past the 59:56 this fil
 than pinning at 100%. The tolerance is not zero because a muxer pads the last frame and a target
 worked out from a frame count is rounded to begin with. The log line that goes with it names a
 wrong duration as the *usual* cause rather than the only one: a mux whose longest track is not
-the loaded file's lands here too, and neither is a fault in the run.
+the loaded file's lands here too, and neither is a fault in the run. When the target is an
+override rather than the file's duration - a cut's section, a pass's measured length - the line
+and the footer say "measured against"/"expected" instead of blaming the file, which was wrong on
+both override paths.
+
+**The final stats line is exempt from that judgement, and the reason is the muxer's flush.** The
+line carrying `Lsize=` reports the last timestamp *flushed*, not the last encoded: a stream copy
+with sparse subtitle tracks - a remux's forced PGS tracks hold seconds of packets across a whole
+film - buffers the other streams against them in the interleave queue and drains it at the end.
+Measured on a UHD remux's AV1AN trim: every progress line at 04:00, the final line at 48:32, so
+the "passed the duration" message fired on a cut that was exactly right, on every remux trim. A
+genuinely wrong duration trips the check on ordinary mid-run lines long before the final one, so
+skipping the final line's verdict loses nothing - it only stops the copy's last flush reading as
+a broken file.
 
 **The plugin set is not guesswork, and it is pinned to havsfunc 33.** 33 is the last release
 carrying the classic `QTGMC(Preset=…)`; 34 replaced it with vs-jetpack's builder API and a
