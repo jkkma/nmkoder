@@ -233,7 +233,14 @@ namespace Nmkoder.Media
                     if (indexOfEndQuote != -1)
                     {
                         string inputFilePath = afterInputFlag.Substring(indexOfStartQuote + 1, indexOfEndQuote - indexOfStartQuote - 1).Trim();
-                        paths.Add(inputFilePath);
+
+                        // Only a non-empty extraction: String.Replace throws outright on "", and on
+                        // Linux and macOS the paths are single-quoted, so what this scan finds is
+                        // whatever double-quoted value comes last - the metadata grid writes
+                        // 'language=""' for a track with none, and that empty pair crashed the output
+                        // reader mid-encode.
+                        if (inputFilePath.Length > 0)
+                            paths.Add(inputFilePath);
                     }
                 }
             }
@@ -246,7 +253,10 @@ namespace Nmkoder.Media
                 if (secondLastIndexOfQuote != -1)
                 {
                     string outputFilePath = cmd.Substring(secondLastIndexOfQuote + 1, lastIndexOfQuote - secondLastIndexOfQuote - 1).Trim();
-                    paths.Add(outputFilePath);
+
+                    // As above: an empty extraction is not a path, and Replace("") throws.
+                    if (outputFilePath.Length > 0)
+                        paths.Add(outputFilePath);
                 }
             }
 
