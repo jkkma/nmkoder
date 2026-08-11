@@ -192,6 +192,10 @@ namespace Nmkoder.Data.Codecs.Video
                 colors = $"--color-primaries {mediaFile.ColorData.ColorPrimaries} " +
                     $"--transfer-characteristics {mediaFile.ColorData.ColorTransfer} " +
                     $"--matrix-coefficients {mediaFile.ColorData.ColorMatrixCoeffs} --color-range {range}";
+                // The mastering display and light levels, for the same reason as the four tags above.
+                // Wrapped here where the AV1AN path writes them bare: this command launches the binary
+                // itself, so the mastering display's parentheses are the shell's to read - see the helper.
+                colors = $"{colors} {ColorDataUtils.GetSvtHdrMetadataArgs(mediaFile.ColorData, wrapValues: true)}".Trim();
             }
 
             // One of the two and never both: SVT takes --fgs-table over --film-grain and says so only in

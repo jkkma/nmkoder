@@ -43,14 +43,17 @@ namespace Nmkoder.UI.Tasks
         /// is applied - <c>set_param_based_on_input</c>, after the whole command line has been parsed,
         /// so the order the flags are written in cannot save a row set beside it.
         /// <para/>
-        /// It sets <c>complex-hvs 1</c> too, which is not here because the parameter list has no row
-        /// for it - there is nothing for the tune to overwrite.
+        /// <c>complex-hvs</c> is in this list now. It used to be named in the message and left out of
+        /// the check, because the parameter list carried no row for it and there was nothing for the tune
+        /// to overwrite; the row exists, so the hole is closed. A 0 typed there against tune 5 is
+        /// overwritten exactly like the five beside it.
         /// </summary>
         private static readonly (string Arg, string Value)[] FilmGrainTuneOverrides =
         {
             ("enable-tf", "0"),
             ("enable-cdef", "0"),
             ("enable-restoration", "0"),
+            ("complex-hvs", "1"),
             ("ac-bias", "4.00"),
             ("tx-bias", "1"),
         };

@@ -3,6 +3,7 @@ using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
 using Nmkoder.Media;
+using Nmkoder.OS;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -341,6 +342,73 @@ namespace Nmkoder.Utils
         public static bool HasUnusableBaseLayer(VideoColorData d)
         {
             return HasDolbyVision(d) && (d.DvProfile == DvProfileIpt || d.DvBlCompatId == DvBlCompatNone);
+        }
+
+        /// <summary>
+        /// SVT-AV1's two HDR static metadata flags, built from what the file itself declares, or "" where
+        /// it declares nothing.
+        /// <para/>
+        /// **This exists because y4m carries no side data, so the encoder cannot learn any of it.** The
+        /// four colour tags are handed over by flag for exactly that reason; the mastering display and the
+        /// light levels are the same argument and were simply never finished. Measured against the shipped
+        /// SvtAv1EncApp with no flags at all: a source declaring a mastering display and MaxCLL 9978
+        /// encodes to an output with **zero** HDR side data on it. The file still says PQ and BT.2020, so
+        /// it plays - and a display handed no mastering metadata falls back to its own assumption, which
+        /// is the crushed-mid-tone case this app already documents from the other direction. Nothing about
+        /// it looks wrong until it is played on real hardware.
+        /// <para/>
+        /// **The units are the file's own decimals, not x265's scaled integers, and getting that wrong is
+        /// silent.** Measured against the shipped binary: <c>G(0.265,0.690)…L(4000,0.005)</c> reads back
+        /// out of the bitstream as exactly those values, where x265's <c>G(13250,34500)…L(40000000,50)</c>
+        /// spelling is clipped to 1.0 on every coordinate and 6445568 nits of luminance, behind one
+        /// <c>Svt[warn]: Invalid mastering display info will be clipped</c> on the encoder's stderr - which
+        /// av1an collects per chunk into a log <c>HandleTempFolder</c> deletes on a successful run. That is
+        /// the same silence the grain collisions hide in. What <see cref="GetColorData"/> already parses is
+        /// the decimal form, off ffprobe's fractions and mkvinfo alike, so nothing is converted here.
+        /// <para/>
+        /// **A tone-mapped encode suppresses this for free, and that is why the source has to be the passed
+        /// -in colour data rather than the file.** Both callers run inside the swap
+        /// <see cref="Data.ToneMapConfig.GetOutputColorData"/> makes, which hands back the four BT.709 tags
+        /// and *nothing else* - every coordinate, luminance and light level empty - so this returns "" and
+        /// an SDR output cannot end up declaring the HDR grade it no longer has.
+        /// <para/>
+        /// <paramref name="wrapValues"/> is the difference between the two tabs and is not cosmetic. The
+        /// mastering display's parentheses are shell syntax on Linux and macOS, so the Quick Convert path,
+        /// which launches the binary itself, has to wrap them; the AV1AN path must **not**, because
+        /// everything there ends up inside av1an's own <c>-v "…"</c> string, whose double quotes already
+        /// protect them and which is split again on whitespace before it reaches the encoder - a quote of
+        /// this app's own would be one more layer than that split accounts for. It is the same split the
+        /// grain table's bare path is written for.
+        /// <para/>
+        /// All ten mastering-display fields are required together, since the flag takes one string and a
+        /// partial one describes nothing. <c>--content-light</c> needs **both** numbers - measured, a lone
+        /// value is <c>Error: Invalid parameter 'content-light'</c> and the encode does not start - so a
+        /// file stating only MaxCLL is given a MaxFALL of 0, which is the "unknown" the field already means
+        /// and which the binary accepts.
+        /// </summary>
+        public static string GetSvtHdrMetadataArgs(VideoColorData d, bool wrapValues)
+        {
+            if (d == null)
+                return "";
+
+            List<string> args = new List<string>();
+            string[] display = { d.GreenX, d.GreenY, d.BlueX, d.BlueY, d.RedX, d.RedY, d.WhiteX, d.WhiteY, d.LumaMax, d.LumaMin };
+
+            if (display.All(v => !string.IsNullOrWhiteSpace(v)))
+            {
+                string md = $"G({d.GreenX},{d.GreenY})B({d.BlueX},{d.BlueY})R({d.RedX},{d.RedY})" +
+                    $"WP({d.WhiteX},{d.WhiteY})L({d.LumaMax},{d.LumaMin})";
+
+                args.Add($"--mastering-display {(wrapValues ? Shell.WrapArg(md) : md)}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(d.MaxCll))
+            {
+                string cll = $"{d.MaxCll},{(string.IsNullOrWhiteSpace(d.MaxFall) ? "0" : d.MaxFall)}";
+                args.Add($"--content-light {(wrapValues ? Shell.WrapArg(cll) : cll)}");
+            }
+
+            return string.Join(" ", args);
         }
 
         /// <summary> Dolby Vision profile 5 - single layer, IPT-PQ-c2, no ordinary signal underneath it.

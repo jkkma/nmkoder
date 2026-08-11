@@ -112,6 +112,10 @@ namespace Nmkoder.Data.Codecs.Video
             {
                 int range = mediaFile.ColorData.ColorRange == 2 ? 1 : 0; // SVT range is 0 (tv) and 1 (full), not 0 (unspecified), 1 (tv), 2 (full) like in VideoColorData
                 colors = $"--color-primaries {mediaFile.ColorData.ColorPrimaries} --transfer-characteristics {mediaFile.ColorData.ColorTransfer} --matrix-coefficients {mediaFile.ColorData.ColorMatrixCoeffs} --color-range {range}";
+                // The mastering display and light levels, for the same reason as the four tags above:
+                // y4m carries no side data, so this is the only way the encoder can learn them. Written
+                // unwrapped because it lands inside av1an's own -v "…" string - see the helper.
+                colors = $"{colors} {ColorDataUtils.GetSvtHdrMetadataArgs(mediaFile.ColorData, wrapValues: false)}".Trim();
             }
             
             string keyint = g.IsNotEmpty() ? $"--keyint {g}" : ""; // No video stream to work an interval out from

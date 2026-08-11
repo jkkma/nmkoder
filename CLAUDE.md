@@ -674,9 +674,17 @@ bundle without saying it is applied last.
 halves rather than lumping them: one is overwritten, the other is left exactly as set and stranded, and
 a user told the wrong one will go looking for the wrong thing. A row set to what the tune sets anyway
 is **not** reported - `ac-bias 4` against the tune's `4.00` is agreement, not a collision, and sending
-someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` is in the
-message but not in the check: the tune sets it and the parameter list has no row for it, so there is
-nothing to overwrite.
+someone to clear a row that matches the encode is worse than saying nothing. `complex-hvs` used to be
+in the message and not in the check, there being no row for the tune to overwrite; the row exists now
+and the check covers it, so all six of the bundle's assignments are reported alike.
+
+Two rows were added to `SvtAv1.json` with it, both read out of the shipped binary's own `--help` and
+then passed to it: `complex-hvs` (0-1, default 0) is the encoder's most expensive perceptual model,
+and the one tune 5 sets for itself; `enable-variance-boost` (0-1) is the switch for a family the grid
+already carried three shaping parameters for - `variance-boost-strength`, `variance-octile` and
+`variance-boost-curve` all did nothing without it and there was no way to turn it off. This build
+ships it **on** where mainline SVT-AV1 defaults it off, which is one more place a parameter written
+for one line does not describe the other.
 
 **The Denoise box beside it follows the strength as well as the encoder.** Both AV1 encoders read a
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
@@ -835,6 +843,50 @@ outright. Three per-kind tables replace it, mirroring the x264 trio beside them.
 was read out of `aomenc --help` and *then* confirmed by passing it to the binary - including
 the names that pass straight through - because what a tool documents and what it accepts are
 two questions, and this file's whole history with av1an says to ask the second one.
+
+**The mastering display and the light levels go by flag too, and for eighteen months they went
+nowhere.** The four tags above are handed over as numbers because y4m carries no side data; the
+static HDR metadata is the same argument and was simply never finished, so **every HDR-preserving
+encode this app has ever made came out declaring no peak brightness at all.** Measured against the
+shipped SvtAv1EncApp with nothing passed: a source carrying a mastering display and MaxCLL 9978
+encodes to an output with **zero** HDR side data on it. The file still says PQ and BT.2020, so it
+plays - and a display handed no mastering metadata falls back to its own assumption, which is the
+crushed-mid-tone case this file already documents from the other direction. Nothing about it looks
+wrong until it is played on real hardware, which is why nobody reported it.
+
+`ColorDataUtils.GetSvtHdrMetadataArgs` closes it for SVT-AV1 on both tabs. **The units are the
+file's own decimals, not x265's scaled integers, and getting that wrong is silent** - measured,
+`G(0.265,0.690)…L(4000,0.005)` reads back out of the bitstream as exactly those values, where
+x265's `G(13250,34500)…L(40000000,50)` spelling is clipped to 1.0 on every coordinate and 6445568
+nits of luminance behind one `Svt[warn]: Invalid mastering display info will be clipped`, on the
+encoder's stderr, which av1an collects per chunk into a log `HandleTempFolder` deletes on a
+successful run. What `GetColorData` already parses is the decimal form, off ffprobe's fractions and
+mkvinfo alike, so nothing is converted.
+
+Three things about it are load-bearing. **A tone-mapped encode suppresses it for free**, because both
+callers sit inside the `GetOutputColorData` swap, which hands back the four BT.709 tags and nothing
+else - so the helper reads empty coordinates and emits "". **The quoting differs by tab and is not
+cosmetic**: the mastering display's parentheses are shell syntax off Windows, so Quick Convert, which
+launches the binary itself, wraps them, where the AV1AN tab must not - everything there lands inside
+av1an's own `-v "…"` string, whose quotes already protect them and which is split again on
+whitespace, the same split the grain table's bare path is written for. And **`--content-light` needs
+both numbers**: measured, a lone value is `Error: Invalid parameter 'content-light'` and the encode
+does not start, so a file stating only MaxCLL is given a MaxFALL of 0, which is the "unknown" that
+field already means.
+
+**x265 is deliberately not covered.** `X265.json` already carries `master-display` and `max-cll` as
+hand-typed grid rows, so automatic passthrough would be the same argument written twice - and its
+format is the scaled-integer one, a conversion that wants measuring against a real x265 binary. The
+linux release ships only `SvtAv1EncApp` under `bin/av1an/enc`, so that measurement could not be made
+here. Do it before wiring x265, and take the manual rows out in the same change rather than leaving
+both.
+
+Verified by running it: 25 checks through the built assembly and the shipped SVT-AV1-HDR binary
+pulled out of the published 2.8.57 linux tarball - both encoder classes' own `GetArgs` carrying the
+flags with the right quoting, the binary accepting the AV1AN tab's generated string without clipping
+it, and ffprobe reading `red_x=44564/65536`, `white_point_x=20493/65536`, `max_luminance=1024000/256`,
+`max_content=9978` and `max_average=279` back out of the bitstream, against a no-flag control that
+carries none of it.
 
 **ffprobe's printed names are a fourth vocabulary**, and reading them with this file's own is
 what made HLG unreadable. It prints `arib-std-b67` where these tables say `bt2100`,
