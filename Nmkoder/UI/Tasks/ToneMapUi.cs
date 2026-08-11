@@ -103,7 +103,15 @@ namespace Nmkoder.UI.Tasks
         /// there is no source-file question to ask here. </summary>
         public static ToneMapConfig GetAv1anConfig()
         {
-            return new ToneMapConfig { Mode = ModeInEffect(Form.Av1anToneMapModeBox, TrackList.current?.File) };
+            MediaFile file = TrackList.current?.File;
+
+            return new ToneMapConfig
+            {
+                Mode = ModeInEffect(Form.Av1anToneMapModeBox, file),
+                // Through the same guard as the mode: a tick left behind a hidden row must not reach
+                // the encode. Inert while the mode is Off anyway, there being no backend to override.
+                ForceCpuChain = IsRowRelevant(file) && Form.Av1anToneMapCpuBox.IsChecked == true,
+            };
         }
 
         /// <summary> The colour of the file Quick Convert reads its video from, for the chain builder -
@@ -130,8 +138,14 @@ namespace Nmkoder.UI.Tasks
                 bool av1anRelevant = IsRowRelevant(file);
                 Form.Av1anToneMapLabel.IsVisible = Form.Av1anToneMapPanel.IsVisible = av1anRelevant;
 
+                ToneMapConfig av1anConfig = GetAv1anConfig();
+
+                // The CPU tick only means anything once a curve is selected - Off has no backend to
+                // override - so it appears with the choice rather than sitting armed beside "Off".
+                Form.Av1anToneMapCpuBox.IsVisible = av1anRelevant && av1anConfig.Runs;
+
                 Form.EncToneMapInfoLabel.Text = GetQuickConvertConfig().GetNote(GetQuickConvertColorData());
-                Form.Av1anToneMapInfoLabel.Text = GetAv1anConfig().GetNote(file?.ColorData);
+                Form.Av1anToneMapInfoLabel.Text = av1anConfig.GetNote(file?.ColorData);
             }
             catch (Exception e)
             {
@@ -252,7 +266,9 @@ namespace Nmkoder.UI.Tasks
         /// Settles which backend this encode tone-maps with, measures what that backend needs measured,
         /// and says so. Called by both tabs before anything is built, for the reason
         /// <see cref="ToneMapConfig.UseLibplacebo"/> gives: the answer is a property of the machine, and
-        /// one answer has to hold for the whole run.
+        /// one answer has to hold for the whole run. <see cref="ToneMapConfig.ForceCpuChain"/> is the
+        /// one exception - the AV1AN row's tick settles it as the zscale chain without the machine
+        /// being asked.
         /// <para/>
         /// It is stated in the log either way rather than only on the fallback. Which tone-mapper
         /// produced a file is the first thing anybody comparing two encodes needs to know, and on this
@@ -275,19 +291,32 @@ namespace Nmkoder.UI.Tasks
             if (config == null || !config.RunsOn(src))
                 return;
 
-            string problem = await ToneMap.GetLibplaceboProblem();
-            config.UseLibplacebo = problem.IsEmpty();
-
-            if (config.UseLibplacebo)
+            // The row's CPU tick settles the answer without asking the machine - a probe whose answer
+            // would be discarded is a process launch for nothing. See ToneMapConfig.ForceCpuChain for
+            // what the tick buys and why only this direction of override exists.
+            if (config.ForceCpuChain)
             {
-                Logger.Log("Tone mapping with libplacebo on the GPU, measuring the picture's real brightness as it goes.");
-                LogDolbyVision(src, libplacebo: true);
-                return;
+                config.UseLibplacebo = false;
+                LogDolbyVision(src, libplacebo: false);
+                Logger.Log("Tone mapping with FFmpeg's own zscale chain, at the row's request - the GPU is not asked. " +
+                    "No pass runs in front of av1an and no intermediate is written; the chain runs per chunk instead.");
             }
+            else
+            {
+                string problem = await ToneMap.GetLibplaceboProblem();
+                config.UseLibplacebo = problem.IsEmpty();
 
-            LogDolbyVision(src, libplacebo: false);
+                if (config.UseLibplacebo)
+                {
+                    Logger.Log("Tone mapping with libplacebo on the GPU, measuring the picture's real brightness as it goes.");
+                    LogDolbyVision(src, libplacebo: true);
+                    return;
+                }
 
-            Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
+                LogDolbyVision(src, libplacebo: false);
+
+                Logger.Log($"Tone mapping with FFmpeg's own zscale chain - libplacebo is not usable here ({problem}).");
+            }
 
             // The one setting on this row that cannot survive the fallback, and the readout cannot say
             // so: it is drawn when the file loads, where this is not known until the encode starts.

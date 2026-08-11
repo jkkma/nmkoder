@@ -70,6 +70,25 @@ namespace Nmkoder.Data
         /// </summary>
         public bool UseLibplacebo = false;
 
+        /// <summary>
+        /// Forces the zscale chain where the machine could have run libplacebo - the AV1AN row's
+        /// "CPU chain (no pass)" tick. The backend is otherwise a property of the machine, and this is
+        /// the one direction an override of that is offered: what the tick buys on that tab is
+        /// structural - no render pass in front of av1an and no intermediate on disk, the chain running
+        /// per chunk instead - and with the sampled peak scan feeding the roll-off, the picture it costs
+        /// is a few code values against the GPU result. The other direction is deliberately not offered:
+        /// the probe's "no" is a measurement (a software Vulkan device tone-maps at a tenth of the
+        /// speed), not a preference to argue with.
+        /// <para/>
+        /// <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> honours it by not probing at all - a
+        /// probe whose answer would be discarded is a process launch for nothing - and everything
+        /// downstream already branches on <see cref="UseLibplacebo"/>, which is why this is one flag
+        /// rather than a second pipeline. Quick Convert has no such tick: its libplacebo is one filter
+        /// in a chain it runs inline, so the pass-and-intermediate trade the tick expresses does not
+        /// exist there.
+        /// </summary>
+        public bool ForceCpuChain = false;
+
         /// <summary> Whether this config will actually put a filter in the chain for this file, which
         /// needs the file as well as the mode: the row stays on screen for an HDR file with the curve
         /// set to Off, and an SDR file has nothing to map however the row is set. </summary>
@@ -522,15 +541,22 @@ namespace Nmkoder.Data
 
             // What was picked, not what will run: the backend is not settled until the encode
             // starts, and the readout is drawn on file load. ResolveBackendAsync logs the swap.
+            // The CPU tick is the one exception - it settles the backend at readout time, so the
+            // spline substitution and the tick itself can be said here instead of only in the log.
             string curve = Mode.ToString().ToLowerInvariant();
 
+            if (ForceCpuChain && Mode == ToneMapMode.Spline)
+                curve = "spline, which the CPU chain lacks, so hable";
+
+            string cpu = ForceCpuChain ? " · CPU chain by request: no GPU pass, no intermediate" : "";
+
             if (src.ColorTransfer == ColorDataUtils.TransferHlg)
-                return $"{what} to SDR BT.709 · {curve} · HLG stays watchable on an SDR display, so only the top is rolled off";
+                return $"{what} to SDR BT.709 · {curve} · HLG stays watchable on an SDR display, so only the top is rolled off{cpu}";
 
             double declared = ColorDataUtils.GetDeclaredPeakNits(src);
             string peak = declared > 0 ? $"declares {declared:0} nits" : "declares no peak";
 
-            return $"{what} to SDR BT.709 · {curve} · {peak} · the picture's real brightness is measured at encode time";
+            return $"{what} to SDR BT.709 · {curve} · {peak} · the picture's real brightness is measured at encode time{cpu}";
         }
 
         /// <summary> A filter argument's number. Invariant culture, because a comma decimal separator

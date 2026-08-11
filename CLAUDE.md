@@ -3067,6 +3067,25 @@ brightest highlights in the superwhite a player clips. **The curve names map str
 libplacebo has `hable`, `mobius` and `reinhard` under those names - so those three entries mean the
 same thing whichever backend they land on.
 
+**The AV1AN row can overrule the machine, in one direction only.** `ToneMapConfig.ForceCpuChain` -
+the "CPU chain (no pass)" tick beside the curve, shown only while a curve is selected - forces the
+zscale chain where the probe would have said libplacebo. What the tick buys on that tab is
+structural: no render pass in front of av1an and no intermediate on disk, the chain running per
+chunk instead, and with the measured-peak scan feeding the roll-off the picture it costs is a few
+code values against the GPU result. `ResolveBackendAsync` honours it by not probing at all - a probe
+whose answer would be discarded is a process launch for nothing - and everything downstream already
+branches on `UseLibplacebo`, which is why it is one flag rather than a second pipeline. The tick
+also settles at readout time the one thing the readout otherwise cannot say - which backend runs -
+so the CPU clause and the Spline-to-Hable substitution appear under the row rather than only in the
+log. The other direction is deliberately not offered: the probe's "no" is a measurement (a software
+Vulkan device tone-maps at a tenth of the speed), not a preference to argue with. Quick Convert has
+no tick, its libplacebo being one filter in a chain it runs inline - the pass-and-intermediate trade
+the tick expresses does not exist there. A tick left behind a hidden row cannot reach the encode,
+`GetAv1anConfig` reading it through the same relevance guard as the mode. Verified headless through
+the real controls: the tick appears with a curve and not with Off, the readout carries the clauses,
+the forced resolve lands on zscale and still runs the peak scan over a real PQ fixture, and an SDR
+file's hidden row keeps a stale tick out of the config.
+
 **Spline is the fourth entry and libplacebo's alone.** Mapping the names across is honest and buys
 very little: hable against hable is about seven code values, so the better backend changed almost
 nothing for the pick everybody uses. What is worth having is libplacebo's own default curve, and it
