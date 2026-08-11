@@ -1348,6 +1348,20 @@ namespace Nmkoder.UI.Tasks
             return string.Join(" ", args.Where(x => x.IsNotEmpty()));
         }
 
+        /// <summary> The trim as the direct-encoder mux spells it, in front of each *original* input -
+        /// the encoded video arrives already cut and must not be seeked again. "" without a trim. </summary>
+        public static string GetMuxTrimInputArgs()
+        {
+            return CurrentTrim != null && !CurrentTrim.IsUnset ? CurrentTrim.GetMuxInputArgs(GetSourceRate()) : "";
+        }
+
+        /// <summary> The mux trim's output half: the duration alone. See
+        /// <see cref="TrimSettings.GetMuxOutputArgs"/>. </summary>
+        public static string GetMuxTrimOutputArgs()
+        {
+            return CurrentTrim != null && !CurrentTrim.IsUnset ? CurrentTrim.GetMuxOutputArgs(GetSourceRate()) : "";
+        }
+
         /// <summary>
         /// The frame the encoder will be handed, or <see cref="Size.Empty"/> where it cannot be stated
         /// here - which leaves whoever asked to fall back on the source's own size.
@@ -1859,6 +1873,26 @@ namespace Nmkoder.UI.Tasks
         public static Fraction GetUiFps()
         {
             return MiscUtils.GetFpsFromString(Form.EncVidFpsBox.Text);
+        }
+
+        /// <summary>
+        /// The rate the frames leave the filter chain at, which is what a raw Annex B stream has to be
+        /// containerised as - x264 and x265 write no timestamps, so the MP4 step is told the rate and
+        /// the rate has to be the *encoded* one. Three things can move it off the file's own: a bob
+        /// deinterlacer doubles it before any other filter sees a frame, the Frame Rate box resamples
+        /// it, and the box only counts when it actually builds a filter - the same tolerance
+        /// <see cref="GetVideoFilterArgs"/> decides that with, read from the same two sources, so the
+        /// two cannot disagree about whether a resample ran.
+        /// </summary>
+        public static Fraction GetPostFilterRate()
+        {
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(GetVideoSourceStream(), CurrentDeinterlace);
+            Fraction fps = GetUiFps();
+
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps))
+                return fps;
+
+            return sourceRate;
         }
     }
 }

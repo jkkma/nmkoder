@@ -602,6 +602,23 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
+        /// The full path of a tool, resolved over the same directories <see cref="IsToolAvailable"/>
+        /// searches - so what the check vouched for is the file that runs, not merely a name the
+        /// shell's PATH is trusted to agree about. That matters twice for the encoder pipes: a shell
+        /// command names its tools mid-line, where the console debug modes run through UseShellExecute
+        /// and <see cref="OsUtils.SetPathVar"/> therefore cannot put bin/ on the PATH at all; and a
+        /// user's own PATH may hold a second copy of the same binary that the availability check never
+        /// looked at. Returns the bare name when nothing is found, like
+        /// <see cref="Shell.ResolveExecutable"/> - callers gate on IsToolAvailable first.
+        /// </summary>
+        public static string ResolveToolPath(string name, params string[] extraDirs)
+        {
+            string[] roots = new[] { Paths.GetBinPath() }.Concat(extraDirs ?? new string[0]).ToArray();
+            IEnumerable<string> dirs = OsUtils.GetPathVar(roots).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
+            return Shell.ResolveExecutable(name, dirs);
+        }
+
+        /// <summary>
         /// Whether to run av1an in a console of its own rather than capturing its output.
         /// <para/>
         /// The setting only means anything on Windows, and honouring it elsewhere threw av1an's

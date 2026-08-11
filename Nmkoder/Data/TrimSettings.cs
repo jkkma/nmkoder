@@ -135,6 +135,61 @@ namespace Nmkoder.Data
         }
 
         /// <summary>
+        /// The seek for a mux whose video went down an encoder pipe and arrives already cut - in front
+        /// of every *original* input, and never in front of the encoded one, which starts at zero.
+        /// <para/>
+        /// All three modes become an input-side seek here, where <see cref="GetOutputArgs"/> puts the
+        /// two exact ones on the output side. An output-side seek discards everything before its
+        /// timestamp from *every* stream, and in this command one of the streams is the encoded video:
+        /// it has been cut once already, so seeking the output would take the section's own length off
+        /// the front of it a second time. An input seek reaches only the file it is written in front
+        /// of, and for the streams that are decoded - which re-encoded audio is - ffmpeg's default
+        /// accurate_seek discards up to the exact point, so the audio still starts where the output
+        /// seek started it. A copied stream lands on the packet boundary by the seek point instead,
+        /// which is the same granularity the old command gave it.
+        /// </summary>
+        public string GetMuxInputArgs(Fraction rate)
+        {
+            if (IsUnset)
+                return "";
+
+            if (!IsFrameMode)
+                return $"-ss {GetTimeString(TimeSpan.FromMilliseconds(StartTime))}";
+
+            double frame = FrameSecs(rate);
+
+            if (frame <= 0d)
+                return "";
+
+            // The same half-frame-early window GetOutputArgs opens, spelled with the same arithmetic
+            // so the two cannot round to different milliseconds - the audio has to start exactly where
+            // the encoded video's first frame sits.
+            return $"-ss {GetTimeString(TimeSpan.FromSeconds(Math.Max(0d, StartTime * frame - frame / 2d)))}";
+        }
+
+        /// <summary>
+        /// The other half of the mux trim: the duration alone, on the output side. No seek - the
+        /// inputs were seeked individually - and no -frames:v, the encoded video having been cut to
+        /// its count in the pipe already. Frame mode keeps its half-frame-long window, which is the
+        /// same audio overhang the single-command trim always had.
+        /// </summary>
+        public string GetMuxOutputArgs(Fraction rate)
+        {
+            if (IsUnset)
+                return "";
+
+            if (!IsFrameMode)
+                return $"-t {GetTimeString(TimeSpan.FromMilliseconds(Duration))}";
+
+            double frame = FrameSecs(rate);
+
+            if (frame <= 0d)
+                return "";
+
+            return $"-t {GetTimeString(TimeSpan.FromSeconds((Duration + 0.5d) * frame))}";
+        }
+
+        /// <summary>
         /// "HH:MM:SS" or "HH:MM:SS.mmm", with the hours counted in full rather than taken from the
         /// TimeSpan's own hours *component* - that one runs 0-23 and rolls over into Days, so a 25 hour
         /// point came out as "01:00:00" and a 24 hour one as "00:00:00". ffmpeg reads any number of
