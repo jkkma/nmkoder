@@ -34,7 +34,7 @@ platforms, and a fair amount added on top — see
 
 | Tab | What it is for |
 |:--|:--|
-| **Quick Convert** | One ffmpeg command, built for you: H.264, H.265, VP9, AV1, GIF and image sequences, per-track audio, subtitle burn-in, loudness normalization. |
+| **Quick Convert** | One encode, built for you: H.264, H.265, VP9 and AV1 through the same encoder binaries the AV1AN tab drives, GIF and image sequences, per-track audio, subtitle burn-in, loudness normalization. |
 | **AV1AN** | Chunked, parallel encoding through av1an, with target-quality modes (VMAF, SSIMULACRA2, Butteraugli, XPSNR) and a full per-encoder argument grid. |
 | **Utilities** | The jobs that are not an encode: bitrates, metrics, colour metadata, grain tables, lossless cuts, concatenation, bitrate charts, subtitle OCR. |
 
@@ -121,10 +121,14 @@ Each heading below expands.
 </details>
 
 <details>
-<summary><b>Quick Convert (FFmpeg)</b></summary>
+<summary><b>Quick Convert</b></summary>
 
-- Encode video using ffmpeg and its encoder plugins
-- Video Formats: **H.264 (x264 or NVENC), H.265 (x265 or NVENC), VP9, AV1 (SVT-AV1 or AOM)**
+- Video Formats: **H.264 (x264 or NVENC), H.265 (x265 or NVENC), VP9 (vpxenc), AV1 (SVT-AV1 or AOM)**
+- The re-encoders are the **standalone encoder binaries** — the same x264, x265, SvtAv1EncApp, aomenc
+  and vpxenc the AV1AN tab drives — fed over a pipe by ffmpeg, which still does the decoding, the
+  filters and the final mux. NVENC, GIF, PNG, JPEG and stream copy stay on ffmpeg itself. A codec
+  whose binary is not on the machine refuses the run naming it, rather than quietly encoding with
+  something else
 - Image Formats: Animated **GIF**, **PNG** Sequence, **JPEG** Sequence
 - Audio Formats: **AAC, Opus, Vorbis, E-AC-3, MP3, FLAC**, globally or configured per track
 - Text-based Subtitle Formats: Mov_Text for MP4/MOV, SRT for MKV, WebVTT for WEBM
@@ -142,6 +146,10 @@ Each heading below expands.
   capture - and off screen entirely for a modern progressive download. Uses **QTGMC** through
   VapourSynth where it can (bundled on Windows), otherwise ffmpeg's bwdif, and can output one frame
   per field so none of the motion is thrown away
+- **Film grain synthesis** for the AV1 encoders, the same row as the AV1AN tab — the encoder's own
+  analysis from a strength, or a grain table measured earlier — plus the one control that tab cannot
+  afford: a Denoise tick beside the table, which reproduces the encode the table was measured for as
+  one filter in a chain this tab is building anyway
 - Audio Options: set quality and channels/layout
 - **Loudness normalization** to a standard target (-14 / -16 / -23 LUFS, EBU R128), measured per track
   first and then applied as one flat gain, so the mix keeps its dynamics - a single-pass normalization
@@ -159,26 +167,29 @@ Each heading below expands.
   **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
   XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
   bundle ships and enables per machine - see below)
-- Same audio, metadata and framing options as FFmpeg encoding, trim included
-- **Deinterlacing** too, its own setting and including **QTGMC**: av1an filters each chunk with
-  ffmpeg, which has nowhere to run a VapourSynth script, so picking QTGMC renders the video through it
-  once beforehand - into a lossless intermediate that av1an then encodes, optionally at one frame
-  per field. Automatic and the ffmpeg deinterlacers run inside av1an as before, at the source frame rate
+- Same audio, metadata and framing options as Quick Convert, trim included
+- **Deinterlacing** too, its own setting, though without QTGMC: av1an filters each chunk with ffmpeg,
+  which has nowhere to run a VapourSynth script, so QTGMC here would mean rendering the whole video
+  into a lossless intermediate first - a serial pass that costs more than it saves, QTGMC being slower
+  than the encoder on the tapes it exists for. Automatic and the ffmpeg deinterlacers run inside
+  av1an; a tape that wants QTGMC goes through Quick Convert, which pipes it straight into the encoder,
+  or through the Deinterlace Video utility
 - **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
-  conversion rather than the source. On a GPU this also renders once in front of av1an - peak
-  detection needs one continuous run, where av1an would restart it at every chunk - and when grain
-  synthesis needs a denoised copy, both files come out of that one command. The intermediate is
+  conversion rather than the source. On a GPU this renders once in front of av1an - peak
+  detection needs one continuous run, where av1an would restart it at every chunk. The intermediate is
   rendered at the encode's frame size - the resize, crop and borders run in the same pass - as
   near-lossless x264 at settings chosen by measuring what survives them: grain energy and tone
-  values come through intact, at about a tenth of the source's size. When a grain table is being
-  measured, the intermediates are lossless FFV1 instead, since a measured table must not read
-  quantizer noise as grain. Scene detection runs alongside these passes rather than after them,
-  since none of them changes a frame number
+  values come through intact, at about a tenth of the source's size. Scene detection runs alongside
+  the pass rather than after it, since it changes no frame number
+- An encode that **stays HDR keeps its brightness metadata**: the mastering display and the content
+  light levels are handed to SVT-AV1 by flag, in the file's own units, since the bare frames av1an
+  feeds an encoder cannot carry them
 - **Film grain synthesis** for AV1 (the row is disabled for H.264/H.265/VP9, which have none): the
-  encoder's own analysis from a strength, a grain table **measured off this source** with grav1synth -
-  denoise, diff, encode the clean picture, hand the encoder the table - or a table measured earlier,
-  optionally denoising to match it. The readout says whether the picture being coded is clean, which is
-  what decides whether any of this saves bitrate or merely adds grain
+  encoder's own analysis from a strength, or a grain table **measured off this source** beforehand
+  with the Film Grain utility - measuring is hours of single-threaded work, worth doing once per
+  source rather than once per encode, and with the table in hand the encode itself costs nothing
+  extra. The readout says whether the picture being coded is clean, which is what decides whether any
+  of this saves bitrate or merely adds grain
 - **Advanced encoder arguments** in a grid grouped by category, each with a full explanation and
   example values on right-click, plus content presets for anime and for game capture
 - Av1an Options: change the splitting method, chunk creation method, number of workers, and more
@@ -265,9 +276,10 @@ None of this existed before the fork - there was no deinterlacing in the app at 
 - **QTGMC**, the motion-compensated deinterlacer, run through VapourSynth (bundled on Windows) with
   the whole plugin chain it needs, falling back to ffmpeg's bwdif where VapourSynth cannot run it.
   Optionally one frame per field, so none of the motion is thrown away.
-- **Both encode tabs deinterlace.** av1an filters each chunk with ffmpeg, which has nowhere to
-  evaluate a VapourSynth script, so picking QTGMC there renders the video through it once beforehand
-  into a lossless intermediate and encodes that.
+- **Both encode tabs deinterlace.** Quick Convert pipes QTGMC straight into its encoder; the AV1AN
+  tab offers the ffmpeg deinterlacers only, because av1an filters each chunk with ffmpeg, which has
+  nowhere to evaluate a VapourSynth script - QTGMC there would be a serial render of the whole video
+  before the parallel encode began, which costs more than it saves on the captures QTGMC exists for.
 - **A Deinterlace Video utility** for when the deinterlaced file itself is what you want, with its
   own settings separate from either tab's.
 
@@ -291,8 +303,15 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   nits to flat white. The encode log states measured, declared and effective peaks per file.
 - It runs **before any crop, scale or burnt-in subtitle**, so subtitles are not dragged through a
   gamut conversion written for the picture, and the output is retagged BT.709 with the HDR metadata
-  dropped - including on the AV1AN tab, where the encoders are handed colour as numbers and would
-  otherwise write SDR pixels into a file tagged HDR.
+  dropped - static and dynamic alike, HDR10+ included - including on the AV1AN tab, where the
+  encoders are handed colour as numbers and would otherwise write SDR pixels into a file tagged HDR.
+- **The previews show the tone-mapped picture.** Thumbnails, the Cut window's scrubber and the crop
+  preview used to draw PQ code values as though they were BT.709 - washed out and grey, for exactly
+  the files this row exists for. Display-side only; no encode reads it.
+- **Dolby Vision is read off the file.** A profile whose base layer plays without the RPU is
+  tone-mapped as the ordinary HDR10 or HLG underneath it; profile 5, whose base layer is not YCbCr at
+  all, is refused on the CPU chain rather than encoded to magenta and green, and the GPU path says in
+  the log what it depends on.
 
 </details>
 
@@ -308,21 +327,23 @@ grain taken out of it first. Before the fork this was one spinner writing one en
   discarding the others with a warning that goes to a log the app deletes on success. One control that
   writes at most one of them cannot express that collision. What can still collide - a parameter typed
   into the Advanced grid beside it - is reported before the encode, naming which of the two wins.
+  Both encode tabs carry the row now.
 - **A grain table can be measured off your own source** rather than guessed at by the encoder. The file
   is denoised, [grav1synth](https://github.com/rust-av/grav1synth) measures the difference, the encoder
   is handed the clean picture and the table, and the grain comes back at playback. Measured on a test
   clip at CRF 35: 977 KB encoding the grainy source, 743 KB encoding the denoised one, 759 KB with the
   grain described back into it.
-- **The measured table is kept** beside the encode, because it is expensive to make, a few tens of
-  kilobytes to store, and describes the *source* rather than that encode - so every later encode of the same
-  film can reuse it through the Grain table file mode, denoising to match at the same strength.
-- **What it costs is stated before you press Run.** grav1synth's diff runs at about 7.2 megapixels a
-  second, single-threaded, so a feature film at 1080p is around eleven hours of measuring on top of a
-  lossless intermediate the length of the video. The row names the estimate for the file you have
-  loaded rather than letting you find out at hour two.
-- **The row is what the encoder does while it encodes.** Grain written into a file that is *already*
-  encoded - a film stock preset, photon noise, or a table applied afterwards - is the Film Grain
-  utility's job instead, the same division Cut and Deinterlace Video already draw.
+- **Measuring happens once per source, not once per encode.** It used to be an encode mode - hours of
+  single-threaded measuring in front of av1an, repeated on every run. It is the Film Grain utility's
+  Measure operation now, which states the estimate for the loaded file before you commit (grav1synth's
+  diff runs at about 7.2 megapixels a second, so a 1080p feature is a working day) and can keep the
+  denoised copy beside the table: the file to encode, with the table to put back. The table then feeds
+  either tab's Grain table file mode, and describes the *source*, so every later encode of the same
+  film reuses it for nothing.
+- **The row is what the encoder does while it encodes**, and costs no pass of its own. Grain written
+  into a file that is *already* encoded - a film stock preset, photon noise, or a table applied
+  afterwards - is the Film Grain utility's job instead, the same division Cut and Deinterlace Video
+  already draw.
 
 </details>
 
@@ -331,31 +352,33 @@ grain taken out of it first. Before the fork this was one spinner writing one en
 
 Which of these you want depends on what you have and what you are willing to spend.
 
-**Just encode with grain, cheaply** — AV1AN tab → Grain Synthesis → *Encoder analysis*, pick a strength
-(10 for lightly grainy digital, 25 for an ordinary film scan) and **tick Denoise**. The encoder does
-the whole thing itself: no extra tool, no extra pass. Untick Denoise and you get grain *added* to grain
-already in the picture, which costs bitrate rather than saving it - that is what the readout means when
-it says the source's own grain is coded too.
+**Just encode with grain, cheaply** — either encode tab → Grain Synthesis → *Encoder analysis*, pick a
+strength (10 for lightly grainy digital, 25 for an ordinary film scan) and **tick Denoise**. The encoder
+does the whole thing itself: no extra tool, no extra pass. Untick Denoise and you get grain *added* to
+grain already in the picture, which costs bitrate rather than saving it - that is what the readout means
+when it says the source's own grain is coded too.
 
-**Encode with grain measured from this source** — Grain Synthesis → *Measured from source*. The file is
-denoised, grav1synth measures the difference, and av1an encodes the clean picture with the table. More
-accurate than the encoder's own guess, and much slower: the readout gives the estimate for the file you
-have loaded, and it is hours for a feature. The table is kept beside the output as
-`<name>.grain.tbl`.
+**Measure the grain this source actually has** — Utilities → *Film Grain (AV1)* → Measure. The file is
+denoised, grav1synth measures the difference, and the table comes out as `<name>.grain.tbl` - optionally
+with the denoised copy kept beside it, which is the other half of the pipeline: the file to encode, with
+the table to put back. More accurate than the encoder's own guess, and much slower: the dialog gives the
+estimate for the file you have loaded, and it is hours for a feature. Any codec will do - it compares
+decoded frames, so it reads grain off a ProRes master or a DVD rip as well as an AV1 file.
 
-**Encode the same source again** — Grain Synthesis → *Grain table file*, point it at that kept `.tbl`,
-and **tick Denoise at the same strength it was measured with**. This is the measured result without the
-measuring, so it costs no more than an ordinary encode. Leave Denoise unticked only if the table is
-there to add grain to a source that never had any.
+**Encode with that table** — Grain Synthesis → *Grain table file* on either tab, pointed at the kept
+`.tbl`. On Quick Convert, **tick Denoise at the same strength the table was measured with** to reproduce
+the encode it describes; the AV1AN tab runs no denoise pass of its own, so encode the utility's kept
+denoised copy there instead. Leave Denoise unticked only if the table is there to add grain to a source
+that never had any.
 
-**Work on a file that is already encoded** — Utilities → *Film Grain (AV1)*. Measure a table without
-committing to an encode (any codec), extract the table an AV1 file already carries, apply grain to one
-from a table, a film stock preset or an ISO, or strip its grain entirely. The last three rewrite the
-AV1 headers and remux - nothing is re-encoded and the picture is untouched.
+**Work on a file that is already encoded** — Utilities → *Film Grain (AV1)*. Extract the table an AV1
+file already carries, apply grain to one from a table, a film stock preset or an ISO, or strip its grain
+entirely. The last three rewrite the AV1 headers and remux - nothing is re-encoded and the picture is
+untouched.
 
-Only *Measured from source* and the utility need grav1synth; *Encoder analysis* works on every AV1
-build with nothing installed, and a mode that needs the tool says so by name rather than failing
-partway through an encode.
+Only the utility needs grav1synth; *Encoder analysis* works on every AV1 build with nothing installed,
+and a table the encoder in front of it cannot take is refused by name rather than failing partway
+through an encode.
 
 </details>
 
@@ -401,6 +424,12 @@ partway through an encode.
 - **Workers and threads-per-worker are derived together** from the core count instead of one being a
   literal, SVT-AV1 runs two workers fewer than the others because it loads a core harder, and
   "Threads per Worker" now actually limits x265 (which has no `--threads`, only `--pools`).
+- **Scene detection runs in parallel slices ahead of av1an.** Detection is the one phase the workers
+  cannot help with - av1an runs it alone over every frame while the rest of the machine idles, about
+  as long as the encode itself on a 4K60 file - so the source is sliced, detected concurrently, and
+  the merged list handed over; where a tone-map pass runs in front, detection runs alongside it. The
+  slice count has its own box on Av1an Options, and any missing piece falls back to av1an's own
+  in-run detection.
 - **Progress is measured from av1an's own temp folder** - chunk counts out of `scenes.json` and
   `done.json` - rather than parsed out of log lines that av1an stopped printing several releases ago.
 - Frame-rate resampling no longer kills a run partway through, av1an's log lands in the encode's temp
@@ -412,6 +441,12 @@ partway through an encode.
 <details>
 <summary><b>Quick Convert</b></summary>
 
+- **The re-encoders are the real binaries now.** x264, x265, SvtAv1EncApp, aomenc and vpxenc - the
+  same executables the AV1AN tab drives - are fed by ffmpeg over a pipe, then muxed back with the
+  audio, subtitles, chapters and metadata that never went down it. The same encoder on both tabs
+  means a CRF means the same thing on both; a missing binary refuses the run by name rather than
+  quietly substituting ffmpeg's library for the encoder you picked. NVENC, GIF, PNG, JPEG and stream
+  copy stay on ffmpeg.
 - **The command is built in one place, in an order that holds together**: stream maps that know
   whether a filtergraph exists, per-input trim arguments, `-metadata:s:N` indices that count the
   streams which actually reach the output, and a two-pass stats log written into the session folder
@@ -490,6 +525,13 @@ partway through an encode.
   its stats line from `kB` to `KiB`.
 - Colour metadata is read using the names ffprobe actually prints and re-spelled per encoder, aomenc
   refusing a name it does not know by encoding nothing at all.
+- Every HDR-preserving SVT-AV1 encode had been coming out declaring no peak brightness at all - the
+  mastering display and content light levels were simply never handed over, and the file still said
+  PQ, so nothing looked wrong until it was played on real hardware. Both go to the encoder by flag
+  now, in the file's own units.
+- A failed av1an run quotes the tail of av1an's own log in the failure message; the visible-console
+  mode had been reporting "exit code 1" with the actual error gone unread, the console closing itself
+  five seconds after the death.
 - A missing mkvmerge - routine on Linux and macOS - is detected before it is needed, rather than
   showing up as an av1an encode that quietly finished without audio or a concat that failed naming a
   temp path.
@@ -597,7 +639,7 @@ there is no bundled plugin folder to manage (Linux/macOS), the app only warns.
 <details>
 <summary><b>The staged layout</b></summary>
 
-The AV1AN tab's toolchain is staged in the layout the app runs it from:
+The chunked-encoding toolchain is staged in the layout the app runs it from:
 
 ```
 bin/av1an/av1an[.exe]        av1an itself
@@ -610,7 +652,8 @@ bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matchi
                              is made of (FFT3DFilter only for its two denoising presets)
 bin/av1an/vsynth/vship/      Vship's NVIDIA + AMD builds, parked; the app stages the one this
                              machine's GPU passes into vs-plugins, and unstages both when none does
-bin/av1an/enc/               SvtAv1EncApp, aomenc, vpxenc, x264 and x265
+bin/av1an/enc/               SvtAv1EncApp, aomenc, vpxenc, x264 and x265 - the encoders both
+                             encode tabs drive
 ```
 
 grav1synth is not part of that tree - it sits in `bin/` beside ffmpeg and mkvmerge, which is where the
@@ -660,9 +703,9 @@ is a Windows executable, and `bin/THIRD-PARTY.txt` records which source it came 
 community build rather than an official one.
 
 Point `VPXENC_URL` at a different build (a bare `.exe` or an archive containing one) to override the
-fallback, or set it empty (`VPXENC_URL=`) to skip that route entirely. Without vpxenc the AV1AN tab's
-VP9 entry has no encoder behind it; the Quick Convert tab's VP9 support goes through the bundled
-ffmpeg and is unaffected either way.
+fallback, or set it empty (`VPXENC_URL=`) to skip that route entirely. Without vpxenc, VP9 has no
+encoder behind it on either tab - both drive the same binary, and Quick Convert refuses the run
+naming it rather than substituting ffmpeg's library.
 
 </details>
 
