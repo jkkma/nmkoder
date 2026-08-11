@@ -190,6 +190,32 @@ namespace Nmkoder.Data
         }
 
         /// <summary>
+        /// The same section, stated as the keyframe mode - the input-side seek, which is the only one a
+        /// stream copy can carry out. The two exact modes seek the *output*, and over a copy that lands
+        /// on the keyframe after the start point rather than the one before it: measured against a
+        /// source with keyframes every 48 frames, a 24-frame section asked for at frame 30 came back as
+        /// 8 frames beginning at frame 48, the eighteen frames in between simply gone.
+        /// <para/>
+        /// The unit conversion is the part that cannot be skipped. Frame mode holds frame *numbers* in
+        /// the same three fields the time modes hold milliseconds in, so changing the mode on its own
+        /// would reinterpret frame 240 as 240 ms - which is why this returns a new settings object built
+        /// through the millisecond accessors rather than assigning over the mode.
+        /// </summary>
+        public TrimSettings AsKeyframeCopy(Fraction rate)
+        {
+            long start = GetStartMs(rate);
+            long end = GetEndMs(rate);
+
+            return new TrimSettings()
+            {
+                TrimMode = Mode.TimeKeyframe,
+                StartTime = start,
+                EndTime = end,
+                Duration = Math.Max(0, end - start)
+            };
+        }
+
+        /// <summary>
         /// "HH:MM:SS" or "HH:MM:SS.mmm", with the hours counted in full rather than taken from the
         /// TimeSpan's own hours *component* - that one runs 0-23 and rolls over into Days, so a 25 hour
         /// point came out as "01:00:00" and a 24 hour one as "00:00:00". ffmpeg reads any number of

@@ -826,6 +826,24 @@ namespace Nmkoder.UI.Tasks
             return OfferedCodecs[Form.EncVidCodecsBox.SelectedIndex.Clamp(0, OfferedCodecs.Length - 1)];
         }
 
+        /// <summary>
+        /// Whether this tab's trim would be carried out by copying the video's own packets rather than
+        /// by re-encoding them. It is the one question that decides whether the section can begin
+        /// anywhere but a keyframe, and both the trim dialog and <see cref="QuickConvert.Run"/> read it
+        /// from here so the two cannot answer it differently.
+        /// <para/>
+        /// Measured against the bundled FFmpeg rather than assumed, because the obvious reading is the
+        /// wrong way round: an input-side seek in front of a re-encode is *exact*, accurate_seek being
+        /// on by default - it seeks to the keyframe and then decodes and discards up to the point, so a
+        /// section asked for at frame 30 of a source with keyframes every 48 begins on frame 30. The
+        /// same seek in front of a copy begins on frame 0. So a re-encode is never keyframe-bound, in
+        /// any of the three modes, and a copy always is.
+        /// </summary>
+        public static bool TrimSectionIsCopied(CodecUtils.VideoCodec codec)
+        {
+            return codec == CodecUtils.VideoCodec.CopyVideo;
+        }
+
         public static CodecUtils.AudioCodec GetCurrentCodecA()
         {
             return (CodecUtils.AudioCodec)Math.Max(0, Form.EncAudCodecBox.SelectedIndex);
@@ -1345,6 +1363,35 @@ namespace Nmkoder.UI.Tasks
         private static Fraction GetSourceRate()
         {
             return GetVideoSourceStream()?.Rate ?? Fraction.Zero;
+        }
+
+        /// <summary>
+        /// Puts a trim that outlived a switch to the copy codec back into the one mode a copy can carry
+        /// out, and says so. Returns "" where there was nothing to change.
+        /// <para/>
+        /// The trim dialog only offers the three modes for a re-encode, so an exact section reaching a
+        /// copied video means the codec moved after the section was set - the "a hidden control still
+        /// holds a value" shape this tab has met before. Left alone it is a silent wrong output rather
+        /// than a failure: an output-side seek over a copy lands on the keyframe *after* the start
+        /// point, so the run drops the frames in between and writes a shorter section than was asked
+        /// for. Overruled rather than refused, because the keyframe section is what every copy produces
+        /// anyway and the run is still the one the user asked for - but named in the log, since a
+        /// setting picked and then overruled is one nothing else on screen can show.
+        /// </summary>
+        public static string CoerceTrimToKeyframeCopy(CodecUtils.VideoCodec codec)
+        {
+            if (CurrentTrim == null || CurrentTrim.IsUnset || !TrimSectionIsCopied(codec))
+                return "";
+
+            if (CurrentTrim.TrimMode == TrimSettings.Mode.TimeKeyframe)
+                return "";
+
+            string was = CurrentTrim.ToString();
+            CurrentTrim = CurrentTrim.AsKeyframeCopy(GetSourceRate());
+
+            return $"The trim was set to {was}, which a copied video cannot be cut to - a copy begins at a keyframe. " +
+                $"It is applied as {CurrentTrim} instead, which is where the copy would have started regardless. " +
+                $"Pick a video codec to encode with if the section has to start exactly where it is set.";
         }
 
         public static string GetMiscInputArgs()

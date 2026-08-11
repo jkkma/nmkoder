@@ -34,6 +34,7 @@ namespace Nmkoder.Views
         public TrimSettings Result { get; private set; }
 
         private Purpose _purpose;
+        private bool _videoIsCopied;
         private string _videoPath = "";
         private long _durationMs;
         private double _fps = 30d;
@@ -65,25 +66,33 @@ namespace Nmkoder.Views
             InitializeComponent();
         }
 
-        /// <summary> Configures the trim that the Quick Encode tab applies while encoding. </summary>
-        public static async Task<TrimSettings> ShowForTrim(MediaFile file, TrimSettings saved)
+        /// <summary>
+        /// Configures the trim that the Quick Encode tab applies while encoding.
+        /// <para/>
+        /// <paramref name="videoIsCopied"/> is what decides whether that section is copied out of the
+        /// source or re-encoded, and it changes this dialog into the shape the other two purposes
+        /// already have - see <see cref="SectionIsCopied"/>, which is the one statement of what follows
+        /// from it.
+        /// </summary>
+        public static async Task<TrimSettings> ShowForTrim(MediaFile file, TrimSettings saved, bool videoIsCopied)
         {
-            return await Show(Purpose.Trim, file, saved);
+            return await Show(Purpose.Trim, file, saved, videoIsCopied);
         }
 
-        /// <summary> Configures the section the AV1AN tab encodes. </summary>
+        /// <summary> Configures the section the AV1AN tab encodes. Always a copy: av1an has no trim of
+        /// its own, so the section is cut out of the source before av1an is run on it. </summary>
         public static async Task<TrimSettings> ShowForAv1anTrim(MediaFile file, TrimSettings saved)
         {
-            return await Show(Purpose.Av1anTrim, file, saved);
+            return await Show(Purpose.Av1anTrim, file, saved, true);
         }
 
         /// <summary> Configures the section the lossless cut utility copies out. </summary>
         public static async Task<TrimSettings> ShowForCut(MediaFile file, TrimSettings saved)
         {
-            return await Show(Purpose.LosslessCut, file, saved);
+            return await Show(Purpose.LosslessCut, file, saved, true);
         }
 
-        private static async Task<TrimSettings> Show(Purpose purpose, MediaFile file, TrimSettings saved)
+        private static async Task<TrimSettings> Show(Purpose purpose, MediaFile file, TrimSettings saved, bool videoIsCopied)
         {
             if (_open != null) // Already picking a section - a second copy of this answers nothing
             {
@@ -92,7 +101,7 @@ namespace Nmkoder.Views
             }
 
             var window = new CutWindow();
-            window.Load(purpose, file, saved);
+            window.Load(purpose, file, saved, videoIsCopied);
             _open = window;
 
             try
@@ -113,10 +122,11 @@ namespace Nmkoder.Views
             return window._confirmed ? window.Result : saved;
         }
 
-        private void Load(Purpose purpose, MediaFile file, TrimSettings saved)
+        private void Load(Purpose purpose, MediaFile file, TrimSettings saved, bool videoIsCopied)
         {
             _ready = false;
             _purpose = purpose;
+            _videoIsCopied = videoIsCopied;
             _durationMs = file?.DurationMs ?? 0;
 
             var videoStream = file?.VideoStreams.FirstOrDefault();
@@ -128,18 +138,22 @@ namespace Nmkoder.Views
             if (file != null && !file.IsDirectory)
                 _videoPath = file.ImportPath.IsNotEmpty() ? file.ImportPath : file.SourcePath;
 
-            // Only the encode trim offers the three modes: the other two end in a stream copy, which
-            // begins at a keyframe whatever it was asked for, so there is nothing to choose between.
-            bool trim = purpose == Purpose.Trim;
+            // The three modes are offered where the section is re-encoded and nowhere else: a copy
+            // begins at a keyframe whatever it was asked for, so there is nothing to choose between -
+            // and the two exact modes are worse than nothing there, seeking the output rather than the
+            // input, which over a copy lands on the *next* keyframe and drops the frames in between.
+            bool modes = purpose == Purpose.Trim && !videoIsCopied;
             Title = purpose == Purpose.LosslessCut ? "Cut Video" : "Configure Trim";
-            ModeLabel.IsVisible = ModeBox.IsVisible = trim;
-            ModeBox.SelectedIndex = trim ? (int)(saved?.TrimMode ?? TrimSettings.Mode.TimeKeyframe) : 0;
+            ModeLabel.IsVisible = ModeBox.IsVisible = modes;
+            ModeBox.SelectedIndex = modes ? (int)(saved?.TrimMode ?? TrimSettings.Mode.TimeKeyframe) : 0;
 
-            HintLabel.Text = purpose == Purpose.Trim
-                ? "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding."
+            HintLabel.Text = purpose == Purpose.LosslessCut
+                ? "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own. Press Run to cut."
                 : purpose == Purpose.Av1anTrim
                 ? "av1an has no trim of its own, so the section is first copied out of the source without re-encoding and av1an is run on that copy. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own."
-                : "The section between the two points is copied into a new file without re-encoding, which takes seconds rather than as long as an encode. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own. Press Run to cut.";
+                : videoIsCopied
+                ? "The video is being copied rather than re-encoded, so the section is cut out of the source as it is. A copy can only begin at a keyframe, so the start point is moved back to the closest one on its own - pick a video codec to encode with if you need the section to start exactly where it is set."
+                : "Times use the HH:MM:SS or HH:MM:SS.mmm format. In frame mode, enter plain frame numbers. The section outside the start and end point is dropped while encoding.";
 
             // Snapping the start point is the button's whole job, and where it happens on its own
             // there is nothing left to press.
@@ -325,7 +339,9 @@ namespace Nmkoder.Views
 
         private TrimSettings BuildResult()
         {
-            TrimSettings.Mode mode = _purpose == Purpose.Trim ? (TrimSettings.Mode)Math.Max(0, ModeBox.SelectedIndex) : TrimSettings.Mode.TimeKeyframe;
+            // A copied section is the keyframe mode whatever the box was last left on: that mode is the
+            // input-side seek, and it is the only one a copy can carry out. See SectionIsCopied.
+            TrimSettings.Mode mode = SectionIsCopied ? TrimSettings.Mode.TimeKeyframe : (TrimSettings.Mode)Math.Max(0, ModeBox.SelectedIndex);
             bool frames = mode == TrimSettings.Mode.FrameNumbers;
 
             long start = frames ? MsToFrames(_startMs) : _startMs;
@@ -521,28 +537,49 @@ namespace Nmkoder.Views
 
         #region Keyframes
 
+        /// <summary>
+        /// Whether this section is copied out of the source rather than re-encoded, which is the one
+        /// thing everything below turns on. The AV1AN trim and the standalone cut always are; the Quick
+        /// Encode trim is whenever its video codec is the copy.
+        /// <para/>
+        /// It is the codec that decides this and not the tab, which is what a round of measurement
+        /// against the bundled FFmpeg settled. An input-side seek in front of a *re-encode* is exact:
+        /// FFmpeg's default accurate_seek seeks to the keyframe and then decodes and discards up to the
+        /// point, so a section asked for at frame 30 of a source with keyframes every 48 begins on
+        /// frame 30 - measured, through MKV/H.264 and MP4/HEVC alike, and identical to what the exact
+        /// mode's output-side seek produces. The same seek in front of a *copy* begins on frame 0, the
+        /// keyframe at or before, there being no decode to discard with.
+        /// </summary>
+        private bool SectionIsCopied
+        {
+            get { return _purpose != Purpose.Trim || _videoIsCopied; }
+        }
+
         /// <summary> A stream copy can only begin at a keyframe, so where the closest one sits is
-        /// worth showing - but only when the cut is actually a copy. An exact trim re-encodes and
-        /// starts wherever it was told to. </summary>
+        /// worth showing - but only when the section is actually copied. A re-encode starts exactly
+        /// where it was told to, in every one of the three modes, so a keyframe note there would
+        /// describe a cut that is not the one produced. </summary>
         private bool KeyframeSnapRelevant
         {
-            get { return _videoPath.IsNotEmpty() && (_purpose != Purpose.Trim || ModeBox.SelectedIndex == 0); }
+            get { return _videoPath.IsNotEmpty() && SectionIsCopied; }
         }
 
         /// <summary> Whether the start point moves onto that keyframe on its own instead of the move
-        /// being offered as a button. Both purposes that end in a stream copy do it - the AV1AN trim,
-        /// whose section is cut out before av1an ever sees it, and the standalone cut - because
-        /// declining it there buys nothing: the copy begins at the keyframe whatever this field says,
-        /// so refusing the move only leaves the dialog describing a section that is not the one
-        /// produced. Snapping does not change a frame of what comes out. It makes the range shown here
-        /// the range really copied, run-up and all, which is also the duration the copy's own progress
-        /// is measured against.
+        /// being offered as a button. Every section that ends in a stream copy does it - the AV1AN
+        /// trim, whose section is cut out before av1an ever sees it, the standalone cut, and now a
+        /// Quick Encode trim whose video codec is the copy - because declining it there buys nothing:
+        /// the copy begins at the keyframe whatever this field says, so refusing the move only leaves
+        /// the dialog describing a section that is not the one produced. Snapping does not change a
+        /// frame of what comes out. It makes the range shown here the range really copied, run-up and
+        /// all, which is also the duration the copy's own progress is measured against.
         ///
-        /// The Quick Encode trim keeps the button: that path re-encodes rather than copying, so its
-        /// start point is not forced onto a keyframe the way a copy's is. </summary>
+        /// A re-encoded section is the opposite case and must never be snapped: it begins exactly where
+        /// it was set, so moving the start point back to a keyframe would put video the user did not
+        /// ask for at the front of the output - up to a whole GOP of it, silently. That is why this
+        /// follows <see cref="SectionIsCopied"/> rather than the tab the dialog was opened from. </summary>
         private bool KeyframeSnapAutomatic
         {
-            get { return _purpose != Purpose.Trim; }
+            get { return SectionIsCopied; }
         }
 
         private void RequestKeyframeNote()

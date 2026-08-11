@@ -160,6 +160,12 @@ namespace Nmkoder.UI.Tasks
                         RunTask.Cancel($"{trimProblem}\n\nChange the trim, or clear it for this file.");
                         return;
                     }
+
+                    // A section set while an encoder was picked, run after the codec moved to the copy.
+                    string trimCoercion = QuickConvertUi.CoerceTrimToKeyframeCopy(GetCurrentCodecV());
+
+                    if (trimCoercion.IsNotEmpty())
+                        Logger.Log(trimCoercion);
                 }
 
                 // Settled before the encoder's arguments are built, because the row owns more than one

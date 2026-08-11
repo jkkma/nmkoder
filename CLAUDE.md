@@ -2506,10 +2506,49 @@ first; the Cut utility does that without re-encoding, and the log says so. That 
 pairing can arise on: the AV1AN tab has no QTGMC to compose with its trim.
 
 **All three trim modes are a seek and a duration, and the modes differ only in what the user types
-and how exact the start is.** The keyframe mode seeks the input, which is instant and lands on the
-keyframe before the point; the other two seek the output, which decodes and discards its way there
-and so stops where it was asked to. `TrimSettings.GetInputArgs` and `GetOutputArgs` are the only
-place that mapping lives.
+and how exact the start is.** The keyframe mode seeks the input; the other two seek the output,
+which decodes and discards its way there and so stops where it was asked to.
+`TrimSettings.GetInputArgs` and `GetOutputArgs` are the only place that mapping lives.
+
+**What the input-side seek lands on is decided by the *codec*, not by the mode, and this file used to
+say otherwise.** It read "lands on the keyframe before the point", which is true of a copy and false
+of everything else: `accurate_seek` is on by default, so in front of a re-encode ffmpeg seeks to the
+keyframe and then decodes and discards up to the point. Measured against the bundled build on a
+source with keyframes every 48 frames, a section asked for at frame 30 begins on **frame 30** through
+a re-encode - identical to what the exact mode's output-side seek produces, and through MKV/H.264 and
+MP4/HEVC alike - and on **frame 0** through `-c copy`, there being no decode to discard with. So the
+keyframe mode is not the inexact one; it is the *fast* one, seeking rather than decoding the file
+from its start, and for a re-encode it is exact in all three modes.
+
+**That is what decides which shape the trim dialog takes, and it is the codec rather than the tab.**
+`CutWindow.SectionIsCopied` is the one statement of it: the AV1AN trim and the Cut utility always
+copy, and the Quick Convert trim does whenever its video codec is Copy. A copied section gets the
+snapping dialog - no mode row, and the start point moved back onto the keyframe on its own - because
+the copy begins there whatever the field says, so refusing the move only leaves the dialog describing
+a section that is not the one produced. A re-encoded section must **never** be snapped: it begins
+exactly where it was set, so moving the start point back would put up to a whole GOP of video the
+user did not ask for at the front of the output. The Quick Convert row kept a manual Snap button for
+both cases until this, and in the re-encode case that button was a foot-gun sitting under a keyframe
+note that described a cut ffmpeg was not making.
+
+**The mode row goes with it, and that is not tidiness.** Over a copy the two exact modes seek the
+*output*, which lands on the keyframe **after** the start point: measured, a 24-frame section asked
+for at frame 30 came back as 8 frames beginning at frame 48, the eighteen in between simply gone. So
+a copy is offered the keyframe mode alone, and `BuildResult` writes that mode whatever the box was
+last left on. A section set while an encoder was picked can still outlive a switch to Copy, which is
+the "a hidden control still holds a value" shape this tab has met before -
+`QuickConvertUi.CoerceTrimToKeyframeCopy` puts it back into the mode a copy can carry out and names
+it in the log, overruled rather than refused because the keyframe section is what the copy produces
+regardless. It goes through `TrimSettings.AsKeyframeCopy`, which converts the units: frame mode holds
+frame *numbers* in the fields the time modes hold milliseconds in, so changing the mode on its own
+would read frame 240 as 240 ms.
+
+Verified headless through the real dialog and the real controls, 34 checks: all four shapes (Quick
+Convert re-encode and copy, AV1AN, the Cut utility) for their mode row, snap button, keyframe note,
+snapped-or-not start point and built mode; every one of the three re-encode modes leaving the start
+point alone and showing no keyframe note; and the coercion firing for frame mode against Copy with
+frames 30-54 becoming 1250-2250 ms, standing down for a re-encode, and saying nothing where the mode
+was already the keyframe one.
 
 Frame mode was the exception and was wrong three ways for being one. It emitted a
 `select=gte(n,X)` video filter plus `-vframes N`, so the kept frames carried their original

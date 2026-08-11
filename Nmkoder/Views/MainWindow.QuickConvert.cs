@@ -279,7 +279,11 @@ namespace Nmkoder.Views
 
         private async void EncTrimConf_Click(object sender, RoutedEventArgs e)
         {
-            QuickConvertUi.CurrentTrim = await CutWindow.ShowForTrim(TrackList.current?.File, QuickConvertUi.CurrentTrim);
+            // The codec decides what shape the dialog takes: a copied section can only begin at a
+            // keyframe, so it gets the snapping one the AV1AN tab and the Cut utility already use.
+            QuickConvertUi.CurrentTrim = await CutWindow.ShowForTrim(TrackList.current?.File, QuickConvertUi.CurrentTrim,
+                QuickConvertUi.TrimSectionIsCopied(QuickConvertUi.GetCurrentCodecV()));
+
             UpdateTrimBtnText();
         }
 
