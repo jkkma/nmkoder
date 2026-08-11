@@ -390,6 +390,37 @@ namespace Nmkoder.UI.Tasks
             return dict;
         }
 
+        /// <summary>
+        /// The pre-run line for a file with more than one audio track, or "" where there is nothing to
+        /// say. av1an's own '-map 0' carries every audio track and the -a arguments apply to them all
+        /// alike, so this tab has one treatment for the lot - no track selection, one codec, one
+        /// bitrate, one channel count. On an ordinary remux that is a dozen tracks in half a dozen
+        /// languages, every one of them quietly getting the one setting - lossless originals copied
+        /// whole behind a shrunk encode, or five languages transcoded nobody asked for - which is
+        /// exactly the kind of outcome this tab's other pre-run notes exist to say out loud. Nothing
+        /// here can change it, av1an taking its tracks from its input file, so the line states what
+        /// will happen and the remux-first way to choose otherwise.
+        /// </summary>
+        public static string GetMultiTrackAudioNote(MediaFile file, CodecUtils.AudioCodec codec, int bitrateKbps)
+        {
+            int count = file == null ? 0 : file.AudioStreams.Count;
+
+            if (count < 2 || codec == CodecUtils.AudioCodec.StripAudio)
+                return "";
+
+            IEncoder enc = CodecUtils.GetCodec(codec);
+
+            // The bitrate is named only where the codec reads one - FLAC is lossless, takes none
+            // (its QMax is 0), and "at 128 kbps" on it would state a setting that does not apply.
+            string treatment = codec == CodecUtils.AudioCodec.CopyAudio
+                ? $"all {count} are copied into the output at their full size"
+                : $"all {count} are encoded to {enc.FriendlyName}{(enc.QMax > 0 ? $" at {bitrateKbps} kbps" : "")}";
+
+            return $"This file has {count} audio tracks and this tab cannot select or configure them individually - " +
+                $"{treatment}. To keep only some of them, or to treat them differently, remux the wanted tracks " +
+                $"into a new file first and encode that.";
+        }
+
         #endregion
 
         #region Get Args

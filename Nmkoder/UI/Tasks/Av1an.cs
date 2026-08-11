@@ -428,6 +428,14 @@ namespace Nmkoder.UI.Tasks
                     // audio track, and this tab has one bitrate and one channel count for all of them.
                     string ffAud = CodecUtils.GetCodec(aCodec).GetArgs(GetAudioArgsFromUi()).Arguments;
                     var form = Program.MainWin;
+
+                    // Said before the run for the same reason the memory estimate is: on a remux
+                    // carrying a dozen languages, every track getting the one setting is expensive
+                    // and quiet, and nothing on this tab can select tracks.
+                    string audioNote = GetMultiTrackAudioNote(TrackList.current?.File, aCodec, form.Av1anAudQualUpDown.Value.AsInt());
+
+                    if (audioNote.IsNotEmpty())
+                        Logger.Log(audioNote);
                     bool copySubs = form.CheckAv1anCopySubs.IsChecked == true;
                     List<int> bitmapSubs = GetBitmapSubtitleIndices(TrackList.current?.File);
                     string ffMux = BuildMuxArgs(copySubs, form.CheckAv1anCopyData.IsChecked == true, form.CheckAv1anCopyAttachs.IsChecked == true, mp4, webm, bitmapSubs);
