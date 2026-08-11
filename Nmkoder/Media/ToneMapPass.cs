@@ -36,6 +36,20 @@ namespace Nmkoder.Media
     /// paid lossless rates for four times the pixels the encoder ever saw, ~40 GB for a five-minute
     /// test clip), lossless 1080p is still a temporary file in the tens of gigabytes per film.
     /// <para/>
+    /// **The CRF stepped down from 12 to 6 at the user's request, and the whole ladder was measured
+    /// before the number moved** - the same harness as the original choice, heavy synthetic grain at
+    /// 1080p10 through these exact settings. Grain retention and the tone bands are flat across every
+    /// rung (99.9-100.2%, bands exact to the code value), so PSNR and size discriminate: 48.5 dB at
+    /// CRF 12, then 50.5 / 52.4 / 54.4 / 56.3 / 58.1 / 60.0 at 10 / 8 / 6 / 4 / 2 / 0, against sizes
+    /// of 0.70 / 0.76 / 0.81 / 0.88 / 0.95 / 1.02 / 1.11 of the *same frames as lossless FFV1*. The
+    /// last two ratios are the finding: on the heavy-grain content where this intermediate is biggest,
+    /// x264's bottom rungs cost more disk than FFV1 while still being lossy - CRF 0 at 10 bits is not
+    /// lossless (high-bit-depth x264 shifts its QP scale, the lossless point is a negative QP ffmpeg's
+    /// wrapper refuses, and framemd5 against this build confirms it again) - so everything below 6
+    /// pays lossless-class disk for a lossy file and is dominated by FFV1 outright. 6 is the deepest
+    /// rung clearly cheaper than the lossless option: +5.9 dB over the measured-transparent 12, at
+    /// 1.25x its size on the worst case, with encode speed flat across the ladder.
+    /// <para/>
     /// There was a fused shape beside this one, writing a denoised copy as a second output for the
     /// grain measurement, and it had to be lossless where this is not: grav1synth diffed the two
     /// frame for frame, so a lossy reference would have put the quantizer's noise into the grain
@@ -45,7 +59,7 @@ namespace Nmkoder.Media
     /// </summary>
     class ToneMapPass
     {
-        private const int Crf = 12;
+        private const int Crf = 6;
         private const string Preset = "fast";
         private const string Tune = "grain";
 
