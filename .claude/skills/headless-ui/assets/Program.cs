@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -13,6 +14,8 @@ class Harness
     [STAThread]
     static void Main(string[] args)
     {
+        InitAppState();
+
         AppBuilder.Configure<Nmkoder.App>()
             .UseSkia()
             // UseHeadlessDrawing = false is what routes drawing through Skia; true renders nothing.
@@ -41,6 +44,20 @@ class Harness
         }
 
         Console.WriteLine($"saved {count} shot(s) to {Path.GetFullPath(outDir)}");
+    }
+
+    // The real Program.Main runs Paths.Init() and Config.Init() before the UI comes up, and a
+    // window shown without them logs "Failed to save settings to ''" into the visible log box
+    // - noise in every screenshot. Both live in app-internal classes, so they are invoked by
+    // name; the order is Program.Main's own. Config lands in a data/ folder beside the harness
+    // exe (scratch, deleted with bin/), touching nothing of the app's real state.
+    static void InitAppState()
+    {
+        var asm = typeof(Nmkoder.App).Assembly;
+        foreach (var name in new[] { "Nmkoder.Data.Paths", "Nmkoder.IO.Config" })
+            asm.GetType(name)
+                ?.GetMethod("Init", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?.Invoke(null, null);
     }
 
     // A frame captured before the queue drains shows half-loaded state; pumping in a loop

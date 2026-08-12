@@ -24,11 +24,15 @@ dotnet run --project "$H" -- "$H/shots"
 The Avalonia version is read out of the app's csproj so the harness cannot drift from the
 pinned 12.1.x - a headless package from another minor renders another theme.
 
-Two lines of `Failed to save settings to '': Value cannot be null` on stdout (and in the log
-box) are the app's config path resolving against the harness's own output directory - they
-are cosmetic here and not a finding. Verified working end to end: the template builds clean
-against the real project and renders all six tabs, with the AV1AN tab showing its documented
-session defaults.
+The template's `InitAppState()` runs `Paths.Init()` and `Config.Init()` by reflection (both
+classes are app-internal) before any window is constructed - the same order `Program.Main`
+runs them in - so the frame is a faithful first launch: without them every shot carries
+`Failed to save settings to '': Value cannot be null` lines in the visible log box. The
+config this writes lands in a `data/` folder beside the harness exe, in scratch, deleted
+with `bin/`; the app's real state is never touched. If those lines still appear in a shot,
+the init didn't run - that is a harness fault, not an app finding. Verified working end to
+end: the template builds clean against the real project and renders all six tabs with an
+empty log box, the AV1AN tab showing its documented session defaults.
 
 ## What the template does, and the knobs that matter
 

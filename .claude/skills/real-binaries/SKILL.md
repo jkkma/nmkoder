@@ -51,6 +51,19 @@ wherever svt-av1-hdr had published an asset - `tar -tzf` first if a member error
 linux tarball carries **no av1an** - measured on 2.8.60, `bin/av1an/` holds only `enc/` -
 because rust-av publishes no linux release binary for the bundler to take.)
 
+**Proving provenance costs one `sha256sum`, not a re-download.** "Is this binary really the
+shipped one?" is answered by hashing the local file against the digests below, measured off
+the published 2.8.60 assets - both eval arms of a provenance question once re-downloaded
+the 177 MB tarball to establish exactly this. Per-release facts, like everything measured
+in this skill: on a newer release, hash the freshly extracted binaries once and update this
+table rather than trusting it forever.
+
+```
+cba2db923d6770cc57c61a92bc1c90b456889cdb5ffc82885dd4ac6e02539bd6  SvtAv1EncApp   (2.8.60 linux tarball, bin/av1an/enc/)
+3d3c4049947fab8d0db36c68b0b27670e20e9455f2a113a01630547a0844c43e  grav1synth     (2.8.60 linux tarball, bin/)
+cad7ba2b68ea4599af9abda26b04e6ec34a96f76f7ca9d8346c27d8f54fd6b0b  av1an.exe      (2.8.60 win-x64 zip, bin/av1an/)
+```
+
 ## Fetch block: one file out of the win-x64 zip, without the 485 MB
 
 `scripts/fetch-zip-member.py` reads a remote zip's central directory with ranged requests
