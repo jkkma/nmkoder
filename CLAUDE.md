@@ -3496,8 +3496,9 @@ the format ceiling, so it clears `PqCeilingNits` and reads as an honest measurem
 Rolled off for 9978, 100 nits lands at 104 and reference white at 139, where a player that measures
 the signal puts them at 139 and 176. PQ is absolute - a code value *is* a luminance - so
 `ToneMap.MeasurePeakNitsAsync` reads the honest number straight off the file: a dozen sampled spots
-(the autocrop's shape, seconds of decoding), `signalstats` YMAX per frame, and the PQ curve back to
-nits, depth and range handled off ffprobe's own report of the decoded format. It runs in
+(the autocrop's shape - what that actually costs is the section below, and it is not the "seconds of
+decoding" this used to claim), `signalstats` YMAX per frame, and the PQ curve back to nits, depth and
+range handled off ffprobe's own report of the decoded format. It runs in
 `ResolveBackendAsync` only where the zscale chain will do the work - libplacebo measures every
 frame itself - and only for PQ, HLG being relative with no peak passed at all.
 

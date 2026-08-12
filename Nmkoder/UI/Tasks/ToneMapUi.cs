@@ -361,10 +361,11 @@ namespace Nmkoder.UI.Tasks
                 return; // HLG is relative and the chain passes no peak for it - there is nothing to measure
 
             // "A few seconds" is what this said, and it was measured false: the scan is twelve seeks,
-            // each decoding from the preceding keyframe, so the bill tracks the GOP length rather than
-            // the 60 frames it reads - 90-96 s on 120 s of 4K at a 10 s GOP, 23-27 s on the same
-            // content at a 1 s GOP. It does not grow with the film's length, which is the part worth
-            // saying, because it is what stops a feature costing more than a clip.
+            // each decoding about keyint/2 frames to reach its point, so the bill tracks the GOP
+            // length rather than the frame count - 82-96 s on 4K at a 10 s GOP, 27-29 s at the
+            // ordinary 2-4 s ones, 8-14 s at 1080p. It does not grow with the film's length, which is
+            // the part worth saying, because it is what stops a feature costing more than a clip.
+            // See ToneMap.PeakScanPoints for the rest of the cost model.
             Logger.Log("Measuring the picture's peak brightness - a sampled scan of a dozen places in the file, " +
                 "which on a large 4K source can take a minute or two...");
             config.MeasuredPeakNits = await ToneMap.MeasurePeakNitsAsync(file.SourcePath);
