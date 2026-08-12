@@ -175,16 +175,34 @@ namespace Nmkoder.Views
             return header.Replace("_", "__");
         }
 
+        /// <summary>
+        /// Loads the selected files' streams into the Track List, making the first one the main file
+        /// if there is not one already.
+        /// <para/>
+        /// **<see cref="TrackList.SetAsMainFile"/> clears the track list, so it has to run *before*
+        /// anything is added to it rather than after.** Written the other way round it added the first
+        /// file's streams and then wiped them: the file whose tracks you asked for was the one file
+        /// that did not appear, and with its video gone the *second* file's video stream became the
+        /// checked one. Only the first iteration was ever affected, `current` being non-null from then
+        /// on, which is what made it look like a selection bug rather than an ordering one.
+        /// <para/>
+        /// The way in is the ordinary one: dropping several files at once in Muxing Mode leaves
+        /// `current` null - <see cref="FileList.HandleFiles"/> only sets a main file on the
+        /// `Items.Count == 1` path - so pressing Load Tracks, or double-clicking a row, landed here
+        /// with exactly the state the bug needed. The two call sites that already had this right
+        /// (<see cref="ApplyFileListMode"/> and `HandleFiles`) are both main-file-then-add, which is
+        /// the order to keep.
+        /// </summary>
         private async void AddTracksFromFile_Click(object sender, RoutedEventArgs e)
         {
             AddTracksFromFileBtn.IsEnabled = false;
 
             foreach (FileListEntry entry in SelectedFileEntries)
             {
-                await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true);
-
                 if (TrackList.current == null)
                     await TrackList.SetAsMainFile(entry);
+
+                await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true);
             }
 
             QuickConvertUi.LoadMetadataGrid();
