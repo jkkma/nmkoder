@@ -551,7 +551,7 @@ namespace Nmkoder.UI.Tasks
                     if (qualMode != QualityMode.Crf)
                     {
                         if (vf.Length > 3)
-                            Logger.Log(GetFilteredTargetQualityNote(frame));
+                            Logger.Log(GetFilteredTargetQualityNote(frame, sourceColor));
 
                         if (qualMode == QualityMode.TargetSsimu2 || qualMode == QualityMode.TargetButteraugli || qualMode == QualityMode.TargetXpsnr)
                         {
@@ -915,21 +915,66 @@ namespace Nmkoder.UI.Tasks
         /// <summary>
         /// What to say about running a target quality mode over a filtered source.
         /// <para/>
-        /// av1an encodes its probes from the source rather than from the filtered frames - probe_cmd
-        /// composes the probe's ffmpeg pipe with nothing in it but the probing-rate select filter, and
-        /// the chunk's own source command carries no filters either - so nothing set on this tab is
-        /// visible to the quality search, whichever metric it steers by.
+        /// av1an encodes and scores its probes from its own input rather than from the filtered frames -
+        /// <c>probe_cmd</c> composes the probe's ffmpeg pipe with nothing in it but the probing-rate
+        /// select filter, and the chunk's own source command carries no filters either - so anything
+        /// still running per chunk is invisible to the quality search, whichever metric it steers by.
         /// <para/>
-        /// The size clause is the part with teeth, which is why it names both numbers: a resize changes
-        /// how many pixels the quantizer is being spread across, so a search settled at the source's
-        /// size lands somewhere else entirely at the one being written. Filters that leave the size
-        /// alone skew it too - a denoise makes frames cheaper to encode - but by how much is not
-        /// something that can be said from here.
+        /// **"Set on this tab" was the wrong unit, and it made the note contradict its own size
+        /// clause.** What av1an cannot see is what is left in the per-chunk chain, which is not the same
+        /// set: where the tone map renders as a pass in front, its output *is* av1an's input, so the
+        /// tone map and - when the geometry folds in with it - the crop, resize and borders are all
+        /// baked in and every probe does see them. The size clause was already suppressed for that case
+        /// while the sentence above it went on asserting the general claim that implies it. So the two
+        /// halves are said apart now: what the pass baked in, and what is still per chunk.
+        /// <para/>
+        /// **The tone map earns its own clause because it is the largest of these and the only one
+        /// whose direction cannot be predicted.** Measured through this app's own chain and the shipped
+        /// SVT-AV1-HDR binary, on two PQ sources: the probes score the HDR frames 2-3 VMAF points
+        /// *high* on bright content and 4-7 points *low* on dark content - 5.5 and -9.5 CRF steps
+        /// against a VMAF 95 target - where the resize skew this note has always named is 1.7 to 2.2
+        /// steps on the same harness. The sign follows which way the roll-off moves the picture's mean
+        /// (measured, 428.6 to 564.8 on the bright fixture and 313.0 to 243.3 on the dark one), so it
+        /// is a property of the content and no fixed offset corrects it. That is why the clause states
+        /// both directions rather than warning about one.
+        /// <para/>
+        /// The size clause names both numbers for the same reason it always did. Filters that leave the
+        /// size alone skew it too - a denoise makes frames cheaper to encode - but by how much is not
+        /// something that can be said from here, which is why only the two that were measured are
+        /// quantified.
+        /// <para/>
+        /// <paramref name="srcColor"/> is passed rather than read off the file for the reason
+        /// <see cref="Av1anUi.GetVideoFilterArgs"/> takes it: by the time this runs,
+        /// <see cref="Run"/> may have swapped the file's colour for the one the encoder is told about,
+        /// which for a tone-mapped encode is BT.709 - and asking "is this run tone mapping" against
+        /// that answers no.
         /// </summary>
-        private static string GetFilteredTargetQualityNote(Av1anFrame frame)
+        private static string GetFilteredTargetQualityNote(Av1anFrame frame, VideoColorData srcColor)
         {
-            string note = "Note: av1an encodes its target quality probes from the source, not from the filtered " +
-                "frames, so the video filters set on this tab are invisible to the quality search.";
+            bool toneMaps = Av1anUi.CurrentToneMap != null && Av1anUi.CurrentToneMap.RunsOn(srcColor);
+            bool passRan = Av1anUi.ToneMapRendersInFront(srcColor);
+
+            string note = "Note: av1an encodes and scores its target quality probes from its own input - its probe pipe " +
+                "carries the probing-rate 'select' filter and nothing else - so whatever is still running per chunk is " +
+                "invisible to the quantizer search.";
+
+            // Said before the invisible half, because it is the good news and because the sentence
+            // above would otherwise read as covering it. GeometryInPass is not implied by the pass
+            // having run: a per-chunk deinterlacer blocks the fold and leaves the geometry behind.
+            if (passRan)
+                note += " The tone map is not one of them - it is rendered into the file av1an is given, so the probes " +
+                    (frame != null && frame.GeometryInPass ? "do see it, and the crop, resize and borders folded in with it." : "do see it.");
+
+            // The per-chunk tone map, which is every machine without a usable GPU and every run with
+            // the row's CPU tick on. Not a size change, so the clause below never fired for it, and
+            // it is the biggest skew of the lot.
+            else if (toneMaps)
+                note += " The tone map is one of them, and it is the largest: the probes score the source's HDR frames " +
+                    "where the encode writes tone-mapped SDR, which is a different signal to spend a quantizer on. " +
+                    "Measured on two PQ sources, that moved the quality actually delivered 2-3 points above the target on " +
+                    "bright content and 4-7 points below it on dark content - opposite directions, so there is no offset " +
+                    "to correct it by. On a machine with a usable GPU the tone map renders in front of av1an and the " +
+                    "probes do see it; this run is on the CPU chain.";
 
             // Only when the size change actually happens per-chunk. With the geometry folded into
             // the tone-map pass, av1an's input - and so every probe - is already the encoded frame,
@@ -937,10 +982,15 @@ namespace Nmkoder.UI.Tasks
             if (frame != null && frame.ChangesSize && !frame.GeometryInPass)
                 note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
                     $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
-                    "the target at the source's size rather than at the size being written. Encoding at the source's " +
-                    "size, or using CRF, is the only way to be sure of the target.";
+                    "the target at the source's size rather than at the size being written.";
 
-            return note;
+            // The rate is the third thing that is never a size change and never folds - the scene
+            // detection overlap's invariant keeps the resample per chunk - so nothing else here
+            // would ever mention it.
+            if (frame != null && frame.ResamplesFrameRate)
+                note += " The probes also score at the source's frame rate, where the encode writes another.";
+
+            return note + " CRF is the mode none of this reaches.";
         }
 
         /// <summary> The metric a target quality mode steers by, as it is named in messages. </summary>
