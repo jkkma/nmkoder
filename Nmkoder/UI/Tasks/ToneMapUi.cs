@@ -360,7 +360,13 @@ namespace Nmkoder.UI.Tasks
             if (src.ColorTransfer != ColorDataUtils.TransferPq)
                 return; // HLG is relative and the chain passes no peak for it - there is nothing to measure
 
-            Logger.Log("Measuring the picture's peak brightness (a sampled scan, a few seconds)...");
+            // "A few seconds" is what this said, and it was measured false: the scan is twelve seeks,
+            // each decoding from the preceding keyframe, so the bill tracks the GOP length rather than
+            // the 60 frames it reads - 90-96 s on 120 s of 4K at a 10 s GOP, 23-27 s on the same
+            // content at a 1 s GOP. It does not grow with the film's length, which is the part worth
+            // saying, because it is what stops a feature costing more than a clip.
+            Logger.Log("Measuring the picture's peak brightness - a sampled scan of a dozen places in the file, " +
+                "which on a large 4K source can take a minute or two...");
             config.MeasuredPeakNits = await ToneMap.MeasurePeakNitsAsync(file.SourcePath);
 
             double declared = ColorDataUtils.GetDeclaredPeakNits(src);

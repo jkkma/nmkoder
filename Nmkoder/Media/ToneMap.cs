@@ -145,11 +145,35 @@ namespace Nmkoder.Media
             }
         }
 
-        /// <summary> How many spots of the file the peak scan decodes, spread evenly through it, and how
-        /// many frames it reads at each. A dozen points is the autocrop's ten with a little on top, and
-        /// the cost is the same shape: seconds of seeking and decoding before an encode that runs for
-        /// hours. The miss risk of sampling - the brightest scene falling between points - is what
-        /// <see cref="Data.ToneMapConfig.MeasuredPeakHeadroom"/> is priced for. </summary>
+        /// <summary>
+        /// How many spots of the file the peak scan decodes, spread evenly through it, and how many
+        /// frames it reads at each. A dozen points is the autocrop's ten with a little on top. The miss
+        /// risk of sampling - the brightest scene falling between points - is what
+        /// <see cref="Data.ToneMapConfig.MeasuredPeakHeadroom"/> is priced for.
+        /// <para/>
+        /// **The cost is the seeks, not the frames, and it is minutes rather than the seconds this
+        /// used to claim.** Measured on 4K: 82-96 s at a 10 s GOP, 27-29 s at the ordinary 2-4 s ones,
+        /// and 8-14 s at 1080p - where the whole scan decodes fewer than eighty frames. Each point pays
+        /// a fresh process, a seek, and then `accurate_seek`'s decode-and-discard from the preceding
+        /// keyframe - about keyint/2 frames - so the bill tracks the **GOP length** and not the frame
+        /// count, and it does not grow with the film's length (measured flat, 27.4-29.1 s across 30 to
+        /// 240 s of 4K). Batching the points into one process saves nothing: a 60-input concat was
+        /// 8.4 s at n=12 and 13.7 s at n=20, so the seek is the cost, and seek cost does not grow with
+        /// depth either (7.06-8.01 s per seek whether 10 s or 230 s into the file).
+        /// <para/>
+        /// **The frame count is one more than it says.** `metadata=mode=print` sits in the filter graph
+        /// and `-frames:v` bounds the *output*, so the filter is handed one frame past the limit and
+        /// prints its `YMAX` too - measured, `-frames:v 5` prints 6 lines, and 1, 3 and 15 print 2, 4
+        /// and 16. The scan therefore reads 6 frames at each of 12 points, 72 rather than 60. It is
+        /// free accuracy and nothing depends on the exact number, but the constant does not describe
+        /// what happens and a future reader counting frames would come out one short per point.
+        /// <para/>
+        /// **Raising either number did not find more peaks, and a whole-file keyframe pass did not
+        /// either.** Both were measured and both were rejected - see
+        /// <see cref="MeasurePeakNitsAsync"/> for what was tried and what happened. Of the two, note
+        /// which lever is cheap if this is ever revisited: another *point* costs a seek and half a GOP
+        /// of decoding, where another *frame at an existing point* costs one frame.
+        /// </summary>
         private const int PeakScanPoints = 12, PeakScanFramesPerPoint = 5;
 
         /// <summary>
@@ -172,6 +196,59 @@ namespace Nmkoder.Media
         /// scene's perceptual level. That is the right way round to be wrong for a roll-off: it can
         /// only overstate the content, which softens the curve, where a percentile that understated it
         /// would clip real pixels.
+        /// <para/>
+        /// **Two replacements were measured and both are worse. Do not reach for either.**
+        /// <list type="number">
+        /// <item><b>More or denser points.</b> 24x5, 48x5, 12x15 and 60x1 cost 2.3-4.6x the wall clock
+        /// on a 4K file, for the reason on <see cref="PeakScanPoints"/> - every extra point is another
+        /// seek. 12x15 finds nothing at all that 12x5 does not: more frames at the same twelve places
+        /// is the least useful direction, the failure being placement rather than depth.</item>
+        /// <item><b>A whole-file keyframe pass</b> - one ffmpeg, <c>-skip_frame nokey</c>, no seeking.
+        /// This looks unanswerable and is not. It read the true peak on six fixtures at 15-34x the
+        /// speed, and **that result was an artifact of how the fixtures were built**: each changed
+        /// brightness with a hard cut, so the encoder's scene detector had already put an IDR on the
+        /// bright frame - flash.mkv carries keyframes at exactly t=100.000 and t=102.000, the burst's
+        /// own boundaries. The pass was reading the encoder's marks, not finding peaks.
+        /// <para/>
+        /// Swept across every position in the file rather than hand-placed, over 203 fixtures, it
+        /// fails whenever the encoder has not marked the bright frame for it: a 2.5 s in-shot rise
+        /// under a fixed GOP, **0 of 30** placements found, median 0.10x the true peak; a 0.25 s flash,
+        /// **0 of 60**, never once above the base level; real cuts plus an in-shot rise, 250 nits
+        /// against 1251 in 10 of 11. The structural reason is one line: keyframes land at the cuts, so
+        /// the pass samples **the opening frame of every shot**, and a shot's brightest frame is rarely
+        /// its first. Open-GOP is not the explanation and was checked - <c>-skip_frame nokey</c> does
+        /// yield CRA frames (confirmed by NAL type, 21 with RASL behind it) and it changes nothing.
+        /// Only at a realistic cut rate - a cut every ~3.3 s, so 27-34 samples - does it draw level
+        /// with this scan, within 1-2 code values after the headroom, and it is never ahead.
+        /// <para/>
+        /// **Its failure direction is the bad one.** A miss drives <see cref="Data.ToneMapConfig
+        /// .GetTonemapPeak"/> to its floor of 1.0, so SDR white becomes the anchor's 266.667 nits and
+        /// everything above clips: 203 nits reads 232 where the truth is 153, and the 400- and
+        /// 1000-nit bands both hard-clip to 255. That is worse than having no scan at all, which is
+        /// merely too dark (104/139) but keeps every highlight distinguishable.
+        /// <para/>
+        /// And the speed inverts on the files this feature is for. The pass is linear in duration
+        /// where this scan is flat; measured crossover is 5.8 min of video at a 2 s GOP and 10.5 min
+        /// at 4 s, so a 2 h 4K feature costs it **10.6 min at 2 s and 5.7 min at 4 s** against this
+        /// scan's ~28 s. The 15-34x it was credited with is real only on a clip well inside the
+        /// crossover.</item>
+        /// </list>
+        /// <para/>
+        /// **The hybrid - <c>max(keyframe pass, sampled scan)</c> - is the only defensible form of it
+        /// and still is not worth it.** Strictly better than either by construction, but measured it
+        /// beat the sampled scan alone in 0 of 60 flash placements and 0 of 11 mixed ones (the pass
+        /// contributing nothing at all there), and where it did win the margin was slight - while
+        /// costing the sum of both, which is those minutes on a feature.
+        /// <para/>
+        /// **And a better maximum is not a better picture, which is the deeper reason neither was
+        /// worth it.** Measured against libplacebo's own per-frame detection over a whole file: on
+        /// content with an outlier, hitting the true peak is ~14 code values *darker* than missing it
+        /// across 95% of the runtime, because a static roll-off built for a two-second event prices
+        /// the entire film for it. libplacebo does not face this trade - it re-exposes per scene - and
+        /// the zscale chain cannot. So the room left here is in what
+        /// <see cref="Data.ToneMapConfig.GetEffectivePeakNits"/> does with the number (a percentile
+        /// rather than a maximum), not in finding the maximum more reliably. That was not measured;
+        /// it is the next thing to try, and it is not a change to this method.
         /// </summary>
         public static async Task<double> MeasurePeakNitsAsync(string path)
         {
