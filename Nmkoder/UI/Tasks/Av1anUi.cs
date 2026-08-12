@@ -609,9 +609,14 @@ namespace Nmkoder.UI.Tasks
             if (filters.Count < 1)
                 return "";
 
-            // No Vulkan device argument here any more, and none must come back: libplacebo left this
-            // chain for the pass in front (see the tone map note above), so the per-chunk command has
-            // no filter that could use the device - only the pass's own command carries it.
+            // No Vulkan device argument here, and none must come back: this tab never runs libplacebo
+            // (ToneMapConfig.ForceCpuChain - see the tone map note above), so the per-chunk command has
+            // no filter that could use the device. The two commands that do carry it are Quick
+            // Convert's, through ToneMapConfig.GetDeviceArgs, and the probe's own in
+            // ToneMap.GetLibplaceboProblem, which places it where Quick Convert does so that what is
+            // tested is what ships. This used to read "libplacebo left this chain for the pass in
+            // front", which described the device's old home on this tab; that pass is gone - see the
+            // tombstone in Av1an.cs - and the absence here is a policy now rather than a consequence.
             return $"-vf {string.Join(",", filters)}";
         }
 

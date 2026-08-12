@@ -353,10 +353,12 @@ namespace Nmkoder.Utils
         /// So this is a property of the bitstream rather than a guess about a tool: a chain that does no
         /// RPU reshaping cannot produce the right picture from one of these, whatever else it does
         /// right. <see cref="UI.Tasks.ToneMapUi.GetProblem"/> refuses over it where the CPU chain would
-        /// be doing the work, and warns where libplacebo would, since that one *does* apply the RPU -
-        /// FFmpeg parses it and <c>vf_libplacebo</c>'s <c>apply_dolbyvision</c> hands it to the reshape
-        /// shader, with no libdovi in the build required or present. See
-        /// <see cref="UI.Tasks.ToneMapUi.LogDolbyVision"/> for what is measured there and what is not.
+        /// be doing the work, and lets it through where libplacebo would, since that one *does* apply
+        /// the RPU - FFmpeg parses it and <c>vf_libplacebo</c>'s <c>apply_dolbyvision</c> hands it to
+        /// the reshape shader, with no libdovi in the build required or present. Nothing warns on that
+        /// path: it used to, back when the dependency was thought to be libdovi and so unknowable from
+        /// here, and the warning went when the hedge did. <c>ToneMapUi.LogDolbyVision</c> states which
+        /// of the two ran, on both paths, and carries what is measured there and what is not.
         /// Which of the two is doing the work is not only the machine's answer: the AV1AN tab always
         /// maps on the CPU, so a profile 5 file is refused there on every machine.
         /// <para/>
@@ -374,19 +376,34 @@ namespace Nmkoder.Utils
         /// the behaviour.** The shape this was suspected of refusing is the ordinary UHD Blu-ray remux,
         /// and profile 7 does not carry 0: FFmpeg's own FATE reference output records real ffprobe
         /// readings of three real profile-7 samples, all <c>dv_bl_signal_compatibility_id=6</c>
-        /// ("Blu-ray"), at <c>dv_version_major=1</c>. Measured over 22 fixtures carrying injected
-        /// <c>dvcC</c> records - each read back through the bundled ffprobe exactly as injected, and each
-        /// put through this method by reflection into the built assembly - the old rule and this one
-        /// differ on four rows, and every one of them is a deprecated profile or a malformed record:
-        /// profile 2 or 7 with an undeclared nibble, a 4-byte record (the only length that reaches
-        /// FFmpeg's "0 stands for None" synthesis, and not a length any muxer writes), and a profile 8
-        /// declaring 0, which is self-contradictory. Neither <c>mkvmerge</c> nor an ffmpeg MP4-to-MKV
+        /// ("Blu-ray"), at <c>dv_version_major=1</c>. Neither <c>mkvmerge</c> nor an ffmpeg MP4-to-MKV
         /// remux zeroes the nibble - both measured, the id survives intact - so there is no ordinary
         /// route to the wrongly-refused shape either.
         /// <para/>
+        /// **Exactly where the two rules part company was recomputed rather than recalled**, by driving
+        /// this method and the old expression over every (profile, compat id) pair the app can hold -
+        /// profiles 0-10 and 20 against ids -1, 0, 1, 2, 4 and 6, which is 72 rows - by reflection into
+        /// the built assembly. 15 differ, in two families, and the split is the point:
+        /// <list type="bullet">
+        /// <item>**Profiles 1 and 3, at every id (10 rows): the old rule let them through and this one
+        /// refuses them.** Both are codec-string-<c>n</c> "no base layer" profiles like 5, so refusing
+        /// them is the fix rather than a side effect - a test on <c>profile == 5</c> alone missed
+        /// them.</item>
+        /// <item>**Profiles 2, 4, 6, 7 and 9 declaring 0 (5 rows): the old rule refused them and this
+        /// one does not.** These are the readable-base-layer profiles meeting an undeclared nibble,
+        /// which is what the whole rewrite is for.</item>
+        /// </list>
+        /// An earlier version of this paragraph named "profile 2 or 7 with an undeclared nibble ... and
+        /// a profile 8 declaring 0" as the differing set. Profile 8 declaring 0 does **not** differ -
+        /// measured, both rules refuse it, since 8 is in neither list and falls through to the nibble -
+        /// and the list also missed profiles 4, 6 and 9 on the same footing as 2 and 7, and the
+        /// profiles 1 and 3 family entirely. Recompute this rather than editing the sentence if either
+        /// list changes.
+        /// <para/>
         /// The one thing the old rule's second clause genuinely bought is kept: it is what catches AV1
         /// profile 10 declaring 0, which is the same IPT-PQ-c2 base layer under another codec and which
-        /// a test on the profile number alone would let through.
+        /// a test on the profile number alone would let through. Measured on the same sweep: 10 with an
+        /// id of 0 is refused by both rules, and 10.1 by neither.
         /// </summary>
         public static bool HasUnusableBaseLayer(VideoColorData d)
         {

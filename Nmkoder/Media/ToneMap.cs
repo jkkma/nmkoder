@@ -101,9 +101,12 @@ namespace Nmkoder.Media
 
             try
             {
-                // The device argument sits after the '-i' on purpose: that is where the AV1AN tab's
-                // filters are spliced into av1an's own per-chunk command, so probing any other shape
-                // would be testing a command line this app never sends.
+                // The device argument sits after the '-i' on purpose: that is where Quick Convert's
+                // filter argument lands, and Quick Convert's is the only command this app sends with
+                // libplacebo in it - the AV1AN tab always runs the zscale chain per chunk and never
+                // reaches this probe (ToneMapConfig.ForceCpuChain). So probing any other shape would
+                // be testing a command line this app never sends. It is a legal position rather than
+                // an obvious one: the option is global, and ffmpeg was measured accepting it there.
                 var settings = new AvProcess.FfmpegSettings()
                 {
                     // peak_detect on, because the shipped chains run it on - what is tested is what

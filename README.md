@@ -36,7 +36,7 @@ platforms, and a fair amount added on top — see
 |:--|:--|
 | **Quick Convert** | One encode, built for you: H.264, H.265, VP9 and AV1 through the same encoder binaries the AV1AN tab drives, GIF and image sequences, per-track audio, subtitle burn-in, loudness normalization. |
 | **AV1AN** | Chunked, parallel encoding through av1an, with target-quality modes (VMAF, SSIMULACRA2, Butteraugli, XPSNR) and a full per-encoder argument grid. |
-| **Utilities** | The jobs that are not an encode: bitrates, metrics, colour metadata, grain tables, lossless cuts, concatenation, bitrate charts, subtitle OCR. |
+| **Utilities** | The jobs beside the encode: a CRF ladder that samples the source and reports what each CRF would cost, quality metrics, bitrates, colour metadata, grain tables, deinterlaced exports, lossless cuts, concatenation, bitrate charts, subtitle OCR. |
 
 ## Download
 
@@ -47,13 +47,20 @@ self-contained, so no .NET install is needed.
 | Platform | Archive | Size | Bundled into `bin/` |
 |:--|:--|--:|:--|
 | **Windows** x64 | `Nmkoder-<version>-win-x64.zip` | ~490 MB | Everything: ffmpeg, MKVToolNix, av1an, VapourSynth, the encoders, grav1synth |
-| **Linux** x64 | `Nmkoder-<version>-linux-x64.tar.gz` | ~120 MB | ffmpeg, av1an, SVT-AV1, VMAF models, grav1synth |
+| **Linux** x64 | `Nmkoder-<version>-linux-x64.tar.gz` | ~180 MB | ffmpeg, SVT-AV1, VMAF models, grav1synth |
 | **macOS** arm64 | `Nmkoder-<version>-osx-arm64.tar.gz` | ~58 MB | VMAF models, grav1synth |
 | **macOS** x64 | `Nmkoder-<version>-osx-x64.tar.gz` | ~61 MB | VMAF models |
 
 The Linux and macOS archives carry less and lean on your package manager; see
 [what a release bundles](#what-a-release-bundles) for the whole matrix and the reasons.
 Anything you drop into `bin/` yourself takes priority over the same tool on your `PATH`.
+
+That decides what **Quick Convert can re-encode out of the box**, because it drives the standalone
+encoder binaries rather than ffmpeg's libraries: the Windows archive covers all five, the Linux one
+covers AV1 through SVT-AV1 only, and the macOS ones cover none until you
+`brew install aom x264 x265 libvpx`. Anything else refuses the run naming the binary and the folder
+to put it in (`bin/av1an/enc`), rather than quietly encoding with something else. Stream copy, GIF,
+PNG, JPEG and NVENC go through ffmpeg and work regardless.
 
 <details>
 <summary><b>Windows: install with Scoop</b></summary>
@@ -135,6 +142,12 @@ Each heading below expands.
 - All media types also have the option to **strip** (remove) or **copy** (mux without re-encoding)
 - Set metadata (title and language) for each track, and copy metadata or chapters from any loaded file
 - Encoder Options: set quality and speed/effort aka preset, set colour format
+- **Advanced encoder arguments** on a tab of their own, the same grid the AV1AN tab has: every
+  parameter the encoder in front of you documents, grouped by category, each with a full explanation
+  and example values on right-click. SVT-AV1's content presets are shared with the AV1AN tab, both
+  driving the same binary, and a parameter that binary does not know stops the run up front rather
+  than having the encode rejected once it has started. Below it, a Custom Video Filters grid for
+  anything the rows above do not cover
 - Quality Modes: a **constant quality**, a target **bitrate**, or a target **filesize**
 - Video Options: resample the frame rate, **resize** from presets or an exact size, manually or
   **automatically crop** black bars, pad out to a target **aspect ratio**, and **trim** to a section
@@ -167,7 +180,13 @@ Each heading below expands.
   **XPSNR** score (experimental; SSIMULACRA2 needs a VapourSynth metric plugin, bundled on Windows,
   XPSNR is scored by ffmpeg, and Butteraugli currently needs the GPU plugin Vship, which the Windows
   bundle ships and enables per machine - see below)
-- Same audio, metadata and framing options as Quick Convert, trim included
+- The same framing options as Quick Convert, trim included. Audio is **one setting for every track**
+  rather than Quick Convert's per-track configuration — av1an's own `-map 0` carries the lot, so one
+  codec, one bitrate and one channel layout apply to all of them, and there is no loudness
+  normalization here; a file with more than one audio track has that stated before the run starts.
+  Subtitles, data tracks and attachments are kept or dropped with checkboxes. Per-track titles and
+  languages, the metadata and chapter source, and subtitle burn-in are Quick Convert's — remux there
+  first if you need them
 - **Deinterlacing** too, its own setting, though without QTGMC: av1an filters each chunk with ffmpeg,
   which has nowhere to run a VapourSynth script, so QTGMC here would mean rendering the whole video
   into a lossless intermediate first - a serial pass that costs more than it saves, QTGMC being slower
@@ -175,12 +194,14 @@ Each heading below expands.
   av1an; a tape that wants QTGMC goes through Quick Convert, which pipes it straight into the encoder,
   or through the Deinterlace Video utility
 - **HDR to SDR tone mapping** as well, with the colour the encoder is told about following the
-  conversion rather than the source. On a GPU this renders once in front of av1an - peak
-  detection needs one continuous run, where av1an would restart it at every chunk. The intermediate is
-  rendered at the encode's frame size - the resize, crop and borders run in the same pass - as
-  near-lossless x264 at settings chosen by measuring what survives them: grain energy and tone
-  values come through intact, at about a tenth of the source's size. Scene detection runs alongside
-  the pass rather than after it, since it changes no frame number
+  conversion rather than the source. It runs on the CPU, per chunk inside av1an, on every machine -
+  **no render pass in front and no intermediate file**, so the encode starts as soon as scene
+  detection is done. This tab ran libplacebo as a whole-file pass for a few releases and no longer
+  does: that pass was a full x264 re-encode of the film before av1an could start, hours on a feature,
+  where the chunked chain costs nothing. The roll-off is built around a sampled scan of the picture's
+  real brightness, which lands a few code values from the GPU result. libplacebo, and its Spline
+  curve with it, are Quick Convert's - that tab runs one ffmpeg over the whole file, which is the
+  continuous run peak detection needs
 - An encode that **stays HDR keeps its brightness metadata**: the mastering display and the content
   light levels are handed to SVT-AV1 by flag, in the file's own units, since the bare frames av1an
   feeds an encoder cannot carry them
@@ -295,12 +316,18 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   ordinary UHD Blu-ray declares a 4000-nit mastering display and a MaxCLL near the format ceiling
   over frames that top out around 600 nits, and a mapping priced for the metadata renders the whole
   film 30-odd code values darker than a player that measures the signal - which is exactly what mpv
-  does, and why the source "looked brighter" there. On a GPU, libplacebo's peak detection measures
-  every frame; without one, a sampled scan reads the brightest real pixel off the file and the
-  declared value only caps it. None of this can be left to FFmpeg itself: measured, its tone-mapper
-  reads no metadata at all - the same clip with and without MaxCLL and a mastering display
-  tone-maps identically - and the widely-copied chain's default clips everything above about 374
-  nits to flat white. The encode log states measured, declared and effective peaks per file.
+  does, and why the source "looked brighter" there. Where libplacebo runs, its peak detection
+  measures every frame; on the CPU chain a sampled scan reads the brightest real pixel off the file
+  and the declared value only caps it. None of this can be left to FFmpeg itself: measured, its
+  tone-mapper reads no metadata at all - the same clip with and without MaxCLL and a mastering
+  display tone-maps identically - and the widely-copied chain's default clips everything above about
+  374 nits to flat white. The encode log states measured, declared and effective peaks per file.
+- **Which of the two backends runs is Quick Convert's question alone.** There it is the machine's:
+  libplacebo where a real GPU passes the probe (a software Vulkan device tone-maps at a tenth of the
+  speed and is refused), FFmpeg's own zscale chain otherwise, settled once per encode and stated in
+  the log. The AV1AN tab always uses the zscale chain, per chunk - a whole-file libplacebo pass there
+  meant re-encoding the film before av1an could start. That is also why **Spline is on Quick
+  Convert's curve list only**: it is libplacebo's own curve and has no equivalent on the CPU.
 - It runs **before any crop, scale or burnt-in subtitle**, so subtitles are not dragged through a
   gamut conversion written for the picture, and the output is retagged BT.709 with the HDR metadata
   dropped - static and dynamic alike, HDR10+ included - including on the AV1AN tab, where the
@@ -309,9 +336,14 @@ None of this existed before the fork - there was no deinterlacing in the app at 
   preview used to draw PQ code values as though they were BT.709 - washed out and grey, for exactly
   the files this row exists for. Display-side only; no encode reads it.
 - **Dolby Vision is read off the file.** A profile whose base layer plays without the RPU is
-  tone-mapped as the ordinary HDR10 or HLG underneath it; profile 5, whose base layer is not YCbCr at
-  all, is refused on the CPU chain rather than encoded to magenta and green, and the GPU path says in
-  the log what it depends on.
+  tone-mapped as the ordinary HDR10 or HLG underneath it. Profile 5, whose base layer is not YCbCr at
+  all, is refused on the CPU chain rather than encoded to magenta and green - so it is refused on the
+  AV1AN tab on every machine, and the message points at Quick Convert, where libplacebo reads these
+  files: FFmpeg parses the RPU itself and hands it to libplacebo's reshape shader, measured on a real
+  profile 5 stream against the bundled build, which carries no libdovi at all. The refusal
+  deliberately does **not** suggest converting the file first: a profile conversion rewrites the
+  metadata and moves no pixels, so it buys nothing - and it turns a loud refusal into a silently
+  wrong output, the converted file declaring a profile this check lets through.
 
 </details>
 
@@ -400,9 +432,14 @@ through an encode.
   dropdown entry. Applied after the crop and the resize, so a scaler never runs over a hard edge.
 - **Trim is picked visually.** The in/out dialog shows the frame at the playhead while you choose the
   section, in the shape LosslessCut made familiar, and the same dialog serves Quick Convert, the
-  AV1AN tab (which had no trim at all before) and the lossless Cut utility. All three modes - nearest
-  keyframe, exact time, frame numbers - land where they say they do, and a section that does not fit
-  the file is caught before the encode rather than producing an empty output.
+  AV1AN tab (which had no trim at all before) and the lossless Cut utility. All three modes — seek
+  straight to the point, decode from the start, or the same again in frame numbers — begin on exactly
+  the frame you set, measured against the bundled FFmpeg rather than assumed; what they differ in is
+  how long they take to get there. Where the section is **copied** rather than re-encoded — the Cut
+  utility, the AV1AN trim, and Quick Convert with the video codec on Copy — there is no mode to
+  choose: a copy can only begin at a keyframe, so the dialog moves the start point back onto the
+  nearest one and shows where it landed. Either way a section that does not fit the file is caught
+  before the encode rather than producing an empty output.
 
 </details>
 
@@ -427,9 +464,8 @@ through an encode.
 - **Scene detection runs in parallel slices ahead of av1an.** Detection is the one phase the workers
   cannot help with - av1an runs it alone over every frame while the rest of the machine idles, about
   as long as the encode itself on a 4K60 file - so the source is sliced, detected concurrently, and
-  the merged list handed over; where a tone-map pass runs in front, detection runs alongside it. The
-  slice count has its own box on Av1an Options, and any missing piece falls back to av1an's own
-  in-run detection.
+  the merged list handed over. The slice count has its own box on Av1an Options, and any missing
+  piece falls back to av1an's own in-run detection.
 - **Progress is measured from av1an's own temp folder** - chunk counts out of `scenes.json` and
   `done.json` - rather than parsed out of log lines that av1an stopped printing several releases ago.
 - Frame-rate resampling no longer kills a run partway through, av1an's log lands in the encode's temp
@@ -545,23 +581,36 @@ through an encode.
   builds and runs natively on Linux and macOS.
 - Released archives are self-contained: no .NET install is required. Building framework-dependent
   yourself needs the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
-- `ffmpeg`, `ffprobe`, `mkvmerge` and `av1an` are looked up in the `bin` folder next to the
-  executable first, then on `PATH`.
+- `ffmpeg`, `ffprobe`, `mkvmerge`, `av1an` and `grav1synth` are looked up in the `bin` folder next to
+  the executable first, then on `PATH`. The encoder binaries both tabs drive — `SvtAv1EncApp`,
+  `aomenc`, `vpxenc`, `x264`, `x265` — are looked for in `bin/av1an/enc` first and then on `PATH`;
+  that is where to drop your own, and it is the folder a refusal names when a codec's binary is in
+  neither place.
 
 ## What a release bundles
 
 Portable builds are produced by `.github/workflows/release.yml`. Push a `v*` tag to publish a
-release, or run the workflow manually to get a draft. `.github/scripts/bundle-tools.sh` stages the
-external tools into `bin/`:
+release, or run the workflow manually with a `version`: that produces a draft, and ticking `publish`
+creates the `v<version>` tag and a public release instead. `.github/scripts/bundle-tools.sh` stages
+the external tools into `bin/`:
 
 | | ffmpeg / ffprobe | MKVToolNix | av1an | VapourSynth | SVT-AV1 | aomenc, x264, x265 | vpxenc | VMAF models | grav1synth |
 |---|---|---|---|---|---|---|---|---|---|
 | win-x64 | bundled | bundled | bundled | bundled | bundled | bundled | bundled | bundled | built from source |
-| linux-x64 | bundled | use package manager | bundled | use package manager | bundled | use package manager | use package manager | bundled | built from source |
+| linux-x64 | bundled | use package manager | `cargo install av1an`, see below | use package manager | bundled | use package manager | use package manager | bundled | built from source |
 | osx-x64 / osx-arm64 | `brew install ffmpeg` | `brew install mkvtoolnix` | `cargo install av1an` | `brew install vapoursynth` | build from source, see below | `brew install aom x264 x265` | `brew install libvpx` | bundled | arm64 only, see below |
 
 Tool downloads are best-effort: an unreachable upstream is reported and skipped rather than failing
-the release, and the workflow's job summary lists exactly what each build shipped.
+the release, and the workflow's job summary lists exactly what each build shipped. **Read that summary
+rather than this table** — it is the record of what a given archive actually got, where this is what
+the bundler goes looking for.
+
+av1an on Linux is exactly that distinction, and the table says so rather than promising: the bundler
+does search for a Linux asset, but av1an publishes its binaries on a rolling `latest` prerelease whose
+assets do not always include one it can match, and recent releases have shipped with
+`[skip] av1an - no usable release binary in rust-av/Av1an for linux-x64` in the job summary. So install
+it yourself on Linux for now. The AV1AN tab looks in `bin/av1an/` first and then on `PATH`, so either
+place works.
 
 <details>
 <summary><b>grav1synth is compiled, not downloaded</b></summary>
@@ -576,8 +625,13 @@ Two consequences worth knowing:
 
 - **osx-x64 does not get it.** Compiling produces a binary for the host, and GitHub's macOS runners
   are arm64, so an osx-x64 build would ship an arm64 binary inside an Intel archive. The bundler
-  skips it and says so rather than doing that. `cargo install --git https://github.com/rust-av/grav1synth`
-  puts one on your `PATH` if you want it there.
+  skips it and says so rather than doing that.
+  `cargo install --git https://github.com/rust-av/grav1synth --rev 1044228cd411672b565e5762a9b3597f4dd163b0`
+  puts one on your `PATH` if you want it there — the same commit the release builds, pinned rather
+  than tracking `main` because this tool rewrites an AV1 bitstream and an upstream regression would
+  surface in somebody's finished encode. Cargo fetches the repository's `dav1d-test-data` submodule
+  on the way, which the build never reads; a shallow clone of that commit skips it and produces the
+  same binary, which is what the release workflow does.
 - **The Windows archive carries FFmpeg's shared libraries because of it**, about 168 MB uncompressed.
   The only FFmpeg build that ships headers and import libraries is the shared one, so a Windows
   grav1synth links against DLLs and cannot start without them beside it. They are copied in before the
@@ -645,8 +699,10 @@ The chunked-encoding toolchain is staged in the layout the app runs it from:
 bin/av1an/av1an[.exe]        av1an itself
 bin/av1an/vsynth/            VapourSynth + embedded Python (VSPipe)
 bin/av1an/vsynth/vs-plugins/ BestSource, L-SMASH-Works and FFMS2, for the matching chunk methods,
-                             vszip, which scores Target SSIMULACRA2 probes, julek, staged
-                             for Butteraugli until av1an can call it (see the caveat above),
+                             vszip, which scores Target SSIMULACRA2 probes and Sample Encodes'
+                             SSIMULACRA2 column, julek, which Nmkoder calls itself for Sample
+                             Encodes' Butteraugli column and which is also parked here for av1an's
+                             Target Butteraugli against the day it can call it (see the caveat above),
                              and mvtools, znedi3, EEDI3, fmtconv, RemoveGrain, MiscFilters,
                              TemporalSoften2 and FFT3DFilter, which are what QTGMC deinterlacing
                              is made of (FFT3DFilter only for its two denoising presets)
@@ -668,8 +724,12 @@ DGDecNV is the one chunk method left uncovered - it needs a licensed DGDecNV ins
 <details>
 <summary><b>Overriding the sources</b></summary>
 
-Binaries are resolved from each project's releases at build time, except SvtAv1EncApp, aomenc, x264
-and x265, which upstream does not publish for Windows and so come from MSYS2's mingw64 packages.
+Binaries are resolved from each project's releases at build time. `SvtAv1EncApp` comes from
+[svt-av1-hdr](https://github.com/juliobbv-p/svt-av1-hdr)'s own release assets, for the reason in
+*SVT-AV1 comes from the PSY line* above; aomenc, x264 and x265, which upstream does not publish for
+Windows, come from MSYS2's mingw64 packages. MSYS2 packages an SVT-AV1 too, and it is deliberately
+left off that list: it is mainline, so installing it under the same filename would silently
+substitute for the PSY build the presets are written for.
 Override the sources with the `AV1AN_REPO`, `SVTAV1_REPOS`, `VAPOURSYNTH_REPO`, `LSMASH_REPO`,
 `FFMS2_REPO`, `BESTSOURCE_REPO`, `VSZIP_REPO`, `VSZIP_TAG`, `VSJULEK_REPO`, `VSJULEK_TAG`,
 `VSHIP_REPO`, `VSHIP_TAG`, `PYTHON_EMBED_VERSIONS`, `MSYS2_ENCODERS`, `MSYS2_ROOT`, `GH_RELEASE_SCAN`
@@ -714,8 +774,12 @@ naming it rather than substituting ffmpeg's library.
 
 `bin/iso639.csv`, the language table that names audio and subtitle tracks, is not downloaded - it
 lives in `Nmkoder/BinFiles` and every build copies it into `bin`. Regenerate it with
-`.github/scripts/gen-iso639.py` when the ISO registers move. The same folder carries the AV1AN tab's
-per-encoder argument lists (`BinFiles/encoderArgs`, one folder per tool).
+`.github/scripts/gen-iso639.py` when the ISO registers move. The same folder carries both encode
+tabs' per-encoder argument lists, under `BinFiles/encoderArgs`, in two folders because they are two
+vocabularies: `av1an/` names the CLI parameters the standalone encoder binaries take — read by the
+AV1AN tab and by Quick Convert alike, so its x264 reads `av1an/X264.json` — and `ffmpeg/` names what
+ffmpeg's own wrappers accept, which is what NVENC and the Sample Encodes CRF ladder read. One JSON
+per encoder inside each.
 
 </details>
 

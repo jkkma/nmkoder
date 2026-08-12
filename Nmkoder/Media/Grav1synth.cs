@@ -110,8 +110,12 @@ namespace Nmkoder.Media
 
         /// <summary>
         /// Writes a grain description into a finished AV1 file, from whichever of the three sources the
-        /// config names. This is the delivery that needs nothing of the encoder - see
-        /// <see cref="GrainDelivery.PostApply"/>.
+        /// config names - a measured table, a film stock preset, or photon noise. This is the one route
+        /// that needs nothing of the encoder, and it is the <b>Film Grain utility's alone</b>: the
+        /// encode rows deliver through the encoder itself (<see cref="GrainDelivery"/> is
+        /// <c>EncoderAnalysis</c> or <c>EncoderTable</c> and has no third value), because a row that
+        /// rewrote the finished file would be doing the utility's job without saying so. This doc used
+        /// to point at a <c>GrainDelivery.PostApply</c>, which went when that fallback did.
         /// <para/>
         /// <c>--replace</c> goes out unconditionally. Without it the tool *skips* a file that already
         /// carries grain headers and still exits 0, which for a deliberate setting on an encode tab is the

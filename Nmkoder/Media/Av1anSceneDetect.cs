@@ -288,9 +288,15 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
-        /// Whether two files carry the same running time, within 50ms - the tripwire behind running
-        /// scene detection concurrently with the render passes, whose outputs must index frame-for-
-        /// frame against the file the detection read. A duration is a header field and costs nothing,
+        /// Whether two files carry the same running time, within 50ms.
+        /// <para/>
+        /// <b>Nothing calls this today, and it is kept deliberately.</b> It was the tripwire behind
+        /// running scene detection concurrently with a render pass, whose output had to index
+        /// frame-for-frame against the file the detection read; the tone-map pass was the last such
+        /// pass and it is gone, so the detection now runs on the very file av1an opens and there is
+        /// nothing to check. Whatever next puts a render step between the detection and the encode
+        /// needs this again - that is the invariant, and this is its statement. A duration is a header
+        /// field and costs nothing,
         /// where an exact packet count is a full sequential read of a file that is now hundreds of
         /// gigabytes; the tolerance is under any frame period this app meets at 20 fps and below, and
         /// what it exists to catch is structural - a doubled rate, a dropped tail - not a rounding.

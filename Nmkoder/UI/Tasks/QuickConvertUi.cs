@@ -1777,12 +1777,14 @@ namespace Nmkoder.UI.Tasks
 
             // The Grain Synthesis row's own denoise, for a table the user brings: no encoder will
             // denoise for a table - SVT reads its denoise flag only on the --film-grain path - so it is
-            // this app's hqdn3d, the same filter the AV1AN tab's DenoisePass runs. A filter here rather
-            // than a pass, because this chain is one ffmpeg over the whole file: nothing re-runs it per
-            // chunk and nothing probes it, so what costs the other tab a lossless intermediate costs
-            // this one a chain entry. After the geometry, where that pass sits too - the table
-            // describes grain at the frame being encoded - and Measured never reaches here, the run
-            // refusing it for want of a measuring pass.
+            // this app's hqdn3d, the same filter the Film Grain utility's DenoisePass runs. A filter
+            // here rather than a pass, because this chain is one ffmpeg over the whole file: nothing
+            // re-runs it per chunk and nothing probes it, so what costs that utility a lossless
+            // intermediate costs this one a chain entry. (The AV1AN tab has no denoise of its own at
+            // all - the measuring modes that needed one are the utility's now.) After the geometry,
+            // where the utility's pass puts it too - the table describes grain at the frame being
+            // encoded - and Measured never reaches here, the run refusing it for want of a measuring
+            // pass.
             GrainPlan grainPlan = CurrentGrain ?? GrainSynthUi.GetQuickConvertPlan();
 
             if (grainPlan.Config.NeedsDenoisePass)
@@ -1839,8 +1841,9 @@ namespace Nmkoder.UI.Tasks
             // quoted again at ffmpeg's own level by FormatUtils.GetFilterPath.
             // The Vulkan device libplacebo needs goes in front, and "" for every chain that does not use
             // it. It is a global option, and this string lands after the '-i' arguments, which is a
-            // position ffmpeg accepts one in - the same placement the AV1AN tab is stuck with and the
-            // one the probe tests.
+            // position ffmpeg accepts one in - and the position the probe tests, so what ships is what
+            // was measured. This is the only command in the app that carries it: the AV1AN tab never
+            // runs libplacebo (ToneMapConfig.ForceCpuChain).
             return $"{CurrentToneMap.GetDeviceArgs(currFile?.ColorData)}-filter_complex {Shell.WrapArg(filterChain)}";
         }
 

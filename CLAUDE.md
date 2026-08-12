@@ -976,15 +976,16 @@ quantizer search - it settles on the value that hits the target at the *source's
 value is then used on chunks encoded at another. Nothing here can fix that, so the tab says so
 whenever a target mode meets a filter chain, naming both sizes when the frame changes size.
 
-**"The filters set on this tab" was the wrong unit for that note, and it made it contradict its own
-size clause.** What the probes cannot see is what is left in the *per-chunk* chain, which is not the
-same set: where the tone map renders as a pass in front, its output **is** av1an's input, so the tone
-map - and when the geometry folds in with it, the crop, resize and borders - are baked in and every
-probe does see them. The size clause was already suppressed for that case (`!frame.GeometryInPass`)
-while the sentence above it went on asserting the general claim that implies it. The two halves are
-said apart now, which is why `GetFilteredTargetQualityNote` takes the source colour: `Av1an.Run` may
-already have swapped the file's colour for the one the *encoder* is told about, so asking "is this run
-tone mapping" against the file answers no.
+**"The filters set on this tab" was the wrong unit for that note, and it is written as "still running
+per chunk" instead.** On this tab the two now coincide - with the tone-map pass gone, everything the
+tab applies runs per chunk and every one of them is invisible to the search - but the per-chunk
+wording is the one that states *why*, and it is the one a pass returning to this tab would need. That
+pass is the shape to recognise: its output **was** av1an's input, so the tone map and the geometry
+folded in with it were baked in and the probes did see them, which is what the size clause's old
+`!frame.GeometryInPass` guard was for. Anything put back in front of av1an has to be taken back out
+of this note in the same change. `GetFilteredTargetQualityNote` still takes the source colour, and
+that is unrelated to any of it: `Av1an.Run` may already have swapped the file's colour for the one
+the *encoder* is told about, so asking "is this run tone mapping" against the file answers no.
 
 **The tone map earns its own clause, because it is the largest of these effects and the only one whose
 direction cannot be predicted.** Measured through the app's own chain and the shipped SVT-AV1-HDR
@@ -995,9 +996,11 @@ follows which way the roll-off moves the picture's mean (428.6 to 564.8 on the b
 243.3 on the dark one), so it belongs to the content and **no fixed offset corrects it** - which is why
 the clause states both directions rather than warning about one. Re-rendering the dark fixture with the
 bright one's gentler roll-off halved the gap without flipping it, so the peak sets the magnitude and
-the content sets the sign. A frame rate resample gets a line too: it changes no size, so the size
-clause never covered it, and it never folds into the pass - the scene-detection overlap's invariant
-keeps it per chunk.
+the content sets the sign. The clause used to end by pointing at a GPU machine where the probes would
+see the tone map, and does not now: `ForceCpuChain` is this tab's standing policy, so the zscale chain
+runs per chunk on every machine there is and there is no such run to point at. A frame rate resample
+gets a line too, for the same reason the tone map does: it changes no size, so the size clause never
+covered it.
 
 **Nothing in any av1an fixes this rather than describing it, and `--proxy` is the one that looks like
 it does.** Read out of the shipped binary (`0.5.2-unstable`, rev `7df934d`, hash-matched to the release
@@ -2780,10 +2783,12 @@ and seeking into an MPEG program stream is not frame-accurate - `vspipe -s 300` 
 came back with the frame the sequential render calls 298, where the same video remuxed to MKV
 landed on 300 exactly.
 
-**The Deinterlace Video utility exports a file and stops.** It shares the pass - `DeinterlacePass`
-is the one place a deinterlaced MKV with its audio and subtitles copied is written, near-lossless
-x264 for this utility's deliverable and lossless FFV1 for the AV1AN tab's intermediate, the split
-its own doc explains - and its output is the deliverable rather than a step on the way to a tab. Until 2.8.10 it was that
+**The Deinterlace Video utility exports a file and stops.** `DeinterlacePass` is the one place a
+deinterlaced MKV with its audio and subtitles copied is written, near-lossless x264 for this
+utility's deliverable. It carried a lossless FFV1 shape beside it, for the AV1AN tab's intermediate;
+that tab runs its deinterlacers inside av1an now, so `UtilDeinterlace` is the only caller left and
+x264 the only shape - its own doc says so where the split used to be explained. Its output is the
+deliverable rather than a step on the way to a tab. Until 2.8.10 it was that
 step, and loaded its own result into the file list to make the AV1AN tab reachable; the tab
 reaches QTGMC itself now, so the loading is gone, along with the muxing-mode and batch carve-outs
 that guarded it. A utility that exports a file has no business rearranging the file list on the
@@ -2875,9 +2880,12 @@ between that and the source: a decoder that does not apply film grain shows the 
 has already taken 60% of what there was to measure before SVT ever sees it. `grav1synth inspect`, or
 the Film Grain utility's read-the-table operation, is how to tell the two apart on a finished file.
 
-The round trip was measured again after the solo tone-map intermediate went back to x264, because
-that intermediate now sits between the source and the encoder's grain analysis, and "transparent on
-grain energy" had only been measured on the intermediate alone. Through libsvtav1 (mainline
+The round trip was measured again when the solo tone-map intermediate went back to x264, that
+intermediate then sitting between the source and the encoder's grain analysis where "transparent on
+grain energy" had only been measured on the intermediate alone. **No intermediate sits there now** -
+the AV1AN tone-map pass is gone and its tab tone-maps per chunk - so the via-the-intermediate half of
+what follows describes a path this build does not take, and is kept because it is the measurement
+that would have to be redone if any render step is ever put back in front of av1an. Through libsvtav1 (mainline
 v4.1.0-279, the bundled ffmpeg's) and dav1d, on heavy synthetic grain at `film-grain=50` with
 denoise: source HF energy 861.8, through the x264 intermediate 863.6, the AV1 with decoder
 synthesis on 731.2 direct and **738.4 via the intermediate** - within 1% of each other - with the
@@ -3112,8 +3120,9 @@ for av1an to encode has to carry the tracks.**
 
 **`DenoisePass` is lossless, and the rule behind that is what an output is *for*.** `DeinterlacePass`
 is near-lossless x264 for the Deinterlace Video utility's deliverable, a file to be looked at, where
-CRF 12 is indistinguishable and a tenth of the size; the tone-map pass is the same for the same
-reason, its output being only ever encoded. A file to be *measured against* cannot be: whatever a
+CRF 12 is indistinguishable and a tenth of the size; the AV1AN tab's tone-map pass was the same for
+the same reason, its output being only ever encoded, and that pass is gone. A file to be *measured
+against* cannot be: whatever a
 lossy codec adds is a difference between the two files that is not grain, grain being precisely the
 small high-frequency signal a quantiser disturbs first.
 
@@ -3188,7 +3197,9 @@ AV1AN row has no denoise tick, no strength spinner and no denoise-mode label; an
 comes back with `Denoise` false and `NeedsDenoisePass` false, where Quick Convert's comes back with
 `hqdn3d=4:3:0:0`; `Measured` reads as `IsUtilityOnly` and its message names the Measure operation
 rather than the already-encoded wording a film stock preset gets; and a zscale tone map beside a
-denoise-wanting grain plan no longer pulls a pass in front while libplacebo still does.
+denoise-wanting grain plan no longer pulls a pass in front. That check's other half - that libplacebo
+still did - is moot rather than merely superseded: there is no pass on this tab at all now, so no
+grain plan can pull one, and re-running that assertion would fail on a tab behaving correctly.
 
 ## Tone mapping
 
@@ -3659,10 +3670,21 @@ test on the profile number alone would miss.
 **Nobody was hitting it, and the comment was the better reason to change it than the behaviour.** The
 shape it was suspected of refusing is the ordinary UHD Blu-ray remux, and profile 7 does not carry 0 -
 FFmpeg's own FATE reference output records real ffprobe readings of three real profile-7 samples, all
-compatibility id **6** ("Blu-ray"), at `dv_version_major` 1. Measured over 26 injected-`dvcC` fixtures
-through the built assembly, the old rule and the new one differ on six rows, every one a deprecated
-profile or a malformed record. Neither mkvmerge nor an ffmpeg MP4-to-MKV remux zeroes the nibble, both
-measured, so there is no ordinary route to one either. `DescribeDolbyVisionProfile` gained profile 10's
+compatibility id **6** ("Blu-ray"), at `dv_version_major` 1. Neither mkvmerge nor an ffmpeg MP4-to-MKV
+remux zeroes the nibble, both measured, so there is no ordinary route to one either.
+
+**Where the two rules actually part company was recomputed** - the code comment and this file used to
+give two different tallies of the same fixture run (four rows over 22 fixtures against six over 26),
+which is the tell that neither was being checked. Driving `HasUnusableBaseLayer` and the old
+`profile == 5 || compat == 0` expression over every pair the app can hold - profiles 0-10 and 20
+against ids -1, 0, 1, 2, 4, 6, so 72 rows - through the built assembly: **15 differ, in two families.**
+Profiles **1 and 3 at every id** (10 rows) were let through by the old rule and are refused now, which
+is the fix rather than a side effect - both are codec-string-`n` "no base layer" profiles like 5, and
+`profile == 5` missed them. Profiles **2, 4, 6, 7 and 9 declaring 0** (5 rows) were refused and are
+not now, which is what the rewrite is for. **Profile 8 declaring 0 does not differ** - both rules
+refuse it - though the old comment named it as one of the differing rows; 8 is in neither list and
+falls through to the nibble. Recompute rather than reword if either list changes.
+`DescribeDolbyVisionProfile` gained profile 10's
 dot in the same change: **10.0 is refused and 10.1 is not**, and both read as "profile 10" in the
 refusal that names this string. Profile 8 stays undotted for a declared 0, that one being malformed
 rather than meaningful, and profile 0 is unreachable - `HasDolbyVision` tests `DvProfile > 0`.
@@ -3703,8 +3725,20 @@ On the **GPU** path the conversion destroys the render that works: libplacebo dr
 from the converted file, 11.00 dB from the correct one and 38.59 dB from the base layer. And a
 converted file declares **profile 8** once remuxed by anything that writes a `dvcC`, which is the field
 this refusal reads - so following that advice turned a loud refusal into a **silent wrong output**,
-which is the one outcome worth going out of the way to prevent. The message now says the GPU route and
-that converting first will not help, and says why in one clause.
+which is the one outcome worth going out of the way to prevent. The message says that converting first
+will not help, and why, in one clause.
+
+**Which route it names instead depends on the tab, and getting that wrong is the same unactionable
+advice under a new name.** `GetProblem` is shared, and it keys off `config.ForceCpuChain`: false is
+Quick Convert, where the CPU chain means the *machine's* probe found no usable GPU, so another machine
+runs libplacebo and reads the file - "tone map it on a machine with a usable GPU". True is the AV1AN
+tab, where it is the *tab* rather than the machine, so no machine anywhere tone-maps a profile 5 file
+there and the message names Quick Convert. That branch is the merge's own doing: the Dolby Vision work
+and the removal of the AV1AN tone-map pass landed from either side of each other, and git merged them
+with no conflict, leaving a message that sent AV1AN users to look for hardware that would not have
+helped. `ForceCpuChain` is the discriminator rather than a tab flag passed in beside it - exactly one
+of the two config getters sets it, and a second way of asking the same question is how the two come to
+disagree.
 
 **Bundling dovi_tool was weighed and is not wanted, and it is worth recording that the obstacle is not
 the packaging.** It would be the easiest tool in `bundle-tools.sh` and the opposite of grav1synth in
