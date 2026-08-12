@@ -1,0 +1,112 @@
+{
+  "skill_name": "nmkoder-skills (cut-release, headless-ui, win-compile-check, real-binaries)",
+  "evals": [
+    {
+      "id": 0,
+      "name": "cutrelease-plan-next",
+      "skill": "cutrelease",
+      "prompt": "Work out the next Nmkoder version and write the full release runbook, read-only (no state changes).",
+      "expected_output": "Next version 2.8.61 (patch step from published 2.8.60, NOT the csproj's number); runbook covers merge->bump-on-master->push->dispatch release.yml with publish=true->verify; states the never-push-a-tag rule.",
+      "assertions": [
+        "Identifies the next version as 2.8.61",
+        "Derives the version from the published/latest release (patch+1), not blindly from the csproj <Version>",
+        "Runbook dispatches release.yml with publish=true (workflow_dispatch), not a tag push",
+        "States that pushing a tag (or deleting a remote branch) from this session does not work / must be avoided",
+        "Made no state-changing git or GitHub operation"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "cutrelease-verify-published",
+      "skill": "cutrelease",
+      "prompt": "Verify the 2.8.60 release published correctly (public, Scoop manifest, win-x64 zip contents) without a large download.",
+      "expected_output": "Release public not draft; Scoop manifest at 2.8.60; win-x64 zip contains bin/ffmpeg.exe and bin/av1an/av1an.exe, confirmed via ranged requests rather than a full download.",
+      "assertions": [
+        "Confirms the 2.8.60 release is public (not a draft)",
+        "Confirms the Scoop manifest (bucket/nmkoder-avalonia.json) points at 2.8.60",
+        "Confirms ffmpeg.exe and av1an.exe are present inside the win-x64 zip",
+        "Inspected the zip WITHOUT downloading the whole ~485MB asset (ranged/partial fetch)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "headlessui-quickconvert-defaults",
+      "skill": "headlessui",
+      "prompt": "Render the Quick Convert tab of the real app to a PNG and report its default encoder/container.",
+      "expected_output": "A real PNG of the Quick Convert tab produced via an Avalonia.Headless+Skia harness; defaults reported as SVT-AV1 video + MKV container (Opus audio).",
+      "assertions": [
+        "Produced at least one non-empty PNG image file in the outputs directory",
+        "The PNG actually shows the Quick Convert tab of the app (rendered UI, not a blank/placeholder frame)",
+        "Built the harness with UseHeadless + Skia and UseHeadlessDrawing=false (real pixels)",
+        "Reports the default video encoder as SVT-AV1 and the default container as MKV",
+        "Left no harness project inside the repo tree (built in scratch)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "headlessui-crop-dialog",
+      "skill": "headlessui",
+      "prompt": "Render the Crop dialog (CropWindow) to a PNG and report on the dark palette.",
+      "expected_output": "A real PNG of CropWindow constructed directly (parameterless ctor) and rendered via the headless+Skia harness; dark Discord-style palette visible.",
+      "assertions": [
+        "Produced at least one non-empty PNG image file in the outputs directory",
+        "The PNG actually shows the CropWindow dialog (rendered UI, not a blank frame)",
+        "Constructed the dialog directly via its parameterless constructor and rendered through Skia",
+        "Left no harness project inside the repo tree (built in scratch)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "wincheck-still-compiles",
+      "skill": "wincheck",
+      "prompt": "Prove Nmkoder's #if WINDOWS code compiles for the Windows target from this Linux box, and explain why a plain dotnet build doesn't answer it.",
+      "expected_output": "A throwaway project targeting net10.0-windows10.0.19041.0 with EnableWindowsTargeting=true and a compile-assets-only App SDK reference actually builds WindowsToast.cs green; explains the app csproj only evaluates the Windows TFM on a Windows host.",
+      "assertions": [
+        "Actually ran a compile against the Windows target framework (net10.0-windows...), not just reasoning",
+        "The Windows-only code compiled successfully (green)",
+        "Used EnableWindowsTargeting and a compile-assets-only Microsoft.WindowsAppSDK reference (excluded build/MSIX assets)",
+        "Explains that a plain `dotnet build` on this host only evaluates the net10.0 TFM, so #if WINDOWS code is never compiled here"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "wincheck-planted-patch",
+      "skill": "wincheck",
+      "prompt": "Would replacing Register() with the (nonexistent) RegisterEverywhere() still compile the Windows build? Check for real against a copy, don't touch repo files.",
+      "expected_output": "Compile fails - AppNotificationManager has no RegisterEverywhere member; verdict says the patch would NOT compile, with the compiler error as evidence; repo file left unmodified.",
+      "assertions": [
+        "Verdict is that the patched code does NOT compile",
+        "Backs the verdict with an actual compiler error about RegisterEverywhere / missing member (not reasoning alone)",
+        "Ran the check against the Windows target framework",
+        "Did not modify the real Nmkoder/OS/WindowsToast.cs in the repo (worked on a copy)"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "realbin-shipped-av1an",
+      "skill": "realbin",
+      "prompt": "For the av1an binary shipped in the current release archives (not a local one), does --help include --sc-only and where is the default log? No Windows box, no 485MB download.",
+      "expected_output": "Pulls av1an.exe out of the win-x64 release zip via ranged requests (the linux tarball ships no av1an), strings it: --sc-only present; default log logs/av1an.log.",
+      "assertions": [
+        "Answer is based on the av1an binary from the current RELEASE archive, not an arbitrary local/apt av1an",
+        "Reports that --sc-only IS present in the shipped av1an",
+        "Reports the default log location as logs/av1an.log (relative)",
+        "Obtained the binary without downloading the whole ~485MB zip (ranged extraction), and/or notes the linux tarball ships no av1an",
+        "Evidence comes from the binary itself (strings/help), not only from CLAUDE.md prose"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "realbin-svt-line",
+      "skill": "realbin",
+      "prompt": "Is the reachable SvtAv1EncApp the PSY line or mainline, proven not asserted, where from, and what does it mean for a 'presets dropping parameters' report?",
+      "expected_output": "Proves PSY line by a PSY-only flag (e.g. fgs-table/tx-bias in --help); notes it came from the shipped release tarball; explains that a mainline binary is what makes the AV1AN presets half-apply/drop params, so the user's binary should be checked.",
+      "assertions": [
+        "Concludes the reachable SvtAv1EncApp is the PSY line",
+        "Proves it by probing the binary for a PSY-only flag (e.g. fgs-table / tx-bias / noise*), not by assertion",
+        "Identifies where the binary came from (extracted from the shipped release / setup.sh), not an assumed system install",
+        "Connects the finding to the user's report: mainline vs PSY is exactly what makes AV1AN content presets drop parameters"
+      ]
+    }
+  ]
+}
