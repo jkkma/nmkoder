@@ -1346,19 +1346,18 @@ subdivided lists equals subdividing the merged list, but only while both command
 That is why `Av1an.Run` snapshots both strings into locals and splices the same values into both
 commands rather than reading the boxes twice.
 
-**Where a tone-map or grain pass follows, the detection runs alongside it rather than after it.**
-Those passes change pixels, never the frame count or order, so a list detected on their *input*
-indexes their output frame for frame - and the two phases the workers cannot help with then hide
-behind each other, the detection disappearing entirely into a grain measurement's hours. The
-overlap starts after the deinterlacer on purpose: a bob writes one frame per field, which renumbers
-everything behind it. The invariant carries a tripwire, `Av1anSceneDetect.DurationsMatchAsync` - a
-header-cost duration comparison rather than a packet count, which would mean reading every byte of
-a file that is now hundreds of gigabytes - that discards the list and lets av1an detect in-run if a
-pass ever changes the timing; it catches the structural regressions (a doubled rate, a dropped
-tail) and accepts that a single-frame drift would slip through to cost av1an its final chunk. On a
-failed run the overlapped slices are wound down before the temp folder goes -
-`SettleSceneDetectionAsync`, which has to kill them itself because `RunTask.Fail`, unlike `Cancel`,
-kills no processes.
+**Nothing runs between the detection and the encode any more, so the list is detected on the very
+file av1an opens.** There used to be an overlap here: the tone-map and grain passes changed pixels,
+never the frame count or order, so a list detected on their *input* indexed their output frame for
+frame, and detection ran alongside them - the two phases the workers cannot help with hiding behind
+each other. Those passes are gone (no intermediate pass on this tab may be an encode - see the tone
+mapping section), and the overlap scaffolding in `Run` went with them: `SettleSceneDetectionAsync`,
+the early-start branch, and the duration tripwire's call site. `Av1anSceneDetect.DurationsMatchAsync`
+itself stays with the slices, uncalled - it is the tripwire any returning render step needs, a
+header-cost duration comparison whose doc says what it catches - and the slices, the merge and the
+gates are untouched. What must survive any such return is the ordering rule the overlap lived by:
+a bob writes one frame per field, which renumbers everything behind it, so nothing that changes
+frame count or order may sit between the file the detection read and the file av1an chunks.
 
 **The LSMASH gate is load-bearing, and physical cuts are not an alternative.** The scene list's
 frame numbers must be the ones the encode's chunking counts, and a different indexer can count
@@ -3136,15 +3135,22 @@ interlace scan. Before this it was assigned in exactly one place - `Av1an.cs`, a
 Quick Convert had no colour data at all and nothing outside that one method could ask whether a
 file was HDR.
 
-### There are two backends, and the machine picks
+### There are two backends, and which tab it is decides who picks
 
-libplacebo is the better tone-mapper and is used wherever a real GPU is behind it;
-`ToneMapConfig`'s zscale chain is the fallback and is what every machine without one still gets.
-`ToneMapUi.ResolveBackendAsync` settles which, once, at the start of each encode - the answer is a
-property of the machine rather than a preference, and one decided halfway through would be a
-different picture in the second half of the file. It is logged either way, because from the outside
-a fallback is invisible: the same settings simply produce a slightly different picture than they did
-on another machine.
+libplacebo is the better tone-mapper; `ToneMapConfig`'s zscale chain is what runs without it. On
+Quick Convert the machine picks: libplacebo wherever a real GPU is behind it, the zscale chain on
+every machine without one. On the AV1AN tab nothing picks, because the answer is policy:
+`ToneMapUi.GetAv1anConfig` sets `ToneMapConfig.ForceCpuChain` unconditionally, so that tab always
+runs the zscale chain, per chunk inside av1an's `-f`. That is the user's rule for the whole tab -
+**no intermediate pass that is itself an encode** - and libplacebo there meant exactly such a pass,
+a full x264 re-encode of the film in front of av1an; see "The pass that used to run in front"
+below. `ToneMapUi.ResolveBackendAsync` still settles the answer once per encode and says so in the
+log - on Quick Convert because the answer is a property of the machine and one decided halfway
+through would be a different picture in the second half of the file, and on the AV1AN tab because
+a policy nobody states is indistinguishable from a fallback. For a `ForceCpuChain` config it
+probes nothing - a probe whose answer would be discarded is a process launch for nothing - and on
+every zscale path it measures the file's real peak, which is what keeps that chain within a few
+code values of the GPU result.
 
 Measured on PQ patches against a file declaring a 4000-nit mastering display, at 100 and 203 nits:
 libplacebo's `hable` gives 115/143 where the zscale chain gives 108/144, and its top lands on **235**
@@ -3153,35 +3159,34 @@ brightest highlights in the superwhite a player clips. **The curve names map str
 libplacebo has `hable`, `mobius` and `reinhard` under those names - so those three entries mean the
 same thing whichever backend they land on.
 
-**The AV1AN row can overrule the machine, in one direction only.** `ToneMapConfig.ForceCpuChain` -
-the "CPU chain (no pass)" tick beside the curve, shown only while a curve is selected - forces the
-zscale chain where the probe would have said libplacebo. What the tick buys on that tab is
-structural: no render pass in front of av1an and no intermediate on disk, the chain running per
-chunk instead, and with the measured-peak scan feeding the roll-off the picture it costs is a few
-code values against the GPU result. `ResolveBackendAsync` honours it by not probing at all - a probe
-whose answer would be discarded is a process launch for nothing - and everything downstream already
-branches on `UseLibplacebo`, which is why it is one flag rather than a second pipeline. The tick
-also settles at readout time the one thing the readout otherwise cannot say - which backend runs -
-so the CPU clause and the Spline-to-Hable substitution appear under the row rather than only in the
-log. The other direction is deliberately not offered: the probe's "no" is a measurement (a software
-Vulkan device tone-maps at a tenth of the speed), not a preference to argue with. Quick Convert has
-no tick, its libplacebo being one filter in a chain it runs inline - the pass-and-intermediate trade
-the tick expresses does not exist there. A tick left behind a hidden row cannot reach the encode,
-`GetAv1anConfig` reading it through the same relevance guard as the mode. Verified headless through
-the real controls: the tick appears with a curve and not with Off, the readout carries the clauses,
-the forced resolve lands on zscale and still runs the peak scan over a real PQ fixture, and an SDR
-file's hidden row keeps a stale tick out of the config.
+**The "CPU chain (no pass)" tick is gone because it stopped being optional.** `ForceCpuChain` began
+as that tick, one direction of override only - forcing the zscale chain where the probe would have
+said libplacebo, buying the structural things (no render pass in front of av1an, no intermediate on
+disk) at a picture cost of a few code values. The user then made it the rule: the tick, its handler
+and its readout clauses are deleted, and `ForceCpuChain` is the AV1AN tab's standing policy, set
+unconditionally where the config is read. What the tick could never quite do, the policy does for
+free - the readout states the CPU chain outright, the backend no longer being an encode-time
+question on that tab. Everything downstream still branches on `UseLibplacebo`, which is why the
+policy is one flag rather than a second pipeline. The direction that was never offered still is
+not: on Quick Convert the probe's "no" is a measurement (a software Vulkan device tone-maps at a
+tenth of the speed), not a preference to argue with, and there is no tick there either - its
+libplacebo is one filter in a chain it runs inline, so the pass-and-intermediate trade never
+existed on that tab.
 
-**Spline is the fourth entry and libplacebo's alone.** Mapping the names across is honest and buys
-very little: hable against hable is about seven code values, so the better backend changed almost
-nothing for the pick everybody uses. What is worth having is libplacebo's own default curve, and it
-had no way to be selected - measured, `tonemapping=spline` is byte-identical to what its `auto`
-chooses, and gives **129/152** at 100 and 203 nits against hable's 115/143. Appended to the enum
-rather than slotted in beside the curve it beats, and labelled "Spline (GPU)" rather than left
-looking like a fourth equal choice, because it is the one entry that cannot run everywhere: without
-a usable GPU the zscale chain has nothing like it, so `GetCurveName` falls back to hable and
-`ResolveBackendAsync` warns. **The log is the only place that can be said** - the readout is drawn
-when the file loads, and which backend runs is not known until the encode starts.
+**Spline is the fourth entry, libplacebo's alone - which now means Quick Convert's alone.** Mapping
+the names across is honest and buys very little: hable against hable is about seven code values, so
+the better backend changed almost nothing for the pick everybody uses. What is worth having is
+libplacebo's own default curve, and it had no way to be selected - measured, `tonemapping=spline`
+is byte-identical to what its `auto` chooses, and gives **129/152** at 100 and 203 nits against
+hable's 115/143. Appended to the enum rather than slotted in beside the curve it beats, and
+labelled "Spline (GPU)" because it is the one entry that cannot run everywhere. The AV1AN tab
+cannot run it at all any more, so its dropdown does not offer it: `ToneMapConfig.Av1anModes` is
+`AllModes` without Spline, its own list rather than an index into the other in exactly the way
+`DeinterlaceUi.Av1anModes` is, and `ToneMapUi.ModeInEffect` takes the list the box was filled from,
+the two being different lengths. Neither box saves its index, so no saved setting moved. On Quick
+Convert the fallback story is unchanged: without a usable GPU `GetCurveName` falls back to hable
+and `ResolveBackendAsync` warns, and **the log is the only place that can be said** - the readout
+is drawn when the file loads, and which backend runs is not known there until the encode starts.
 
 **`peak_detect` is on, and the only place the truth about a file's brightness can reach libplacebo
 at all.** It was off for a while, for determinism, and the cost of off was measured on synthetic
@@ -3206,110 +3211,61 @@ scan below instead.
 **What detection asks in exchange is a continuous run, and that is a hard requirement, not a
 preference.** Its history restarts wherever the stream does, and a restart mid-scene steps the
 exposure: measured, a chunk boundary in a brightness ramp lands 6 code values off the continuous
-answer and takes ~23 frames to converge - a visible pump, at up to one place per chunk. So Quick
-Convert runs the filter inline, its chain being one ffmpeg over the whole file (two-pass runs it
-identically twice), and **the AV1AN tab renders it in front as a pass of its own** -
-`Media/ToneMapPass`, called from `Av1an.RenderToneMappedInput` - exactly the QTGMC argument one
-filter over: a filter with temporal state cannot run inside av1an, which starts and stops the `-f`
-ffmpeg around every chunk.
+answer and takes ~23 frames to converge - a visible pump, at up to one place per chunk. Quick
+Convert meets the requirement for free, its chain being one ffmpeg over the whole file (two-pass
+runs it identically twice), which is why it is the tab that runs libplacebo at all. av1an starts
+and stops the `-f` ffmpeg around every chunk - exactly the QTGMC argument one filter over - so
+meeting it on the AV1AN tab meant a whole-file render pass in front, which is the pass the user
+removed.
 
-**The AV1AN tab's per-chunk chain had a second, quieter reason to lose libplacebo: it never saw the
-metadata at all.** av1an feeds the `-f` ffmpeg through y4m pipes, and y4m carries no side data - so
-a libplacebo in that chain read neither MaxCLL nor the mastering display for any file ever, and
-priced everything for the 10000-nit ceiling: measured through the real pipe shape, 126/148 at
-100/203 nits, the darkest reading of all. `Av1anUi.GetVideoFilterArgs` therefore puts only the
-zscale chain in `-f` (whose peak is a number in the string, immune to the pipe) and carries no
-Vulkan device argument any more; the pass's own command has both.
+**The per-chunk chain had a second, quieter reason it could never carry libplacebo: it would never
+see the metadata at all.** av1an feeds the `-f` ffmpeg through y4m pipes, and y4m carries no side
+data - so a libplacebo in that chain read neither MaxCLL nor the mastering display for any file
+ever, and priced everything for the 10000-nit ceiling: measured through the real pipe shape,
+126/148 at 100/203 nits, the darkest reading of all. The zscale chain is immune, its peak arriving
+as a number in the filter string rather than as metadata on the frames - half of why it is the one
+chain that can live per chunk - and `Av1anUi.GetVideoFilterArgs` carries no Vulkan device argument
+for the same reason.
 
-**`Av1anUi.ToneMapRendersInFront` is the one statement of the whole decision, and it is now
-libplacebo and nothing else.** The zscale chain is stateless, so per-chunk is right for it: no pass,
-no intermediate. It used to be pulled in front as well whenever a grain denoise pass followed, and
-the reason is worth keeping against a measuring mode ever returning - those passes ran on *files*,
-before av1an started, so a tone map still sitting inside av1an had the grain measured on HDR frames
-while the encoder received SDR ones. A grain table's amplitudes live in its file's own signal domain:
-measured off PQ and synthesised onto BT.709, the grain comes out wrong-strength, worst in what used
-to be the highlights. With the grain passes gone that clause has nothing to gate, and machines
-without a GPU are spared the pass again. Encoder-analysis grain (`--film-grain N`) never needed it
-either way: the encoder analyses the frames it is handed, which are post-chain in both shapes.
+### The pass that used to run in front, and what has to come back with it
 
-The pass writes `{tempDir}.tonemap.mkv` beside the temp folder like the trimmed input and for its
-reason - av1an empties its temp at startup - is the only input pass left after the trim, is reused
-by a resume, and is in `GetPreparedInputs` so it is cleaned with the rest. Output pinned to 10-bit inside the filter
-itself (`format=yuv420p10le` on libplacebo), because an output-side `-pix_fmt` lets the negotiation
-land on 8 bits first and convert up after, baking banding in.
+**The AV1AN tab rendered libplacebo as a pass of its own over the whole file - `Media/ToneMapPass`,
+called from `Av1an.RenderToneMappedInput` - and both are deleted at the user's request: no
+intermediate pass on that tab may be an encode, and this one was a full x264 re-encode of the film
+before av1an could start, hours on a feature where the trim's stream copy costs seconds.**
+`Av1anUi.ToneMapRendersInFront` was the statement of when it ran (libplacebo and nothing else),
+`{tempDir}.tonemap.mkv` was where it went, a resume reused it after ffprobing its frame size
+against the rebuilt command's geometry, and a failed pass failed the encode. All of it is gone;
+`ToneMapConfig.ForceCpuChain` is the standing policy that keeps libplacebo off the tab, and the
+`.tonemap.` suffix stays in `GetPreparedInputs` because earlier releases wrote such files and that
+list's deletes are the last chance to take them along.
 
-**The pass renders the tab's geometry too - the crop, the mod-2 pad, the resize or de-squeeze, and
-the borders - and that fold is what sizes the intermediate to the encode instead of the source.**
-Written at the source's frame, the intermediate pays for pixels the encoder never sees: the resize
-still sat in av1an's `-f`, so a 4K film scaled to 1080p rendered a 4K intermediate that every chunk
-then scaled down - four times the pixels, reported as ~40 GB of tonemap.mkv for a *five-minute*
-test clip. `Av1anFrame.GeometryInPass` is the statement of where the geometry runs and
-`Av1anUi.BuildGeometryFilters` the one builder both homes share, so the two cannot drift; the pass
-appends the chain after the tone map and the side-data deletes, which is the order the per-chunk
-chain ran it in, and the fold was measured to change nothing but the size - the folded output is
-framemd5-identical to the two-step it replaces. Two filters stay per-chunk on purpose. A bwdif in
-`-f` blocks the fold entirely (the condition is the deinterlace filter string being empty), because
-a deinterlacer must see whole fields and the pass runs first - geometry stays behind it, at the
-source's size, exactly as before. And the fps resample never folds: it changes the frame *count*,
-and the scene-detection overlap's whole invariant is that the passes change pixels, never count or
-order - the slices index the pass's input. (Custom filter rows also stay per-chunk, and their order
-holds: they always ran after the geometry, and the pass runs before the chain.)
-
-Everything downstream of the fold moves in the same direction, and two of the moves are checked
-guards rather than free wins. With `-f` empty the per-chunk filter ffmpeg disappears entirely -
-`--pix-format-converter vs-resize` takes over, so each worker is two processes instead of three -
-and the memory estimate prices the worker's decode at the encoded size
-(`Av1anMemory.GetProblem`'s source argument), where it used to warn a 32 GB machine off a 1080p
-encode for the 4K decodes it no longer does. The target-quality probes score the pass's output, so
-`GetFilteredTargetQualityNote`'s size clause stands down when the geometry folded - it would
-otherwise claim the probes run at a size they no longer do. And the resume guard exists because reuse
-got a new way to be wrong: a resume with current settings re-reads the resize, and a kept file with
-the *old* geometry baked in would be scaled twice or not at all - so `RenderToneMappedInput` ffprobes
-the kept file's frame size against what this run expects (folded: `frame.Encoded`; unfolded: the
-source's), and a mismatch re-renders.
-
-**The pass writes the measured-transparent x264, and the whole history is worth keeping because every
-turn of it was either measured or the user's own call.** The first cut shipped x264 CRF 12 `veryfast`
-on the claim that nothing downstream would notice, and a measurement contradicted it: heavy grain
-keeps 90.5% of its high-frequency energy through that (the preset's trellis 0, not the CRF - even
-CRF 3 veryfast only reaches 96.4%), 98.5% through medium, and **100% through `fast` with
-`-tune grain`** - which is what 2.8.49 shipped, measured transparent on grain energy and tone values
-alike at about a tenth of the source's size. The user then chose lossless FFV1 over it - the
-intermediate is the file av1an encodes, so its generation is the ceiling on the final picture - and
-traded it back to the x264 after living with what lossless costs in practice: the first 4K test clip
-wrote ~40 GB of tonemap.mkv for five minutes of video, and even with the geometry fold above taking
-three quarters of that away, a lossless film is a temporary file in the tens of gigabytes.
-
-**The CRF stepped down from 12 to 6 at the user's request, and the whole ladder was measured before
-the number moved** - the same harness as the original choice, heavy synthetic grain at 1080p10
-through the pass's exact settings. Grain retention and the tone bands are flat across every rung
-(99.9-100.2%, bands exact to the code value), so PSNR and size discriminate: 48.5 dB at CRF 12, then
-50.5 / 52.4 / 54.4 / 56.3 / 58.1 / 60.0 at 10 / 8 / 6 / 4 / 2 / 0, against sizes of 0.70 / 0.76 /
-0.81 / 0.88 / 0.95 / 1.02 / 1.11 of the *same frames as lossless FFV1*. The last two ratios are the
-finding: on the heavy-grain content where this intermediate is biggest, x264's bottom rungs cost
-more disk than FFV1 while still being lossy - CRF 0 at 10 bits is not lossless (the QP-scale shift
-above, confirmed again by framemd5 against the current build) - so everything below 6 pays
-lossless-class disk for a lossy file and is dominated by FFV1 outright. 6 is the deepest rung
-clearly cheaper than the lossless option: +5.9 dB over the measured-transparent 12, at 1.25x its
-size on the worst case. `ToneMapPass`'s own doc carries the same table beside the constant.
-
-**There was a fused shape beside it, and the reason it had to be lossless is the rule to remember
-rather than the code.** `ToneMapPass.RunFusedAsync` split the graph after the whole tone-map chain
-and wrote the tone-mapped file and a denoised copy as two outputs of one ffmpeg, so the film was
-decoded and tone-mapped once where separate passes cost two - and grav1synth then diffed the two
-frame for frame, which is why *that* pair could not be x264: a lossy reference puts the quantizer's
-noise into the grain table as though it were grain, precisely the small high-frequency signal a
-quantiser disturbs first. It went with the AV1AN tab's measuring modes, which is what leaves this
-pass free to be the cheap x264 in every case rather than in most of them. (**x264's own lossless mode
-would not have substituted for FFV1 either: measured, 10-bit `-qp 0` is not lossless** - high-bit-depth
-x264 shifts its QP scale, so 0 is no longer the lossless point - and ffmpeg's wrapper refuses the
-negative QP that scale would need. `DenoisePass.Ffv1Args` still carries that statement for the Film
-Grain utility's pass.)
-
-A failed pass fails the encode the way a failed QTGMC pass used to - the probe has already proven
-libplacebo renders on this machine, so a failure here is the machine changing mid-run, not a normal
-path. Two things it buys beside correctness: the target-quality probes score the SDR frames actually
-being encoded (per-chunk filters are invisible to them), and a resume replays it for free.
+What the pass earned is recorded here against something like it returning, because every piece was
+measured and each is a thing the per-chunk chain simply does not have. libplacebo's peak detection
+measured every frame, where the CPU chain gets a sampled scan. The target-quality probes scored the
+SDR frames actually being encoded, the pass baking its SDR into av1an's input - per-chunk filters
+are invisible to them, so today a target-quality tone-mapped encode probes the HDR source again
+(the standing note covers it by counting the chain). The tab's geometry folded into the pass
+(`Av1anFrame.GeometryInPass`, both homes sharing `Av1anUi.BuildGeometryFilters`), sizing the
+intermediate to the encode rather than the source - written at 4K for a 1080p encode it had paid
+for four times the pixels, ~40 GB for a five-minute clip - with the folded output measured
+framemd5-identical to the two-step it replaced; a bwdif in `-f` blocked the fold (a deinterlacer
+must see whole fields, and the pass ran first), the fps resample never folded (it changes frame
+*count*, the one thing nothing between detection and encode may do), and with `-f` emptied by the
+fold each worker dropped from three processes to two while `Av1anMemory` priced its decode at the
+encoded size. The intermediate itself was the measured-transparent x264 - CRF 6 `fast`
+`-tune grain`, 10-bit pinned *inside* the filter because an output-side `-pix_fmt` lets the
+negotiation land on 8 bits first and bake banding in - a number walked down a measured ladder from
+CRF 12: grain retention flat at 99.9-100.2% across every rung, so PSNR and size discriminated, and
+below 6 x264 pays lossless-class disk while still being lossy, dominated by FFV1 outright (10-bit
+`-qp 0` is *not* lossless, high-bit-depth x264 shifting its QP scale - `DenoisePass.Ffv1Args`
+still records that for the Film Grain utility's pass, which is the one lossless render left
+anywhere in the app). The fused two-output shape that once wrote a denoised copy beside it had to
+be lossless where this did not: grav1synth diffed it frame for frame, and a lossy reference reads
+quantizer noise as grain. And the grain-domain rule that once pulled even the zscale chain in
+front still holds wherever a measuring pass returns: grain measured on HDR frames synthesises
+wrong-strength grain onto an SDR encode, worst in what used to be the highlights, so any
+measurement must happen on the frames being encoded.
 
 **The probe is `ToneMap.GetLibplaceboProblem`, and asking only whether the device came up is not
 enough.** Three things have to hold. The filter has to be in this ffmpeg - BtbN's builds carry it,
@@ -3333,10 +3289,10 @@ existence.
 **One thing this file used to give as a blocker is not one.** `-init_hw_device vulkan` is a global
 option, and the note here said the AV1AN tab could not place it because av1an composes its own
 per-chunk command with this app contributing only what goes inside `-f`. Measured, ffmpeg accepts it
-**after the `-i`** - and with libplacebo now running in front of av1an rather than inside it, the
-question of av1an's handling of the token is moot: only Quick Convert's command (through
-`ToneMapConfig.GetDeviceArgs`) and the pass's own carry it, both after their `-i`, and the probe
-places it in the same position so that what is tested is what ships.
+**after the `-i`** - and with libplacebo now Quick Convert's alone, the question of av1an's handling
+of the token is moot: only Quick Convert's command (through `ToneMapConfig.GetDeviceArgs`) carries
+it, after its `-i`, and the probe places it in the same position so that what is tested is what
+ships.
 
 macOS remains the platform with no Vulkan at all without MoltenVK, and bundles no ffmpeg either - the
 probe simply answers "no" there and the zscale chain runs, which is what those users already had.
@@ -3346,15 +3302,10 @@ colour-data shapes and all three curves - 24 of them - rendered through ffmpeg i
 shapes, composed with a crop, a scale and a pad, each landing on the predicted frame size and tagged
 bt709/bt709/bt709 limited. libplacebo hands software frames back to the filters after it, so the
 geometry needs no `hwdownload` and none is emitted. The probe itself was run through the real code
-against lavapipe and correctly refused it. The geometry fold was verified the same way, through the
-real `ToneMapPass` out of the built assembly: the folded pass lands on the encoded frame size at 10
-bits, the pass geometry string is the real `ResizeConfig`'s own chain, an unfolded frame hands back
-"", and the folded output is framemd5-identical to rendering the pass at the source's size and
-scaling afterwards - same filters, same order, one process instead of two. **That identity proof was
-made on the fused FFV1 shape, which no longer exists**, and the reason is worth knowing before
-re-running it: two x264 encodes at different sizes are not bit-comparable, so a lossless output is
-the only place a filter-ordering difference has nowhere to hide. Checking the fold again means
-publishing to FFV1 for the run, not comparing the shipped x264 files.
+against lavapipe and correctly refused it. The geometry fold had the same treatment while it
+existed - folded output framemd5-identical to rendering at the source's size and scaling after,
+proven on the fused FFV1 shape because two x264 encodes at different sizes are not bit-comparable -
+and that record went to the historical section above with the pass it verified.
 
 ### The exposure is a constant and the peak is the file's, and mixing the two is what made it dark
 
@@ -3664,10 +3615,10 @@ injected record having no RPU behind it; that is the real-machine check.
 A stream copy builds no filter chain, so the Quick Convert box is disabled for one and
 `ToneMapUi.GetQuickConvertConfig` reports Off - a copy of an HDR file is the one way to keep it
 exactly as it is, which is an ordinary thing to want, so the row stays on screen saying the file is
-HDR and only the curve is taken away. av1an's target-quality probes are two stories now: on the GPU
-path the tone map is baked into the input the pass renders, so the probes score the real SDR
-frames; the zscale chain still runs per chunk inside `-f`, invisible to them like every other
-filter there, and the existing note covers it by counting the chain.
+HDR and only the curve is taken away. av1an's target-quality probes never see the tone map: the
+zscale chain runs per chunk inside `-f`, invisible to them like every other filter there, and the
+standing note covers it by counting the chain. (While the GPU pass existed it was the exception,
+baking its SDR into the input the probes scored - gone with the pass.)
 
 Verified by running it rather than by reading it, twice over. The original round: 42 chains built by
 the real `ToneMapConfig` across 9 colour-data shapes and all four modes, each run through ffmpeg in
@@ -3679,9 +3630,9 @@ reported file's exact metadata: the current-vs-fixed band tables above; a 19-che
 the real assembly's PQ math (spec anchor points, 10/12-bit, limited and full range), the real
 `MeasurePeakNitsAsync` over the strips through the real ffprobe/ffmpeg plumbing (613 nits measured
 where 613.1 is the code-value truth, full-range file read on its own scale, missing file answering
-0), every branch of `GetEffectivePeakNits`, both chains' filter strings, and the real
-`ToneMapPass.RunAsync` end to end - output tagged bt709/limited, 10-bit, zero HDR side data, and
-band-for-band identical to the continuous peak-detection reference. The chunk-seam number came from
+0), every branch of `GetEffectivePeakNits`, both chains' filter strings, and - while the pass
+still existed - the real `ToneMapPass.RunAsync` end to end, output tagged bt709/limited, 10-bit,
+zero HDR side data, and band-for-band identical to the continuous peak-detection reference. The chunk-seam number came from
 rendering a 120-frame brightness ramp whole and again from frame 60 and comparing a constant band
 frame by frame; the y4m stripping from piping the strip through av1an's exact pipe shape.
 

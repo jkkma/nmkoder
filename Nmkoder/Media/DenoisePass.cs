@@ -14,9 +14,10 @@ namespace Nmkoder.Media
     /// <para/>
     /// **It is lossless, because its output is measured against, and grain is precisely the small
     /// high-frequency signal a quantiser disturbs first.** A file that is only ever *encoded* can be
-    /// near-lossless once that is measured to be transparent - see <see cref="ToneMapPass"/> - but
-    /// what this pass writes feeds grav1synth's frame-for-frame diff, and a codec's additions there
-    /// would be read as grain and written into the table.
+    /// near-lossless once that is measured to be transparent - the AV1AN tab's tone-map pass was,
+    /// x264 CRF 6 fast -tune grain carrying grain energy and tone values through intact, before that
+    /// pass was removed outright - but what this pass writes feeds grav1synth's frame-for-frame
+    /// diff, and a codec's additions there would be read as grain and written into the table.
     /// <para/>
     /// The copy carries the source's audio, subtitles and chapters. They are free - stream copies -
     /// and they are what makes a kept denoised file (the utility's "keep the denoised video too") a

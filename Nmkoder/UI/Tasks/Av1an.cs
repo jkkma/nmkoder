@@ -121,12 +121,6 @@ namespace Nmkoder.UI.Tasks
             // The --scenes argument this run appended, exactly as appended, so the retry below can
             // take it back out of the command with a plain string replace. Empty when none was.
             string scenesArg = "";
-            // The encode's geometry, hoisted with the snapshots above for the same reason: it is
-            // resolved while the arguments are built and read again by the tone-map pass far below,
-            // which renders the geometry itself when frame.GeometryInPass says so. Null exactly when
-            // a replayed resume skipped building arguments - the same runs that skip the passes.
-            Av1anFrame frame = null;
-
             try
             {
                 if (overrideArgs.IsEmpty())
@@ -282,10 +276,10 @@ namespace Nmkoder.UI.Tasks
                     // Av1anUi.CurrentToneMap for why the box must not be read again further down.
                     Av1anUi.CurrentToneMap = ToneMapUi.GetAv1anConfig();
 
-                    // Which tone-mapper runs, settled before the check below because the check is about
-                    // the zscale chain's filters and libplacebo names none of them. On the zscale path
-                    // this also measures the file's real peak - off the whole source, which for a
-                    // trimmed encode overstates the section at worst, a direction the roll-off forgives
+                    // There is no backend question on this tab - the config's ForceCpuChain stands,
+                    // and this call applies it, says so in the log, and measures the file's real peak
+                    // for the chain's roll-off. The scan reads the whole source, which for a trimmed
+                    // encode overstates the section at worst, a direction the roll-off forgives -
                     // where measuring the cut copy would mean waiting for the cut to run first.
                     await ToneMapUi.ResolveBackendAsync(Av1anUi.CurrentToneMap, TrackList.current.File);
                     string toneMapProblem = await ToneMapUi.GetProblem(Av1anUi.CurrentToneMap, TrackList.current.File?.ColorData);
@@ -347,7 +341,7 @@ namespace Nmkoder.UI.Tasks
                     // file it came from, and a crop or a resize makes the two different sizes. This is
                     // also where an automatic crop gets measured, which is why the filters below are
                     // handed the answer instead of going and asking for it a second time.
-                    frame = await ResolveFrameAsync();
+                    Av1anFrame frame = await ResolveFrameAsync();
 
                     // Said here as well as on the tab's readout, because this is the last point at which
                     // it can be said clearly. ffmpeg refuses a frame this large from inside av1an, one
@@ -410,19 +404,7 @@ namespace Nmkoder.UI.Tasks
                         TrackList.current.File.ColorData = sourceColor;
                     }
 
-                    // Whether the tone-map pass renders the geometry too, decided before either chain
-                    // is built so the filters land in exactly one place. Folding it in is what sizes
-                    // that intermediate to the *encode* instead of the source - a 4K film scaled to
-                    // 1080p otherwise pays for four times the pixels the encoder ever sees, reported
-                    // at tens of gigabytes for a five-minute test clip. The one thing that may not
-                    // move with it is a per-chunk deinterlacer: that filter must see whole fields, and
-                    // the pass runs first - so bwdif in the chain keeps the geometry per-chunk, behind
-                    // it, where it always was.
-                    frame.GeometryInPass = Av1anUi.ToneMapRendersInFront(sourceColor)
-                        && Av1anUi.CurrentDeinterlace.GetFfmpegFilter().IsEmpty();
-
                     string vf = GetVideoFilterArgs(frame, sourceColor, codecArgs);
-                    frame.PassGeometryFilters = Av1anUi.GetPassGeometryFilterArgs(frame);
                     // Deliberately built without the media file: that is what tells the audio arguments
                     // to come out unindexed, which is what av1an needs. Its own '-map 0' carries every
                     // audio track, and this tab has one bitrate and one channel count for all of them.
@@ -489,11 +471,8 @@ namespace Nmkoder.UI.Tasks
                     // neither memory nor the box to change. Everything the estimate needs is settled by
                     // here - the encoder, the frame it is handed, the source it comes from and the chain
                     // in between.
-                    // With the geometry folded into the pass, the workers decode the pass's output -
-                    // frames already at the encoded size - so that is the size their decode is priced
-                    // at, and the residual chain (often empty now) is what the filter ffmpeg costs.
                     string memoryProblem = Av1anMemory.GetProblem(form.Av1anOptsWorkerCountUpDown.Value.AsInt(),
-                        vCodec, frame.Encoded, frame.GeometryInPass ? frame.Encoded : frame.Source, vf);
+                        vCodec, frame.Encoded, frame.Source, vf);
 
                     if (memoryProblem.IsNotEmpty())
                         Logger.LogWarn(memoryProblem);
@@ -658,48 +637,19 @@ namespace Nmkoder.UI.Tasks
                     if (trimmed.IsNotEmpty())
                         inPath = trimmed;
 
-                    // Every pass from here on preserves frame numbering - the tone map changes pixels,
-                    // never the count or the order - so a scene list detected on this file indexes the
-                    // file av1an will open, frame for frame. That is what lets the detection run
-                    // *alongside* the pass instead of after it: the two phases the workers cannot help
-                    // with hide behind each other. The deinterlacer is no longer a reason to start the
-                    // overlap later than this - it runs inside av1an now, downstream of everything
-                    // here - but a bob does write one frame per field, so nothing that renumbers frames
-                    // may ever be moved in front of this point.
-                    VideoColorData overlapColor = TrackList.current?.File?.ColorData;
-                    bool passesFollow = Av1anUi.ToneMapRendersInFront(overlapColor);
-                    Task<(string scenesFile, int frames)> earlySceneTask = null;
-                    string sceneDetectInput = inPath;
-
-                    if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH && passesFollow)
-                    {
-                        Logger.Log("Scene detection runs alongside the tone-map pass - it changes pixels, not frame numbers, " +
-                            "so the list detected on its input fits its output.", true);
-                        earlySceneTask = Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
-                    }
-
-                    // The last of the input passes, and the only one left: on whatever the trim left,
-                    // and the file av1an is handed. The grain denoise that used to follow it is gone
-                    // with the modes that needed it - see GrainSynthConfig.EncodeModes.
-                    string toneMapped = await RenderToneMappedInput(inPath, tempDir, resume, frame);
-
-                    if (RunTask.canceled || RunTask.failed)
-                    {
-                        await SettleSceneDetectionAsync(earlySceneTask);
-                        DiscardUnusedTempFolder(tempDir, resume);
-                        Program.MainWin.SetWorking(false);
-                        return;
-                    }
-
-                    if (toneMapped.IsNotEmpty())
-                        inPath = toneMapped;
+                    // No render pass follows the trim any more. The tone-map pass that ran here - a
+                    // full x264 re-encode of the film in front of av1an, hours on a feature - is gone
+                    // at the user's request: this tab runs no intermediate pass that is itself an
+                    // encode, so the tone map is the per-chunk zscale chain inside '-f'
+                    // (ToneMapConfig.ForceCpuChain) and the trim's stream copy, seconds of work, is
+                    // the only file prepared for av1an. With nothing between here and the encode that
+                    // could re-time or renumber frames, the scene list below is detected on the very
+                    // file av1an opens - the invariant the deleted overlap machinery existed to guard.
 
                     // Scene detection is the one phase of an av1an run the workers cannot help with -
                     // it is what creates the chunks they work on - so where the pieces allow it, it is
                     // run here instead, split across parallel slices of the input, and av1an is handed
-                    // the finished list via --scenes so it skips its own sequential pass. Overlapped
-                    // with the render passes above where those ran, sequentially on the final input
-                    // otherwise.
+                    // the finished list via --scenes so it skips its own sequential pass.
                     // Opportunistic by design: "" on any obstacle, and the encode runs as it always
                     // did. LSMASH only, because the list's frame numbers have to be the ones the
                     // encode's own chunking will count - see Av1anSceneDetect for the whole argument.
@@ -708,32 +658,13 @@ namespace Nmkoder.UI.Tasks
                     // describe frames that are no longer the ones being encoded.
                     if (!resume && sceneDetection && chunkMethod == ChunkMethod.LSMASH)
                     {
-                        (string scenesFile, int detectedFrames) = earlySceneTask != null
-                            ? await earlySceneTask
-                            : await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
+                        (string scenesFile, int detectedFrames) = await Av1anSceneDetect.TryPrepareScenesFileAsync(inPath, tempDir, scDownscaleArg, keyIntArg, sceneDetectSlices);
 
                         if (RunTask.canceled || RunTask.failed)
                         {
                             DiscardUnusedTempFolder(tempDir, resume);
                             Program.MainWin.SetWorking(false);
                             return;
-                        }
-
-                        // The tripwire for the invariant the overlap rests on. The passes preserve the
-                        // count by construction, so this only ever fires on a regression in one of
-                        // them - and it is a duration check rather than a packet count because the
-                        // exact count costs a full read of a file that is now several hundred
-                        // gigabytes, where the headers cost nothing. It catches every structural
-                        // change (a doubled rate, a dropped tail, a trim); a single-frame drift slips
-                        // it, and would cost av1an its final chunk rather than the run. Discarding is
-                        // the safe direction: the encode falls back to av1an's own in-run detection.
-                        if (scenesFile.IsNotEmpty() && inPath != sceneDetectInput &&
-                            !await Av1anSceneDetect.DurationsMatchAsync(sceneDetectInput, inPath))
-                        {
-                            Logger.Log("The scene list was detected on an input whose duration no longer matches the prepared " +
-                                "file, so it is discarded and av1an detects in-run. A render pass changed the timing, which none should.");
-                            IoUtils.TryDeleteIfExists(scenesFile);
-                            scenesFile = "";
                         }
 
                         if (scenesFile.IsNotEmpty())
@@ -931,10 +862,7 @@ namespace Nmkoder.UI.Tasks
             string note = "Note: av1an encodes its target quality probes from the source, not from the filtered " +
                 "frames, so the video filters set on this tab are invisible to the quality search.";
 
-            // Only when the size change actually happens per-chunk. With the geometry folded into
-            // the tone-map pass, av1an's input - and so every probe - is already the encoded frame,
-            // and this clause would claim the opposite of what the fold just fixed.
-            if (frame != null && frame.ChangesSize && !frame.GeometryInPass)
+            if (frame != null && frame.ChangesSize)
                 note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
                     $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
                     "the target at the source's size rather than at the size being written. Encoding at the source's " +
@@ -1004,121 +932,19 @@ namespace Nmkoder.UI.Tasks
         // DeinterlaceUi.Av1anQtgmcProblem is the standing statement of it; the ffmpeg deinterlacers
         // this tab still offers go into av1an's own per-chunk filter chain and need no pass at all.
 
-        /// <summary>
-        /// Renders the tone map over the whole input and returns the SDR file av1an should be given,
-        /// or "" where there is no such pass - <see cref="Av1anUi.ToneMapRendersInFront"/> is the gate,
-        /// and with it the statement of which encodes have one.
-        /// <para/>
-        /// libplacebo cannot run inside av1an, for reasons this app measured rather than assumed. Its
-        /// peak detection - the only way it can learn what a file's frames are actually brighter or
-        /// darker than their metadata claims - carries history, and av1an starts and stops the filter
-        /// ffmpeg around every chunk: a detector restarting mid-scene lands 6 code values off the
-        /// continuous answer and pumps as it converges. And with detection off it is worse than the
-        /// zscale chain it replaced, because av1an's y4m pipes carry no HDR side data, so it read
-        /// neither MaxCLL nor the mastering display and priced every file for the 10000-nit PQ
-        /// ceiling. One continuous pass in front has neither problem, and hands av1an an SDR file its
-        /// target-quality probes can actually score - the per-chunk chain is invisible to them.
-        /// <para/>
-        /// The zscale chain never lands here: it is stateless and runs per chunk inside av1an. It used
-        /// to be pulled in front whenever a grain denoise pass followed - the grain having to be
-        /// measured on the SDR frames being encoded - and there are no such passes on this tab any
-        /// more, so libplacebo is the whole of the gate.
-        /// </summary>
-        private static async Task<string> RenderToneMappedInput(string inPath, string tempDir, bool resume, Av1anFrame frame)
-        {
-            ToneMapConfig config = Av1anUi.CurrentToneMap;
-            VideoColorData srcColor = TrackList.current?.File?.ColorData;
-
-            // Av1anUi.ToneMapRendersInFront is the whole gate, and it is libplacebo and nothing else.
-            if (!Av1anUi.ToneMapRendersInFront(srcColor))
-                return "";
-
-            string outPath = Av1anUi.GetToneMappedInputPath(tempDir);
-            MediaFile file = TrackList.current?.File;
-
-            // Re-rendering the film to change a CRF would cost more than the encode being resumed.
-            // Only ever a file this same encode wrote - a fresh run mints a temp folder from the
-            // clock, so there is never one here already.
-            if (resume && IoUtils.GetFilesize(outPath) > 0)
-            {
-                // With the geometry rendered by this pass, a kept file is only reusable if it holds
-                // the frames the rebuilt command now expects - and a resume with current settings
-                // re-reads the resize, the crop and the borders, so the two can disagree. The frame
-                // size is the whole contract: folded, the file must already be the encoded frame;
-                // unfolded, it must still be the source's, or a chain built to scale it would scale
-                // it twice. One ffprobe answers it, against a kept file worth hours.
-                Size expected = frame.GeometryInPass ? frame.Encoded : frame.Source;
-                Size kept = await GetMediaResolutionCached.GetSizeAsync(outPath);
-
-                if (!expected.IsEmpty && !kept.IsEmpty && kept != expected)
-                {
-                    Logger.Log($"The tone-mapped file this resume kept is {kept.Width}x{kept.Height} where the encode now " +
-                        $"wants {expected.Width}x{expected.Height} - the geometry settings changed since it was rendered - " +
-                        $"so it is rendered again.");
-                    IoUtils.TryDeleteIfExists(outPath);
-                }
-                else
-                {
-                    Logger.Log($"Reusing the tone-mapped file this encode was started from ('{Path.GetFileName(outPath)}'). " +
-                        $"The pass is not run again and the Tone Mapping setting is not re-read - delete that file to redo it.");
-                    return outPath;
-                }
-            }
-
-            // The size clause is most of what this announce is for - this intermediate is the largest
-            // file this app writes, and the report that shaped it was ~40 GB of FFV1 for a five-minute
-            // 4K test clip whose encode was 1080p. The codec is the measured-transparent x264, so the
-            // clause states what was measured. Folded geometry that grows the frame (borders, an
-            // upscale) keeps the plain sentence, which stays true.
-            long encodedPx = (long)frame.Encoded.Width * frame.Encoded.Height;
-            long sourcePx = (long)frame.Source.Width * frame.Source.Height;
-            bool shrinks = frame.GeometryInPass && frame.ChangesSize && encodedPx < sourcePx && sourcePx > 0;
-            string sizeClause = shrinks
-                ? $"this is a full pass over the video, rendered straight to the {frame.Encoded.Width}x" +
-                    $"{frame.Encoded.Height} the encode wants - the resize, crop and borders run in this same pass - " +
-                    $"and the x264 settings were chosen by measuring what survives them: grain energy and tone " +
-                    $"values come through intact."
-                : "this is a full pass over the video; the x264 settings were chosen by measuring what survives them - " +
-                    "grain energy and tone values come through intact, at about a tenth of the source's size.";
-
-            Logger.Log($"Tone mapping '{file?.Name.Trunc(40)}' to SDR with libplacebo, into " +
-                $"{ToneMapPass.DescribeOutput()} that av1an will then encode. Its peak detection measures the " +
-                $"picture's real brightness as it goes, which needs one continuous run - inside av1an it would " +
-                $"restart at every chunk - so it runs once here; {sizeClause}");
-
-            string problem = await ToneMapPass.RunAsync(config, srcColor, inPath, outPath, file, frame.PassGeometryFilters);
-
-            if (RunTask.canceled || RunTask.failed || problem.IsNotEmpty())
-            {
-                // Whatever is on disk stops partway through the video, and the reuse above would take
-                // it for a finished pass on the next resume - so a stopped pass leaves nothing behind.
-                IoUtils.TryDeleteIfExists(outPath);
-
-                if (problem.IsNotEmpty() && !RunTask.canceled && !RunTask.failed)
-                    RunTask.Fail($"The tone-map pass this encode needs did not finish, so av1an was not started.\n\n{problem}");
-
-                return "";
-            }
-
-            return outPath;
-        }
-
-        /// <summary>
-        /// Winds down an overlapped scene detection before a failed run returns, so its slices are not
-        /// left grinding over an encode that is already dead and its scratch folder is cleaned before
-        /// the temp folder goes. A cancel has already killed the slice processes - they run as
-        /// Secondary - but <see cref="RunTask.Fail"/> kills nothing, so the kill here is what turns
-        /// the detection's own abandon path from minutes of zombie decoding into an immediate return.
-        /// Null is the common case and free: most early returns never started an overlap.
-        /// </summary>
-        private static async Task SettleSceneDetectionAsync(Task<(string scenesFile, int frames)> earlySceneTask)
-        {
-            if (earlySceneTask == null || earlySceneTask.IsCompleted)
-                return;
-
-            ProcessManager.KillSecondary();
-            await earlySceneTask;
-        }
+        // The tone-map render pass sat here (RenderToneMappedInput, running Media.ToneMapPass) and is
+        // gone at the user's request: no intermediate pass on this tab may be an encode, and this one
+        // was a full x264 re-encode of the film before av1an could start - hours on a feature, where
+        // the trim's stream copy costs seconds. The tone map is the per-chunk zscale chain now,
+        // always (ToneMapConfig.ForceCpuChain), which is what the "CPU chain (no pass)" tick used to
+        // buy before the user made it the rule. What the pass bought, and what has to come back with
+        // it if it ever returns: libplacebo - whose peak detection needs one continuous run, and
+        // whose y4m feed inside av1an carries no HDR side data at all - the target-quality probes
+        // scoring the SDR frames actually encoded, and the geometry fold that sized the intermediate
+        // to the encode instead of the source. The scene-detection overlap that hid behind the pass
+        // went with it, SettleSceneDetectionAsync and the duration tripwire included; the parallel
+        // slices themselves are untouched, and Av1anSceneDetect.DurationsMatchAsync stays with them
+        // for whatever next puts a render step between the detection and the encode.
 
         /// <summary> Where a run's temp folder is, worked out without creating it - the folder itself
         /// is made just before av1an is started. </summary>

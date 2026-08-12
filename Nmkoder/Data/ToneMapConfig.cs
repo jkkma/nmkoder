@@ -16,10 +16,13 @@ namespace Nmkoder.Data
     /// is the brightest and closest to the reference of the set: 129/152 at 100 and 203 nits against
     /// hable's 115/143. There is nothing like it in the <c>tonemap</c> filter, so on a machine without
     /// a usable GPU it falls back to hable, which is the closest of the three, and the log says so.
+    /// It is Quick Convert's entry alone: the AV1AN tab never runs libplacebo (see
+    /// <see cref="ForceCpuChain"/>), so its list - <see cref="Av1anModes"/> - omits it rather than
+    /// offering a curve that would only ever be substituted.
     /// <para/>
     /// Neither tab saves this now, so nothing depends on the order - but the entries are still only
-    /// ever appended, since the same enum is what both boxes are filled from and what
-    /// <see cref="GetLibplaceboArgs"/> spells its curve name out of.
+    /// ever appended, since both per-tab lists are built from this enum and
+    /// <see cref="GetLibplaceboArgs"/> spells its curve name out of it.
     /// </summary>
     public enum ToneMapMode { Off, Hable, Mobius, Reinhard, Spline }
 
@@ -33,12 +36,15 @@ namespace Nmkoder.Data
     /// bright enough to matter. See <see cref="AnchorNits"/> and <see cref="GetTonemapPeak"/> for the
     /// pair of numbers that decides it.
     /// <para/>
-    /// **There are two backends and the machine picks.** libplacebo is the better tone-mapper and runs
-    /// wherever <see cref="Media.ToneMap.GetLibplaceboProblem"/> can find a real GPU behind it; the
-    /// zscale + tonemap chain below is what every other machine gets, on the CPU, needing no device and
-    /// costing 0.17s against 0.07s for a plain pixel format conversion - which next to any real encode
-    /// is nothing. <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> settles which, once per encode,
-    /// and says so in the log.
+    /// **There are two backends, and which tab this is decides who picks.** On Quick Convert the
+    /// machine picks: libplacebo is the better tone-mapper and runs wherever
+    /// <see cref="Media.ToneMap.GetLibplaceboProblem"/> can find a real GPU behind it, inline in the
+    /// one ffmpeg that tab runs over the whole file. The zscale + tonemap chain below is what every
+    /// other machine gets, on the CPU, needing no device and costing 0.17s against 0.07s for a plain
+    /// pixel format conversion - which next to any real encode is nothing. The AV1AN tab always gets
+    /// the zscale chain, per chunk inside av1an - see <see cref="ForceCpuChain"/> for why that is a
+    /// policy rather than a probe result. <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/>
+    /// settles which, once per encode, and says so in the log.
     /// </summary>
     public class ToneMapConfig
     {
@@ -71,21 +77,22 @@ namespace Nmkoder.Data
         public bool UseLibplacebo = false;
 
         /// <summary>
-        /// Forces the zscale chain where the machine could have run libplacebo - the AV1AN row's
-        /// "CPU chain (no pass)" tick. The backend is otherwise a property of the machine, and this is
-        /// the one direction an override of that is offered: what the tick buys on that tab is
-        /// structural - no render pass in front of av1an and no intermediate on disk, the chain running
-        /// per chunk instead - and with the sampled peak scan feeding the roll-off, the picture it costs
-        /// is a few code values against the GPU result. The other direction is deliberately not offered:
-        /// the probe's "no" is a measurement (a software Vulkan device tone-maps at a tenth of the
-        /// speed), not a preference to argue with.
+        /// Forces the zscale chain where the machine could have run libplacebo. This is the AV1AN
+        /// tab's standing policy rather than a choice: <see cref="UI.Tasks.ToneMapUi.GetAv1anConfig"/>
+        /// sets it unconditionally, at the user's request - that tab runs no intermediate pass that is
+        /// itself an encode, and libplacebo there meant rendering the whole film through x264 in front
+        /// of av1an, hours on a feature, where the zscale chain runs per chunk with no pass and no
+        /// intermediate on disk. With the sampled peak scan feeding the roll-off, the picture that
+        /// costs is a few code values against the GPU result. It was a "CPU chain (no pass)" tick on
+        /// the row until the user made it the rule.
         /// <para/>
         /// <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> honours it by not probing at all - a
         /// probe whose answer would be discarded is a process launch for nothing - and everything
         /// downstream already branches on <see cref="UseLibplacebo"/>, which is why this is one flag
-        /// rather than a second pipeline. Quick Convert has no such tick: its libplacebo is one filter
-        /// in a chain it runs inline, so the pass-and-intermediate trade the tick expresses does not
-        /// exist there.
+        /// rather than a second pipeline. Quick Convert never sets it: its libplacebo is one filter
+        /// in a chain it runs inline over the whole file, so the pass-and-intermediate trade this
+        /// expresses does not exist there - and it keeps the GPU backend, and the Spline curve with
+        /// it, for that reason.
         /// </summary>
         public bool ForceCpuChain = false;
 
@@ -104,10 +111,9 @@ namespace Nmkoder.Data
         /// having written nothing, which is the quiet failure shape this app has met before.
         /// <para/>
         /// It is a global option, but position-flexible: measured, ffmpeg accepts it **after the
-        /// <c>-i</c>**, which is where Quick Convert's command and <see cref="Media.ToneMapPass"/>
-        /// both place it, and where the probe places it too so that what is tested is what ships.
-        /// (The AV1AN tab's per-chunk chain never carries it any more - libplacebo left that chain
-        /// for the pass, see <see cref="UI.Tasks.Av1anUi.GetVideoFilterArgs"/>.)
+        /// <c>-i</c>**, which is where Quick Convert's command places it, and where the probe places
+        /// it too so that what is tested is what ships. (The AV1AN tab's per-chunk chain never
+        /// carries it - that tab never runs libplacebo, see <see cref="ForceCpuChain"/>.)
         /// </summary>
         public const string DeviceArgs = "-init_hw_device vulkan";
 
@@ -130,7 +136,8 @@ namespace Nmkoder.Data
                 case ToneMapMode.Off: return "No tone mapping";
                 // Named for what it needs rather than left to look like a fourth equal choice: it is the
                 // one entry that cannot run everywhere, and a curve that quietly becomes another curve on
-                // half the machines is worth one word of warning in the box itself.
+                // half the machines is worth one word of warning in the box itself. Only Quick Convert's
+                // box ever shows it - the AV1AN list omits the entry outright, see Av1anModes.
                 case ToneMapMode.Spline: return "Spline (GPU)";
                 default: return mode.ToString();
             }
@@ -151,6 +158,17 @@ namespace Nmkoder.Data
         public bool FallsBackToAnotherCurve { get { return Mode == ToneMapMode.Spline && !UseLibplacebo; } }
 
         public static readonly ToneMapMode[] AllModes = (ToneMapMode[])Enum.GetValues(typeof(ToneMapMode));
+
+        /// <summary>
+        /// What the AV1AN tab's dropdown offers: <see cref="AllModes"/> without Spline, which only
+        /// libplacebo has - and that tab never runs libplacebo (<see cref="ForceCpuChain"/>), so the
+        /// entry there would only ever have been quietly substituted with hable. Its own list rather
+        /// than an index into the other, the way DeinterlaceUi.Av1anModes is, so nothing on that tab
+        /// can select a curve it will not run - and a box has to be read against the list that filled
+        /// it, the two being different lengths. Neither box saves its index, so there is no saved
+        /// setting for the shorter list to disturb.
+        /// </summary>
+        public static readonly ToneMapMode[] Av1anModes = AllModes.Where(m => m != ToneMapMode.Spline).ToArray();
 
         /// <summary>
         /// The peak a PQ grade is assumed to reach when it does not say. 1000 nits is the commonest
@@ -422,11 +440,13 @@ namespace Nmkoder.Data
         /// What detection asks in exchange is a **continuous run**: its history restarts wherever the
         /// stream does, and a restart mid-scene steps the exposure - measured, a chunk boundary in a
         /// brightness ramp lands 6 code values off the continuous answer and takes ~23 frames to
-        /// converge. Every libplacebo invocation this app builds is therefore a whole-file run: Quick
-        /// Convert's chain is one ffmpeg over the file, and the AV1AN tab renders this chain **in
-        /// front** of av1an as its own pass rather than per chunk - see <see cref="Media.ToneMapPass"/>,
-        /// and the note in <see cref="UI.Tasks.Av1anUi.GetVideoFilterArgs"/> for why the per-chunk
-        /// chain must never carry it.
+        /// converge. That is why this backend is Quick Convert's alone: its chain is one ffmpeg over
+        /// the whole file, where av1an starts and stops its filter ffmpeg around every chunk. The
+        /// AV1AN tab used to render this chain in front of av1an as a pass of its own instead - a
+        /// full re-encode of the film before av1an could start - and that pass is gone at the user's
+        /// request, so that tab always runs the zscale chain: see <see cref="ForceCpuChain"/>, and
+        /// the note in <see cref="UI.Tasks.Av1anUi.GetVideoFilterArgs"/> for why the per-chunk chain
+        /// must never carry this filter.
         /// <para/>
         /// <c>setparams</c> goes in front for the reason it does in the zscale chain, and the output
         /// colour is stated on the filter itself so the frames come out tagged bt709/bt709/bt709 and
@@ -539,16 +559,14 @@ namespace Nmkoder.Data
             if (!Runs)
                 return $"This file is {what} · encoded as it is, keeping its colour";
 
-            // What was picked, not what will run: the backend is not settled until the encode
-            // starts, and the readout is drawn on file load. ResolveBackendAsync logs the swap.
-            // The CPU tick is the one exception - it settles the backend at readout time, so the
-            // spline substitution and the tick itself can be said here instead of only in the log.
+            // What was picked, not what will run: on Quick Convert the backend is not settled until
+            // the encode starts, and the readout is drawn on file load - ResolveBackendAsync logs the
+            // swap there. The AV1AN tab is the exception: it always runs the CPU chain
+            // (ForceCpuChain), so its readout states it outright. No spline-substitution clause is
+            // needed any more - the one config that sets ForceCpuChain is read from a box that
+            // offers no Spline (Av1anModes).
             string curve = Mode.ToString().ToLowerInvariant();
-
-            if (ForceCpuChain && Mode == ToneMapMode.Spline)
-                curve = "spline, which the CPU chain lacks, so hable";
-
-            string cpu = ForceCpuChain ? " · CPU chain by request: no GPU pass, no intermediate" : "";
+            string cpu = ForceCpuChain ? " · CPU chain, per chunk inside av1an: no pass, no intermediate" : "";
 
             if (src.ColorTransfer == ColorDataUtils.TransferHlg)
                 return $"{what} to SDR BT.709 · {curve} · HLG stays watchable on an SDR display, so only the top is rolled off{cpu}";

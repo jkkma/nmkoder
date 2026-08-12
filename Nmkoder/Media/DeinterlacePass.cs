@@ -140,7 +140,7 @@ namespace Nmkoder.Media
         /// wants: turning ASS into SRT would throw its styling away for nothing. Output subtitle N is
         /// source subtitle N here - they are mapped in order, out of the one input.
         /// <para/>
-        /// Public because <see cref="ToneMapPass"/> writes the same kind of file - every track carried,
+        /// Public because <see cref="DenoisePass"/> writes the same kind of file - every track carried,
         /// video re-rendered - and two copies of this reasoning would drift.
         /// </summary>
         public static string GetSubtitleArgs(MediaFile source)
