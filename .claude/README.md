@@ -61,12 +61,14 @@ conversation's context.
   hash - the workflow rewrites them") is in CLAUDE.md and the release skill; a PreToolUse
   "ask" would also catch legitimate edits to `persist`/`notes`. Add one only if a hand-edit
   ever actually ships.
-- **A repo `.mcp.json` for the servers that already arrive elsewhere.** `github` (release
-  dispatch) and `avalonia_docs` (with the usage limits CLAUDE.md records: `max_results`
-  1-2, ignore its MVVM rules, prefer the NuGet XML docs for API facts) come via the
-  platform and user config, so a repo copy would double them up. Microsoft Learn's server
-  *is* in `.mcp.json` now - one entry, for BCL/App SDK questions - added at the user's
-  request after this section first shipped.
+- **A repo `.mcp.json`.** Every server this project uses already arrives another way -
+  `github` (release dispatch) from the platform, and `avalonia_docs` (usage limits per
+  CLAUDE.md: `max_results` 1-2, ignore its MVVM rules, prefer the NuGet XML docs for API
+  facts) and Microsoft Learn (BCL/App SDK questions) as the user's claude.ai connectors,
+  which reach the cloud sessions this app is developed in. A repo copy would double them
+  up - and a remote-OAuth entry in `.mcp.json` additionally nags "requires authentication"
+  at the start of every web session, since a headless container cannot run the browser
+  flow. One was added here briefly and reverted for exactly that.
 - **The `fewer-permission-prompts` skill** mines local transcript history for an allowlist;
   a fresh web container has none, so run it from a local session if prompts get annoying.
 - **More agents** (release-auditor, doc-checker). Their knowledge lives in the skills,
