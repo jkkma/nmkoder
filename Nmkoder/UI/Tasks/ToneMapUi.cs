@@ -42,16 +42,19 @@ namespace Nmkoder.UI.Tasks
 
         public static void Init()
         {
-            int mode = Array.IndexOf(ToneMapConfig.AllModes, DefaultMode);
-            Form.EncToneMapModeBox.SetItems(ToneMapConfig.AllModes.Select(m => (object)ToneMapConfig.GetLabel(m)), mode);
-            Form.Av1anToneMapModeBox.SetItems(ToneMapConfig.AllModes.Select(m => (object)ToneMapConfig.GetLabel(m)), mode);
+            // Each box from its own list: Quick Convert offers every curve, the AV1AN tab everything
+            // but Spline - that tab never runs libplacebo, see ToneMapConfig.Av1anModes.
+            Form.EncToneMapModeBox.SetItems(ToneMapConfig.AllModes.Select(m => (object)ToneMapConfig.GetLabel(m)),
+                Array.IndexOf(ToneMapConfig.AllModes, DefaultMode));
+            Form.Av1anToneMapModeBox.SetItems(ToneMapConfig.Av1anModes.Select(m => (object)ToneMapConfig.GetLabel(m)),
+                Array.IndexOf(ToneMapConfig.Av1anModes, DefaultMode));
         }
 
         /// <summary> Both tabs back to <see cref="DefaultMode"/>, for Reset On New File. </summary>
         public static void ResetModes()
         {
             Form.EncToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.AllModes, DefaultMode);
-            Form.Av1anToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.AllModes, DefaultMode);
+            Form.Av1anToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.Av1anModes, DefaultMode);
         }
 
         /// <summary>
@@ -72,13 +75,16 @@ namespace Nmkoder.UI.Tasks
         /// The mode a box is actually asking for: what it says while the row is on screen, and Off while
         /// it is not. See the class summary - a curve is applied to whatever it is handed, so a box left
         /// on one behind a hidden row is the one way this setting could reach a file silently.
+        /// <para/>
+        /// Read against whichever list filled the box - the two are different lengths, so reading one
+        /// against the other would name the wrong curve. The same rule DeinterlaceUi.ModeOf states.
         /// </summary>
-        private static ToneMapMode ModeInEffect(ComboBox box, MediaFile file)
+        private static ToneMapMode ModeInEffect(ComboBox box, ToneMapMode[] modes, MediaFile file)
         {
             if (!IsRowRelevant(file))
                 return ToneMapMode.Off;
 
-            return ToneMapConfig.AllModes[box.SelectedIndex.Clamp(0, ToneMapConfig.AllModes.Length - 1)];
+            return modes[box.SelectedIndex.Clamp(0, modes.Length - 1)];
         }
 
         /// <summary>
@@ -96,21 +102,21 @@ namespace Nmkoder.UI.Tasks
             if (CodecUtils.GetCodec(QuickConvertUi.GetCurrentCodecV()).DoesNotEncode)
                 return new ToneMapConfig { Mode = ToneMapMode.Off };
 
-            return new ToneMapConfig { Mode = ModeInEffect(Form.EncToneMapModeBox, DeinterlaceUi.GetQuickConvertSourceFile()) };
+            return new ToneMapConfig { Mode = ModeInEffect(Form.EncToneMapModeBox, ToneMapConfig.AllModes, DeinterlaceUi.GetQuickConvertSourceFile()) };
         }
 
         /// <summary> The AV1AN tab's setting. That tab encodes the loaded file and nothing else, so
         /// there is no source-file question to ask here. </summary>
         public static ToneMapConfig GetAv1anConfig()
         {
-            MediaFile file = TrackList.current?.File;
-
             return new ToneMapConfig
             {
-                Mode = ModeInEffect(Form.Av1anToneMapModeBox, file),
-                // Through the same guard as the mode: a tick left behind a hidden row must not reach
-                // the encode. Inert while the mode is Off anyway, there being no backend to override.
-                ForceCpuChain = IsRowRelevant(file) && Form.Av1anToneMapCpuBox.IsChecked == true,
+                Mode = ModeInEffect(Form.Av1anToneMapModeBox, ToneMapConfig.Av1anModes, TrackList.current?.File),
+                // Always, not a tick: the AV1AN tab runs no intermediate pass that is itself an
+                // encode, so its tone map is the per-chunk zscale chain whatever the machine could
+                // have done - see ToneMapConfig.ForceCpuChain for the whole argument. Inert while
+                // the mode is Off, there being no backend to pick.
+                ForceCpuChain = true,
             };
         }
 
@@ -138,14 +144,8 @@ namespace Nmkoder.UI.Tasks
                 bool av1anRelevant = IsRowRelevant(file);
                 Form.Av1anToneMapLabel.IsVisible = Form.Av1anToneMapPanel.IsVisible = av1anRelevant;
 
-                ToneMapConfig av1anConfig = GetAv1anConfig();
-
-                // The CPU tick only means anything once a curve is selected - Off has no backend to
-                // override - so it appears with the choice rather than sitting armed beside "Off".
-                Form.Av1anToneMapCpuBox.IsVisible = av1anRelevant && av1anConfig.Runs;
-
                 Form.EncToneMapInfoLabel.Text = GetQuickConvertConfig().GetNote(GetQuickConvertColorData());
-                Form.Av1anToneMapInfoLabel.Text = av1anConfig.GetNote(file?.ColorData);
+                Form.Av1anToneMapInfoLabel.Text = GetAv1anConfig().GetNote(file?.ColorData);
             }
             catch (Exception e)
             {
@@ -267,8 +267,8 @@ namespace Nmkoder.UI.Tasks
         /// and says so. Called by both tabs before anything is built, for the reason
         /// <see cref="ToneMapConfig.UseLibplacebo"/> gives: the answer is a property of the machine, and
         /// one answer has to hold for the whole run. <see cref="ToneMapConfig.ForceCpuChain"/> is the
-        /// one exception - the AV1AN row's tick settles it as the zscale chain without the machine
-        /// being asked.
+        /// one exception - the AV1AN tab's standing policy settles it as the zscale chain without the
+        /// machine being asked, that tab running no pass in front of av1an.
         /// <para/>
         /// It is stated in the log either way rather than only on the fallback. Which tone-mapper
         /// produced a file is the first thing anybody comparing two encodes needs to know, and on this
@@ -291,15 +291,15 @@ namespace Nmkoder.UI.Tasks
             if (config == null || !config.RunsOn(src))
                 return;
 
-            // The row's CPU tick settles the answer without asking the machine - a probe whose answer
-            // would be discarded is a process launch for nothing. See ToneMapConfig.ForceCpuChain for
-            // what the tick buys and why only this direction of override exists.
+            // The AV1AN tab's policy settles the answer without asking the machine - a probe whose
+            // answer would be discarded is a process launch for nothing. See
+            // ToneMapConfig.ForceCpuChain for why that tab never runs libplacebo.
             if (config.ForceCpuChain)
             {
                 config.UseLibplacebo = false;
                 LogDolbyVision(src, libplacebo: false);
-                Logger.Log("Tone mapping with FFmpeg's own zscale chain, at the row's request - the GPU is not asked. " +
-                    "No pass runs in front of av1an and no intermediate is written; the chain runs per chunk instead.");
+                Logger.Log("Tone mapping with FFmpeg's own zscale chain, per chunk inside av1an - this tab runs " +
+                    "no pass in front and writes no intermediate, so the GPU is not asked.");
             }
             else
             {

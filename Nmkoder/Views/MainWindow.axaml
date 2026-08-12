@@ -356,14 +356,8 @@
                            Both halves together, as the Deinterlace row above does it. -->
                       <TextBlock Grid.Row="2" Grid.Column="0" x:Name="Av1anToneMapLabel" Classes="field rowhead" Text="Tone Mapping" IsVisible="False" />
                       <StackPanel Grid.Row="2" Grid.Column="1" x:Name="Av1anToneMapPanel" Spacing="4" IsVisible="False">
-                        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
-                          <ComboBox x:Name="Av1anToneMapModeBox" Width="300" SelectionChanged="Av1anToneMap_SelectionChanged"
-                                    ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Spline is the best of them and needs a GPU - it is libplacebo's own curve, and without one it falls back to Hable. Of the rest, Hable is the closest to the reference; Mobius keeps mid-tones brighter at the cost of clipping the very top. The roll-off is built around the peak brightness the file declares - the readout says which." />
-                          <!-- Shown only while a curve is selected - Off has no backend to override. See
-                               ToneMapConfig.ForceCpuChain for what the tick actually buys on this tab. -->
-                          <CheckBox x:Name="Av1anToneMapCpuBox" Content="CPU chain (no pass)" IsVisible="False" IsCheckedChanged="Av1anToneMapCpu_Changed"
-                                    ToolTip.Tip="Tone-map with FFmpeg's own zscale chain even where the GPU could do it. What that buys here is structural: no render pass in front of av1an and no intermediate file on disk - the chain runs per chunk inside av1an instead, and the encode starts as soon as scene detection is done. The picture lands a few code values from the GPU result, its peak coming from a sampled scan of the frames rather than being measured frame by frame - and Spline becomes Hable, the CPU chain having no spline." />
-                        </WrapPanel>
+                        <ComboBox x:Name="Av1anToneMapModeBox" Width="300" HorizontalAlignment="Left" SelectionChanged="Av1anToneMap_SelectionChanged"
+                                  ToolTip.Tip="Converts an HDR source to ordinary SDR (BT.709), squeezing up to 10000 nits into the 100 SDR describes and mapping BT.2020 colour into BT.709. Leave it off to encode the file as HDR, which is what the 10-bit AV1 encoders here are for. Hable is the closest to the reference; Mobius keeps mid-tones brighter at the cost of clipping the very top. The conversion runs per chunk inside av1an on the CPU - no render pass in front, no intermediate file - with the roll-off built around the picture's real peak brightness, measured by a sampled scan when the encode starts. Spline, libplacebo's GPU curve, is on Quick Convert's row instead: it needs a whole-file pass this tab does not run." />
                         <TextBlock x:Name="Av1anToneMapInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
                     </Grid>

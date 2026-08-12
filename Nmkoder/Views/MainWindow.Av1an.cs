@@ -231,16 +231,6 @@ namespace Nmkoder.Views
             ToneMapUi.RefreshInfo();
         }
 
-        /// <summary> The CPU tick settles at readout time the one thing the mode box cannot - which
-        /// backend runs - so the readout is redrawn to say so. Nothing is saved here either. </summary>
-        private void Av1anToneMapCpu_Changed(object sender, RoutedEventArgs e)
-        {
-            if (!_initialized)
-                return;
-
-            ToneMapUi.RefreshInfo();
-        }
-
         private void Av1anResize_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // The handler tells a pick apart from a refill, which raises this event too

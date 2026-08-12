@@ -47,29 +47,14 @@ namespace Nmkoder.UI.Tasks
         /// output for a second and filter with a third. </summary>
         public static ToneMapConfig CurrentToneMap = new ToneMapConfig();
 
-        /// <summary>
-        /// Whether this run's tone map is rendered in front of av1an as its own pass
-        /// (<see cref="Av1an.RenderToneMappedInput"/>) rather than run inside av1an's per-chunk filter
-        /// chain. The one statement of that decision, read by the pass and by
-        /// <see cref="GetVideoFilterArgs"/> alike - two readers of the same two snapshots, and a chain
-        /// that carried the filter while the pass also ran would tone-map the file twice.
-        /// <para/>
-        /// libplacebo always renders in front - its peak detection carries history no chunk boundary
-        /// may restart, see the note in <see cref="GetVideoFilterArgs"/>. The zscale chain is stateless
-        /// and always stays per-chunk, which is the cheap answer: no pass, no intermediate.
-        /// <para/>
-        /// It was pulled in front too when a grain denoise pass followed, and that clause went with the
-        /// passes. The reason is worth keeping, because it is what would have to be rebuilt if a
-        /// measuring mode ever came back to this tab: those passes ran on *files*, before av1an
-        /// started, so a tone map still inside av1an had the grain measured on HDR frames while the
-        /// encoder received SDR ones - and a grain table carries amplitudes in its file's own signal
-        /// domain, so an HDR-measured table synthesises wrong-strength grain onto an SDR encode,
-        /// worst in what used to be the highlights.
-        /// </summary>
-        public static bool ToneMapRendersInFront(VideoColorData srcColor)
-        {
-            return CurrentToneMap != null && CurrentToneMap.RunsOn(srcColor) && CurrentToneMap.UseLibplacebo;
-        }
+        // ToneMapRendersInFront sat here, the statement of when the tone map was a pass in front of
+        // av1an rather than a filter in the per-chunk chain, and it is gone with the pass: the answer
+        // is now always "per chunk", ToneMapConfig.ForceCpuChain being this tab's standing policy.
+        // One clause of its reasoning is worth keeping against a measuring grain mode ever returning:
+        // those passes ran on *files*, before av1an started, so a tone map still inside av1an had the
+        // grain measured on HDR frames while the encoder received SDR ones - and a grain table
+        // carries amplitudes in its file's own signal domain, so an HDR-measured table synthesises
+        // wrong-strength grain onto an SDR encode, worst in what used to be the highlights.
 
         public static void Init()
         {
@@ -585,24 +570,23 @@ namespace Nmkoder.UI.Tasks
             // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
             // the two tabs cannot produce different pixels from the same settings.
             //
-            // Only ever the zscale chain - see ToneMapRendersInFront, which is the one statement of when
-            // the tone map is a pass in front of av1an (Av1an.RenderToneMappedInput) instead of a filter
-            // in here. libplacebo is never in this chain: its peak detection carries history, av1an
-            // starts and stops this chain's ffmpeg around every chunk, and a detector restarting
-            // mid-scene steps the exposure where the chunks meet. Worse, av1an feeds this chain
-            // through y4m pipes, which
-            // carry no HDR side data - so a libplacebo in here never even saw the mastering display,
-            // and priced every file for the 10000-nit PQ ceiling. The zscale chain is immune to both:
-            // it is stateless, and its peak arrives as a number in the filter string rather than as
-            // metadata on the frames.
+            // Only ever the zscale chain - this tab never runs libplacebo, and that is a policy rather
+            // than a probe result (ToneMapConfig.ForceCpuChain): running it here would mean a whole-file
+            // render pass in front of av1an, which this tab no longer has. libplacebo could not go in
+            // this chain either way: its peak detection carries history, av1an starts and stops this
+            // chain's ffmpeg around every chunk, and a detector restarting mid-scene steps the exposure
+            // where the chunks meet. Worse, av1an feeds this chain through y4m pipes, which carry no
+            // HDR side data - so a libplacebo in here never even saw the mastering display, and priced
+            // every file for the 10000-nit PQ ceiling. The zscale chain is immune to both: it is
+            // stateless, and its peak arrives as a number in the filter string rather than as metadata
+            // on the frames.
             //
             // The zscale chain can run per chunk: an ordinary ffmpeg filter chain with nothing for
             // VapourSynth to evaluate, changing neither the frame count nor the frame size, so av1an's
             // chunking has nothing to disagree with. What it shares with every other filter on this tab
             // is that the target-quality probes never see it - see GetFilteredTargetQualityNote, which
-            // covers this one by counting the chain rather than by naming what is in it. (The pass, by
-            // contrast, bakes its SDR into the input, which is exactly why the probes do see that one.)
-            string toneMapFilter = ToneMapRendersInFront(sourceColor) ? "" : CurrentToneMap.GetFilterArgs(sourceColor);
+            // covers this one by counting the chain rather than by naming what is in it.
+            string toneMapFilter = CurrentToneMap.GetFilterArgs(sourceColor);
 
             if (toneMapFilter.IsNotEmpty())
             {
@@ -616,14 +600,7 @@ namespace Nmkoder.UI.Tasks
             if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
                 filters.Add(frame.FpsFilter);
 
-            // The geometry has two possible homes now - here, per chunk, or appended to the tone-map
-            // pass in front of av1an - so it is built in one place and taken by exactly one of the
-            // two. When the pass carries it (frame.GeometryInPass), this chain must not, or every
-            // chunk would crop and scale frames the pass had already cropped and scaled. The custom
-            // filters below stay per-chunk either way, and their order holds: the pass runs before
-            // this chain, which is where the geometry sat relative to them anyway.
-            if (!frame.GeometryInPass)
-                filters.AddRange(BuildGeometryFilters(frame));
+            filters.AddRange(BuildGeometryFilters(frame));
 
             filters.AddRange(GetCustomFilters());
 
@@ -640,10 +617,9 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// The geometry filters - crop, mod-2 pad, resize or de-squeeze, borders - in chain order,
-        /// with their log lines. One builder, because the same filters can run in two places (see
-        /// <see cref="Av1anFrame.GeometryInPass"/>) and two copies would drift the day either home
-        /// was touched. Called exactly once per encode, from whichever home takes the filters, so
-        /// the logging fires once wherever they run.
+        /// with their log lines. Called exactly once per encode, so the logging fires once. It had
+        /// a second caller while the tone-map pass could fold the geometry into itself; the pass is
+        /// gone, so the per-chunk chain is the one home again.
         /// </summary>
         private static List<string> BuildGeometryFilters(Av1anFrame frame)
         {
@@ -703,20 +679,6 @@ namespace Nmkoder.UI.Tasks
             }
 
             return filters;
-        }
-
-        /// <summary>
-        /// The geometry as one filter chain for the tone-map pass to render, and "" where it stays
-        /// per-chunk - <see cref="Av1anFrame.GeometryInPass"/> is the gate, set in Av1an.Run. Called
-        /// once, right after <see cref="GetVideoFilterArgs"/>, so the geometry's log lines land in
-        /// the same place they always did whichever home the filters take.
-        /// </summary>
-        public static string GetPassGeometryFilterArgs(Av1anFrame frame)
-        {
-            if (frame == null || !frame.GeometryInPass)
-                return "";
-
-            return string.Join(",", BuildGeometryFilters(frame).Where(x => x.Trim().Length > 2));
         }
 
         private static List<string> GetCustomFilters()
@@ -1670,15 +1632,6 @@ namespace Nmkoder.UI.Tasks
             return $"{tempDir}.trim{ext}";
         }
 
-        /// <summary> Where the tone-map pass writes the SDR file av1an is given - see
-        /// <see cref="Media.ToneMapPass"/>. Beside the temp folder like the trimmed input above and
-        /// for its reasons: av1an empties its own temp folder at startup, and a resume reuses this
-        /// rather than rendering the film again. </summary>
-        public static string GetToneMappedInputPath(string tempDir)
-        {
-            return $"{tempDir}.tonemap.mkv";
-        }
-
         /// <summary> The pre-detected scene list handed to av1an via --scenes when the parallel
         /// detection ran - see <see cref="Media.Av1anSceneDetect"/>. Beside the temp folder like the
         /// inputs above, and for both of their reasons: av1an empties its own temp folder at
@@ -1690,16 +1643,17 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary> Whatever this temp folder's run wrote beside it to feed av1an, in any container:
-        /// a trimmed input, a tone-mapped one, and the pre-detected scene list.
+        /// a trimmed input and the pre-detected scene list.
         /// <para/>
-        /// **Four suffixes here are written by nothing in this build and must stay on the list anyway.**
-        /// The deinterlace pass and the grain measuring passes are gone, but the files they left are
-        /// still sitting beside temp folders on the machines of anyone who ran an earlier release, and
-        /// two of them - the deinterlaced and denoised intermediates - are lossless FFV1 and so the
-        /// largest files this app has ever written. Whichever run of this deletes such a folder is the
-        /// last chance anything has to take them with it. That is the lesson this list already carries:
-        /// the denoised suffix was left off when the grain modes were added, and every measured encode
-        /// leaked a lossless copy of the whole video onto the disk for good. </summary>
+        /// **Five suffixes here are written by nothing in this build and must stay on the list anyway.**
+        /// The deinterlace pass, the grain measuring passes and the tone-map pass are gone, but the
+        /// files they left are still sitting beside temp folders on the machines of anyone who ran an
+        /// earlier release, and two of them - the deinterlaced and denoised intermediates - are
+        /// lossless FFV1 and so the largest files this app has ever written. Whichever run of this
+        /// deletes such a folder is the last chance anything has to take them with it. That is the
+        /// lesson this list already carries: the denoised suffix was left off when the grain modes
+        /// were added, and every measured encode leaked a lossless copy of the whole video onto the
+        /// disk for good. </summary>
         private static IEnumerable<string> GetPreparedInputs(string tempDir)
         {
             try
