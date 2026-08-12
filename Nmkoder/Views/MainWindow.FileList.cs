@@ -38,12 +38,30 @@ namespace Nmkoder.Views
             FileCountLabel.Text = $"{count} file{(count != 1 ? "s" : "")} loaded. " +
                 $"{(count > 1 && RunTask.currentFileListMode == RunTask.FileListMode.Mux ? "Double click any of them or use the Load Tracks button to load their tracks." : "")}";
 
+            // The loaded file has been taken out of the file list, so something else has to become the
+            // loaded one. TrackList.Refresh has already removed exactly that file's streams and left
+            // every other file's alone, which is why ClearCurrentFile is asked not to touch the list
+            // and why the promotion below is asked the same - it used to clear it regardless, so
+            // removing one file of several threw away the tracks of the ones that remained.
             if (TrackList.current != null && !FileList.Items.Any(x => x.File.Equals(TrackList.current.File)))
             {
                 TrackList.ClearCurrentFile();
 
                 if (RunTask.currentFileListMode == RunTask.FileListMode.Mux && FileList.Items.Count > 0)
-                    await TrackList.SetAsMainFile(FileList.Items[0], false);
+                {
+                    FileListEntry promoted = FileList.Items[0];
+                    await TrackList.SetAsMainFile(promoted, false, clearStreamList: false);
+
+                    // And if nothing of the promoted file's is in the list - the ordinary case, one
+                    // file loaded and removed - its tracks are loaded, because everything else on
+                    // screen now says that file is the loaded one. Left empty, the Track List showed
+                    // nothing while the format label described the promotion, GetMappedStreams
+                    // returned nothing, and the Run button still offered an encode with no -map
+                    // arguments at all. Compared by path rather than by reference: MediaFile has no
+                    // Equals of its own, which is what Refresh's own pruning goes by too.
+                    if (!TrackList.Items.Any(x => x.MediaFile != null && x.MediaFile.ImportPath == promoted.File.ImportPath))
+                        await TrackList.AddStreamsToList(promoted.File, promoted.RowBrush, false);
+                }
             }
 
             QuickConvertUi.RefreshFileListRelatedOptions();
@@ -175,16 +193,34 @@ namespace Nmkoder.Views
             return header.Replace("_", "__");
         }
 
+        /// <summary>
+        /// Loads the selected files' streams into the Track List, making the first one the main file
+        /// if there is not one already.
+        /// <para/>
+        /// **<see cref="TrackList.SetAsMainFile"/> clears the track list, so it has to run *before*
+        /// anything is added to it rather than after.** Written the other way round it added the first
+        /// file's streams and then wiped them: the file whose tracks you asked for was the one file
+        /// that did not appear, and with its video gone the *second* file's video stream became the
+        /// checked one. Only the first iteration was ever affected, `current` being non-null from then
+        /// on, which is what made it look like a selection bug rather than an ordering one.
+        /// <para/>
+        /// The way in is the ordinary one: dropping several files at once in Muxing Mode leaves
+        /// `current` null - <see cref="FileList.HandleFiles"/> only sets a main file on the
+        /// `Items.Count == 1` path - so pressing Load Tracks, or double-clicking a row, landed here
+        /// with exactly the state the bug needed. The two call sites that already had this right
+        /// (<see cref="ApplyFileListMode"/> and `HandleFiles`) are both main-file-then-add, which is
+        /// the order to keep.
+        /// </summary>
         private async void AddTracksFromFile_Click(object sender, RoutedEventArgs e)
         {
             AddTracksFromFileBtn.IsEnabled = false;
 
             foreach (FileListEntry entry in SelectedFileEntries)
             {
-                await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true);
-
                 if (TrackList.current == null)
                     await TrackList.SetAsMainFile(entry);
+
+                await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true);
             }
 
             QuickConvertUi.LoadMetadataGrid();
