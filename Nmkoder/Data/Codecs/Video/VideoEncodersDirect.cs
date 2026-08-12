@@ -56,10 +56,11 @@ namespace Nmkoder.Data.Codecs.Video
         /// BtbN master build this project bundles: a raw <c>.264</c> or <c>.265</c> read back with
         /// <c>-framerate N</c> yields packets with no timestamps at all, and Matroska refuses them -
         /// "Timestamps are unset in a packet for stream 0", then "Error muxing a packet", and no output.
-        /// MP4 stamps them on the way in, so a raw stream is containerised into MP4 first and the mux
-        /// reads that. The <c>setts</c> bitstream filter looks like the cheaper answer and is not: its
-        /// packet index counts in *decode* order, so on any stream with B-frames it would stamp the
-        /// frames into the wrong presentation order.
+        /// The MP4-family muxers stamp them instead, so a raw stream is containerised into MP4 first
+        /// only where the *output* is one that refuses it - see <c>Containers.StampsUntimedPackets</c>,
+        /// which is what decides that and where the measurement lives. The <c>setts</c> bitstream
+        /// filter looks like the cheaper answer and is not: its packet index counts in *decode* order,
+        /// so on any stream with B-frames it would stamp the frames into the wrong presentation order.
         /// </summary>
         bool StreamCarriesTiming { get; }
 
