@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Throwaway headless renderer for Nmkoder's UI. Copied to the scratchpad and run there;
+       __AVALONIA_VERSION__ and __REPO__ are substituted by the setup step in SKILL.md so the
+       headless packages always match the version the app pins. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- The app deliberately fires async handlers without awaiting them; keep its warnings off here too. -->
+    <NoWarn>$(NoWarn);CS1998;CS4014</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="__REPO__/Nmkoder/Nmkoder.csproj" />
+    <PackageReference Include="Avalonia.Headless" Version="__AVALONIA_VERSION__" />
+    <PackageReference Include="Avalonia.Skia" Version="__AVALONIA_VERSION__" />
+  </ItemGroup>
+
+</Project>
