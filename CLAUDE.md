@@ -12,7 +12,21 @@ shipped SvtAv1EncApp and grav1synth extracted from the latest published linux-x6
 (see `.claude/skills/real-binaries` for why that is the one reachable source, and for how to
 read the shipped av1an, which the linux tarball does not carry) - then warms the NuGet
 cache. Point the environment's setup command at that file rather than
-pasting a copy into the environment's settings, so the two cannot drift.
+pasting a copy into the environment's settings, so the two cannot drift - and spell the
+command
+
+```
+cd nmkoder 2>/dev/null; bash .claude/setup.sh
+```
+
+because the setup step does not run inside the clone. Provisioning works from the workspace
+root, `/home/user`, with the repo one level down at `/home/user/nmkoder` - only Claude Code
+itself is launched inside it - so the bare `bash .claude/setup.sh` an environment naturally
+carries fails with `bash: .claude/setup.sh: No such file or directory`, exit 127, before the
+script's first line, and the environment then installs nothing, ever, with the only symptom
+being the session-start hook's missing-toolchain lines. The `;` rather than `&&`, with the
+`cd`'s error dropped, keeps the command working from either directory should the platform
+ever move setup into the repo.
 
 The SDK comes from the Ubuntu archive rather than the usual dot.net installer script: that
 script redirects to `builds.dotnet.microsoft.com`, which the sandbox's egress proxy refuses
