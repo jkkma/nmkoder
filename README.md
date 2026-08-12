@@ -17,7 +17,7 @@ Portable and self-contained on Windows, Linux and macOS. Nothing to install.
 
 [**Download**](#download) · [Features](#features) · [What's new since the fork](#whats-new-since-the-fork) · [What a release bundles](#what-a-release-bundles) · [Building](#building)
 
-<img src="docs/images/quick-convert.png" width="880" alt="The Quick Convert tab: codec, container, quality mode, resize and borders, with the log panel below">
+<img src="docs/images/quick-convert.png" width="880" alt="The Quick Convert tab: codec and quality on the left, the framing chain in the middle, grain synthesis, deinterlacing and tone mapping on the right, with the log panel below">
 
 </div>
 
