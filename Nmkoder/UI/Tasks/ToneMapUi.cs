@@ -261,10 +261,25 @@ namespace Nmkoder.UI.Tasks
                 // which is the profile this refusal reads - so following that advice turns a loud
                 // refusal into a silent wrong output, which is the one outcome worth going out of the
                 // way to prevent.
+                //
+                // **Why the CPU chain is running decides what to advise, and the two answers are not
+                // interchangeable.** On Quick Convert it is the machine - the probe found no usable GPU
+                // - so another machine runs libplacebo and reads the file. On the AV1AN tab it is the
+                // tab: ForceCpuChain is that tab's standing policy, not a probe result, so no machine
+                // anywhere tone-maps a profile 5 file there and "find a GPU" is advice that fails
+                // identically wherever it is taken. Quick Convert is the route that exists, so that is
+                // what it names. The discriminator is ForceCpuChain itself rather than a tab flag
+                // passed in beside it - it is set by exactly one of the two config getters, and a
+                // second way of asking the same question is how the two come to disagree.
+                string route = config.ForceCpuChain
+                    ? "tone map it on the Quick Convert tab, which runs libplacebo where the machine has a usable GPU - this tab " +
+                        "always maps on the CPU, so no machine changes the answer here"
+                    : "tone map it on a machine with a usable GPU, where FFmpeg reads the Dolby Vision metadata and applies it";
+
                 return $"this file is Dolby Vision profile {ColorDataUtils.DescribeDolbyVisionProfile(src)}, whose picture only exists " +
-                    $"once its dynamic metadata has been applied - and this machine is tone mapping on the CPU, which cannot apply it. " +
+                    $"once its dynamic metadata has been applied - and this encode is tone mapping on the CPU, which cannot apply it. " +
                     $"The colours would come out wrong rather than merely different. Encode it as it is to keep the file intact, or " +
-                    $"tone map it on a machine with a usable GPU, where FFmpeg reads the Dolby Vision metadata and applies it. " +
+                    $"{route}. " +
                     $"Converting the file first will not help: a profile conversion rewrites the metadata and leaves every pixel " +
                     $"where it was, so the picture underneath is still the one nothing but a Dolby Vision decoder can read";
             }

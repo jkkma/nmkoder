@@ -353,8 +353,12 @@ namespace Nmkoder.Utils
         /// So this is a property of the bitstream rather than a guess about a tool: a chain that does no
         /// RPU reshaping cannot produce the right picture from one of these, whatever else it does
         /// right. <see cref="UI.Tasks.ToneMapUi.GetProblem"/> refuses over it where the CPU chain would
-        /// be doing the work, and warns where libplacebo would, since that one *can* apply an RPU when
-        /// its build carries libdovi - see that method for what is measured there and what is not.
+        /// be doing the work, and warns where libplacebo would, since that one *does* apply the RPU -
+        /// FFmpeg parses it and <c>vf_libplacebo</c>'s <c>apply_dolbyvision</c> hands it to the reshape
+        /// shader, with no libdovi in the build required or present. See
+        /// <see cref="UI.Tasks.ToneMapUi.LogDolbyVision"/> for what is measured there and what is not.
+        /// Which of the two is doing the work is not only the machine's answer: the AV1AN tab always
+        /// maps on the CPU, so a profile 5 file is refused there on every machine.
         /// <para/>
         /// **A compatibility id of 0 is not always a declaration, and this used to read it as one.** The
         /// rule was <c>profile == 5 || compat == 0</c>, on the reasoning that "either field can be the one

@@ -851,13 +851,13 @@ namespace Nmkoder.UI.Tasks
         /// select filter, and the chunk's own source command carries no filters either - so anything
         /// still running per chunk is invisible to the quality search, whichever metric it steers by.
         /// <para/>
-        /// **"Set on this tab" was the wrong unit, and it made the note contradict its own size
-        /// clause.** What av1an cannot see is what is left in the per-chunk chain, which is not the same
-        /// set: where the tone map renders as a pass in front, its output *is* av1an's input, so the
-        /// tone map and - when the geometry folds in with it - the crop, resize and borders are all
-        /// baked in and every probe does see them. The size clause was already suppressed for that case
-        /// while the sentence above it went on asserting the general claim that implies it. So the two
-        /// halves are said apart now: what the pass baked in, and what is still per chunk.
+        /// **"Set on this tab" was the wrong unit, and it is written as "still running per chunk"
+        /// instead.** The two coincide here - with the tone-map pass gone, everything this tab applies
+        /// runs per chunk and every one of them is invisible to the search - but the per-chunk wording
+        /// is the one that states *why*, and it is what a pass returning to this tab would need. That
+        /// pass is the shape to recognise: its output was av1an's input, so the tone map and the
+        /// geometry folded in with it were baked in and the probes did see them. Anything put back in
+        /// front of av1an has to be taken back out of this note at the same time.
         /// <para/>
         /// **The tone map earns its own clause because it is the largest of these and the only one
         /// whose direction cannot be predicted.** Measured through this app's own chain and the shipped
@@ -867,7 +867,10 @@ namespace Nmkoder.UI.Tasks
         /// steps on the same harness. The sign follows which way the roll-off moves the picture's mean
         /// (measured, 428.6 to 564.8 on the bright fixture and 313.0 to 243.3 on the dark one), so it
         /// is a property of the content and no fixed offset corrects it. That is why the clause states
-        /// both directions rather than warning about one.
+        /// both directions rather than warning about one - and why it no longer ends by pointing at a
+        /// GPU machine where the probes would see it: this tab runs the zscale chain per chunk on every
+        /// machine there is (<see cref="Data.ToneMapConfig.ForceCpuChain"/>), so there is no such run
+        /// to point at.
         /// <para/>
         /// The size clause names both numbers for the same reason it always did. Filters that leave the
         /// size alone skew it too - a denoise makes frames cheaper to encode - but by how much is not
@@ -883,38 +886,28 @@ namespace Nmkoder.UI.Tasks
         private static string GetFilteredTargetQualityNote(Av1anFrame frame, VideoColorData srcColor)
         {
             bool toneMaps = Av1anUi.CurrentToneMap != null && Av1anUi.CurrentToneMap.RunsOn(srcColor);
-            bool passRan = Av1anUi.ToneMapRendersInFront(srcColor);
 
             string note = "Note: av1an encodes and scores its target quality probes from its own input - its probe pipe " +
                 "carries the probing-rate 'select' filter and nothing else - so whatever is still running per chunk is " +
                 "invisible to the quantizer search.";
 
-            // Said before the invisible half, because it is the good news and because the sentence
-            // above would otherwise read as covering it. GeometryInPass is not implied by the pass
-            // having run: a per-chunk deinterlacer blocks the fold and leaves the geometry behind.
-            if (passRan)
-                note += " The tone map is not one of them - it is rendered into the file av1an is given, so the probes " +
-                    (frame != null && frame.GeometryInPass ? "do see it, and the crop, resize and borders folded in with it." : "do see it.");
-
-            // The per-chunk tone map, which is every machine without a usable GPU and every run with
-            // the row's CPU tick on. Not a size change, so the clause below never fired for it, and
-            // it is the biggest skew of the lot.
-            else if (toneMaps)
+            // Every tone-mapped run on this tab, there being no other kind: the zscale chain runs per
+            // chunk on every machine (ToneMapConfig.ForceCpuChain). Not a size change, so the clause
+            // below never fires for it, and it is the biggest skew of the lot.
+            if (toneMaps)
                 note += " The tone map is one of them, and it is the largest: the probes score the source's HDR frames " +
                     "where the encode writes tone-mapped SDR, which is a different signal to spend a quantizer on. " +
                     "Measured on two PQ sources, that moved the quality actually delivered 2-3 points above the target on " +
                     "bright content and 4-7 points below it on dark content - opposite directions, so there is no offset " +
-                    "to correct it by. On a machine with a usable GPU the tone map renders in front of av1an and the " +
-                    "probes do see it; this run is on the CPU chain.";
+                    "to correct it by.";
 
             if (frame != null && frame.ChangesSize)
                 note += $" The probes will be {frame.Source.Width}x{frame.Source.Height} where the encode is " +
                     $"{frame.Encoded.Width}x{frame.Encoded.Height}, so the quantizer it settles on is the one that hits " +
                     "the target at the source's size rather than at the size being written.";
 
-            // The rate is the third thing that is never a size change and never folds - the scene
-            // detection overlap's invariant keeps the resample per chunk - so nothing else here
-            // would ever mention it.
+            // The rate is the third thing that is never a size change, so nothing else here would
+            // ever mention it - the size clause above covers only what changes the frame.
             if (frame != null && frame.ResamplesFrameRate)
                 note += " The probes also score at the source's frame rate, where the encode writes another.";
 
