@@ -3461,6 +3461,59 @@ failed scan returns 0 and the declared behaviour runs unchanged - the scan can o
 it, never block an encode. The log states measured, declared and effective per file, because the
 readout is drawn at file load where none of this is known yet.
 
+**That formula pins the answer above declared/2, which is the first thing to check before trying to
+measure better.** `effective = max(min(M*2, D), M)`: for M between D/2 and D the answer is exactly D
+whatever M was, and above D it is M. So on a file whose declaration is honest and whose content
+reaches the top half of it, **no amount of scanning changes a single code value** - verified on a
+fixture declaring 1000 nits and measuring 1004, where eight different scan variants render
+byte-identically. The scan earns its place only on files that *overstate*, which is precisely the
+reported UHD Blu-ray shape (MaxCLL 9978 needs M above 4989 before the cap binds), and there it always
+matters.
+
+### The scan is a dozen seeks, and the two ways of improving it are both worse
+
+**"Seconds of decoding" was wrong about its own cost, and the cost is not where it looks.** The scan
+reads 60 frames and takes **90-96 s on 120 s of 4K** at a 10 s GOP - because every one of its twelve
+points pays a fresh process, a seek, and `accurate_seek`'s decode-and-discard from the preceding
+keyframe. The bill therefore tracks the **GOP length**, not the frame count: the same content
+re-encoded at a 1 s GOP costs 23-27 s. Batching the points into one process saves nothing (a 60-input
+concat measured 8.4 s at n=12 and 13.7 s at n=20), so the seek is the cost, not the launch. What it
+does *not* do is grow with the film's length, which is what keeps a feature the same price as a clip
+and is the property any replacement has to beat.
+
+**Denser sampling is the wrong axis.** 24x5, 48x5, 12x15 and 60x1 cost 2.3-4.6x the wall clock on a
+4K file. 12x15 finds nothing that 12x5 does not - more frames at the same twelve places is the least
+useful direction, the failure being *placement* rather than depth - and none of the evenly-spaced
+variants can find a 2-second flash, a 0.2 s window at each of 60 points being unable to land on it.
+
+**A whole-file keyframe pass looks unanswerable and is a trap. This is the part worth remembering.**
+`ffmpeg -skip_frame nokey -i F -vf signalstats,metadata=mode=print -f null -` reads the true peak on
+six fixtures at 15-34x the speed of the current scan, never seeking at all. **That result was an
+artifact of how the fixtures were built.** Each of them changed brightness with a *hard cut*, so
+x265's scene detector had already put an IDR on the bright frame - `flash.mkv` carries keyframes at
+exactly t=100.000 and t=102.000, the burst's own boundaries. The pass was reading the encoder's marks,
+not finding peaks.
+
+Rebuilt with the event *inside* a GOP it fails as badly as anything: a 2-second burst under a fixed
+GOP reads **91.2 nits against a true 1494.6** - the full 84-code-value clip-to-white failure the pass
+was credited with removing - and a brightness rise *within a take*, with no cut and x265's own default
+scene detection, reads **528.9 against 1526.2**. No cut, no keyframe, missed peak, whatever the
+content is; the sunrise, the lamp coming on and the explosion mid-shot are all this case. Its speed
+inverts too, being **1.4-2.5x slower** than the current scan on a 480 s 4K file at a 1 s GOP and
+projecting to ~12 minutes on a feature, where the current scan stays at 20-35 s however long the film
+is. Two things generalise from it: a fixture whose brightness changes only at cuts cannot test a
+keyframe-based measurement at all, and any replacement here must be judged on a file whose GOP
+structure is not doing the work for it.
+
+**And the deeper reason neither was worth it: a better maximum is not a better picture.** Measured
+against libplacebo's own per-frame detection over a whole file, on content with an outlier, hitting
+the *true* peak comes out ~14 code values **darker** than missing it across 95% of the runtime -
+because a static roll-off built for a two-second event prices the entire film for it. libplacebo does
+not face this trade, re-exposing per scene; the zscale chain cannot. So the room left is in what
+`GetEffectivePeakNits` does with the number - a **percentile** rather than a maximum, which twelve
+samples cannot support and a denser scan could - and not in finding the maximum more reliably. That
+was not measured and is the next thing to try. It is a change to the formula, not to the scan.
+
 **Both numbers have to be passed because the filter will not read either off the file.** The same PQ
 ramp with and without a MaxCLL of 10000 and a 4000-nit mastering display tone-maps to byte-identical
 output. The reason is worth knowing rather than filing under "metadata is unreliable", because it is
