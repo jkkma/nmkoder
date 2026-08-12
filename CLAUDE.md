@@ -7,7 +7,11 @@ Build with `dotnet build Nmkoder/Nmkoder.csproj`.
 **The toolchain is installed by `.claude/setup.sh` and by nothing else.** It is the
 environment's setup script - run once when the environment is created, snapshotted with it -
 and it installs the .NET SDK the csproj targets and the FFmpeg build the app ships against,
-then warms the NuGet cache. Point the environment's setup command at that file rather than
+plus the measurement toolkit - the CLI encoders and MKVToolNix from the archive, and the
+shipped SvtAv1EncApp and grav1synth extracted from the latest published linux-x64 release
+(see `.claude/skills/real-binaries` for why that is the one reachable source, and for how to
+read the shipped av1an, which the linux tarball does not carry) - then warms the NuGet
+cache. Point the environment's setup command at that file rather than
 pasting a copy into the environment's settings, so the two cannot drift.
 
 The SDK comes from the Ubuntu archive rather than the usual dot.net installer script: that
