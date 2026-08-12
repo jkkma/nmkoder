@@ -238,18 +238,35 @@ namespace Nmkoder.UI.Tasks
             // crop and frame-size ones rather than a warning: the output would be the magenta-and-green
             // picture, over a whole encode, looking exactly like a broken app.
             //
-            // libplacebo is the other half and is deliberately not refused: it applies an RPU where its
-            // build carries libdovi, so the same file may well come out right on the GPU path. Whether
-            // the bundled build does carry it is **not measured** - no web session has a Dolby Vision
-            // file to ask with - so that path warns instead, in ResolveBackendAsync, and the run goes
-            // ahead. Refusing there on the strength of an unmeasured guess would take away a conversion
-            // that probably works.
+            // libplacebo is the other half and is deliberately not refused, and that is now measured
+            // rather than hoped: **the dependency is not libdovi**, which this file used to name and
+            // which the bundled build does not have (zero 'dovi' hits in its -buildconf). It does not
+            // need one. FFmpeg parses the RPU itself and hands it on as frame side data, and
+            // vf_libplacebo carries 'apply_dolbyvision', defaulting to true, over libplacebo's own
+            // reshape shader. Measured on a real profile 5 RPU through this build: the render with
+            // apply_dolbyvision=0 is bit-identical to the same stream with no RPU at all, where the
+            // render with it on is a different picture - and the fixture's RPU carries an identity
+            // polynomial, so what moved is the IPT interpretation itself and not merely a reshaping
+            // curve. The GPU path reads these files.
             if (ColorDataUtils.HasUnusableBaseLayer(src) && !config.UseLibplacebo)
             {
+                // No dovi_tool advice here, and its absence is load-bearing - this message used to
+                // send people to "dovi_tool's mode 2". **That conversion moves no pixels.** Measured:
+                // a profile 5 stream and its mode 2 and mode 3 conversions decode to one framemd5,
+                // and this app's own chain produces byte-identical output from all three, so the
+                // round trip buys exactly nothing. It is worse than nothing twice over. On the GPU
+                // path it *destroys* the correct render - it swaps the RPU's IPT matrices for BT.2020
+                // ones over samples that are still IPT, and libplacebo then draws a third picture,
+                // 11 dB from the right one. And the converted file declares profile 8 once remuxed,
+                // which is the profile this refusal reads - so following that advice turns a loud
+                // refusal into a silent wrong output, which is the one outcome worth going out of the
+                // way to prevent.
                 return $"this file is Dolby Vision profile {ColorDataUtils.DescribeDolbyVisionProfile(src)}, whose picture only exists " +
                     $"once its dynamic metadata has been applied - and this machine is tone mapping on the CPU, which cannot apply it. " +
                     $"The colours would come out wrong rather than merely different. Encode it as it is to keep the file intact, or " +
-                    $"convert it to a profile with an ordinary HDR10 layer underneath (dovi_tool's mode 2) and load that instead";
+                    $"tone map it on a machine with a usable GPU, where FFmpeg reads the Dolby Vision metadata and applies it. " +
+                    $"Converting the file first will not help: a profile conversion rewrites the metadata and leaves every pixel " +
+                    $"where it was, so the picture underneath is still the one nothing but a Dolby Vision decoder can read";
             }
 
             // Only the zscale chain's filters are worth refusing over. Where libplacebo is doing the
@@ -358,13 +375,23 @@ namespace Nmkoder.UI.Tasks
         /// backends genuinely differ here, where for every other property of this row they differ only
         /// by a few code values.
         /// <para/>
-        /// **The GPU line is the one to be careful about, and it says "where this build carries libdovi"
-        /// rather than promising.** libplacebo applies an RPU only when it was built against libdovi,
-        /// and which way BtbN's ffmpeg is built is not something any session here could measure - a
-        /// Dolby Vision file is not a thing that can be synthesised from a colour bar. So it is written
-        /// as the conditional it is. The base layer is what comes out otherwise, which for every profile
-        /// but 5 is the graded HDR10 or HLG picture and perfectly good; profile 5 is the one where that
-        /// is not true, and <see cref="GetProblem"/> is what stands in front of it.
+        /// **The GPU line used to hedge on libdovi, and it was naming the wrong dependency.** libplacebo
+        /// can be built against libdovi to parse RPUs itself, which is how a player uses it - but inside
+        /// ffmpeg it never has to, because ffmpeg has already parsed the RPU with its own decoder and
+        /// attached it to the frame, and <c>vf_libplacebo</c>'s <c>apply_dolbyvision</c> option, on by
+        /// default, is what hands it to the reshape shader. Measured against the bundled build, which
+        /// carries no libdovi at all: a profile 5 stream rendered with <c>apply_dolbyvision=0</c> comes
+        /// out bit-identical to the same stream stripped of its RPU, and with it on comes out a
+        /// different picture. So the line can say what happens instead of hedging about how the binary
+        /// was configured.
+        /// <para/>
+        /// What is still *not* measured is whether the colours that come out are right - proving a
+        /// render matches a Dolby-licensed decoder needs a real profile 5 source and a reference, and
+        /// no session here can obtain either. Applied is measured; correct is assumed.
+        /// <para/>
+        /// The base layer is what comes out on the CPU chain, which for every profile but 5 is the
+        /// graded HDR10 or HLG picture and perfectly good; profile 5 is the one where that is not true,
+        /// and <see cref="GetProblem"/> is what stands in front of it.
         /// </summary>
         private static void LogDolbyVision(VideoColorData src, bool libplacebo)
         {
@@ -381,9 +408,9 @@ namespace Nmkoder.UI.Tasks
                 return;
             }
 
-            Logger.Log($"This file carries Dolby Vision (profile {profile}); libplacebo applies its dynamic metadata where this " +
-                $"FFmpeg was built with libdovi, and maps the base layer where it was not. Either way the output is SDR " +
-                $"BT.709 with no Dolby Vision data left in it.");
+            Logger.Log($"This file carries Dolby Vision (profile {profile}); libplacebo applies its dynamic metadata as it maps, " +
+                $"so the picture it works from is the one that metadata describes rather than the base layer alone. " +
+                $"Either way the output is SDR BT.709 with no Dolby Vision data left in it.");
         }
     }
 }

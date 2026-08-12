@@ -306,18 +306,38 @@ namespace Nmkoder.Utils
         }
 
         /// <summary>
-        /// The profile as people write it - <c>8.1</c>, <c>8.4</c>, <c>5</c>, <c>7</c>.
+        /// The profile as people write it - <c>8.1</c>, <c>8.4</c>, <c>10.0</c>, <c>5</c>, <c>7</c>.
         /// <para/>
-        /// Profile 8's sub-profile *is* the base layer compatibility id rather than a second field, so
-        /// the dot is that number: 8.1 is the HDR10-compatible one, 8.2 SDR, 8.4 HLG. Every other
-        /// profile is written as its bare number, which is how they are named.
+        /// Two profiles have a sub-profile, and it *is* the base layer compatibility id rather than a
+        /// second field, so the dot is that number. Profile 8 is the one everybody meets: 8.1 is the
+        /// HDR10-compatible one, 8.2 SDR, 8.4 HLG. Profile 10 is the same arrangement over AV1, and it
+        /// is dotted here for a reason the others do not have - <b>10.0 is the one that gets refused
+        /// and 10.1 is not</b>, both being "profile 10" to anyone reading the bare number, and the
+        /// refusal <see cref="UI.Tasks.ToneMapUi.GetProblem"/> writes names this string. Telling
+        /// somebody their profile 10 file cannot be tone-mapped, where a profile 10 file of the other
+        /// kind maps perfectly well, is a message that cannot be acted on.
+        /// <para/>
+        /// The two are dotted on different conditions, which is not an inconsistency. A profile 8
+        /// declaring 0 is malformed - its whole definition is that the id says which readable signal
+        /// the base layer is - so it is written bare rather than as a "8.0" no such file should carry.
+        /// A profile 10 declaring 0 is ordinary and means IPT-PQ-c2, so it keeps its dot.
+        /// <para/>
+        /// Every other profile is written as its bare number, which is how they are named: profile 7
+        /// is "7" where its compatibility id is 6, a definitional value that says nothing a reader of
+        /// the profile number does not already know.
         /// </summary>
         public static string DescribeDolbyVisionProfile(VideoColorData d)
         {
             if (!HasDolbyVision(d))
                 return "";
 
-            return d.DvProfile == DvProfileSingleLayer && d.DvBlCompatId > 0 ? $"8.{d.DvBlCompatId}" : d.DvProfile.ToString();
+            if (d.DvProfile == DvProfileSingleLayer && d.DvBlCompatId > 0)
+                return $"8.{d.DvBlCompatId}";
+
+            if (d.DvProfile == DvProfileAv1 && d.DvBlCompatId >= 0)
+                return $"10.{d.DvBlCompatId}";
+
+            return d.DvProfile.ToString();
         }
 
         /// <summary>
@@ -336,13 +356,65 @@ namespace Nmkoder.Utils
         /// be doing the work, and warns where libplacebo would, since that one *can* apply an RPU when
         /// its build carries libdovi - see that method for what is measured there and what is not.
         /// <para/>
-        /// Both fields are checked because either can be the one a file states: the id is the direct
-        /// answer, and the profile number covers a record that names a profile without one.
+        /// **A compatibility id of 0 is not always a declaration, and this used to read it as one.** The
+        /// rule was <c>profile == 5 || compat == 0</c>, on the reasoning that "either field can be the one
+        /// a file states" - but ffprobe prints <c>dv_bl_signal_compatibility_id=0</c> for a field that was
+        /// never written just as it does for a declared 0, and the nibble was carved out of a
+        /// <c>reserved = 0</c> field in a later revision of the spec, so a record written before it
+        /// existed reads as 0 at its full 24 bytes with nothing malformed about it. Where the profile's
+        /// own definition fixes the base layer, the profile is therefore the authority and the nibble is
+        /// not: the three lists below are that, and the fall-through keeps the old conservative default
+        /// for a profile nobody here has enumerated.
+        /// <para/>
+        /// **Nobody was hitting it, and the honest reason to have changed it is the comment rather than
+        /// the behaviour.** The shape this was suspected of refusing is the ordinary UHD Blu-ray remux,
+        /// and profile 7 does not carry 0: FFmpeg's own FATE reference output records real ffprobe
+        /// readings of three real profile-7 samples, all <c>dv_bl_signal_compatibility_id=6</c>
+        /// ("Blu-ray"), at <c>dv_version_major=1</c>. Measured over 22 fixtures carrying injected
+        /// <c>dvcC</c> records - each read back through the bundled ffprobe exactly as injected, and each
+        /// put through this method by reflection into the built assembly - the old rule and this one
+        /// differ on four rows, and every one of them is a deprecated profile or a malformed record:
+        /// profile 2 or 7 with an undeclared nibble, a 4-byte record (the only length that reaches
+        /// FFmpeg's "0 stands for None" synthesis, and not a length any muxer writes), and a profile 8
+        /// declaring 0, which is self-contradictory. Neither <c>mkvmerge</c> nor an ffmpeg MP4-to-MKV
+        /// remux zeroes the nibble - both measured, the id survives intact - so there is no ordinary
+        /// route to the wrongly-refused shape either.
+        /// <para/>
+        /// The one thing the old rule's second clause genuinely bought is kept: it is what catches AV1
+        /// profile 10 declaring 0, which is the same IPT-PQ-c2 base layer under another codec and which
+        /// a test on the profile number alone would let through.
         /// </summary>
         public static bool HasUnusableBaseLayer(VideoColorData d)
         {
-            return HasDolbyVision(d) && (d.DvProfile == DvProfileIpt || d.DvBlCompatId == DvBlCompatNone);
+            if (!HasDolbyVision(d))
+                return false;
+
+            if (DvProfilesWithoutBaseLayer.Contains(d.DvProfile))
+                return true;
+
+            if (DvProfilesWithReadableBaseLayer.Contains(d.DvProfile))
+                return false;
+
+            return d.DvBlCompatId == DvBlCompatNone;
         }
+
+        /// <summary> The profiles carrying no cross-compatible base layer at all, whatever their
+        /// compatibility nibble says - the three whose codec string ends in <c>n</c> for "none":
+        /// <c>dvav.pen</c> (1), <c>dvhe.den</c> (3) and <c>dvhe.stn</c> (5). Only 5 is in circulation;
+        /// the other two never shipped to consumers and cost nothing to name. Profile 0 belongs with
+        /// them by name and is deliberately absent, being unreachable: <see cref="HasDolbyVision"/>
+        /// tests <c>DvProfile &gt; 0</c>, so a file declaring it reads as carrying no Dolby Vision at
+        /// all. </summary>
+        private static readonly int[] DvProfilesWithoutBaseLayer = { 1, 3, DvProfileIpt };
+
+        /// <summary> The profiles whose base layer is an ordinary SDR or HDR10 picture by definition, so
+        /// no reading of the compatibility nibble can make one unviewable: <c>dvhe.der</c> (2),
+        /// <c>dvhe.dtr</c> (4), <c>dvhe.dth</c> (6), <c>dvhe.dtb</c> (7 - the UHD Blu-ray dual-layer
+        /// shape, and the common one) and <c>dvav.se</c> (9). 8 is deliberately not here: its
+        /// sub-profile *is* the nibble, so there the field is the answer. Neither is 10 or 20, whose
+        /// base layers this session could not settle - 20 is stereoscopic MV-HEVC rather than the AV1
+        /// profile it is easily mistaken for - so both keep the conservative default. </summary>
+        private static readonly int[] DvProfilesWithReadableBaseLayer = { 2, 4, 6, 7, 9 };
 
         /// <summary>
         /// SVT-AV1's two HDR static metadata flags, built from what the file itself declares, or "" where
@@ -418,8 +490,17 @@ namespace Nmkoder.Utils
         /// <summary> Profile 8, the single-layer one whose sub-profile is its compatibility id. </summary>
         public const int DvProfileSingleLayer = 8;
 
-        /// <summary> Base layer compatibility id 0: nothing can read this file's pictures without
-        /// applying its RPU. 1 is HDR10, 2 is SDR and 4 is HLG, and all three are readable. </summary>
+        /// <summary> Profile 10, the AV1 one - the same single-layer arrangement as 8, sub-profile and
+        /// all, over a different codec, so 10.0 is the IPT-PQ-c2 base layer that profile 5 is over
+        /// HEVC. Not to be confused with profile 20, which is stereoscopic MV-HEVC rather than the
+        /// second AV1 profile the number looks like. </summary>
+        public const int DvProfileAv1 = 10;
+
+        /// <summary> Base layer compatibility id 0. 1 is HDR10, 2 is SDR, 4 is HLG and 6 is Ultra HD
+        /// Blu-ray, all of them readable; 0 is the value for "no cross-compatibility" - **and equally
+        /// the value for a field that was never written**, which is why
+        /// <see cref="HasUnusableBaseLayer"/> only believes it for a profile whose own definition does
+        /// not settle the question. </summary>
         public const int DvBlCompatNone = 0;
 
         /// <summary>

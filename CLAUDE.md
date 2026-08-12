@@ -976,6 +976,52 @@ quantizer search - it settles on the value that hits the target at the *source's
 value is then used on chunks encoded at another. Nothing here can fix that, so the tab says so
 whenever a target mode meets a filter chain, naming both sizes when the frame changes size.
 
+**"The filters set on this tab" was the wrong unit for that note, and it made it contradict its own
+size clause.** What the probes cannot see is what is left in the *per-chunk* chain, which is not the
+same set: where the tone map renders as a pass in front, its output **is** av1an's input, so the tone
+map - and when the geometry folds in with it, the crop, resize and borders - are baked in and every
+probe does see them. The size clause was already suppressed for that case (`!frame.GeometryInPass`)
+while the sentence above it went on asserting the general claim that implies it. The two halves are
+said apart now, which is why `GetFilteredTargetQualityNote` takes the source colour: `Av1an.Run` may
+already have swapped the file's colour for the one the *encoder* is told about, so asking "is this run
+tone mapping" against the file answers no.
+
+**The tone map earns its own clause, because it is the largest of these effects and the only one whose
+direction cannot be predicted.** Measured through the app's own chain and the shipped SVT-AV1-HDR
+binary on two PQ sources: the probes score the HDR frames **2-3 VMAF points high** on bright content
+and **4-7 points low** on dark content - **+5.5 and -9.5 CRF steps** against a VMAF 95 target, where
+the resize skew this note has always named is **1.7 to 2.2 steps** on the same harness. The sign
+follows which way the roll-off moves the picture's mean (428.6 to 564.8 on the bright fixture, 313.0 to
+243.3 on the dark one), so it belongs to the content and **no fixed offset corrects it** - which is why
+the clause states both directions rather than warning about one. Re-rendering the dark fixture with the
+bright one's gentler roll-off halved the gap without flipping it, so the peak sets the magnitude and
+the content sets the sign. A frame rate resample gets a line too: it changes no size, so the size
+clause never covered it, and it never folds into the pass - the scene-detection overlap's invariant
+keeps it per chunk.
+
+**Nothing in any av1an fixes this rather than describing it, and `--proxy` is the one that looks like
+it does.** Read out of the shipped binary (`0.5.2-unstable`, rev `7df934d`, hash-matched to the release
+asset): of its 63 options exactly two touch filters, `--ffmpeg` (which reaches the chunk encode alone,
+at `context.rs` 570/630/658) and `--vmaf-filter`. `--proxy` substitutes a different input for scene
+detection *and* target quality, and unlike `--vmaf-filter` it is symmetric - both the probe encode and
+the metric reference read it - so it clears the bar on paper. It is still not adoptable here. It wants
+the filtered frames to **exist**, as a file or a `.vpy`, which is a render pass this tab has no room
+for and which VapourSynth could not express the zscale tone map or bwdif in anyway; and **on a resume
+with a rendered video proxy it goes wholly inert** - `vs_proxy_script` is built only when the proxy is
+VapourSynth or the chunk method is a VS one *and* it is not a resume, so the probes go quietly back to
+the unfiltered source with no error and no warning, on a tab that supports resume. Two objections that
+look plausible are *not* the reason and should not be repeated: av1an **does** enforce the frame count
+(`settings.rs::validate` bails with "Input and Proxy do not have the same number of frames!"), and the
+"filtered reference against unfiltered probe encode" hazard is unreachable, since av1an refuses the
+VapourSynth-scored metrics on non-VS chunk methods before a chunk exists.
+
+Three flags on av1an's docs site - `--probing-speed`, `--probe-slow`, `--min-q`/`--max-q` - are **in no
+binary**; `--probe-video-params` and `--qp-range` replaced them, and the site is stale. `--probe-res`
+scales what the metric is *computed* at, not what the probe *encodes*, so a 4K probe rescaled to 1080p
+for scoring is still a 4K encode. None of this was run - there is no av1an that executes in a web
+session, the release binary being a Windows PE - so it is exact-revision source plus the binary's own
+strings, which is documentation-grade and labelled as such.
+
 `--vmaf-filter` is not the way out and was actively making it worse. It filters the *reference*
 VMAF is scored against while the probe stays unfiltered, so passing this tab's chain compared a
 filtered reference with an unfiltered encode: with a resize, a sharp probe against a softened
@@ -3597,20 +3643,84 @@ ignores the RPU shows perfectly well, just without the per-scene refinement. **P
 exception and the reason any of this is here**: its base layer is IPT-PQ-c2, which is not YCbCr at
 all, so read as though it were, the colours come out the notorious magenta and green.
 
-`VideoColorData.DvProfile` and `DvBlCompatId` carry it, `ColorDataUtils.HasUnusableBaseLayer` is the
-question the row asks, and **the compatibility id is the field that matters rather than the profile
-number** - it is the direct statement of "can a decoder that ignores the RPU show this", 0 meaning no
-and 1/2/4 meaning HDR10/SDR/HLG. Both are checked anyway, since either can be the one a file states.
+`VideoColorData.DvProfile` and `DvBlCompatId` carry it and `ColorDataUtils.HasUnusableBaseLayer` is the
+question the row asks. **A compatibility id of 0 is not always a declaration, and reading it as one is
+what this used to get wrong.** The rule was `profile == 5 || compat == 0`, on the reasoning that either
+field can be the one a file states - but ffprobe prints `dv_bl_signal_compatibility_id=0` for a field
+that was never written just as it does for a declared 0, the nibble having been carved out of a
+`reserved = 0` field in a later revision of the spec, so a record written before it existed reads as 0
+at its full 24 bytes with nothing malformed about it. Where the profile's own definition fixes the base
+layer, the profile is the authority: 1, 3 and 5 are the profiles whose codec string ends in `n` for "no
+cross-compatibility" and whose base layer is IPT whatever the nibble says; 2, 4, 6, 7 and 9 are SDR or
+HDR10 by definition and cannot be made unviewable by it; 8, 10, 20 and anything unknown fall through to
+believing the field, which is what still catches **10.0**, the same IPT base layer under AV1 that a
+test on the profile number alone would miss.
+
+**Nobody was hitting it, and the comment was the better reason to change it than the behaviour.** The
+shape it was suspected of refusing is the ordinary UHD Blu-ray remux, and profile 7 does not carry 0 -
+FFmpeg's own FATE reference output records real ffprobe readings of three real profile-7 samples, all
+compatibility id **6** ("Blu-ray"), at `dv_version_major` 1. Measured over 26 injected-`dvcC` fixtures
+through the built assembly, the old rule and the new one differ on six rows, every one a deprecated
+profile or a malformed record. Neither mkvmerge nor an ffmpeg MP4-to-MKV remux zeroes the nibble, both
+measured, so there is no ordinary route to one either. `DescribeDolbyVisionProfile` gained profile 10's
+dot in the same change: **10.0 is refused and 10.1 is not**, and both read as "profile 10" in the
+refusal that names this string. Profile 8 stays undotted for a declared 0, that one being malformed
+rather than meaningful, and profile 0 is unreachable - `HasDolbyVision` tests `DvProfile > 0`.
 
 **The refusal is on the CPU path and only there.** A zscale chain does no reshaping whatever, so it
 cannot produce the right picture from a profile 5 file - that is a property of the bitstream rather
 than a guess about a tool, which is what earns it a place beside the crop and frame-size refusals
-rather than a warning. libplacebo is the other half and is deliberately *not* refused: it applies an
-RPU where its build carries libdovi, so the same file may well come out right there. Whether the
-bundled build carries it is **not measured and cannot be from here**, so that path warns in the log
-and the run goes ahead - refusing on an unmeasured guess would take away a conversion that probably
-works. `ToneMapUi.LogDolbyVision` is written as the conditional it is ("where this FFmpeg was built
-with libdovi") rather than as a promise.
+rather than a warning.
+
+**libplacebo is the other half, it is deliberately not refused, and the dependency was never libdovi.**
+This file used to hedge that libplacebo "applies an RPU where its build carries libdovi" and that
+whether the bundled build carries it was not measurable from here. Both halves were wrong. libplacebo
+can be built against libdovi to parse RPUs *itself*, which is how a player uses it - but inside ffmpeg
+it never has to, because ffmpeg has already parsed the RPU with its own decoder and attached it to the
+frame, and `vf_libplacebo`'s `apply_dolbyvision` option, **on by default**, is what hands it to the
+reshape shader. Measured against the bundled build, which carries no libdovi at all (zero `dovi` hits
+in `-buildconf`): a real profile 5 RPU rendered with `apply_dolbyvision=0` comes out **bit-identical**
+to the same stream stripped of its RPU, and with it on comes out a different picture. The fixture's RPU
+carries an *identity* polynomial, so what moved is the IPT interpretation itself rather than a
+reshaping curve - which is the stronger proof, since it rules out "only the reshaper fired".
+
+Applied is measured; **correct is not**. Proving the render matches a Dolby-licensed decoder needs a
+real profile 5 source and a reference, and no session here can obtain either. `LogDolbyVision` says
+what happens rather than hedging about how the binary was configured, and the comment on it marks which
+half is which.
+
+**dovi_tool is not a way back in for the CPU path, and the refusal used to say it was.** The message
+sent people to "dovi_tool's mode 2". Measured against dovi_tool 2.3.3 and a real generated profile 5
+RPU: a P5 stream and its mode 2 and mode 3 conversions decode to **one framemd5**, and this app's own
+chain - `GetFilterArgs` as it is built, `gbrpf32le` and all seven side-data deletes included - produces
+**byte-identical** output from all three. dovi_tool rewrites the RPU's `ycc_to_rgb`/`rgb_to_lms`
+matrices from IPT-PQ-c2 to BT.2020 NCL over samples it does not touch: it swaps the *instruction*, not
+the picture. (Mode **3** is the tool's own name for the P5 conversion, not 2, though the two produce
+byte-identical files - `To81` and `Profile5To81` map to the same `ConversionMode`.)
+
+It is worse than a no-op twice over, which is why the advice had to go rather than merely be corrected.
+On the **GPU** path the conversion destroys the render that works: libplacebo draws a third picture
+from the converted file, 11.00 dB from the correct one and 38.59 dB from the base layer. And a
+converted file declares **profile 8** once remuxed by anything that writes a `dvcC`, which is the field
+this refusal reads - so following that advice turned a loud refusal into a **silent wrong output**,
+which is the one outcome worth going out of the way to prevent. The message now says the GPU route and
+that converting first will not help, and says why in one clause.
+
+**Bundling dovi_tool was weighed and is not wanted, and it is worth recording that the obstacle is not
+the packaging.** It would be the easiest tool in `bundle-tools.sh` and the opposite of grav1synth in
+every respect that made grav1synth painful: MIT, prebuilt release assets for all four RIDs (win-x64
+3.3 MB exe, linux-x64 4.1 MB `static-pie` musl with no glibc floor, one `lipo` universal macOS binary
+covering osx-x64 *and* osx-arm64 - where grav1synth must be compiled, needs ffmpeg dev headers pinned
+to n7.1 on Windows, and is skipped outright on osx-x64), a single self-contained binary with no runtime
+libraries, ~3-6 MB per archive. It simply has nothing to do here. Profile 7 FEL/MEL to 8.1 buys nothing
+- `HasUnusableBaseLayer` is already false for profile 7, so the tone map already runs correctly, and
+the chain deletes all seven HDR side-data kinds anyway. RPU **stripping** is already in-house:
+`-bsf:v dovi_rpu=strip=1` leaves the pixels bit-identical with zero DV side data left. ffmpeg's own
+`dovi_rpu` bsf offers only `strip` and `compression` and `dovi_split` only picks BL/EL/RPU, so **no
+bundled tool can convert a profile** - that part is real, it just is not worth a fourth binary. One
+thing to carry forward if it is ever revisited: a *refused* conversion still left a partial output file
+behind, so the caller would have to judge the artifact and the tool's own "Done" line, exactly as this
+project already does for ffmpeg and grav1synth.
 
 **The probe is a second ffprobe, and that is the one arrangement that is safe rather than a tidiness
 failure.** The configuration record is *stream* side data, so `-show_frames` never prints it -
