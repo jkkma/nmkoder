@@ -655,6 +655,69 @@ tool will be *launched* with rather than this process's own, because
 full PATH would vouch for an mkvmerge in Program Files that the launcher then
 cannot resolve, which is the same mystery under a new name.
 
+## The file list and the track list
+
+**`TrackList.SetAsMainFile` empties the stream list, and every caller has to say what it wants of
+that.** It is the one place a file becomes *the loaded file* - it scans the file, points
+`TrackList.current` at it, rewrites the format label, resets the per-track audio configuration and
+re-inits both encode tabs - and in the middle of all that it clears `TrackList.Items`, because those
+streams belong to the file being replaced. Two bugs came out of that clear in one session, and they
+are the same bug twice: **something added streams and then something cleared them.**
+
+**Order, first.** `AddTracksFromFile_Click` - the Load Tracks button, and the double-click that calls
+it - was written as add-then-promote:
+
+```csharp
+await TrackList.AddStreamsToList(entry.File, entry.RowBrush, true);
+if (TrackList.current == null) await TrackList.SetAsMainFile(entry);
+```
+
+so the first iteration put the streams in and wiped them a moment later. **The three other call sites
+were all promote-then-add** (`FileList.HandleFiles`, `ApplyFileListMode`, `RunTask`), which is the
+order to keep. Only the first iteration was ever wrong, `current` being non-null from then on, which
+is what made it look like a selection bug. The way in is ordinary: dropping several files at once in
+Muxing Mode leaves `current` null, `HandleFiles` setting a main file only on its `Items.Count == 1`
+path, so the button landed with exactly the state the bug needed.
+
+Two consequences beyond the missing tracks, neither visible from reading it. `AddStreamsToList`
+unchecks a second video stream through its own `alreadyHasVidStream` test, so with the first file's
+video gone **the *second* file's video became the checked one** and the encode would have used the
+wrong video. And the file was scanned twice per press - `AddStreamsToList` initializing it, then
+`SetAsMainFile` initializing it again. Measured through the real window, four fixtures of 4, 2, 3 and
+1 streams: 10 items with the fix against 6 without, the first file contributing 4 against none.
+
+**Whether to clear at all, second.** `RefreshFileListUi` repairs the case where the loaded file is
+taken *out* of the file list, by promoting `FileList.Items[0]`. That path is the one caller that
+must **not** clear, and it said so already: `TrackList.Refresh` has just pruned exactly the departed
+file's streams and left every other file's alone, and `ClearCurrentFile` is called with its own
+`clearStreamList` false to keep them. `SetAsMainFile` then cleared regardless - so removing one file
+of several threw away the tracks of the ones that remained. It takes a `clearStreamList` parameter
+now, defaulting to the old behaviour so no other caller moves, and the repair passes false.
+
+That leaves the case where the promoted file has no streams in the list at all, which is the ordinary
+one - a single file loaded and removed. The repair loads its tracks, because everything else on screen
+already says that file is the loaded one. **Left empty it was not merely untidy**: `GetMappedStreams`
+returned nothing, `GetMapArgs` returned `""`, and the Run button still offered an encode with no
+`-map` arguments in it.
+
+**The obvious one-line fix here is wrong, which is why the shape matters.** Clearing and re-adding
+just the promoted file would fix the empty case and silently lose every *other* still-loaded file's
+tracks - and their checked states and order with them. Measured across three shapes (one file's tracks
+loaded, two, three): 53 checks pass, where the old code fails 21 of them, and the three-file shape is
+the one that catches a fix that re-adds rather than preserves - it keeps five rows where a re-adding
+fix leaves two, with both files' ticks and ordering byte-identical across the promotion.
+
+Compare stream entries to files by `MediaFile.ImportPath`, not by reference: `MediaFile` has no
+`Equals` of its own, and `Refresh`'s own pruning goes by path for the same reason.
+
+**Two states next door to this are pre-existing and were left alone**, both measured on the fixed and
+unfixed builds alike, so neither is fallout from the above. A promoted file's *video* can be unticked -
+`alreadyHasVidStream` unchecked it when it was added behind another file's video, and the promotion
+preserves ticks rather than reconsidering them - so the loaded file can end up mapping audio only.
+And a multi-file drop over an already-loaded file leaves the old file's rows in the list:
+`HandleFiles` calls `ClearCurrentFile` (whose `clearStreamList` defaults false) and `LoadFiles`, which
+reaches `RefreshFileListUi` but never `TrackList.Refresh`, so nothing prunes them.
+
 ## The AV1AN tab
 
 `bundle-tools.sh` fetches av1an's latest *release*. Anything that depends on an

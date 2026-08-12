@@ -156,7 +156,20 @@ namespace Nmkoder.UI
                 UiUtils.ShowMessageBoxAsync($"The following settings have been reset:\n{string.Join(", ", clearedSettings)}.", UiUtils.MessageType.Message);
         }
 
-        public static async Task SetAsMainFile(FileListEntry entry, bool switchToTrackList = true, bool generateThumbs = true, bool setWorking = true)
+        /// <summary>
+        /// Makes <paramref name="entry"/> the loaded file: scans it, points <see cref="current"/> at it,
+        /// and rebuilds everything that describes the file being encoded.
+        /// <para/>
+        /// <paramref name="clearStreamList"/> is what almost every caller wants and one does not. The
+        /// stream list belongs to the old file, so emptying it is right for a load - and every caller
+        /// but one follows this with <see cref="AddStreamsToList"/> to refill it. The exception is
+        /// <see cref="Views.MainWindow.RefreshFileListUi"/>'s repair when the loaded file is taken out
+        /// of the file list: <see cref="Refresh"/> has already removed exactly that file's streams and
+        /// <see cref="ClearCurrentFile"/> is asked, through its own <c>clearStreamList</c>, to leave
+        /// the rest alone - so a promotion that cleared regardless threw away the streams of files
+        /// that are still loaded. Same parameter name as that method's, meaning the same thing.
+        /// </summary>
+        public static async Task SetAsMainFile(FileListEntry entry, bool switchToTrackList = true, bool generateThumbs = true, bool setWorking = true, bool clearStreamList = true)
         {
             if (setWorking)
                 Program.MainWin.SetWorking(true);
@@ -176,7 +189,9 @@ namespace Nmkoder.UI
             string br = current.File.TotalKbits > 0 ? $" - Bitrate: {FormatUtils.Bitrate(current.File.TotalKbits)}" : "";
             string dur = FormatUtils.MsToTimestamp(current.File.DurationMs);
             Program.MainWin.FormatInfoLabel.Text = $"{titleStr}Format: {current.File.Format} - Duration: {dur}{br} - Size: {FormatUtils.Bytes(current.File.Size)}";
-            Items.Clear();
+            if (clearStreamList)
+                Items.Clear();
+
             // The per-track audio settings describe the file being replaced, and AudioConfiguration
             // refuses to hand them to any other one. The dropdown that points at them has to come back
             // with them: left on "Configure each track separately" over nothing, GetAudioArgsForEachStream

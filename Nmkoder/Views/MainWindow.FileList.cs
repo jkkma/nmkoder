@@ -38,12 +38,30 @@ namespace Nmkoder.Views
             FileCountLabel.Text = $"{count} file{(count != 1 ? "s" : "")} loaded. " +
                 $"{(count > 1 && RunTask.currentFileListMode == RunTask.FileListMode.Mux ? "Double click any of them or use the Load Tracks button to load their tracks." : "")}";
 
+            // The loaded file has been taken out of the file list, so something else has to become the
+            // loaded one. TrackList.Refresh has already removed exactly that file's streams and left
+            // every other file's alone, which is why ClearCurrentFile is asked not to touch the list
+            // and why the promotion below is asked the same - it used to clear it regardless, so
+            // removing one file of several threw away the tracks of the ones that remained.
             if (TrackList.current != null && !FileList.Items.Any(x => x.File.Equals(TrackList.current.File)))
             {
                 TrackList.ClearCurrentFile();
 
                 if (RunTask.currentFileListMode == RunTask.FileListMode.Mux && FileList.Items.Count > 0)
-                    await TrackList.SetAsMainFile(FileList.Items[0], false);
+                {
+                    FileListEntry promoted = FileList.Items[0];
+                    await TrackList.SetAsMainFile(promoted, false, clearStreamList: false);
+
+                    // And if nothing of the promoted file's is in the list - the ordinary case, one
+                    // file loaded and removed - its tracks are loaded, because everything else on
+                    // screen now says that file is the loaded one. Left empty, the Track List showed
+                    // nothing while the format label described the promotion, GetMappedStreams
+                    // returned nothing, and the Run button still offered an encode with no -map
+                    // arguments at all. Compared by path rather than by reference: MediaFile has no
+                    // Equals of its own, which is what Refresh's own pruning goes by too.
+                    if (!TrackList.Items.Any(x => x.MediaFile != null && x.MediaFile.ImportPath == promoted.File.ImportPath))
+                        await TrackList.AddStreamsToList(promoted.File, promoted.RowBrush, false);
+                }
             }
 
             QuickConvertUi.RefreshFileListRelatedOptions();
