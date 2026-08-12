@@ -31,8 +31,10 @@ permissive anyway; trim or extend freely.
 **Skills** (`skills/*/SKILL.md`) - the four procedures sessions kept rebuilding from
 CLAUDE.md prose, distilled to executable form with templates, each validated by running it:
 
-- **release** - the whole cutting-a-release order of operations, hard rules first, plus
-  post-release asset and Scoop-manifest verification.
+- **cut-release** - the whole cutting-a-release order of operations, hard rules first, plus
+  post-release asset and Scoop-manifest verification. (Named `cut-release` because a skill
+  directory called `release/` is silently swallowed by `.gitignore`'s `[Rr]elease/` build
+  pattern - it happened, on the first commit of this layer.)
 - **headless-ui** - render the real UI to PNGs with Avalonia.Headless; templates build
   against the live csproj and rendered all six tabs here.
 - **win-compile-check** - compile `#if WINDOWS` code from Linux via EnableWindowsTargeting
