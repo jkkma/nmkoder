@@ -47,10 +47,34 @@ operations plus the verification commands. Where the two disagree, CLAUDE.md win
    Leaving `publish` off or false produces a *draft* nobody can install (and a draft also
    stands the Scoop-manifest step down). The run takes roughly six minutes.
 
-5. **Watch it land**: poll the run via `mcp__github__actions_list`/`actions_get` until it
-   completes. The workflow itself gates the known packaging failures (BinFiles present,
-   bin/ffmpeg + bin/ffprobe non-empty on linux/win, QTGMC and metric plugins render on
-   win-x64), so a green run means those checks ran - a red run's job logs name the gate.
+5. **Watch it land.** Find the run id, then poll it:
+
+   ```bash
+   curl -fsSL "https://api.github.com/repos/jkkma/nmkoder/actions/workflows/release.yml/runs?per_page=3" \
+     | jq -r '.workflow_runs[] | "\(.id)  \(.status)/\(.conclusion // "-")  \(.display_title)"'
+   .claude/skills/cut-release/scripts/watch-run.sh <run-id>      # 0 success, 1 failed, 2 timeout, 3 API unreadable
+   ```
+
+   The workflow itself gates the known packaging failures (BinFiles present, bin/ffmpeg +
+   bin/ffprobe non-empty on linux/win, QTGMC and metric plugins render on win-x64), so a
+   green run means those checks ran - a red run's job logs name the gate.
+
+   **Do not poll with `mcp__github__actions_list`**: `list_workflow_runs` on this repo
+   returns ~342,000 characters and is refused for exceeding the token limit, so it cannot
+   be used to watch anything. The REST endpoint above returns the same three rows in a few
+   hundred bytes.
+
+   **And do not round-trip the JSON through `echo` in a shell script.** `/bin/sh` here is
+   dash, whose builtin `echo` expands backslash escapes - so `j=$(curl ...); echo "$j" | jq`
+   turns every `\n` inside a JSON string (commit messages are full of them) into a real
+   newline and jq dies with "control characters from U+0000 through U+001F must be
+   escaped". Measured: the same bytes through `printf '%s'` parse clean, and the response
+   itself contains **zero** control bytes - the shell was creating them, so stripping
+   control characters is a fix for the wrong thing. Pipe curl straight into jq.
+   `watch-run.sh` does both of these correctly and counts consecutive failures, because the
+   loop this replaces errored on all 22 of its polls and kept going, reporting nothing,
+   while the run had already gone green: **a poller that fails every iteration looks
+   exactly like one that is waiting.**
 
 ## Verifying the published release
 
