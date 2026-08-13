@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Nmkoder.Data
 {
@@ -374,18 +376,42 @@ namespace Nmkoder.Data
         /// </summary>
         public string GetFilterArgs(Size storage, Size sar)
         {
+            return string.Join(",", GetScaleFilters(storage, sar).Concat(GetTrailingFilters(storage, sar)));
+        }
+
+        /// <summary>
+        /// The half of this resize that produces the picture: the scale, and the crop that trims it to an
+        /// exact box. Nothing here adds a pixel that was not in the source.
+        /// <para/>
+        /// It is split from <see cref="GetTrailingFilters"/> so a caller can put something between the two,
+        /// and there is exactly one caller that needs to - the AV1AN tab's tone map, which belongs below
+        /// everything that scales and above everything that pads. Whatever a letterbox lays down has to be
+        /// black in the signal being *written*, and bars laid down before a roll-off are not: measured,
+        /// Y=66 rather than 64, because ffmpeg's own pad writes 10-bit black with U=V=514 - 8-bit 128
+        /// scaled by 1023/255 rather than by 4 - and that 2/1023 of chroma becomes 2/1023 of luma the
+        /// moment a tone map reads it as colour.
+        /// <para/>
+        /// <see cref="GetFilterArgs"/> is these two joined, in this order, so every caller that wants the
+        /// whole segment gets the string it always got.
+        /// </summary>
+        public List<string> GetScaleFilters(Size storage, Size sar)
+        {
+            List<string> filters = new List<string>();
             Size src = GetSourceSize(storage, sar);
 
             if (Mode == ResizeMode.Disabled || src.Width <= 0 || src.Height <= 0)
-                return "";
+                return filters;
 
             Size outSize = Compute(storage, sar);
 
             if (outSize.IsEmpty)
-                return "";
+                return filters;
 
             if (Mode != ResizeMode.Exact || Fill == ResizeFill.Stretch)
-                return $"scale={outSize.Width}:{outSize.Height}{FlagsArg()},setsar=1:1";
+            {
+                filters.Add($"scale={outSize.Width}:{outSize.Height}{FlagsArg()}");
+                return filters;
+            }
 
             int mod = SafeModulus;
             double aspect = GetAspect(storage, sar);
@@ -395,18 +421,47 @@ namespace Nmkoder.Data
                 // The box is taken literally here - no turning it to match a portrait source, the way a
                 // preset's box is - because an exact size is the one mode where the user named the frame.
                 Size inner = FitInside(src, aspect, outSize, mod, AllowUpscale);
-                // Even offsets, so the picture starts on a chroma sample boundary rather than half way
-                // into one. ffmpeg would otherwise move it itself, silently, and the preview would be a
-                // pixel out from the file.
-                int x = (outSize.Width - inner.Width) / 2 / 2 * 2;
-                int y = (outSize.Height - inner.Height) / 2 / 2 * 2;
-                return $"scale={inner.Width}:{inner.Height}{FlagsArg()},pad={outSize.Width}:{outSize.Height}:{x}:{y}:color=black,setsar=1:1";
+                filters.Add($"scale={inner.Width}:{inner.Height}{FlagsArg()}");
+                return filters;
             }
 
             Size cover = CoverBox(src, aspect, outSize, mod);
             int cx = (cover.Width - outSize.Width) / 2 / 2 * 2;
             int cy = (cover.Height - outSize.Height) / 2 / 2 * 2;
-            return $"scale={cover.Width}:{cover.Height}{FlagsArg()},crop={outSize.Width}:{outSize.Height}:{cx}:{cy},setsar=1:1";
+            filters.Add($"scale={cover.Width}:{cover.Height}{FlagsArg()}");
+            filters.Add($"crop={outSize.Width}:{outSize.Height}:{cx}:{cy}");
+            return filters;
+        }
+
+        /// <summary> What closes the resize: the bars an exact-size letterbox puts around the picture,
+        /// where there are any, and the SAR flag that ends the segment in every mode. See
+        /// <see cref="GetScaleFilters"/> for why the two are separable. </summary>
+        public List<string> GetTrailingFilters(Size storage, Size sar)
+        {
+            List<string> filters = new List<string>();
+            Size src = GetSourceSize(storage, sar);
+
+            if (Mode == ResizeMode.Disabled || src.Width <= 0 || src.Height <= 0)
+                return filters;
+
+            Size outSize = Compute(storage, sar);
+
+            if (outSize.IsEmpty)
+                return filters;
+
+            if (Mode == ResizeMode.Exact && Fill == ResizeFill.Pad)
+            {
+                Size inner = FitInside(src, GetAspect(storage, sar), outSize, SafeModulus, AllowUpscale);
+                // Even offsets, so the picture starts on a chroma sample boundary rather than half way
+                // into one. ffmpeg would otherwise move it itself, silently, and the preview would be a
+                // pixel out from the file.
+                int x = (outSize.Width - inner.Width) / 2 / 2 * 2;
+                int y = (outSize.Height - inner.Height) / 2 / 2 * 2;
+                filters.Add($"pad={outSize.Width}:{outSize.Height}:{x}:{y}:color=black");
+            }
+
+            filters.Add("setsar=1:1");
+            return filters;
         }
 
         private string FlagsArg()

@@ -327,7 +327,10 @@ namespace Nmkoder.Data
         /// video signal - and, importantly, retags the frames as it goes, which is what makes the output
         /// correct without a single explicit colour argument anywhere. Measured through the real command
         /// shape: the file comes out tagged bt709/bt709/bt709. The HDR side data is a separate matter -
-        /// see <see cref="HdrSideDataDeletes"/>, which now ends the chain.</item>
+        /// see <see cref="HdrSideDataTypes"/>, which now ends the chain.</item>
+        /// <item><see cref="ClampFilters"/> bound the result, because the five filters above it emit
+        /// values <b>past</b> 1.0 and what happened to those used to be decided by whatever filter came
+        /// next. See its own note.</item>
         /// </list>
         /// </summary>
         public string GetFilterArgs(VideoColorData src)
@@ -361,10 +364,70 @@ namespace Nmkoder.Data
             chain.Add("zscale=primaries=bt709");
             chain.Add($"tonemap=tonemap={GetCurveName(libplacebo: false)}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
-            chain.AddRange(HdrSideDataDeletes);
+            chain.AddRange(ClampFilters);
+            chain.AddRange(GetHdrSideDataDeletes());
 
             return string.Join(",", chain);
         }
+
+        /// <summary>
+        /// What ends the zscale chain, and it is there to <b>bound</b> the result rather than to convert
+        /// anything: 16-bit RGB cannot hold a value past 1.0, so the clamp is the conversion.
+        /// <para/>
+        /// **This chain emits superwhite, and it is <c>desat</c> that puts it there.** The curve does map
+        /// <see cref="GetTonemapPeak"/> to SDR white, but only with the filter's desaturation off:
+        /// measured on a PQ source declaring 1000 nits (so linear 3.766 at the anchor, passed as
+        /// <c>peak=3.75</c>), <c>tonemap</c> returns <b>1.002</b> at <c>desat=0</c> and <b>1.405</b> at
+        /// ffmpeg's default of 2. The default is not something to "fix" - it is what puts 100 and 203
+        /// nits on 126 and 169 of 255, against libplacebo's 129 and 170, where <c>desat=0</c> gives 147
+        /// at 203 nits and is nowhere near the reference. So the overshoot is the price of the
+        /// calibration, and what needed settling is only where it lands.
+        /// <para/>
+        /// **Without this, that was decided by the geometry rather than by anything anyone set.** The
+        /// last zscale hands on <c>gbrpf32le</c>, and whether the out-of-range values survived depended on
+        /// what came after: with no geometry, or with border bars alone, zimg carried them into
+        /// superwhite; with a resize below the chain - which is Quick Convert's shape - swscale destroyed
+        /// them. Measured on band centres, 10-bit limited Y, a 1000-nit band: <b>1023</b> for the tone map
+        /// alone and for tone map + borders, <b>943</b> for tone map + resize. Two pictures from one
+        /// setting, told apart by a resize that has nothing to do with luminance.
+        /// <para/>
+        /// **It is not the conversion that clips - it is swscale doing any work at all.** Measured in
+        /// isolation on synthetic float: a resample with no format change clips, a format change with no
+        /// resample clips, and only a genuine no-op (same size *and* same format) passes -0.5 and 4.0
+        /// through intact. The reason is that swscale quantises float onto the k/65535 lattice and clips
+        /// to exactly [0.0, 1.0] on entry, whatever it is then asked to do - 0.9999 lands on 65531,
+        /// 1.0001 on 65535 - and nothing changes it: every <c>flags=</c> from neighbor to spline, every
+        /// <c>-intent</c>, every <c>-sws_backends</c>, and <c>out_range=full</c> only moves the same clip
+        /// to 0/1023. So "which filter converts" is the wrong question to ask of this chain, and a rule
+        /// built on it makes a prediction that fails: put a zscale after a swscale resize and zimg does
+        /// the conversion while the superwhite is *still* gone, swscale having destroyed it upstream.
+        /// <para/>
+        /// Clamping is the half to keep of those two. It is what the reference implementation does - the
+        /// libplacebo note above records its top landing on 235 of 255, which is nominal white - and
+        /// superwhite in a stream tagged limited range is detail a conformant player discards anyway,
+        /// after paying bits to encode it.
+        /// <para/>
+        /// <c>gbrp16le</c> rather than a YUV format because geometry may still follow: pinning 4:2:0 here
+        /// would subsample the chroma before a scale rather than after it. Sixteen bits of gamma-encoded
+        /// RGB is past what any output here carries, so the bound costs no precision.
+        /// <para/>
+        /// **The zscale after it is not redundant, and dropping it moves the whole picture.** Its job is
+        /// to claim the RGB to YUV for zimg, because swscale's own limited-range conversion runs
+        /// <b>hot</b>: measured on integer input, swscale gives 64/284/504/724/943 where zimg gives
+        /// 64/283/502/721/940, and the gain scales with depth - +1 at 8-bit, <b>+3 at 10-bit</b>, +14 at
+        /// 12-bit, +219 at 16-bit, consistent with scaling the 8-bit limited gain by (2^n-1)/255 instead
+        /// of 2^(n-8). Left to swscale the chain reads 506/680/915 where this app's documented
+        /// calibration is 505/677/912 - the 126 and 169 at 100 and 203 nits that
+        /// <see cref="AnchorNits"/> was chosen against libplacebo's 129/170 to hit, which would become
+        /// 127 and 170. Measured, the pair together move the six saturated patches by <b>0/1023</b>
+        /// against the pre-clamp chain, where the format alone moves them by 2, and it costs nothing:
+        /// 4.71s against 4.61s and 758 MB against 790 on 24 frames of 4K.
+        /// <para/>
+        /// The libplacebo chain does not carry either. That backend maps to nominal white itself, so it
+        /// has no out-of-range values for a downstream filter to disagree about - and there is no GPU in a
+        /// web session to measure one on, which is not a thing to add a filter on the strength of.
+        /// </summary>
+        private static readonly string[] ClampFilters = { "format=gbrp16le", "zscale=matrix=bt709:range=tv" };
 
         /// <summary>
         /// The tail both chains share: the frames' HDR side data deleted, because after a tone map it
@@ -379,12 +442,12 @@ namespace Nmkoder.Data
         /// describing the reshaping of frames that have since been tone-mapped is not merely stale
         /// but actively wrong, and the x265 wrapper can write RPUs too.
         /// </summary>
-        private static readonly string[] HdrSideDataDeletes =
+        public static readonly string[] HdrSideDataTypes =
         {
-            "sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA",
-            "sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL",
-            "sidedata=mode=delete:type=DOVI_METADATA",
-            "sidedata=mode=delete:type=DOVI_RPU_BUFFER",
+            "MASTERING_DISPLAY_METADATA",
+            "CONTENT_LIGHT_LEVEL",
+            "DOVI_METADATA",
+            "DOVI_RPU_BUFFER",
             // The dynamic three, which the static four above left behind. HDR10+ is the one that is
             // ordinary rather than exotic - a per-scene tone-mapping curve, carried by a good deal of
             // streaming and disc content and by every file this app's own encoders can be told to write
@@ -406,10 +469,46 @@ namespace Nmkoder.Data
             // "the chain drops it" was an encoder's behaviour mistaken for the chain's. The ffmpeg
             // underneath this app is BtbN's rolling master; a wrapper that gains passthrough next month
             // reopens the hole in a build nobody here chose.
-            "sidedata=mode=delete:type=DYNAMIC_HDR_PLUS",
-            "sidedata=mode=delete:type=DYNAMIC_HDR_VIVID",
-            "sidedata=mode=delete:type=AMBIENT_VIEWING_ENVIRONMENT",
+            "DYNAMIC_HDR_PLUS",
+            "DYNAMIC_HDR_VIVID",
+            "AMBIENT_VIEWING_ENVIRONMENT",
         };
+
+        /// <summary>
+        /// The type names the ffmpeg in front of us actually has, or null until it has been asked - which
+        /// is what <see cref="Media.ToneMap.ResolveSideDataSupportAsync"/> fills in, once per session, and
+        /// what <see cref="UI.Tasks.ToneMapUi.ResolveBackendAsync"/> awaits before any chain is built.
+        /// <para/>
+        /// **Four of the seven names above do not exist before FFmpeg master, and `type` takes an enum, so
+        /// a name a build does not have fails the filter graph outright.** Measured against Ubuntu 24.04's
+        /// own 6.1.1 and a johnvansickle 7.0.2 static: `DOVI_RPU_BUFFER`, `DOVI_METADATA`,
+        /// `DYNAMIC_HDR_VIVID` and `AMBIENT_VIEWING_ENVIRONMENT` are in neither, and the graph dies on the
+        /// first of them with "Undefined constant or missing '(' in 'DOVI_METADATA'" having written
+        /// nothing. That is not a hypothetical build: the bundle is missing on macOS by design and has
+        /// been missing from linux-x64 archives before, and the app then falls back to whatever ffmpeg is
+        /// on the PATH - so on the current Ubuntu LTS every tone-mapped encode failed before it started.
+        /// The comment on the list above predicted exactly this and it arrived through the fallback rather
+        /// than through a bad name.
+        /// <para/>
+        /// Null or empty means unprobed or unreadable and the whole list goes out, which is what happened
+        /// before this existed and is right for the build that ships. **An empty parse is a failed probe,
+        /// not an ffmpeg with no side data types** - reading it as the latter would silently stop deleting
+        /// on some future help-text format, and a leak nobody is told about is worse than a name that
+        /// fails loudly.
+        /// </summary>
+        public static string[] SupportedSideDataTypes = null;
+
+        /// <summary> The deletes to actually emit: every type this ffmpeg is known to have, or all of them
+        /// where it has not been asked. Both chains end with these. </summary>
+        private static IEnumerable<string> GetHdrSideDataDeletes()
+        {
+            IEnumerable<string> types = HdrSideDataTypes;
+
+            if (SupportedSideDataTypes != null && SupportedSideDataTypes.Length > 0)
+                types = types.Where(t => SupportedSideDataTypes.Contains(t));
+
+            return types.Select(t => $"sidedata=mode=delete:type={t}");
+        }
 
         /// <summary>
         /// The same job done by libplacebo, which is the better tone-mapper and is used wherever the
@@ -452,7 +551,7 @@ namespace Nmkoder.Data
         /// colour is stated on the filter itself so the frames come out tagged bt709/bt709/bt709 and
         /// limited, exactly as that chain's last zscale leaves them.
         /// <para/>
-        /// <see cref="HdrSideDataDeletes"/> closes the chain, as it does the zscale one and for the
+        /// <see cref="HdrSideDataTypes"/> closes the chain, as it does the zscale one and for the
         /// reason written on it.
         /// </summary>
         private string GetLibplaceboArgs(VideoColorData src)
@@ -466,7 +565,7 @@ namespace Nmkoder.Data
             chain.Add($"libplacebo=tonemapping={GetCurveName(libplacebo: true)}:peak_detect=1" +
                 ":colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv");
 
-            chain.AddRange(HdrSideDataDeletes);
+            chain.AddRange(GetHdrSideDataDeletes());
 
             return string.Join(",", chain);
         }

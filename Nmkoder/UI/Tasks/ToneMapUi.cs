@@ -323,6 +323,12 @@ namespace Nmkoder.UI.Tasks
             if (config == null || !config.RunsOn(src))
                 return;
 
+            // Before either backend, because both chains end with the side data deletes and a type name
+            // this ffmpeg does not have fails the whole graph having written nothing. Once per session -
+            // see ToneMap.ResolveSideDataSupportAsync, and ToneMapConfig.SupportedSideDataTypes for the
+            // builds this exists for.
+            await ToneMap.ResolveSideDataSupportAsync();
+
             // The AV1AN tab's policy settles the answer without asking the machine - a probe whose
             // answer would be discarded is a process launch for nothing. See
             // ToneMapConfig.ForceCpuChain for why that tab never runs libplacebo.

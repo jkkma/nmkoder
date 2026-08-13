@@ -933,9 +933,18 @@ per megapixel at 720p, 1080p and 1440p - so a base plus a slope is the whole mod
 would be inventing one. The spread between encoders is the part worth knowing: **SVT-AV1 wants two to
 three times what the others do** (605 MB/MP against x264's 397, x265's 275 and VP9's 194, all 10-bit),
 which is the same fact `ApplyWorkerCount` already acts on by giving it two workers fewer. A float step in
-the chain is the other big term: a tone map converts to `gbrpf32le` at the *source's* size, 12 bytes a
-pixel against a 10-bit 4:2:0 frame's 3, measured at 508 MB for a 3840x2076 source against 160 MB for the
-same chain without it. The reported encode comes to 2.3 GB a worker and 24.8 GB for eleven.
+the chain is the other big term: a tone map converts to `gbrpf32le`, 12 bytes a pixel against a 10-bit
+4:2:0 frame's 3, measured at 508 MB for a 3840x2076 source against 160 MB for the same chain without it.
+The reported encode comes to 2.3 GB a worker and 24.8 GB for eleven.
+
+**That float slope is charged against the *encoded* frame, not the source's**, which is where the tone
+map now runs - see "Where it sits in the chain" for why it moved below the scale. The rest of the chain
+stays on the source's size, the decode and every filter down to the scale still handling source-size
+frames. It is not a small correction on the case it was written for: measured on 4K to 1080p, 636 MB
+peak RSS with the roll-off above the scale against 337 MB below it, of which this model predicts 261.
+A custom filter converting to float *above* the scale is under-counted by that split, which is the
+right way round to be wrong for a floor - the alternative charged every tone-mapped downscale for
+pixels nothing has held since the roll-off moved.
 
 `RequiredHeadroom` is why it does not simply compare the two numbers. The estimate is a **floor**: the
 VapourSynth chunk methods hold a frame cache above the decoder that was measured, aomenc could not be
@@ -3304,8 +3313,10 @@ code values of the GPU result.
 
 Measured on PQ patches against a file declaring a 4000-nit mastering display, at 100 and 203 nits:
 libplacebo's `hable` gives 115/143 where the zscale chain gives 108/144, and its top lands on **235**
-- the nominal white of a limited-range signal - where the zscale chain runs to 247 and spends its
-brightest highlights in the superwhite a player clips. **The curve names map straight across** -
+- the nominal white of a limited-range signal - where the zscale chain ran to 247 and spent its
+brightest highlights in the superwhite a player clips. That last clause is history now: the chain ends
+in a bounded format and its top lands on 235 too - see "The chain ends bounded" below, which is also
+where the superwhite came from in the first place. **The curve names map straight across** -
 libplacebo has `hable`, `mobius` and `reinhard` under those names - so those three entries mean the
 same thing whichever backend they land on.
 
@@ -3677,19 +3688,174 @@ run over correctly tagged clips, so the clip's own frame tags supplied exactly w
 left out and the broken chain passed. **A filter that states what a frame already says is not being
 tested by a frame that says it.** The untagged sources are in the check now.
 
+### The chain ends bounded, because otherwise the geometry decided the picture
+
+**The zscale chain emits values past 1.0, and `desat` is what puts them there.** The curve does map
+`GetTonemapPeak` to SDR white - but only with the filter's desaturation off. Measured on a PQ source
+declaring 1000 nits (linear 3.766 at the anchor, passed as `peak=3.75`), `tonemap` returns **1.002 at
+`desat=0` and 1.405 at ffmpeg's default of 2**. The default is not a thing to fix: it is what puts 100
+and 203 nits on 126 and 169 of 255 against libplacebo's 129 and 170, where `desat=0` gives 147 at 203
+nits and is nowhere near the reference. So the overshoot is the price of the calibration this file
+already documents, and the only open question was where it lands.
+
+**It landed wherever the geometry put it, which is the bug.** The last zscale hands on `gbrpf32le`, and
+whether the out-of-range values survived depended on what came after: with no geometry, or with border
+bars alone, zimg carried them into superwhite; with a resize below the chain, swscale destroyed them.
+Measured on band centres, 10-bit limited Y, a 1000-nit band: **1023** for the tone map alone and for
+tone map + borders, **943** for tone map + resize. One setting, two pictures, told apart by a resize
+that has nothing to do with luminance. An upscale looked like an exception at maxY 1014 and was not -
+that is bicubic ringing at a band edge, and at band centres it clamps like every other resize, which is
+the reason to sample centres and never the frame maximum.
+
+**"Which filter converts" is the wrong question, and a rule built on it makes a prediction that
+fails.** Measured in isolation on synthetic float: a resample with no format change clips, a format
+change with no resample clips, and only a genuine no-op - same size *and* same format - passes -0.5 and
+4.0 through intact. swscale quantises float onto the k/65535 lattice and clips to exactly [0.0, 1.0] on
+entry whatever it is then asked to do (0.9999 lands on 65531, 1.0001 on 65535), and nothing changes it:
+every `flags=` from neighbor to spline, every `-intent`, every `-sws_backends`, with `out_range=full`
+only moving the same clip to 0/1023. The prediction that fails is putting a zscale after a swscale
+resize - zimg then performs the conversion and the superwhite is *still* gone, swscale having destroyed
+it upstream while resampling. So it is swscale doing any work at all, not swscale doing the conversion.
+
+`ToneMapConfig.ClampFilters` ends the chain with **`format=gbrp16le,zscale=matrix=bt709:range=tv`** and
+settles it. All seven geometry shapes now measure identically - 505/677/912/940 at 100/203/400/1000
+nits - with every pad at Y=64 and every predicted frame size exact. Clamping is the right half of the
+two: it is what the reference implementation does, and superwhite in a stream tagged limited range is
+detail a conformant player discards after paying bits to encode it. `gbrp16le` rather than a YUV format
+because geometry may still follow and pinning 4:2:0 here would subsample the chroma before a scale
+rather than after it; sixteen bits of gamma-encoded RGB is past what any output carries, so the bound
+costs no precision.
+
+**The zscale after it is not redundant, and dropping it moves the whole picture.** Its job is to claim
+the RGB to YUV for zimg, because swscale's own limited-range conversion runs **hot**: measured on
+integer input, swscale gives 64/284/504/724/943 where zimg gives 64/283/502/721/940, and the gain
+scales with depth - +1 at 8-bit, **+3 at 10-bit**, +14 at 12-bit, +219 at 16-bit, consistent with
+scaling the 8-bit limited gain by (2^n-1)/255 instead of 2^(n-8). Left to swscale the chain reads
+506/680/915 where the calibration `AnchorNits` was chosen to hit is 505/677/912 - the 126 and 169 at
+100 and 203 nits measured against libplacebo's 129/170, which would have become 127 and 170. Measured,
+the pair together move the six saturated patches by **0/1023** against the pre-clamp chain where the
+format alone moves them by 2, and it costs nothing: 4.71s against 4.61s and 758 MB against 790 on 24
+frames of 4K. The libplacebo chain carries neither - that backend maps to nominal white itself, so it
+has no out-of-range values to disagree about, and there is no GPU in a web session to measure one on.
+
+**The overshoot is a property of ffmpeg 7.0 and later rather than of the chain**, which is worth knowing
+before reading an old measurement against a new one. `tonemap`'s desaturation path changed in 7.0 and
+the new one *raises* in-gamut highlights: measured on the same fixture through three builds, the linear
+values entering the filter are bit-identical while 203/400/1000 nits leave it at 0.42517/0.92387/1.40489
+on master and 7.0.2 against **0.35508/0.59142/1.00194** on 6.1.1 - which is `hable(sig)/hable(peak)` by
+construction, reaching SDR white exactly at the declared peak. With `desat=0` all three agree to five
+decimals. So on 6.1.x a correctly-declared file has essentially nothing above 1.0 for a resize to clamp
+and the divergence shrinks to content brighter than the declared peak.
+
+**HLG overshoots further, and the bound covers it too.** That path passes neither `npl` nor `peak`, and
+`tonemap` with no peak defaults to **10**: measured, HLG signal 0.90 and 1.00 leave the filter at 1.08348
+and 1.19111, so reference white at 0.75 sits at 0.79709 and everything above it was superwhite.
+
+The two converters also disagree about where 1.0 itself lands, which is why the resize ceiling is 943 and
+not 940: measured on constant float patches, swscale clamps at 1.0 and writes **943** for every input from
+1.0 to 10.0, where zimg writes 940 for 1.0 and runs to the 10-bit ceiling above it.
+
+**The hypothesis this was found under was that the float link corrupts the matrix, and it does not.**
+Worth recording so it is not investigated twice. The mechanism is real - the conversion genuinely moves
+to the resize's swscale, `[Parsed_scale_13] fmt:gbrpf32le csp:gbr range:unknown -> fmt:yuv420p10le
+csp:bt709 range:tv` - but on the shipped build swscale picks **bt709 at every output size**, 3840x2160
+down to 320x240, so there is no BT.601 resolution heuristic to fall into. Measured, six saturated
+patches at 320x240 against the zimg reference: worst chroma delta **2/1023**, where a 601-vs-709 mix-up
+is tens to over a hundred. The clamp does not reopen it: with `format=gbrp16le` and no geometry the
+conversion moves to `auto_scale_0`, logging `fmt:gbrp16le csp:gbr range:pc -> fmt:yuv420p10le
+csp:bt709 range:tv`, and the same six patches come back within **2/1023** of the pre-clamp zimg
+reference on all of no geometry, borders and resize. Neutral bands would not have caught that - a
+matrix is invisible on greys, so colour patches are the check.
+
+**On ffmpeg 6.1.1 the hypothesis is exactly right, and it is unreachable.** That build's swscale does
+*not* honour the frame's colorspace: its log line carries no `csp:`/`range:` fields at all, and the
+artifact reads correctly only as BT.601 - the red patch decoding to (195.4, 0.2, 0.0) on BT.601 against
+(212.2, 19.0, 0) on BT.709, a **28.2 of 255** error, confirmed from the other side by forcing
+`out_color_matrix=bt601` on master and landing one code value away. Both the swscale fix and the
+tonemap change arrived in **7.0**. What keeps that hazard off users is not the fix but a different
+incompatibility, and it is a worse one - see below.
+
+**Four of the seven `sidedata` deletes do not exist before master, so a fallback ffmpeg refuses the
+whole chain.** `DOVI_RPU_BUFFER`, `DOVI_METADATA`, `DYNAMIC_HDR_VIVID` and `AMBIENT_VIEWING_ENVIRONMENT`
+are absent from 6.1.1 and 7.0.2 alike, and the graph dies on the first of them with "Undefined constant
+or missing '(' in 'DOVI_METADATA'" having written nothing. This is precisely what `HdrSideDataDeletes`'
+own comment predicts, arriving through the PATH fallback rather than through a bad name: on Ubuntu 24.04
+- the current LTS, and the likeliest machine to be running its own ffmpeg - **every tone-mapped encode
+failed before it started.** It also means the BT.601 hazard above cannot be met by any of the three
+builds measured, since the one that would get the matrix wrong will not run the chain at all. That is an
+accident of ordering rather than a defence, and it is not proof about builds nobody measured: an ffmpeg
+carrying the newer enum with an older swscale would hit it.
+
+`ToneMap.ResolveSideDataSupportAsync` is the fix, and it is the shape this codebase already uses for
+av1an and SVT flags: ask the binary what it has and emit only that. It reads `-h filter=sidedata` once
+per session, matches each name with a space either side - the table is columnar, so a bare Contains
+would also match a longer name ending in a shorter one - and fills
+`ToneMapConfig.SupportedSideDataTypes`, which `ToneMapUi.ResolveBackendAsync` awaits before either
+backend builds a chain. Verified by running it against all three builds: master keeps 7 of 7, and 6.1.1
+and 7.0.2 keep 3, dropping exactly the four named above. Then the artifacts rather than the parse - the
+full chain writes **nothing** on both older builds where the reduced chain writes a correct frame, and
+on master the two are the same size.
+
+Two things about it are deliberate. **An empty parse is a failed probe, not an ffmpeg with no side data
+types**: believing the latter would silently stop the chain deleting anything on some future change to
+the help text's shape, and a leak nobody is told about is worse than a name that fails loudly - so
+nothing parsed means the whole list goes out, exactly as before. And the drop is logged **visibly**
+rather than at debug, because what it costs is real: the encode now runs where it used to fail, and the
+price is that HDR metadata may survive onto an SDR file wherever the encoder carries frame side data
+through, which is the leak `HdrSideDataTypes` exists to prevent and which libx265 was measured doing.
+full: dumped, black is exactly **0.00000**, not 0.0627, so `range=tv` on an RGB output is a no-op for
+the sample encoding. The geometry is exact alongside it - predicted `Av1anFrame.Encoded` against actual
+output size with a tone map in the chain, **14/14** across exact pad/crop/stretch, upscale, anamorphic
+de-squeeze and DVD-plus-borders.
+
 ### Where it sits in the chain
 
-Second, right after the deinterlacer and **before both subtitle burn-ins** - which on Quick Convert
-means ahead of the bitmap overlay, which has to precede all the geometry. Subtitles are graphics
-drawn to BT.709 white: composited into an HDR frame and tone-mapped afterwards they are dragged
-through a gamut conversion and a highlight roll-off written for the picture. Measured on yellow
+**On Quick Convert** it is second, right after the deinterlacer and **before both subtitle burn-ins**
+- which means ahead of the bitmap overlay, and that one has to precede all the geometry. Subtitles are
+graphics drawn to BT.709 white: composited into an HDR frame and tone-mapped afterwards they are
+dragged through a gamut conversion and a highlight roll-off written for the picture. Measured on yellow
 subtitle text, (240, 236, 95) burnt in before the tone-map against (232, 232, 71) after it - the
-blue channel a third higher, which is the yellow washing out.
+blue channel a third higher, which is the yellow washing out. That constraint is what pins it above the
+geometry there, and it cannot be traded away: the bitmap overlay's position forces the issue.
 
-Ahead of the crop and the scale costs more than it needs to, this being the one filter here whose
-cost is per pixel. It is paid anyway: tone-mapping before and after a downscale was measured at a
-maximum difference of 3 code values out of 255, so the position is a subtitle question and not a
-picture one.
+**On the AV1AN tab it sits below the scale and above the border bars**, in
+`Av1anUi.BuildGeometryFilters`, which is the one place that chain's order is stated. It used to be
+second there too, purely to match Quick Convert - and this file and the comment both said that the
+reason settling it there, the burn-ins, does not exist on a tab with no subtitle burn-in at all.
+Parity was not worth its price. This is the one filter on that tab whose cost is per pixel and it was
+being paid at the **source's** size, so a 4K to 1080p encode ran the roll-off over four times the
+pixels it had to: measured on 24 frames of 3840x2160 in av1an's own per-chunk command shape, **4.36s
+and 636 MB peak RSS above the scale against 1.82s and 337 MB below it**. The memory is the half that
+matters, being per worker and on the axis `Av1anMemory` guards - where a machine that cannot hold them
+all fails in the unreadable way that class exists to explain.
+
+**It costs no detail, and that is the objection to answer rather than wave at.** Neither position
+averages light: above the scale the downscale runs in BT.709 gamma, below it in PQ, and the physically
+correct order - average in linear, map after - is what neither of them is. Measured against exactly
+that reference, the two come out **equidistant**: PSNR-y 18.40 for both on high-frequency content,
+where they sit 45.6 dB from each other. Mean luma matched to 0.1 of 1023 and the fraction of the frame
+above Y=900 to 0.1%, across smooth, hard-edged and fractal fixtures - so no systematic brightening and
+no highlight population moved. What separates them is 45.6 to 58.8 dB depending on content, which is
+the order of an encode's own noise. A tone map is a per-pixel lookup and reads no neighbours, so it can
+neither preserve nor destroy detail between them; the scale is the only step that touches detail and it
+is identical either way.
+
+**Every pad has to end up below it, and one of them had to be prised loose to manage it.**
+`ResizeFill.Pad` emitted its letterbox inside `ResizeConfig.GetFilterArgs` as one string with the scale
+it goes around, so an exact-size resize set to letterbox laid its bars down in the source's colour and
+they were then tone-mapped - measured at **Y=66 against 64**. The cause is not the roll-off but
+ffmpeg's own `pad`, which writes 10-bit black as Y=64 with **U=V=514**, 8-bit 128 scaled by 1023/255
+rather than by 4; that 2/1023 of chroma is inert in an SDR signal and becomes 2/1023 of luma once a
+tone map reads it as colour. `ResizeConfig.GetScaleFilters` and `GetTrailingFilters` split that string
+at the one point a caller needs to insert something, and `GetFilterArgs` is the two joined - verified
+byte-identical across all 14 shapes, so every other caller and the 1152 chains behind them are
+untouched. All four pads now measure Y=64 exactly: pillarbox, letterbox, resize-with-bars, and the
+exact-size letterbox the split exists for.
+
+The mod-2 pad is the one exception and is left alone. It sits above the scale by necessity - it is what
+stops an odd source reaching an encoder that will not take one - so nothing can put the roll-off above
+it without paying the source-size cost the ordering exists to avoid, and what it adds is a single row
+or column on a source with no crop on it.
 
 ### The previews were the other half, and they were showing the wrong picture
 
