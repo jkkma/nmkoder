@@ -3699,27 +3699,44 @@ nits and is nowhere near the reference. So the overshoot is the price of the cal
 already documents, and the only open question was where it lands.
 
 **It landed wherever the geometry put it, which is the bug.** The last zscale hands on `gbrpf32le`, and
-which filter then performs the RGB to YUV depends on what follows it: with no geometry, or with border
-bars alone, zimg does it and carries the out-of-range values into superwhite; with a resize,
-negotiation leaves the link in float and the scale's swscale clamps to [0,1] first. Measured on band
-centres, 10-bit limited Y, a 1000-nit band: **1023** for the tone map alone and for tone map + borders,
-**943** for tone map + resize and for tone map + resize + borders. One setting, two pictures, told
-apart by a resize that has nothing to do with luminance. An upscale looked like an exception at maxY
-1014 and was not - that is bicubic ringing at a band edge, and at band centres it clamps like every
-other resize, which is the reason to sample centres and never the frame maximum.
+whether the out-of-range values survived depended on what came after: with no geometry, or with border
+bars alone, zimg carried them into superwhite; with a resize below the chain, swscale destroyed them.
+Measured on band centres, 10-bit limited Y, a 1000-nit band: **1023** for the tone map alone and for
+tone map + borders, **943** for tone map + resize. One setting, two pictures, told apart by a resize
+that has nothing to do with luminance. An upscale looked like an exception at maxY 1014 and was not -
+that is bicubic ringing at a band edge, and at band centres it clamps like every other resize, which is
+the reason to sample centres and never the frame maximum.
 
-`ToneMapConfig.ClampFormat` ends the chain with `format=gbrp16le` and settles it: 16-bit RGB cannot
-hold a value past 1.0, so the clamp *is* the conversion, and all four geometry shapes now measure
-identically. Clamping is the right half of the two - it is what the reference implementation does, and
-superwhite in a stream tagged limited range is detail a conformant player discards after paying bits to
-encode it. `gbrp16le` rather than a YUV format because the geometry below still has to run and pinning
-4:2:0 here would subsample the chroma before the scale rather than after it; sixteen bits is past what
-any output here carries, so the bound costs no precision. Measured against the unbounded chain: with a
-resize it is **free and byte-identical** (same frame md5, and 48 MB less peak RSS on a 4K downscale,
-float being 12 bytes a pixel against this 6); with no geometry at all it costs ~20% of the filter step,
-being a conversion zimg was doing in one. The libplacebo chain does not carry it - that backend maps to
-nominal white itself, so it has no out-of-range values to disagree about, and there is no GPU in a web
-session to measure one on.
+**"Which filter converts" is the wrong question, and a rule built on it makes a prediction that
+fails.** Measured in isolation on synthetic float: a resample with no format change clips, a format
+change with no resample clips, and only a genuine no-op - same size *and* same format - passes -0.5 and
+4.0 through intact. swscale quantises float onto the k/65535 lattice and clips to exactly [0.0, 1.0] on
+entry whatever it is then asked to do (0.9999 lands on 65531, 1.0001 on 65535), and nothing changes it:
+every `flags=` from neighbor to spline, every `-intent`, every `-sws_backends`, with `out_range=full`
+only moving the same clip to 0/1023. The prediction that fails is putting a zscale after a swscale
+resize - zimg then performs the conversion and the superwhite is *still* gone, swscale having destroyed
+it upstream while resampling. So it is swscale doing any work at all, not swscale doing the conversion.
+
+`ToneMapConfig.ClampFilters` ends the chain with **`format=gbrp16le,zscale=matrix=bt709:range=tv`** and
+settles it. All seven geometry shapes now measure identically - 505/677/912/940 at 100/203/400/1000
+nits - with every pad at Y=64 and every predicted frame size exact. Clamping is the right half of the
+two: it is what the reference implementation does, and superwhite in a stream tagged limited range is
+detail a conformant player discards after paying bits to encode it. `gbrp16le` rather than a YUV format
+because geometry may still follow and pinning 4:2:0 here would subsample the chroma before a scale
+rather than after it; sixteen bits of gamma-encoded RGB is past what any output carries, so the bound
+costs no precision.
+
+**The zscale after it is not redundant, and dropping it moves the whole picture.** Its job is to claim
+the RGB to YUV for zimg, because swscale's own limited-range conversion runs **hot**: measured on
+integer input, swscale gives 64/284/504/724/943 where zimg gives 64/283/502/721/940, and the gain
+scales with depth - +1 at 8-bit, **+3 at 10-bit**, +14 at 12-bit, +219 at 16-bit, consistent with
+scaling the 8-bit limited gain by (2^n-1)/255 instead of 2^(n-8). Left to swscale the chain reads
+506/680/915 where the calibration `AnchorNits` was chosen to hit is 505/677/912 - the 126 and 169 at
+100 and 203 nits measured against libplacebo's 129/170, which would have become 127 and 170. Measured,
+the pair together move the six saturated patches by **0/1023** against the pre-clamp chain where the
+format alone moves them by 2, and it costs nothing: 4.71s against 4.61s and 758 MB against 790 on 24
+frames of 4K. The libplacebo chain carries neither - that backend maps to nominal white itself, so it
+has no out-of-range values to disagree about, and there is no GPU in a web session to measure one on.
 
 **The overshoot is a property of ffmpeg 7.0 and later rather than of the chain**, which is worth knowing
 before reading an old measurement against a new one. `tonemap`'s desaturation path changed in 7.0 and
@@ -3764,11 +3781,28 @@ are absent from 6.1.1 and 7.0.2 alike, and the graph dies on the first of them w
 or missing '(' in 'DOVI_METADATA'" having written nothing. This is precisely what `HdrSideDataDeletes`'
 own comment predicts, arriving through the PATH fallback rather than through a bad name: on Ubuntu 24.04
 - the current LTS, and the likeliest machine to be running its own ffmpeg - **every tone-mapped encode
-fails before it starts.** It also means the BT.601 hazard above cannot be met by any of the three builds
-measured, since the one that would get the matrix wrong will not run the chain at all. That is an
+failed before it started.** It also means the BT.601 hazard above cannot be met by any of the three
+builds measured, since the one that would get the matrix wrong will not run the chain at all. That is an
 accident of ordering rather than a defence, and it is not proof about builds nobody measured: an ffmpeg
-carrying the newer enum with an older swscale would hit it. The fix is the one this codebase already
-uses for av1an and SVT flags - ask the binary what it has and emit only that - and it is not written.
+carrying the newer enum with an older swscale would hit it.
+
+`ToneMap.ResolveSideDataSupportAsync` is the fix, and it is the shape this codebase already uses for
+av1an and SVT flags: ask the binary what it has and emit only that. It reads `-h filter=sidedata` once
+per session, matches each name with a space either side - the table is columnar, so a bare Contains
+would also match a longer name ending in a shorter one - and fills
+`ToneMapConfig.SupportedSideDataTypes`, which `ToneMapUi.ResolveBackendAsync` awaits before either
+backend builds a chain. Verified by running it against all three builds: master keeps 7 of 7, and 6.1.1
+and 7.0.2 keep 3, dropping exactly the four named above. Then the artifacts rather than the parse - the
+full chain writes **nothing** on both older builds where the reduced chain writes a correct frame, and
+on master the two are the same size.
+
+Two things about it are deliberate. **An empty parse is a failed probe, not an ffmpeg with no side data
+types**: believing the latter would silently stop the chain deleting anything on some future change to
+the help text's shape, and a leak nobody is told about is worse than a name that fails loudly - so
+nothing parsed means the whole list goes out, exactly as before. And the drop is logged **visibly**
+rather than at debug, because what it costs is real: the encode now runs where it used to fail, and the
+price is that HDR metadata may survive onto an SDR file wherever the encoder carries frame side data
+through, which is the leak `HdrSideDataTypes` exists to prevent and which libx265 was measured doing.
 full: dumped, black is exactly **0.00000**, not 0.0627, so `range=tv` on an RGB output is a no-op for
 the sample encoding. The geometry is exact alongside it - predicted `Av1anFrame.Encoded` against actual
 output size with a tone map in the chain, **14/14** across exact pad/crop/stretch, upscale, anamorphic
@@ -3806,14 +3840,22 @@ the order of an encode's own noise. A tone map is a per-pixel lookup and reads n
 neither preserve nor destroy detail between them; the scale is the only step that touches detail and it
 is identical either way.
 
-The one pad it cannot get above is the resize's own: `ResizeFill.Pad` emits its letterbox inside
-`ResizeConfig.GetFilterArgs`, one string, so an exact-size resize set to letterbox lays its bars down
-in the source's colour and they are then tone-mapped - measured at **Y=66 against 64**. The cause is
-not the roll-off but ffmpeg's own `pad`, which writes 10-bit black as Y=64 with **U=V=514**, 8-bit 128
-scaled by 1023/255 rather than by 4; that 2/1023 of chroma is inert in an SDR signal and becomes
-2/1023 of luma once a tone map reads it as colour. The Borders row's own bars are unaffected and
-measured at Y=64 exactly on pillarbox, letterbox and resize-with-bars alike. Half a code value of 255
-on a black bar is recorded rather than fixed.
+**Every pad has to end up below it, and one of them had to be prised loose to manage it.**
+`ResizeFill.Pad` emitted its letterbox inside `ResizeConfig.GetFilterArgs` as one string with the scale
+it goes around, so an exact-size resize set to letterbox laid its bars down in the source's colour and
+they were then tone-mapped - measured at **Y=66 against 64**. The cause is not the roll-off but
+ffmpeg's own `pad`, which writes 10-bit black as Y=64 with **U=V=514**, 8-bit 128 scaled by 1023/255
+rather than by 4; that 2/1023 of chroma is inert in an SDR signal and becomes 2/1023 of luma once a
+tone map reads it as colour. `ResizeConfig.GetScaleFilters` and `GetTrailingFilters` split that string
+at the one point a caller needs to insert something, and `GetFilterArgs` is the two joined - verified
+byte-identical across all 14 shapes, so every other caller and the 1152 chains behind them are
+untouched. All four pads now measure Y=64 exactly: pillarbox, letterbox, resize-with-bars, and the
+exact-size letterbox the split exists for.
+
+The mod-2 pad is the one exception and is left alone. It sits above the scale by necessity - it is what
+stops an odd source reaching an encoder that will not take one - so nothing can put the roll-off above
+it without paying the source-size cost the ordering exists to avoid, and what it adds is a single row
+or column on a source with no crop on it.
 
 ### The previews were the other half, and they were showing the wrong picture
 

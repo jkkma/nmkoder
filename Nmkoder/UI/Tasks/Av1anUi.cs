@@ -663,9 +663,15 @@ namespace Nmkoder.UI.Tasks
             if (frame.Padding) // Check Filter: Pad for mod2
                 filters.Add(FfmpegUtils.GetPadFilter(2));
 
+            // The resize is added in two pieces with the tone map between them - see the parameter's note
+            // and ResizeConfig.GetScaleFilters. An exact-size letterbox is the one pad this method cannot
+            // simply order around, its bars coming out of the same call as the scale they go around.
+            List<string> resizeTail = new List<string>();
+
             if (frame.Resizing && !CurrentResize.IsNoOp(frame.ScaleInput, frame.Sar)) // Check Filter: Scale
             {
-                filters.Add(CurrentResize.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                filters.AddRange(CurrentResize.GetScaleFilters(frame.ScaleInput, frame.Sar));
+                resizeTail = CurrentResize.GetTrailingFilters(frame.ScaleInput, frame.Sar);
                 LogResize(frame);
             }
             else if (frame.Desqueezing) // Check Filter: De-squeeze, when no resize will run
@@ -674,7 +680,8 @@ namespace Nmkoder.UI.Tasks
 
                 if (!desqueeze.Compute(frame.ScaleInput, frame.Sar).IsEmpty)
                 {
-                    filters.Add(desqueeze.GetFilterArgs(frame.ScaleInput, frame.Sar));
+                    filters.AddRange(desqueeze.GetScaleFilters(frame.ScaleInput, frame.Sar));
+                    resizeTail = desqueeze.GetTrailingFilters(frame.ScaleInput, frame.Sar);
                     // Scaled rather than Encoded: what the de-squeeze produced, not what the border
                     // bars added after it leave.
                     Logger.Log($"De-squeezing {frame.ScaleInput.Width}x{frame.ScaleInput.Height} ({frame.Sar.Width}:{frame.Sar.Height} pixels) to " +
@@ -701,24 +708,27 @@ namespace Nmkoder.UI.Tasks
                     $"rather than {AspectRatio.Describe(display.Width, display.Height)}. Switch it back on in the resize dialog to keep the shape.");
             }
 
-            // After everything that changes the frame's size, and before the bars - see the parameter's
-            // note. The bars being added below it is what keeps BorderPad's "color=black" meaning black
-            // in the output's own signal: run above a tone map instead, they would be BT.2020 PQ black
-            // going into a roll-off rather than black in the signal being written. Measured through the
-            // real chains: the Borders row's bars come out Y=64 exactly, on all three of pillarbox,
-            // letterbox and a resize with bars, which is limited-range black.
+            // After everything that scales and before everything that pads - see the parameter's note.
+            // Being above the pads is what keeps every "color=black" in this method meaning black in the
+            // signal being *written*: bars laid down before the roll-off are BT.2020 PQ black going into
+            // it, and they do not come out as black. Measured, Y=66 rather than 64 - and the cause is not
+            // the roll-off but ffmpeg's own pad, which writes 10-bit black as Y=64 with **U=V=514**,
+            // 8-bit 128 scaled by 1023/255 rather than by 4; that 2/1023 of chroma turns into 2/1023 of
+            // luma the moment a tone map reads it as colour. Measured through the real chains, all four
+            // pads now land on Y=64 exactly: pillarbox, letterbox, a resize with bars, and the exact-size
+            // letterbox that ResizeConfig.GetScaleFilters exists to let this get above.
             //
-            // **The one pad this cannot get above is the resize's own**, because ResizeFill.Pad emits
-            // its letterbox inside ResizeConfig.GetFilterArgs - "scale=..,pad=..,setsar=1:1" is one
-            // string - so an exact-size resize set to letterbox lays its bars down in the source's
-            // colour and they are then tone-mapped. Measured, they land on Y=66 rather than 64. The
-            // cause is not the roll-off but ffmpeg's own pad: it writes 10-bit black as Y=64 with
-            // **U=V=514**, 8-bit 128 scaled by 1023/255 rather than by 4, and that 2/1023 of chroma is
-            // inert in an SDR signal and turns into 2/1023 of luma when a tone map reads it as colour.
-            // Half a code value of 255 on a black bar, against splitting a filter string that three
-            // call sites and 1152 verified chains treat as one - so it is recorded rather than fixed.
+            // The mod-2 pad is the one exception and is left alone. It sits above the scale by necessity -
+            // it is what stops an odd source reaching an encoder that will not take one - so nothing can
+            // put the roll-off above it without paying the source-size cost this ordering exists to
+            // avoid, and what it adds is a single row or column on a source with no crop on it.
             if (toneMapFilter.IsNotEmpty()) // Check Filter: Tone Mapping
                 filters.Add(toneMapFilter);
+
+            // The resize's own letterbox, held back above so it lands on this side of the roll-off with
+            // every other pad. Empty for every mode that adds no pixels, bar the setsar that closes the
+            // segment - which is why this is unconditional rather than guarded on there being bars.
+            filters.AddRange(resizeTail);
 
             if (frame.Border.Runs) // Check Filter: Borders to a target aspect ratio
             {

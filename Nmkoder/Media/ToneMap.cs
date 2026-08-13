@@ -364,6 +364,83 @@ namespace Nmkoder.Media
             return 10000d * Math.Pow(num / den, 1d / m1);
         }
 
+        /// <summary> Whether the sidedata probe has already run this session. The answer is a property of
+        /// the binary, which does not change under us, and the probe costs a process launch. </summary>
+        private static bool sideDataResolved = false;
+
+        /// <summary>
+        /// Asks this ffmpeg which side data types its <c>sidedata</c> filter has, and tells
+        /// <see cref="Data.ToneMapConfig.SupportedSideDataTypes"/>, so the chain only ever names types
+        /// the binary can parse.
+        /// <para/>
+        /// It has to be asked because <c>type</c> takes an enum and a name a build does not have fails the
+        /// whole filter graph, which on this chain is every tone-mapped encode rather than an edge case -
+        /// see the field's own note for the four names that are missing before master and for how a user
+        /// ends up on such a build. This is the same shape as <see cref="AvProcess.Av1anSupportsFlag"/>
+        /// and <see cref="AvProcess.EncoderKnowsFlagOrIsUnknown"/>: ask the binary, believe only a reply
+        /// that arrived.
+        /// <para/>
+        /// The names are matched with a space each side, as <see cref="GetProblem"/> matches the filter
+        /// list and for the same reason - ffmpeg prints this table columnar, "  DOVI_METADATA   24", so a
+        /// bare Contains would also match a longer name that happens to end in a shorter one.
+        /// </summary>
+        public static async Task ResolveSideDataSupportAsync()
+        {
+            if (sideDataResolved)
+                return;
+
+            sideDataResolved = true;
+
+            try
+            {
+                var settings = new AvProcess.FfmpegSettings()
+                {
+                    Args = "-h filter=sidedata",
+                    LogLevel = "quiet",
+                    ProcessType = OS.NmkoderProcess.ProcessType.Background,
+                    CanCancelTask = false,
+                    LoggingMode = AvProcess.LogMode.Hidden,
+                };
+
+                string help = await AvProcess.RunFfmpeg(settings);
+
+                if (help.IsEmpty())
+                    return; // Nothing was read, so nothing is known - the full list goes out, as before
+
+                string[] known = Data.ToneMapConfig.HdrSideDataTypes.Where(t => help.Contains($" {t} ")).ToArray();
+
+                // An empty parse is a failed probe rather than an ffmpeg with no side data types at all.
+                // Believing it would silently stop the chain deleting anything - the leak this app already
+                // measured libx265 writing back out - on any future change to the help text's shape.
+                if (known.Length < 1)
+                {
+                    Logger.Log("FFmpeg's sidedata filter listed none of the HDR side data types, which is a probe " +
+                        "that did not work rather than an answer - the whole list is being sent.", true, level: Logger.Level.Debug);
+                    return;
+                }
+
+                Data.ToneMapConfig.SupportedSideDataTypes = known;
+
+                string[] missing = Data.ToneMapConfig.HdrSideDataTypes.Except(known).ToArray();
+
+                if (missing.Length < 1)
+                    return;
+
+                // Said out loud rather than logged quietly: this ffmpeg is old enough that the encode
+                // would have failed outright before this check existed, and what it costs instead is HDR
+                // metadata surviving onto an SDR file where an encoder passes it through.
+                Logger.Log($"This FFmpeg's sidedata filter has no {string.Join(", ", missing)}, so the tone map " +
+                    $"is not clearing {(missing.Length == 1 ? "it" : "them")}. The encode runs - naming a type this " +
+                    $"build does not have would fail the whole filter chain - but if the encoder carries frame side " +
+                    $"data through, the output may still declare HDR metadata it no longer has the pixels for. " +
+                    $"A newer FFmpeg clears all {Data.ToneMapConfig.HdrSideDataTypes.Length}.");
+            }
+            catch (System.Exception e)
+            {
+                Logger.Log($"Reading FFmpeg's sidedata types failed: {e.Message}", true, level: Logger.Level.Debug);
+            }
+        }
+
         private static async Task<string> GetFilterList()
         {
             if (filterList != null)
