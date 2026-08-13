@@ -3857,6 +3857,17 @@ stops an odd source reaching an encoder that will not take one - so nothing can 
 it without paying the source-size cost the ordering exists to avoid, and what it adds is a single row
 or column on a source with no crop on it.
 
+**Being above the mod-2 pad is also what fixed an odd-sized HDR source failing outright**, which the
+old order had shipped for as long as the row has existed. The chain's last zscale refuses a frame whose
+dimensions are not divisible by the output's subsampling - "code 1027: image dimensions must be
+divisible by subsampling factor" - and it refuses **before** the mod-2 pad had a chance to even the
+frame, that pad having sat below the tone map. Measured on a 1920x1081 source: the tone map alone
+writes nothing, and so does tone map followed by the mod-2 pad, where mod-2 pad followed by the tone
+map writes 1920x1082. It is the *output* request rather than the source's own chroma that decides it -
+a 4:4:4 odd source fails identically - so nothing about the file being unusual saved it. Found by
+sweeping the geometry matrix over odd fixtures rather than by reasoning: two rows of that sweep came
+back "NO OUTPUT" where every other row had numbers.
+
 ### The previews were the other half, and they were showing the wrong picture
 
 **A preview of an HDR file drawn without a tone map is not a neutral picture of it - it is wrong, in
