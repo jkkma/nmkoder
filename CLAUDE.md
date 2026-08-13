@@ -3717,8 +3717,8 @@ only moving the same clip to 0/1023. The prediction that fails is putting a zsca
 resize - zimg then performs the conversion and the superwhite is *still* gone, swscale having destroyed
 it upstream while resampling. So it is swscale doing any work at all, not swscale doing the conversion.
 
-`ToneMapConfig.ClampFilters` ends the chain with **`format=gbrp16le,zscale=matrix=bt709:range=tv`** and
-settles it. All seven geometry shapes now measure identically - 505/677/912/940 at 100/203/400/1000
+`ToneMapConfig.ClampFilters` ends the chain with
+**`format=gbrp16le,zscale=matrix=bt709:range=tv,format=yuv444p16le`** and settles it. All seven geometry shapes now measure identically - 505/677/912/940 at 100/203/400/1000
 nits - with every pad at Y=64 and every predicted frame size exact. Clamping is the right half of the
 two: it is what the reference implementation does, and superwhite in a stream tagged limited range is
 detail a conformant player discards after paying bits to encode it. `gbrp16le` rather than a YUV format
@@ -3734,8 +3734,11 @@ scaling the 8-bit limited gain by (2^n-1)/255 instead of 2^(n-8). Left to swscal
 506/680/915 where the calibration `AnchorNits` was chosen to hit is 505/677/912 - the 126 and 169 at
 100 and 203 nits measured against libplacebo's 129/170, which would have become 127 and 170. Measured,
 the pair together move the six saturated patches by **0/1023** against the pre-clamp chain where the
-format alone moves them by 2, and it costs nothing: 4.71s against 4.61s and 758 MB against 790 on 24
-frames of 4K. The libplacebo chain carries neither - that backend maps to nominal white itself, so it
+format alone moves them by 2. **The third filter is what closes the BT.601 hazard** - see it above -
+and it takes swscale's hot conversion off the resize path for good with it: Quick Convert with a resize
+read 506/680/915 and now reads the same 505/677/912 as every other shape. The three together cost
+nothing, 3.90s against 4.14s on 24 frames of 4K, and were verified alongside the subtitle burn-in that
+sits below the tone map on that tab. The libplacebo chain carries none of them - that backend maps to nominal white itself, so it
 has no out-of-range values to disagree about, and there is no GPU in a web session to measure one on.
 
 **The overshoot is a property of ffmpeg 7.0 and later rather than of the chain**, which is worth knowing
@@ -3767,13 +3770,23 @@ csp:bt709 range:tv`, and the same six patches come back within **2/1023** of the
 reference on all of no geometry, borders and resize. Neutral bands would not have caught that - a
 matrix is invisible on greys, so colour patches are the check.
 
-**On ffmpeg 6.1.1 the hypothesis is exactly right, and it is unreachable.** That build's swscale does
-*not* honour the frame's colorspace: its log line carries no `csp:`/`range:` fields at all, and the
-artifact reads correctly only as BT.601 - the red patch decoding to (195.4, 0.2, 0.0) on BT.601 against
-(212.2, 19.0, 0) on BT.709, a **28.2 of 255** error, confirmed from the other side by forcing
-`out_color_matrix=bt601` on master and landing one code value away. Both the swscale fix and the
-tonemap change arrived in **7.0**. What keeps that hazard off users is not the fix but a different
-incompatibility, and it is a worse one - see below.
+**On ffmpeg 6.1.1 the hypothesis is exactly right, and it is closed by ending the chain in YUV.** That
+build's swscale does *not* honour the frame's colorspace: its log line carries no `csp:`/`range:` fields
+at all, and the artifact reads correctly only as BT.601 - the red patch decoding to (195.4, 0.2, 0.0) on
+BT.601 against (212.2, 19.0, 0) on BT.709, a **28.2 of 255** error, confirmed from the other side by
+forcing `out_color_matrix=bt601` on master and landing one code value away. Both the swscale fix and the
+tonemap change arrived in **7.0**.
+
+For a while what kept that off users was not a fix but the `sidedata` incompatibility below - the build
+that would get the matrix wrong refused the chain outright - and that was an accident of ordering rather
+than a defence, worth nothing against a build carrying the newer enum with an older swscale. Probing the
+sidedata types removed even that, since the chain now runs on 6.1.1. So the hazard is closed properly
+instead: `ClampFilters` ends in `yuv444p16le`, the matrix is applied by zimg while the frame is still
+RGB, and everything downstream is YUV to YUV where there is no matrix to get wrong. **The exposure was
+Quick Convert's**, whose geometry sits below the tone map - measured on 6.1.1, a resize there produced
+BT.601 while the AV1AN tab, whose geometry now sits above, was already correct. Verified on 6.1.1 in
+Quick Convert's own shape: the red patch comes back (206, 434, 854), decoding as BT.709 to
+(194.6, 0, 0.1) against a truth of (194.6, 0, 0).
 
 **Four of the seven `sidedata` deletes do not exist before master, so a fallback ffmpeg refuses the
 whole chain.** `DOVI_RPU_BUFFER`, `DOVI_METADATA`, `DYNAMIC_HDR_VIVID` and `AMBIENT_VIEWING_ENVIRONMENT`

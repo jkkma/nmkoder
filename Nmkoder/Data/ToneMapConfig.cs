@@ -328,7 +328,7 @@ namespace Nmkoder.Data
         /// correct without a single explicit colour argument anywhere. Measured through the real command
         /// shape: the file comes out tagged bt709/bt709/bt709. The HDR side data is a separate matter -
         /// see <see cref="HdrSideDataTypes"/>, which now ends the chain.</item>
-        /// <item><see cref="ClampFilters"/> bound the result, because the five filters above it emit
+        /// <item><see cref="ClampFilters"/> bound the result and settle its colour, because the five filters above emit
         /// values <b>past</b> 1.0 and what happened to those used to be decided by whatever filter came
         /// next. See its own note.</item>
         /// </list>
@@ -423,11 +423,31 @@ namespace Nmkoder.Data
         /// against the pre-clamp chain, where the format alone moves them by 2, and it costs nothing:
         /// 4.71s against 4.61s and 758 MB against 790 on 24 frames of 4K.
         /// <para/>
-        /// The libplacebo chain does not carry either. That backend maps to nominal white itself, so it
-        /// has no out-of-range values for a downstream filter to disagree about - and there is no GPU in a
-        /// web session to measure one on, which is not a thing to add a filter on the strength of.
+        /// **And the chain hands on YUV rather than RGB, which is what closes the BT.601 hazard.** An
+        /// older swscale does not honour the frame's colorspace when it performs an RGB to YUV: measured
+        /// against Ubuntu 24.04's own 6.1.1, the saturated patches come back decoding correctly only as
+        /// BT.601, <b>28.3 of 255</b> from the truth, while the encoder is told BT.709 by flag. Ending in
+        /// RGB left that reachable wherever a swscale filter followed the chain - which is Quick
+        /// Convert's shape, its geometry sitting below the tone map - so a resize there produced a
+        /// hue-shifted picture on any build old enough. Ending in <c>yuv444p16le</c> means the matrix is
+        /// applied by zimg while the frame is still RGB, and everything downstream is YUV to YUV, where
+        /// there is no matrix to get wrong. Measured on 6.1.1: BT.709 correct with a resize and without,
+        /// where the RGB-ending chain was BT.601 with one.
+        /// <para/>
+        /// 4:4:4 rather than the output's own subsampling because geometry may still follow and chroma
+        /// must not be subsampled before a scale; 16-bit because it is past what any output carries. It
+        /// also takes swscale's hot conversion off the resize path for good - Quick Convert with a resize
+        /// read 506/680/915 and now reads the same 505/677/912 as every other shape - and it costs
+        /// nothing: 3.90s against 4.14s on 24 frames of 4K. Verified alongside the subtitle burn-in,
+        /// which sits below the tone map on that tab and still renders.
+        /// <para/>
+        /// The libplacebo chain does not carry any of it. That backend maps to nominal white itself, so it
+        /// has no out-of-range values for a downstream filter to disagree about, and it is told its output
+        /// colour on the filter - and there is no GPU in a web session to measure one on, which is not a
+        /// thing to add filters on the strength of.
         /// </summary>
-        private static readonly string[] ClampFilters = { "format=gbrp16le", "zscale=matrix=bt709:range=tv" };
+        private static readonly string[] ClampFilters =
+            { "format=gbrp16le", "zscale=matrix=bt709:range=tv", "format=yuv444p16le" };
 
         /// <summary>
         /// The tail both chains share: the frames' HDR side data deleted, because after a tone map it
