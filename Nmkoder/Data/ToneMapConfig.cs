@@ -328,6 +328,9 @@ namespace Nmkoder.Data
         /// correct without a single explicit colour argument anywhere. Measured through the real command
         /// shape: the file comes out tagged bt709/bt709/bt709. The HDR side data is a separate matter -
         /// see <see cref="HdrSideDataDeletes"/>, which now ends the chain.</item>
+        /// <item><see cref="ClampFormat"/> bounds the result, because the five filters above it emit
+        /// values <b>past</b> 1.0 and what happened to those used to be decided by whatever filter came
+        /// next. See its own note.</item>
         /// </list>
         /// </summary>
         public string GetFilterArgs(VideoColorData src)
@@ -361,10 +364,51 @@ namespace Nmkoder.Data
             chain.Add("zscale=primaries=bt709");
             chain.Add($"tonemap=tonemap={GetCurveName(libplacebo: false)}{peak}");
             chain.Add("zscale=transfer=bt709:matrix=bt709:range=tv");
+            chain.Add(ClampFormat);
             chain.AddRange(HdrSideDataDeletes);
 
             return string.Join(",", chain);
         }
+
+        /// <summary>
+        /// What ends the zscale chain, and it is there to <b>bound</b> the result rather than to convert
+        /// anything: 16-bit RGB cannot hold a value past 1.0, so the clamp is the conversion.
+        /// <para/>
+        /// **This chain emits superwhite, and it is <c>desat</c> that puts it there.** The curve does map
+        /// <see cref="GetTonemapPeak"/> to SDR white, but only with the filter's desaturation off:
+        /// measured on a PQ source declaring 1000 nits (so linear 3.766 at the anchor, passed as
+        /// <c>peak=3.75</c>), <c>tonemap</c> returns <b>1.002</b> at <c>desat=0</c> and <b>1.405</b> at
+        /// ffmpeg's default of 2. The default is not something to "fix" - it is what puts 100 and 203
+        /// nits on 126 and 169 of 255, against libplacebo's 129 and 170, where <c>desat=0</c> gives 147
+        /// at 203 nits and is nowhere near the reference. So the overshoot is the price of the
+        /// calibration, and what needed settling is only where it lands.
+        /// <para/>
+        /// **Without this, that was decided by the geometry rather than by anything anyone set.** The
+        /// last zscale hands on <c>gbrpf32le</c>, and which filter then performs the RGB to YUV depends
+        /// on what follows it: with no geometry, or with border bars alone, zimg does it and carries the
+        /// out-of-range values into superwhite; with a resize, negotiation leaves the link in float and
+        /// the scale's swscale does it, clamping to [0,1] first. Measured on band centres, 10-bit
+        /// limited Y, a 1000-nit band: <b>1023</b> for the tone map alone and for tone map + borders,
+        /// <b>943</b> for tone map + resize and tone map + resize + borders. Two pictures from one
+        /// setting, told apart by a resize that has nothing to do with luminance.
+        /// <para/>
+        /// Clamping is the half to keep of those two. It is what the reference implementation does - the
+        /// libplacebo note above records its top landing on 235 of 255, which is nominal white - and
+        /// superwhite in a stream tagged limited range is detail a conformant player discards anyway,
+        /// after paying bits to encode it. So the resize's answer becomes everyone's.
+        /// <para/>
+        /// <c>gbrp16le</c> rather than a YUV format because the geometry below still has to run: pinning
+        /// 4:2:0 here would subsample the chroma before the scale rather than after it. Sixteen bits is
+        /// past what any output here carries, so the bound costs no precision. Measured against the
+        /// shipping chain: with a resize it is <b>free and byte-identical</b> (same frame md5, and 48 MB
+        /// less peak RSS on a 4K downscale, float being 12 bytes a pixel against this 6); with no
+        /// geometry at all it costs ~20% of the filter step, being a conversion zimg was doing in one.
+        /// <para/>
+        /// The libplacebo chain does not carry it. That backend maps to nominal white itself, so it has
+        /// no out-of-range values for a downstream filter to disagree about - and there is no GPU in a
+        /// web session to measure one on, which is not a thing to add a filter on the strength of.
+        /// </summary>
+        private const string ClampFormat = "format=gbrp16le";
 
         /// <summary>
         /// The tail both chains share: the frames' HDR side data deleted, because after a tone map it

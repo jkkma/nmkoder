@@ -566,9 +566,27 @@ namespace Nmkoder.UI.Tasks
             if (deinterlace.IsNotEmpty())
                 filters.Add(deinterlace);
 
-            // Second, ahead of the geometry, as it is on Quick Convert - although the reason that settles
-            // it there does not exist here, this tab having no subtitle burn-in. Kept in step anyway, so
-            // the two tabs cannot produce different pixels from the same settings.
+            // Built here and applied below, between the scale and the border bars - see
+            // BuildGeometryFilters, which is where the chain order is stated. It used to sit here, ahead
+            // of all the geometry, purely to match Quick Convert; the comment said as much, and said the
+            // reason that settles it there - the subtitle burn-ins, which must not be dragged through a
+            // roll-off written for the picture - does not exist on this tab. Parity is not worth what it
+            // was costing: the tone map is the one filter here whose cost is per pixel and it was being
+            // paid at the *source's* size, so a 4K to 1080p encode ran it over four times the pixels it
+            // had to. Measured on 24 frames of 3840x2160 in av1an's own per-chunk command shape, 4.36s
+            // and 636 MB peak RSS above the scale against 1.82s and 337 MB below it - and that memory is
+            // per worker, on the axis Av1anMemory guards, where a machine that cannot hold them all
+            // fails in the unreadable way that class exists to explain.
+            //
+            // What it does not cost is detail, which is the objection to answer before moving it.
+            // Neither order averages light: above the scale the downscale runs in BT.709 gamma, below it
+            // in PQ. Measured against a linear-light downscale - averaging in linear and mapping after,
+            // which is the physically correct order and what neither of these is - the two come out
+            // *equidistant*: PSNR-y 18.40 for both on high-frequency content, where they sit 45.6 dB
+            // from each other. Mean luma matched to 0.1 of 1023 and the fraction of the frame above
+            // Y=900 to 0.1% across smooth, hard-edged and fractal fixtures, so there is no systematic
+            // brightening and no highlight population moved. The remaining difference is 45.6 to 58.8 dB
+            // depending on content, which is the order of an encode's own noise.
             //
             // Only ever the zscale chain - this tab never runs libplacebo, and that is a policy rather
             // than a probe result (ToneMapConfig.ForceCpuChain): running it here would mean a whole-file
@@ -589,10 +607,7 @@ namespace Nmkoder.UI.Tasks
             string toneMapFilter = CurrentToneMap.GetFilterArgs(sourceColor);
 
             if (toneMapFilter.IsNotEmpty())
-            {
-                filters.Add(toneMapFilter);
                 Logger.Log(CurrentToneMap.GetNote(sourceColor));
-            }
 
             if (codecArgs != null && codecArgs.ForcedFilters != null)
                 filters.AddRange(codecArgs.ForcedFilters);
@@ -600,7 +615,7 @@ namespace Nmkoder.UI.Tasks
             if (frame.ResamplesFrameRate) // Check Filter: Framerate Resampling
                 filters.Add(frame.FpsFilter);
 
-            filters.AddRange(BuildGeometryFilters(frame));
+            filters.AddRange(BuildGeometryFilters(frame, toneMapFilter));
 
             filters.AddRange(GetCustomFilters());
 
@@ -625,8 +640,17 @@ namespace Nmkoder.UI.Tasks
         /// with their log lines. Called exactly once per encode, so the logging fires once. It had
         /// a second caller while the tone-map pass could fold the geometry into itself; the pass is
         /// gone, so the per-chunk chain is the one home again.
+        /// <para/>
+        /// <paramref name="toneMapFilter"/> is not geometry and is threaded through here anyway, because
+        /// this is the one place the chain's order is stated and a second statement of it elsewhere is
+        /// how the two come to disagree. It goes in at the one point that satisfies both of its
+        /// neighbours: <b>below the scale</b>, so the roll-off is paid at the encoded frame rather than
+        /// the source's - see <see cref="GetVideoFilterArgs"/> for what that is worth and for the
+        /// measurements saying it costs no detail - and <b>above the border bars</b>, so the bars are
+        /// laid down in the SDR signal they are meant to be black in rather than being tone-mapped
+        /// themselves. That second half is why this cannot simply be appended after the geometry.
         /// </summary>
-        private static List<string> BuildGeometryFilters(Av1anFrame frame)
+        private static List<string> BuildGeometryFilters(Av1anFrame frame, string toneMapFilter = "")
         {
             List<string> filters = new List<string>();
 
@@ -676,6 +700,25 @@ namespace Nmkoder.UI.Tasks
                     $"{frame.Scaled.Width}x{frame.Scaled.Height} playing as {AspectRatio.Describe(frame.Scaled.Width, frame.Scaled.Height)} " +
                     $"rather than {AspectRatio.Describe(display.Width, display.Height)}. Switch it back on in the resize dialog to keep the shape.");
             }
+
+            // After everything that changes the frame's size, and before the bars - see the parameter's
+            // note. The bars being added below it is what keeps BorderPad's "color=black" meaning black
+            // in the output's own signal: run above a tone map instead, they would be BT.2020 PQ black
+            // going into a roll-off rather than black in the signal being written. Measured through the
+            // real chains: the Borders row's bars come out Y=64 exactly, on all three of pillarbox,
+            // letterbox and a resize with bars, which is limited-range black.
+            //
+            // **The one pad this cannot get above is the resize's own**, because ResizeFill.Pad emits
+            // its letterbox inside ResizeConfig.GetFilterArgs - "scale=..,pad=..,setsar=1:1" is one
+            // string - so an exact-size resize set to letterbox lays its bars down in the source's
+            // colour and they are then tone-mapped. Measured, they land on Y=66 rather than 64. The
+            // cause is not the roll-off but ffmpeg's own pad: it writes 10-bit black as Y=64 with
+            // **U=V=514**, 8-bit 128 scaled by 1023/255 rather than by 4, and that 2/1023 of chroma is
+            // inert in an SDR signal and turns into 2/1023 of luma when a tone map reads it as colour.
+            // Half a code value of 255 on a black bar, against splitting a filter string that three
+            // call sites and 1152 verified chains treat as one - so it is recorded rather than fixed.
+            if (toneMapFilter.IsNotEmpty()) // Check Filter: Tone Mapping
+                filters.Add(toneMapFilter);
 
             if (frame.Border.Runs) // Check Filter: Borders to a target aspect ratio
             {

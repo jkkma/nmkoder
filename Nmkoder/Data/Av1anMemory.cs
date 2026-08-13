@@ -83,9 +83,15 @@ namespace Nmkoder.Data
         /// <summary>
         /// The same, where the chain carries a 32-bit float step. Four times the slope, and it is not
         /// subtle: a tone map converts to <c>gbrpf32le</c>, which is 12 bytes a pixel against a 10-bit
-        /// 4:2:0 frame's 3, and it does so at the source's size because the roll-off belongs above the
-        /// downscale. Measured on a 3840x2076 source: 508 MB against 160 MB for the same chain with the
-        /// tone map taken out.
+        /// 4:2:0 frame's 3. Measured on a 3840x2076 source with the step at that size: 508 MB against
+        /// 160 MB for the same chain with the tone map taken out.
+        /// <para/>
+        /// **It is charged against the encoded frame rather than the source's**, which is where the
+        /// tone map now runs - see Av1anUi.BuildGeometryFilters, which puts it below the scale. The
+        /// difference is the whole point of having moved it and is not small: measured on 4K to 1080p,
+        /// 636 MB peak RSS with the roll-off above the scale against 337 MB below it, where this model
+        /// predicts 261 MB of that 299. The rest of the chain stays on the source's size, since the
+        /// decode and every filter down to the scale still handle source-size frames.
         /// </summary>
         private const int FloatFilterMbPerMegapixel = 55;
 
@@ -149,7 +155,16 @@ namespace Nmkoder.Data
             total += SourceBaseMb + sourceMp * SourceMbPerMegapixel;
 
             if ((vf ?? "").IsNotEmpty())
-                total += FilterBaseMb + sourceMp * (ChainConvertsToFloat(vf) ? FloatFilterMbPerMegapixel : FilterMbPerMegapixel);
+            {
+                total += FilterBaseMb + sourceMp * FilterMbPerMegapixel;
+
+                // The float step alone is priced at the encoded frame, because that is where it runs.
+                // A custom filter converting to float above the scale would be under-counted by this,
+                // which is the right way round to be wrong for a floor: the alternative charged every
+                // tone-mapped downscale for pixels nothing has held since the roll-off moved.
+                if (ChainConvertsToFloat(vf))
+                    total += encodedMp * (FloatFilterMbPerMegapixel - FilterMbPerMegapixel);
+            }
 
             return (int)Math.Round(total);
         }
