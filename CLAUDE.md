@@ -3721,13 +3721,54 @@ being a conversion zimg was doing in one. The libplacebo chain does not carry it
 nominal white itself, so it has no out-of-range values to disagree about, and there is no GPU in a web
 session to measure one on.
 
+**The overshoot is a property of ffmpeg 7.0 and later rather than of the chain**, which is worth knowing
+before reading an old measurement against a new one. `tonemap`'s desaturation path changed in 7.0 and
+the new one *raises* in-gamut highlights: measured on the same fixture through three builds, the linear
+values entering the filter are bit-identical while 203/400/1000 nits leave it at 0.42517/0.92387/1.40489
+on master and 7.0.2 against **0.35508/0.59142/1.00194** on 6.1.1 - which is `hable(sig)/hable(peak)` by
+construction, reaching SDR white exactly at the declared peak. With `desat=0` all three agree to five
+decimals. So on 6.1.x a correctly-declared file has essentially nothing above 1.0 for a resize to clamp
+and the divergence shrinks to content brighter than the declared peak.
+
+**HLG overshoots further, and the bound covers it too.** That path passes neither `npl` nor `peak`, and
+`tonemap` with no peak defaults to **10**: measured, HLG signal 0.90 and 1.00 leave the filter at 1.08348
+and 1.19111, so reference white at 0.75 sits at 0.79709 and everything above it was superwhite.
+
+The two converters also disagree about where 1.0 itself lands, which is why the resize ceiling is 943 and
+not 940: measured on constant float patches, swscale clamps at 1.0 and writes **943** for every input from
+1.0 to 10.0, where zimg writes 940 for 1.0 and runs to the 10-bit ceiling above it.
+
 **The hypothesis this was found under was that the float link corrupts the matrix, and it does not.**
 Worth recording so it is not investigated twice. The mechanism is real - the conversion genuinely moves
 to the resize's swscale, `[Parsed_scale_13] fmt:gbrpf32le csp:gbr range:unknown -> fmt:yuv420p10le
 csp:bt709 range:tv` - but on the shipped build swscale picks **bt709 at every output size**, 3840x2160
 down to 320x240, so there is no BT.601 resolution heuristic to fall into. Measured, six saturated
 patches at 320x240 against the zimg reference: worst chroma delta **2/1023**, where a 601-vs-709 mix-up
-is tens to over a hundred. Nor is the float limited-range RGB that a downstream filter might read as
+is tens to over a hundred. The clamp does not reopen it: with `format=gbrp16le` and no geometry the
+conversion moves to `auto_scale_0`, logging `fmt:gbrp16le csp:gbr range:pc -> fmt:yuv420p10le
+csp:bt709 range:tv`, and the same six patches come back within **2/1023** of the pre-clamp zimg
+reference on all of no geometry, borders and resize. Neutral bands would not have caught that - a
+matrix is invisible on greys, so colour patches are the check.
+
+**On ffmpeg 6.1.1 the hypothesis is exactly right, and it is unreachable.** That build's swscale does
+*not* honour the frame's colorspace: its log line carries no `csp:`/`range:` fields at all, and the
+artifact reads correctly only as BT.601 - the red patch decoding to (195.4, 0.2, 0.0) on BT.601 against
+(212.2, 19.0, 0) on BT.709, a **28.2 of 255** error, confirmed from the other side by forcing
+`out_color_matrix=bt601` on master and landing one code value away. Both the swscale fix and the
+tonemap change arrived in **7.0**. What keeps that hazard off users is not the fix but a different
+incompatibility, and it is a worse one - see below.
+
+**Four of the seven `sidedata` deletes do not exist before master, so a fallback ffmpeg refuses the
+whole chain.** `DOVI_RPU_BUFFER`, `DOVI_METADATA`, `DYNAMIC_HDR_VIVID` and `AMBIENT_VIEWING_ENVIRONMENT`
+are absent from 6.1.1 and 7.0.2 alike, and the graph dies on the first of them with "Undefined constant
+or missing '(' in 'DOVI_METADATA'" having written nothing. This is precisely what `HdrSideDataDeletes`'
+own comment predicts, arriving through the PATH fallback rather than through a bad name: on Ubuntu 24.04
+- the current LTS, and the likeliest machine to be running its own ffmpeg - **every tone-mapped encode
+fails before it starts.** It also means the BT.601 hazard above cannot be met by any of the three builds
+measured, since the one that would get the matrix wrong will not run the chain at all. That is an
+accident of ordering rather than a defence, and it is not proof about builds nobody measured: an ffmpeg
+carrying the newer enum with an older swscale would hit it. The fix is the one this codebase already
+uses for av1an and SVT flags - ask the binary what it has and emit only that - and it is not written.
 full: dumped, black is exactly **0.00000**, not 0.0627, so `range=tv` on an RGB output is a no-op for
 the sample encoding. The geometry is exact alongside it - predicted `Av1anFrame.Encoded` against actual
 output size with a tone map in the chain, **14/14** across exact pad/crop/stretch, upscale, anamorphic
