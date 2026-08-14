@@ -86,13 +86,16 @@ namespace Nmkoder.UI.Tasks
             if (!IsRowRelevant(Av1anUi.GetCurrentCodecV()))
                 return new GrainSynthConfig();
 
-            // No table denoise and no denoise strength: this tab runs no denoise pass at all. What
-            // Quick Convert does with one hqdn3d entry in a chain it already builds costs av1an a
-            // lossless copy of the film in front of the encode, so the tick is Quick Convert's - see
-            // GrainSynthConfig.EncodeModes.
+            // This tab has the denoise tick too now, and the reason it did not is worth keeping straight:
+            // its only denoiser used to be a lossless whole-film render in front of av1an, which belonged
+            // to the measuring mode - and measuring is the one thing that needs a denoised *file*, to diff
+            // against. A table needs only denoised frames, and av1an's own per-chunk -f chain produces
+            // those for the price of one filter entry, exactly as the deinterlacer and the tone map do.
+            // hqdn3d here is spatial-only (GetDenoiseFilter pins the temporal halves to 0), which is what
+            // makes it safe per chunk: nothing carries state across a chunk boundary.
             return Read(Form.Av1anGrainModeBox, Form.Av1anGrainSynthStrengthUpDown, Form.Av1anGrainSynthDenoiseBox,
-                tableDenoise: null, denoiseStrength: null, tableBox: Form.Av1anGrainTableBox,
-                presetBox: Form.Av1anGrainPresetBox);
+                Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainDenoiseStrengthUpDown, Form.Av1anGrainTableBox,
+                Form.Av1anGrainPresetBox);
         }
 
         /// <summary>
@@ -159,8 +162,9 @@ namespace Nmkoder.UI.Tasks
             // The AV1AN row has no denoise-pass controls at all, so it passes nulls where Quick Convert
             // passes the tick and the strength beside it.
             Apply(IsRowRelevant(Av1anUi.GetCurrentCodecV()), Form.Av1anGrainModeBox, Form.Av1anGrainEncoderPanel,
-                measuredPanel: null, Form.Av1anGrainTablePanel, Form.Av1anGrainPresetPanel, denoisePanel: null,
-                tableDenoise: null, Form.Av1anGrainSynthDenoiseBox, Form.Av1anGrainSynthStrengthUpDown);
+                Form.Av1anGrainStrengthPanel, Form.Av1anGrainTablePanel, Form.Av1anGrainPresetPanel,
+                Form.Av1anGrainDenoisePanel, Form.Av1anGrainTableDenoiseBox, Form.Av1anGrainSynthDenoiseBox,
+                Form.Av1anGrainSynthStrengthUpDown);
 
             Apply(IsRowRelevant(QuickConvertUi.GetCurrentCodecV()), Form.EncGrainModeBox, Form.EncGrainEncoderPanel,
                 Form.EncGrainMeasuredPanel, Form.EncGrainTablePanel, Form.EncGrainPresetPanel, Form.EncGrainDenoisePanel,

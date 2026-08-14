@@ -2981,23 +2981,40 @@ the install path rather than anything the user can move. The binary is asked abo
 time on both, because a user's own SVT-AV1 may be mainline and refuses the whole command over it -
 which reaches the presets too, `--fgs-table` being how they travel.
 
-The tick is Quick Convert's because of what denoising costs each tab, which is the same asymmetry
-QTGMC has: there it is one `hqdn3d` entry in a chain that ffmpeg is building anyway, and on the AV1AN
-tab it was `DenoisePass` rendering a lossless copy of the entire film before av1an could start. So the
-AV1AN row is the dropdown, a path box and a preset box, `GrainSynthUi.Read` is passed nulls for the
-tick and the strength there, and `NeedsDenoisePass` is structurally false for anything that tab can
-produce. Measure once in the utility and encode with the table on either tab; tick Denoise on Quick
-Convert to reproduce the encode the table was measured for.
+**The Denoise tick is on both tabs now, and the reason it was Quick Convert's alone does not survive
+inspection.** The stated asymmetry was the one QTGMC has: on Quick Convert it is one `hqdn3d` entry in
+a chain ffmpeg is building anyway, and on the AV1AN tab it was `DenoisePass` rendering a lossless copy
+of the entire film before av1an could start. **That pass belonged to the measuring mode, and measuring
+is the one thing that needs a denoised *file* - to diff against.** A table needs only denoised
+*frames*, and av1an's per-chunk `-f` chain produces those for the price of one filter entry, exactly as
+the deinterlacer and the zscale tone map do. So the tick, the strength and the filter are on both tabs,
+and `NeedsDenoisePass` is called `NeedsDenoiseFilter` because on neither tab is it a pass any more.
 
-**That tick is shared by both table modes and sits in its own panel for that reason.** It used to live
-inside the table panel, next to the browse button; what it describes - take the source's own grain out
-so the synthesised grain replaces it rather than sitting on top of it - is one operation whichever
-supplied the table, so `EncGrainDenoisePanel` holds it and shows for Table or Preset alike, with
-`EncGrainMeasuredPanel`'s strength behind it as before. It is what makes a film stock preset **save**
-bitrate rather than merely add a look: measured on this app's own chain, a preset applied over a grainy
-encode saves nothing by construction, where denoise-then-synthesise is where the saving has always been.
-On the AV1AN tab there is no tick, so a preset there is a look laid over grain that was coded anyway -
-which is exactly what the readout's last clause says, and the reason that clause exists.
+**Chunking is safe because `GetDenoiseFilter` is spatial-only** - its temporal halves pinned to 0, a
+choice made for the grav1synth diff's sake (hqdn3d's temporal filter is not motion compensated, so it
+blends the previous frame in and the diff reads a ghost as grain). Nothing carries state across a chunk
+boundary, so no seam can appear at one. A temporal denoiser could not go in this chain.
+
+It runs **after the geometry**, where Quick Convert and the utility's own pass both put it - the table
+describes grain at the frame being encoded - and that is also where it is cheapest, the frame being at
+its smallest. The target-quality probes do not see it, like every other filter on that tab, which
+`GetFilteredTargetQualityNote` already covers by counting the chain.
+
+**The tick ships ticked, and the old default shipped the one shape of the feature that costs bitrate
+instead of saving it.** It defaulted off on the argument that a brought table may be there to put grain
+onto a source that never had any - real, and the minority. Measured through the shipped SVT-AV1-HDR
+binary on a grainy 640x480 source at CRF 35, against a control with no grain synthesis at all: the
+preset table **without** denoise comes to **+0.6%**, which is to say it is *worse than not using the
+feature*, and **with** denoise to **−21.9%**. The tick is worth **22.4%** of the bitrate. A user asked
+"why would you ever want to add film grain on top of film grain" and the honest answer is that you
+would not; this file's own note on Table mode already called that shape "the one shape of this feature
+that costs bitrate instead of saving it" while defaulting to it.
+
+The tick is shared by both table modes and sits in its own panel for that reason - it used to live
+inside the table panel next to the browse button, and what it describes is one operation whichever
+supplied the table, so `EncGrainDenoisePanel`/`Av1anGrainDenoisePanel` hold it and show for Table or
+Preset alike with the strength behind it. Measure once in the utility and encode with the table on
+either tab; the tick is what reproduces the encode a measured table came from.
 
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
@@ -3056,8 +3073,8 @@ measuring already paid. Without the tick that second encode codes the source's g
 more on top of it, which is the one shape of this feature that costs bitrate instead of saving it.
 
 No encoder will denoise for a table - SVT reads its denoise flag only on the `--film-grain` path - so
-this is `DenoisePass` either way, and `NeedsDenoisePass` and `NeedsMeasurement` are separate questions
-now: Table with the tick does the first and not the second.
+this is always this app's own `hqdn3d`, and `NeedsDenoiseFilter` and `NeedsMeasurement` are separate
+questions: a table mode with the tick does the first and not the second.
 
 **The clause the readout exists for is the last one: grain synthesis only saves bitrate where the
 picture being coded has had the grain taken out of it.** Measured always does; Encoder analysis and
@@ -3357,10 +3374,12 @@ inherit exactly the Table path's behaviour on that encoder - but a report of aom
 on any table mode is this, not a regression.
 
 What the rows themselves were verified against, headless through the real `MainWindow` and the built
-assembly: both tabs offer the same four modes and neither offers Measured or Photon noise; the AV1AN
-row has no denoise tick and no strength spinner; an AV1AN Table or Preset config comes back with
-`Denoise` false and `NeedsDenoisePass` false, where Quick Convert's Preset with the tick comes back
-with `hqdn3d=4:3:0:0`; a Preset config reads as `UsesTable`, `NeedsPresetTable`, `NeedsGrav1synth`,
+assembly: both tabs offer the same four modes and neither offers Measured or Photon noise; both rows'
+Denoise ticks ship ticked, and an AV1AN Preset config comes back `Denoise`/`DenoisesSource`/
+`NeedsDenoiseFilter` true with `hqdn3d=4:3:0:0` appearing in the real per-chunk chain built by
+`GetVideoFilterArgs` over a loaded fixture - and gone again, with the readout back to "adds grain
+rather than saving", once the tick is cleared; a Preset config reads as `UsesTable`,
+`NeedsPresetTable`, `NeedsGrav1synth`,
 not `IsUtilityOnly`, and owning `fgs-table`; `Measured` still reads as `IsUtilityOnly` and its message
 names the Measure operation rather than the already-encoded wording photon noise gets; the preset
 dropdowns hold all fourteen names, the widest of which (`Modern35-1`) measures 137 against the box's

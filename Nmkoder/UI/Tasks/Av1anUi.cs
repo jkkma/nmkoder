@@ -617,6 +617,32 @@ namespace Nmkoder.UI.Tasks
 
             filters.AddRange(BuildGeometryFilters(frame, toneMapFilter));
 
+            // The Grain Synthesis row's own denoise, for the two modes that hand the encoder a table:
+            // no encoder will denoise for one - SVT reads its denoise flag only on the --film-grain
+            // path - so it is this app's hqdn3d, and without it the source's grain is coded and the
+            // synthesised grain lands on top of it, which costs bitrate instead of saving it.
+            //
+            // **A filter here rather than a pass, which is what kept this off the tab until now.** The
+            // only denoiser this tab ever had was DenoisePass rendering a lossless copy of the whole
+            // film in front of av1an - and that belonged to the measuring mode, which is the one thing
+            // needing a denoised *file* to diff against. A table needs only denoised frames, and the
+            // per-chunk -f chain produces those for one entry, exactly as the deinterlacer and the tone
+            // map do. Safe per chunk because GetDenoiseFilter is spatial-only, its temporal halves
+            // pinned to 0: nothing carries state across a chunk boundary, so no seam can appear at one.
+            //
+            // After the geometry, where Quick Convert and the utility's own pass both put it - the table
+            // describes grain at the frame being encoded - and cheapest there too, the frame being at
+            // its smallest. Measured never reaches here, being the utility's.
+            GrainPlan grainPlan = CurrentGrain ?? GrainSynthUi.GetPreviewPlan();
+
+            if (grainPlan.Config.NeedsDenoiseFilter)
+            {
+                filters.Add(grainPlan.Config.GetDenoiseFilter());
+                Logger.Log($"Denoising the source for the grain table ({grainPlan.Config.GetDenoiseFilter()}), so the " +
+                    $"synthesised grain replaces the source's own instead of landing on top of it. It runs inside " +
+                    $"av1an's per-chunk filter chain, so it costs no pass of its own.");
+            }
+
             filters.AddRange(GetCustomFilters());
 
             filters = filters.Where(x => x.Trim().Length > 2).ToList(); // Strip empty filters
@@ -1235,17 +1261,21 @@ namespace Nmkoder.UI.Tasks
         /// or "" when they are not - see <see cref="GrainGridChecks.GetGrainRetentionProblem"/>, which
         /// also says why it is a note rather than a refusal.
         /// <para/>
-        /// One way of denoising is left on this tab, so the clause naming it is a constant: the
-        /// encoder's own flag under Encoder analysis. Quick Convert has the other, an hqdn3d entry in
-        /// the chain it builds for a table with Denoise ticked, which is why that tab words its own.
+        /// Both ways of denoising are on this tab now - the encoder's own flag under Encoder analysis,
+        /// and an hqdn3d entry in the per-chunk chain for a table with Denoise ticked - so the clause
+        /// picks between them exactly as Quick Convert's does. It was a constant while the second of
+        /// those did not exist here.
         /// </summary>
         public static string GetGrainRetentionProblem(CodecUtils.Av1anCodec vCodec, GrainSynthConfig config)
         {
             if (vCodec != CodecUtils.Av1anCodec.SvtAv1 || config == null || !config.DenoisesSource)
                 return "";
 
-            return GrainGridChecks.GetGrainRetentionProblem(GetAdvancedArgValue, config,
-                "Denoise is ticked, so the encoder codes the denoised picture");
+            string what = config.NeedsDenoiseFilter
+                ? "the source is denoised in the filter chain av1an runs per chunk, in front of the encoder"
+                : "Denoise is ticked, so the encoder codes the denoised picture";
+
+            return GrainGridChecks.GetGrainRetentionProblem(GetAdvancedArgValue, config, what);
         }
 
         /// <summary>

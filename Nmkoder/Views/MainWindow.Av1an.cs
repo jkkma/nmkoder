@@ -152,6 +152,16 @@ namespace Nmkoder.Views
             GrainSynthUi.ApplyControlVisibility();
         }
 
+        private void Av1anGrainTableDenoise_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized)
+                return;
+
+            // The strength beside it appears and disappears with the tick, so this is the visibility
+            // call rather than a bare refresh.
+            GrainSynthUi.ApplyControlVisibility();
+        }
+
         private void Av1anGrainTable_Changed(object sender, RoutedEventArgs e)
         {
             if (!_initialized)

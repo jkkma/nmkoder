@@ -318,7 +318,7 @@
                       <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
                           <ComboBox x:Name="Av1anGrainModeBox" Width="300" SelectionChanged="Av1anGrainMode_SelectionChanged"
-                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first. Encoder analysis does that itself, for one number and no extra pass, and works on every AV1 build. Grain table file hands the encoder a table measured earlier. Neither costs this tab a pass of its own, which is the whole of what it offers: measuring a source's grain is hours of single-threaded work before av1an could even start, so it lives on the Film Grain utility instead - measure once there, then point this row at the table. To denoise the source to match a table you bring, use the Quick Convert tab, where that is one filter in a chain it already builds." />
+                                    ToolTip.Tip="AV1 can describe film grain in a few bytes and have the decoder regenerate it at playback, which is the single largest saving there is on grainy film - but only where the picture being coded has had the grain taken out of it first, which is what Denoise is for. Encoder analysis does that itself, for one number, and works on every AV1 build. Grain table file hands the encoder a table measured earlier. Film stock preset hands it one of grav1synth's built-in film stocks. None of them costs this tab a pass over the video, which is the whole of what it offers: measuring a source's own grain is hours of single-threaded work before av1an could even start, so it lives on the Film Grain utility instead - measure once there, then point this row at the table." />
 
                           <StackPanel x:Name="Av1anGrainEncoderPanel" Orientation="Horizontal" Spacing="10" IsVisible="False">
                             <NumericUpDown x:Name="Av1anGrainSynthStrengthUpDown" Classes="num" Minimum="0" Maximum="50" Increment="1" Value="0"
@@ -328,21 +328,30 @@
                                       ToolTip.Tip="Encode the denoised picture rather than the original. This is where the bitrate saving comes from - left off, the grain is still in the frames being coded and the synthetic grain is laid on top of it." />
                           </StackPanel>
 
-                          <!-- No Denoise tick beside the table here, and no strength spinner: taking the
-                               grain out of the picture is a filter Quick Convert adds to a chain it is
-                               building anyway, where this tab would have to render a lossless copy of
-                               the whole film in front of av1an to do it. See GrainSynthConfig.EncodeModes. -->
                           <StackPanel x:Name="Av1anGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
                             <TextBox x:Name="Av1anGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="Av1anGrainTable_Changed" />
                             <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
                           </StackPanel>
 
-                          <!-- No Denoise tick here either, for the reason above: this tab runs no denoise
-                               pass. A preset reaches the encoder as a table exactly as the box above does,
-                               so the two share every check downstream. -->
                           <StackPanel x:Name="Av1anGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
                             <ComboBox x:Name="Av1anGrainPresetBox" Width="150" SelectionChanged="Av1anGrainSetting_Changed"
-                                      ToolTip.Tip="grav1synth's own built-in film stock tables, handed to the encoder as a grain table - so the encoder synthesises the grain while it encodes, with no extra pass over the video and no rewrite of the finished file. The three format presets take a film stock modifier as a suffix: 16mm-3 is 16mm shot on Kodak Vision3 200T. This describes a film stock rather than your source, so it adds a look; to save bitrate the source's own grain has to come out first, which on this tab means denoising it beforehand or using Quick Convert." />
+                                      ToolTip.Tip="grav1synth's own built-in film stock tables, handed to the encoder as a grain table - so the encoder synthesises the grain while it encodes, with no extra pass over the video and no rewrite of the finished file. The three format presets take a film stock modifier as a suffix: 16mm-3 is 16mm shot on Kodak Vision3 200T. This describes a film stock rather than your source, so leave Denoise ticked to let it replace the grain already there rather than piling on top of it." />
+                          </StackPanel>
+
+                          <!-- Shared by both table modes, and ticked by default: no encoder denoises for a
+                               table, so without this the source's own grain is coded and the synthetic
+                               grain lands on top of it - which costs bitrate instead of saving it. One
+                               hqdn3d entry in the per-chunk -f chain, not a pass; it is spatial-only, so
+                               nothing carries across a chunk boundary. -->
+                          <StackPanel x:Name="Av1anGrainDenoisePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <CheckBox x:Name="Av1anGrainTableDenoiseBox" Content="Denoise" IsChecked="True" IsCheckedChanged="Av1anGrainTableDenoise_Changed"
+                                      ToolTip.Tip="Take the grain out of the picture before encoding it, so the synthesised grain replaces the source's own instead of landing on top of it - which is where the bitrate saving is. Untick it only when you are adding grain to a source that has none of its own, where denoising would soften real detail for nothing. It runs as one filter inside av1an's own per-chunk chain, so it costs no extra pass over the video." />
+                          </StackPanel>
+
+                          <StackPanel x:Name="Av1anGrainStrengthPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <NumericUpDown x:Name="Av1anGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
+                                           ValueChanged="Av1anGrainSynthStrength_ValueChanged"
+                                           ToolTip.Tip="How hard the denoiser runs, as a proportion of FFmpeg's own hqdn3d defaults - 4 is exactly those defaults. Too high takes picture detail with the grain and too low leaves grain in the frames being coded." />
                           </StackPanel>
 
                         </WrapPanel>
@@ -625,7 +634,7 @@
                                replaces it rather than sitting on top of it - is one operation whichever
                                supplied the table. -->
                           <StackPanel x:Name="EncGrainDenoisePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                            <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainTableDenoise_Changed"
+                            <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsChecked="True" IsCheckedChanged="EncGrainTableDenoise_Changed"
                                       ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Film Grain utility measures a table with. Leave it off for grain you are adding to a clean source; tick it to reproduce the encode a measured table came from, or to let a film stock preset replace the source's own grain instead of piling on top of it - which is where the bitrate saving is. Set the strength to whatever a measured table was measured at." />
                           </StackPanel>
 

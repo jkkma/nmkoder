@@ -119,11 +119,19 @@ namespace Nmkoder.Data
         /// <see cref="GrainSynthMode.Table"/> it is this app's denoise pass, the same one
         /// <see cref="GrainSynthMode.Measured"/> runs, because no encoder will denoise for a table.
         /// <para/>
-        /// Off by default under Table, and it has to be: a table the user brings may well be there to put
-        /// grain onto a source that never had any, where denoising would be destroying picture for
-        /// nothing. Ticking it is what makes a saved table reproduce the encode it was measured for.
+        /// **On by default, and it took a user asking "why would you ever want to add film grain on top
+        /// of film grain" to notice it should be.** It defaulted off, on the argument that a table might
+        /// be there to put grain onto a source that never had any, where denoising destroys picture for
+        /// nothing. That case is real and it is the minority, and the majority case is the one this whole
+        /// row exists for: AV1 grain synthesis saves bitrate *only* where the picture being coded has had
+        /// its grain taken out, so the old default shipped the one shape of the feature that costs bitrate
+        /// instead of saving it - coding the source's grain and then synthesising more over it. This
+        /// file's own note on Table mode already called that out in those words while defaulting to it.
+        /// <para/>
+        /// A tick is not a decision taken away: somebody adding grain to clean footage unticks it and the
+        /// readout says which of the two they are getting either way.
         /// </summary>
-        public bool Denoise = false;
+        public bool Denoise = true;
 
         /// <summary> How hard this app's own denoise pass runs, for the two modes that use it. See
         /// <see cref="GetDenoiseFilter"/> for what the number means - and note that a table measured at
@@ -251,10 +259,14 @@ namespace Nmkoder.Data
             }
         }
 
-        /// <summary> Whether a denoised copy has to be rendered before av1an starts, which is the half of
-        /// <see cref="DenoisesSource"/> this app does itself - the encoder's own denoise flag needs no
-        /// pass and no intermediate. </summary>
-        public bool NeedsDenoisePass
+        /// <summary> Whether this app has to denoise the picture itself, which is the half of
+        /// <see cref="DenoisesSource"/> the encoder will not do - it reads its own denoise flag only on
+        /// the strength path. It is one <c>hqdn3d</c> entry in a filter chain on **both** tabs now:
+        /// Quick Convert's single command, and the per-chunk <c>-f</c> chain av1an runs. It was called
+        /// <c>NeedsDenoisePass</c> while the AV1AN tab's only denoiser was a lossless whole-film render
+        /// in front of av1an - that pass belonged to the measuring mode, which is the utility's now, and
+        /// a table needs no denoised *file*, only denoised frames. </summary>
+        public bool NeedsDenoiseFilter
         {
             get
             {
@@ -483,7 +495,7 @@ namespace Nmkoder.Data
 
         /// <summary> Whether grav1synth rewrites the finished file. </summary>
         /// <summary> Whether a denoised copy has to be rendered before av1an starts. </summary>
-        public bool NeedsDenoisePass { get { return Config.NeedsDenoisePass; } }
+        public bool NeedsDenoiseFilter { get { return Config.NeedsDenoiseFilter; } }
 
         /// <summary> Whether that copy also has to be measured against the source. </summary>
         public bool NeedsMeasurement { get { return Config.NeedsMeasurement; } }
