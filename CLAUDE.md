@@ -370,9 +370,19 @@ that is the one upgrade worth unpacking fresh.
 ## The Scoop bucket
 
 `bucket/nmkoder-avalonia.json` makes this repository its own Scoop bucket, so
-`scoop bucket add nmkoder https://github.com/jkkma/nmkoder` and then
+`scoop bucket add nmkoder-avalonia https://github.com/jkkma/nmkoder` and then
 `scoop install nmkoder-avalonia` is all a Windows user needs. Scoop finds a bucket
 by its `bucket/` directory, and one manifest per app is the whole of it.
+
+**The bucket's name is not a property of this repository** - `scoop bucket add <name> <url>`
+takes whatever the user types, and nothing here declares one - so the three places that name it
+(this file, the README, and the release notes template in `release.yml`) are documentation and
+have to be changed together or not at all. It is spelled `nmkoder-avalonia` to match the app
+rather than the repo, which is only consistency: the collision that mattered was the *app* name,
+and that is what the manifest's own name settles. Anyone who added it as `nmkoder` before is
+unaffected; re-adding under the new name without `scoop bucket rm nmkoder` first is the one way
+to get the same repo attached twice, and Scoop then prints the familiar
+`WARN Multiple buckets contain manifest 'nmkoder-avalonia'`.
 
 **The app is not called `nmkoder`, and must not be renamed to it.** Scoop's community
 `extras` bucket already carries a `nmkoder` - n00mkrad's pre-fork WinForms 1.10.0, still
