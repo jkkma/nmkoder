@@ -7,6 +7,7 @@ using Nmkoder.Media;
 using Nmkoder.Utils;
 using Nmkoder.Views;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -48,7 +49,23 @@ namespace Nmkoder.UI.Tasks
             int mode = Array.IndexOf(GrainSynthConfig.EncodeModes, DefaultMode);
             Form.Av1anGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)), mode);
             Form.EncGrainModeBox.SetItems(GrainSynthConfig.EncodeModes.Select(m => (object)GrainSynthConfig.GetLabel(m)), mode);
+            FillPresetBoxes();
             ApplyControlVisibility();
+        }
+
+        /// <summary>
+        /// The film stock dropdowns, from whatever <see cref="GrainSynthConfig.Presets"/> currently holds.
+        /// <para/>
+        /// Called twice on purpose: once from <see cref="Init"/>, which runs before grav1synth has been
+        /// asked anything and so fills them from the fallback list, and again when
+        /// <see cref="Grav1synth.LoadPresetsAsync"/> lands with the installed binary's own. The second
+        /// call goes through <c>SetItemsIfChanged</c>, so a build whose list matches the fallback - which
+        /// is the ordinary case - leaves a selection the user has already made exactly where it is.
+        /// </summary>
+        public static void FillPresetBoxes()
+        {
+            foreach (ComboBox box in new[] { Form.Av1anGrainPresetBox, Form.EncGrainPresetBox })
+                box.SetItemsIfChanged(GrainSynthConfig.Presets.Select(p => (object)p), box.SelectedIndex.Clamp(0, GrainSynthConfig.Presets.Length - 1));
         }
 
         /// <summary> The mode a box is asking for, floored the way every other index read on these tabs is
@@ -74,7 +91,8 @@ namespace Nmkoder.UI.Tasks
             // lossless copy of the film in front of the encode, so the tick is Quick Convert's - see
             // GrainSynthConfig.EncodeModes.
             return Read(Form.Av1anGrainModeBox, Form.Av1anGrainSynthStrengthUpDown, Form.Av1anGrainSynthDenoiseBox,
-                tableDenoise: null, denoiseStrength: null, tableBox: Form.Av1anGrainTableBox);
+                tableDenoise: null, denoiseStrength: null, tableBox: Form.Av1anGrainTableBox,
+                presetBox: Form.Av1anGrainPresetBox);
         }
 
         /// <summary>
@@ -88,14 +106,15 @@ namespace Nmkoder.UI.Tasks
                 return new GrainSynthConfig();
 
             return Read(Form.EncGrainModeBox, Form.EncGrainSynthStrengthUpDown, Form.EncGrainSynthDenoiseBox,
-                Form.EncGrainTableDenoiseBox, Form.EncGrainDenoiseStrengthUpDown, Form.EncGrainTableBox);
+                Form.EncGrainTableDenoiseBox, Form.EncGrainDenoiseStrengthUpDown, Form.EncGrainTableBox,
+                Form.EncGrainPresetBox);
         }
 
         /// <summary> One row's controls, read into a config. <paramref name="tableDenoise"/> and
         /// <paramref name="denoiseStrength"/> are null on the AV1AN tab, which has neither control and
         /// so can never ask for the denoise pass those two describe. </summary>
         private static GrainSynthConfig Read(ComboBox modeBox, NumericUpDown strength, CheckBox encoderDenoise,
-            CheckBox tableDenoise, NumericUpDown denoiseStrength, TextBox tableBox)
+            CheckBox tableDenoise, NumericUpDown denoiseStrength, TextBox tableBox, ComboBox presetBox)
         {
             GrainSynthMode mode = GetMode(modeBox);
 
@@ -104,13 +123,14 @@ namespace Nmkoder.UI.Tasks
                 Mode = mode,
                 Strength = strength.Value.AsInt(),
                 // Two controls, because they sit in two panels and mean two mechanisms - the encoder's own
-                // denoise flag under Encoder, this app's denoise pass under Table. Read per mode so a tick
-                // left in the panel that is off screen cannot reach the encode.
-                Denoise = mode == GrainSynthMode.Table
+                // denoise flag under Encoder, this app's denoise pass under the two table modes. Read per
+                // mode so a tick left in the panel that is off screen cannot reach the encode.
+                Denoise = mode == GrainSynthMode.Table || mode == GrainSynthMode.Preset
                     ? tableDenoise != null && tableDenoise.IsChecked == true
                     : encoderDenoise.IsChecked == true,
                 DenoiseStrength = denoiseStrength == null ? 4 : denoiseStrength.Value.AsInt(),
                 TablePath = (tableBox.Text ?? "").Trim(),
+                Preset = presetBox.GetText(),
             };
         }
 
@@ -139,32 +159,43 @@ namespace Nmkoder.UI.Tasks
             // The AV1AN row has no denoise-pass controls at all, so it passes nulls where Quick Convert
             // passes the tick and the strength beside it.
             Apply(IsRowRelevant(Av1anUi.GetCurrentCodecV()), Form.Av1anGrainModeBox, Form.Av1anGrainEncoderPanel,
-                measuredPanel: null, Form.Av1anGrainTablePanel,
+                measuredPanel: null, Form.Av1anGrainTablePanel, Form.Av1anGrainPresetPanel, denoisePanel: null,
                 tableDenoise: null, Form.Av1anGrainSynthDenoiseBox, Form.Av1anGrainSynthStrengthUpDown);
 
             Apply(IsRowRelevant(QuickConvertUi.GetCurrentCodecV()), Form.EncGrainModeBox, Form.EncGrainEncoderPanel,
-                Form.EncGrainMeasuredPanel, Form.EncGrainTablePanel,
+                Form.EncGrainMeasuredPanel, Form.EncGrainTablePanel, Form.EncGrainPresetPanel, Form.EncGrainDenoisePanel,
                 Form.EncGrainTableDenoiseBox, Form.EncGrainSynthDenoiseBox, Form.EncGrainSynthStrengthUpDown);
 
             RefreshInfo();
         }
 
         private static void Apply(bool relevant, ComboBox modeBox, StackPanel encoderPanel, StackPanel measuredPanel,
-            StackPanel tablePanel, CheckBox tableDenoise, CheckBox encoderDenoise, NumericUpDown strength)
+            StackPanel tablePanel, StackPanel presetPanel, StackPanel denoisePanel, CheckBox tableDenoise,
+            CheckBox encoderDenoise, NumericUpDown strength)
         {
             GrainSynthMode mode = relevant ? GetMode(modeBox) : GrainSynthMode.Off;
+
+            // The two modes that hand the encoder a table rather than a strength. They share the denoise
+            // tick and its strength, because what those two controls describe - take the source's own
+            // grain out so the synthesised grain replaces it rather than sitting on top of it - is the
+            // same operation whichever supplied the table.
+            bool tableMode = mode == GrainSynthMode.Table || mode == GrainSynthMode.Preset;
 
             modeBox.IsEnabled = relevant;
             encoderPanel.IsVisible = mode == GrainSynthMode.Encoder;
 
+            if (denoisePanel != null)
+                denoisePanel.IsVisible = tableMode;
+
             // The strength belongs to the denoise pass, which is Quick Convert's alone and runs there
             // only for a table with the tick set. It used to accompany Measured too, and carried a
-            // "Denoise" label of its own for that mode, where under Table the tickbox immediately to
-            // its left already says the word - with Measured gone the label had nothing left to name.
+            // "Denoise" label of its own for that mode, where under the table modes the tickbox
+            // immediately to its left already says the word.
             if (measuredPanel != null)
-                measuredPanel.IsVisible = mode == GrainSynthMode.Table && tableDenoise.IsChecked == true;
+                measuredPanel.IsVisible = tableMode && tableDenoise.IsChecked == true;
 
             tablePanel.IsVisible = mode == GrainSynthMode.Table;
+            presetPanel.IsVisible = mode == GrainSynthMode.Preset;
 
             // The Denoise box follows the strength beside it as well as the encoder: both AV1 encoders
             // read their denoise flag only where they are synthesising grain at all - aomenc's
@@ -283,10 +314,19 @@ namespace Nmkoder.UI.Tasks
             if (flag.IsEmpty())
                 return $"{CodecUtils.GetCodec(codec).FriendlyName} cannot be handed a grain table.";
 
+            // The generated table's path is this app's own and the user cannot move it, so the two cases
+            // are worded apart: one names a file to move, the other names the folder the app is installed
+            // in, which is the only thing that puts a space in a path chosen entirely by this code.
             if (HasSpace(tablePath))
-                return "the grain table's path contains a space, and everything this app sends an av1an-driven " +
-                    "encoder goes inside one quoted string that av1an splits again on the way to the binary - a " +
-                    "value with a space in it does not survive that split. Move the table somewhere without one";
+                return config.Mode == GrainSynthMode.Preset
+                    ? "everything this app sends an av1an-driven encoder goes inside one quoted string that av1an " +
+                        "splits again on the way to the binary, and a value with a space in it does not survive " +
+                        $"that split - which is where the table read out of the '{config.Preset}' preset would have " +
+                        "to go, and this app is installed somewhere with a space in the path. Quick Convert has no " +
+                        "such limit: it launches the encoder itself and quotes the path"
+                    : "the grain table's path contains a space, and everything this app sends an av1an-driven " +
+                        "encoder goes inside one quoted string that av1an splits again on the way to the binary - a " +
+                        "value with a space in it does not survive that split. Move the table somewhere without one";
 
             if (!await AvProcess.EncoderKnowsFlagOrIsUnknown(codec == CodecUtils.Av1anCodec.SvtAv1 ? "svt-av1" : "aom", flag))
                 return $"this SVT-AV1 build has no {flag} - it is a parameter of the PSY line (svt-av1-hdr), which " +
@@ -485,8 +525,48 @@ namespace Nmkoder.UI.Tasks
             {
                 Config = config,
                 Delivery = GetLikelyDelivery(config, Av1anUi.GetCurrentCodecV()),
-                TablePath = config.Mode == GrainSynthMode.Table ? config.TablePath : "",
+                // A preset's table does not exist yet and its real path is the run's own, so this names
+                // where one would go rather than where this run's will. Nothing an encode uses reads it:
+                // Av1anUi.GetVideoArgsFromUi prefers CurrentGrain, which is settled before the command is
+                // built and is what the Shift-to-edit preview is rendered from.
+                TablePath = config.Mode == GrainSynthMode.Table ? config.TablePath
+                    : config.NeedsPresetTable ? GetSessionPresetTablePath() : "",
             };
+        }
+
+        /// <summary> Where a generated preset table goes when the caller has nowhere better - Quick
+        /// Convert's runs, and the AV1AN command preview. The session folder is emptied at the next
+        /// launch, so nothing accumulates. The AV1AN tab names its own instead, beside the run's temp
+        /// folder: a resume replays the saved command, table path and all, and this folder's name has
+        /// the session's timestamp in it. </summary>
+        public static string GetSessionPresetTablePath()
+        {
+            return Path.Combine(Paths.GetSessionDataPath(), "grain-preset.tbl");
+        }
+
+        /// <summary>
+        /// Reads a film stock preset out of grav1synth into a table and points the plan at it. Returns why
+        /// it could not, or "" when it did - including when there was nothing to do, this being a no-op for
+        /// every other mode.
+        /// <para/>
+        /// Called after the row's checks rather than before them, so a run that is going to be refused for
+        /// a mainline SVT-AV1 or a path with a space is refused without building anything first.
+        /// </summary>
+        public static async Task<string> BuildPresetTableAsync(GrainPlan plan, string tablePath)
+        {
+            if (plan == null || !plan.Config.NeedsPresetTable)
+                return "";
+
+            Logger.Log($"Grain Synthesis: reading grav1synth's '{plan.Config.Preset}' film stock preset into a grain table...");
+
+            string problem = await Grav1synth.MakePresetTableAsync(plan.Config.Preset, tablePath);
+
+            if (problem.IsNotEmpty())
+                return problem;
+
+            plan.TablePath = tablePath;
+            Logger.Log($"Grain Synthesis: the '{plan.Config.Preset}' preset goes to the encoder as {Path.GetFileName(tablePath)}.", true);
+            return "";
         }
 
         /// <summary>
@@ -502,7 +582,10 @@ namespace Nmkoder.UI.Tasks
             {
                 Config = config,
                 Delivery = GetLikelyDelivery(config, QuickConvertUi.GetCurrentCodecV()),
-                TablePath = config.Mode == GrainSynthMode.Table ? config.TablePath : "",
+                // The preset's own table is written by BuildPresetTableAsync once the run's checks have
+                // passed, and it fills this in - the path is settled here so both agree on it.
+                TablePath = config.Mode == GrainSynthMode.Table ? config.TablePath
+                    : config.NeedsPresetTable ? GetSessionPresetTablePath() : "",
             };
         }
 

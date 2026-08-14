@@ -94,11 +94,13 @@ namespace Nmkoder.Views
             UpdateFilmGrainBtnText();
             UtilCrfLadder.LoadSettings();
             UpdateCrfLadderBtnText();
-            // grav1synth's own film stock list, for the Film Grain utility's dialog. Fire-and-forget: the
-            // fallback list is already in GrainSynthConfig.Presets, and this only replaces it where the
-            // installed binary answers. Read here rather than when the dialog opens, so the first open
-            // does not wait on a process launch.
-            _ = Grav1synth.LoadPresetsAsync();
+            // grav1synth's own film stock list, for the Film Grain utility's dialog and for both encode
+            // tabs' Grain Synthesis rows. Fire-and-forget: the fallback list is already in
+            // GrainSynthConfig.Presets and GrainSynthUi.Init has filled the dropdowns from it, so this
+            // only replaces it where the installed binary answers - which is why the refill goes through
+            // SetItemsIfChanged and leaves a selection alone when the two lists agree. Read here rather
+            // than when a dialog opens, so the first open does not wait on a process launch.
+            _ = Grav1synth.LoadPresetsAsync().ContinueWith(_ => Dispatcher.UIThread.Post(GrainSynthUi.FillPresetBoxes));
             LoadUiConfig();
 
             // The SelectionChanged handlers bail out until _initialized is set, so the initial

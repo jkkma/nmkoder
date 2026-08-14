@@ -2892,12 +2892,61 @@ The modes are in `GrainSynthMode`, and what separates them is not how the grain 
 |---|---|---|
 | Encoder analysis | the encoder, from a strength | one number |
 | Grain table file | a table the user already has | nothing, or Quick Convert's denoise filter on request |
+| Film stock preset | grav1synth's own built-in tables | a 64x64 stub round trip, under a second |
 
-**The row is what the encoder does while it encodes and costs no pass of its own, and both halves of
-that are load-bearing.** Grain written into a file that is already encoded - a film stock preset,
-photon noise, or a table applied afterwards - is the Film Grain utility's job and is not on this row
-at all. That is the division CLAUDE.md already states for Cut and Deinterlace Video: utilities write
-a file, the tabs' own settings apply during an encode, and neither reads the other's.
+**The row is what the encoder does while it encodes and costs no pass over the video, and both halves
+of that are load-bearing.** Grain written into a file that is already encoded - photon noise, or any
+of these applied afterwards - is the Film Grain utility's job and is not on this row at all. That is
+the division CLAUDE.md already states for Cut and Deinterlace Video: utilities write a file, the
+tabs' own settings apply during an encode, and neither reads the other's.
+
+**The film stock presets used to be on the wrong side of that line, and the rule is what put them
+right rather than what kept them out.** They were utility-only on the grounds that grav1synth writes a
+preset into a finished bitstream, which no encoder can be asked to do - true of `grav1synth apply`,
+and not true of the preset. **A preset is an ordinary grain table.** There is no command that emits
+one (`grav1synth --help` offers `inspect`, `apply`, `presets`, `remove`, `diff` and nothing else), but
+`apply --preset` onto a throwaway stub and `inspect` back off it yields the table, and from there it
+is Grain table file in every respect: same `--fgs-table`/`--film-grain-table` delivery, same refusals,
+same collision checks, same argument. `Grav1synth.MakePresetTableAsync` is the round trip and
+`GrainSynthConfig.NeedsPresetTable` is who asks for it. What the row still does not do is what it
+never did - rewrite the output afterwards.
+
+Four things about that were measured rather than reasoned out, and each is why the stub can be as
+cheap as it is:
+
+- **Nothing about the table depends on the stub.** Tables read off a 320x240/1s stub and a
+  1920x1080/5s one are byte-identical bar the final segment's end tick. So the stub is 64x64 black.
+- **A preset's pattern saturates.** Timestamps are 100ns ticks and frame-aligned; the parameters vary
+  over roughly the first 8.5 seconds and then **one final segment runs to the end of the file** - a
+  2-hour stub produced 35 segments, the last covering 7191 of the 7200 seconds. So `StubSeconds` is 15,
+  comfortably past the varying part, and `ExtendFinalSegment` runs that last segment out to 24 hours.
+  That restores exactly the shape grav1synth writes for a long file anyway. Without it, an encoder that
+  looks the table up by timestamp - libaom does - would grain the first 15 seconds and leave the rest
+  clean.
+- **SVT-AV1 reads the first segment and nothing else.** Given `--fgs-table` it writes one segment for
+  the whole encode whose parameters equal the table's segment 1, with a seed of its own (7391 where the
+  table's are 21912/54780/10956/32868). Truncated and extended tables produced byte-identical output.
+  So the extension is for aomenc's sake; on SVT the table's length cannot matter.
+- **The round trip costs about a second.** The 2-hour stub above took 72s to encode, which is why the
+  stub is short rather than matched to the source: `apply` and `inspect` over it were 2.9s and 3.1s,
+  and over a 15-second stub the whole thing is well under one.
+
+Verified end to end through the real code: `MakePresetTableAsync` out of the built assembly produced a
+19512-byte table whose first line is `filmgrn1`, 36 segments, final end tick 864000000000 (24h) with
+every earlier boundary untouched (the one before it at 8.417s); `SvtAv1EncApp --fgs-table` on that file
+produced an AV1 output whose grain, read back with `grav1synth inspect`, is **byte-identical to the
+table's segment 1** across all seven parameter lines; 16mm and Super8 give different tables; and an
+unknown preset name is refused with nothing written.
+
+**The generated table's path cannot contain a space on the AV1AN tab**, and that is the one place this
+is narrower than Grain table file. Everything sent to an av1an-driven encoder goes inside one `-v "…"`
+string that av1an splits again on whitespace - the limit this file already records - and the table this
+writes lives at `{tempDir}.grain.tbl`, under `Paths.GetAv1anTempPath()`, which is beside the exe. So an
+install path with a space refuses, and unlike a user's own table it cannot be moved. The refusal is
+worded for that case and names Quick Convert, which launches the encoder itself and quotes the path.
+The `{tempDir}` naming buys two things: `GetPreparedInputs` already sweeps a `.grain.` sibling when it
+deletes that folder, and a resume replaying its saved command finds the table where the command says,
+the path deriving from the same `overrideTempDir` the resume was given.
 
 **Measured from source left later, and for the second half of that rule rather than the first.** It
 *was* an encode mode on the AV1AN tab: a lossless denoise render of the whole film and a grav1synth
@@ -2906,10 +2955,12 @@ before the parallel encode began, on every run of it. Measuring is a thing to do
 once per encode, and the Film Grain utility's Measure operation already did exactly that and stated
 its cost up front; its table then feeds Grain table file here for nothing. Quick Convert had refused
 the mode outright from the day it was ported, having no measuring pass, so this closed the last place
-it could be picked. `GrainSynthConfig.EncodeModes` is what both rows offer; `IsUtilityOnly` now covers
-all three of `Measured`, `Preset` and `PhotonNoise`, and `DescribeUtilityOnly` words them apart -
-telling somebody that measuring "writes grain into a finished file" would send them to the wrong
-operation.
+it could be picked. `GrainSynthConfig.EncodeModes` is what both rows offer; `IsUtilityOnly` covers
+`Measured` and `PhotonNoise` - `Preset` left that list when it became a table, see above - and
+`DescribeUtilityOnly` words the two apart, since telling somebody that measuring "writes grain into a
+finished file" would send them to the wrong operation. `PhotonNoise` stays out on its own merits
+rather than by inheritance: grav1synth synthesises it from the frame size and the transfer curve, so
+unlike a film stock it is genuinely not a fixed table and a stub round trip would describe the stub.
 
 **Both encode tabs carry the row, and both drive the same binaries now - what still differs is the
 pipeline behind it.** `GrainSynthUi` drives both the way `ToneMapUi` and `DeinterlaceUi` do - one
@@ -2920,20 +2971,33 @@ the readout and the refusals are one implementation rather than two that drift. 
 and everything downstream reads that: which delivery is likely, what the readout says, and what `Run`
 refuses.
 
-**Both tabs carry out both modes, and the one control only Quick Convert has is the Denoise tick
+**Both tabs carry out all three modes, and the one control only Quick Convert has is the Denoise tick
 beside the table.** Encoder analysis works on either tab's AV1 encoders, spelled by the Direct and
 Av1an classes themselves. Grain table file works on both, and on Quick Convert with a path containing
 spaces - the table travels as one `Shell.WrapArg` argument, where the AV1AN tab still refuses a spaced
-path that av1an's one-quoted-string re-split would break. The binary is asked about the flag at encode
-time on both, because a user's own SVT-AV1 may be mainline and refuses the whole command over it.
+path that av1an's one-quoted-string re-split would break. Film stock preset works on both and meets
+that same split, with the difference recorded above: its path is this app's own, so a space in it is
+the install path rather than anything the user can move. The binary is asked about the flag at encode
+time on both, because a user's own SVT-AV1 may be mainline and refuses the whole command over it -
+which reaches the presets too, `--fgs-table` being how they travel.
 
 The tick is Quick Convert's because of what denoising costs each tab, which is the same asymmetry
 QTGMC has: there it is one `hqdn3d` entry in a chain that ffmpeg is building anyway, and on the AV1AN
 tab it was `DenoisePass` rendering a lossless copy of the entire film before av1an could start. So the
-AV1AN row is the dropdown and a path box, `GrainSynthUi.Read` is passed nulls for the tick and the
-strength there, and `NeedsDenoisePass` is structurally false for anything that tab can produce.
-Measure once in the utility and encode with the table on either tab; tick Denoise on Quick Convert to
-reproduce the encode the table was measured for.
+AV1AN row is the dropdown, a path box and a preset box, `GrainSynthUi.Read` is passed nulls for the
+tick and the strength there, and `NeedsDenoisePass` is structurally false for anything that tab can
+produce. Measure once in the utility and encode with the table on either tab; tick Denoise on Quick
+Convert to reproduce the encode the table was measured for.
+
+**That tick is shared by both table modes and sits in its own panel for that reason.** It used to live
+inside the table panel, next to the browse button; what it describes - take the source's own grain out
+so the synthesised grain replaces it rather than sitting on top of it - is one operation whichever
+supplied the table, so `EncGrainDenoisePanel` holds it and shows for Table or Preset alike, with
+`EncGrainMeasuredPanel`'s strength behind it as before. It is what makes a film stock preset **save**
+bitrate rather than merely add a look: measured on this app's own chain, a preset applied over a grainy
+encode saves nothing by construction, where denoise-then-synthesise is where the saving has always been.
+On the AV1AN tab there is no tick, so a preset there is a look laid over grain that was coded anyway -
+which is exactly what the readout's last clause says, and the reason that clause exists.
 
 **The strength survived the rewrite, and dropping it would have been a regression rather than a
 simplification.** `--fgs-table` is a PSY-line parameter - mainline SVT-AV1 does not have it and neither
@@ -3063,7 +3127,9 @@ Measured, and a grid `noise` with the row Off correctly say nothing.
 the spelling differs - which matters more now that a table an encoder cannot take stops the encode. Measured: a table passed in comes back out of the encode intact, and an encode with
 both `--film-grain-table` and `--denoise-noise-level` produces a grain table byte-identical to the one
 with the table alone - the same precedence SVT has, so sending a strength beside a table would be sending
-a number that is silently discarded.
+a number that is silently discarded. **That was measured against aomenc 3.8.2 and does not generalise to
+every build:** Ubuntu's aborts on any table at all - see "What is not verified" below, which is where
+that belongs, since it hits Grain table file exactly as it hits the film stock presets.
 
 That is a narrower question than the one `EncoderArgPresets.Av1anEncoderName` refuses to ask, and the
 distinction matters: that map refuses x264 because its `--help` is a short list with the rest behind
@@ -3109,6 +3175,19 @@ it be discovered at hour two. `Grav1synth.EstimateDiffTime` is the one statement
 **`apply` and `remove` carry video, audio, subtitles and chapters and drop attachments** - read out of
 its own stream mapping, which skips every medium but those three. On this tab that is a box the user
 may well have ticked, so a post-apply on a file with attachments logs the fact.
+
+**`grav1synth presets` prints its two blocks in two different formats, and reading them alike cost nine
+of the fourteen names.** A preset is `Super8  (Based on Super 8mm film size)`; a modifier is
+`-1  Fujifilm Eterna 500T`, with **no bracket anywhere on the line**. `ParsePresets` required a bracket
+on both, so it found zero suffixes, returned the five bare presets, and - any non-empty parse winning
+over the fallback - *replaced* `GrainSynthConfig.FallbackPresets`' fourteen with them. Every machine
+that actually had grav1synth installed therefore offered `16mm` and not `16mm-1`/`-2`/`-3`, which is
+the half of the list naming real film stocks (Kodak Vision3 200T and friends); a machine without the
+tool kept all fourteen off the fallback, so the bug made the feature *worse* where the tool was
+present. The modifier block is parsed on its own terms now - a leading `-` on the first token, which
+also skips the default's untokened description line and the block's trailing `Example:`. Found by
+counting the dropdown in a headless render (5 where the fallback has 14) rather than by reading the
+parser, which looks right.
 
 **It has never cut a release, so `bundle-tools.sh` builds it**, which makes it the only tool here that
 needs a compiler on the runner. Two ways of doing that are wrong and both were tried:
@@ -3219,7 +3298,9 @@ that leaves neither the original nor a working copy.
 ### The Film Grain utility
 
 The card owns everything the encode rows do not: grain written onto or stripped off a file that is
-already encoded - the film stock presets and the photon noise among them - a table read back out of
+already encoded - the photon noise, and the film stock presets *applied after the fact*, which is a
+different operation from the encode row's identically-named mode and still worth having, since it is
+the only way to put a film stock onto a file you are not re-encoding - a table read back out of
 somebody else's encode, and **measuring**, which is now this card alone. Measure was an encode mode on
 the AV1AN tab as well until it became clear it was hours of serial work in front of a parallel encode,
 repeated on every run; here it happens once per source and the table feeds either tab's Grain table
@@ -3257,21 +3338,36 @@ afterwards reporting no grain headers.
 
 ### What is not verified
 
-The `--fgs-table` path could not be exercised here: there is no SvtAv1EncApp in a web session, and the
-libsvtav1 inside ffmpeg has no such option. What was measured end to end is the rest of the chain - the
-denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1 encode of the denoised file, `apply` with
-the resulting table, and an `inspect` round trip reading the grain back out. The table format is aom's
-own `filmgrn1`, which is what the parameter takes.
+**The `--fgs-table` path is no longer on this list**, which this section used to head: the shipped
+SvtAv1EncApp comes back out of a published linux-x64 release (see `.claude/skills/real-binaries`), so
+the whole chain has been run - the denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1
+encode of the denoised file, `apply` with the resulting table, an `inspect` round trip, and the film
+stock presets' own `MakePresetTableAsync` → `--fgs-table` → `inspect` comparison recorded above. The
+table format is aom's own `filmgrn1`, which is what the parameter takes. A full av1an *measured-grain*
+run is still a real-machine check, there being no av1an that executes in a web session.
 
-What the removal of the AV1AN measuring modes *was* verified against is the rows themselves, headless
-through the real `MainWindow`: both tabs offer the same three modes and neither offers Measured; the
-AV1AN row has no denoise tick, no strength spinner and no denoise-mode label; an AV1AN Table config
-comes back with `Denoise` false and `NeedsDenoisePass` false, where Quick Convert's comes back with
-`hqdn3d=4:3:0:0`; `Measured` reads as `IsUtilityOnly` and its message names the Measure operation
-rather than the already-encoded wording a film stock preset gets; and a zscale tone map beside a
-denoise-wanting grain plan no longer pulls a pass in front. That check's other half - that libplacebo
-still did - is moot rather than merely superseded: there is no pass on this tab at all now, so no
-grain plan can pull one, and re-running that assertion would fail on a tab behaving correctly.
+**aomenc's `--film-grain-table` is the one that has gone the other way, and it is a pre-existing
+fault rather than anything the presets introduced.** Ubuntu's aomenc aborts with
+`*** buffer overflow detected ***` on **every** table fed to it - including one produced by
+`grav1synth diff`, which is the app's own Measured output and the path Grain table file has always
+used. So it is not preset-specific and not table-content-specific as far as could be told here. This
+project's own measurement of that flag was made against aomenc 3.8.2 and still stands for that build;
+what it does not cover is whatever aomenc a user has. Nothing about it blocks the presets, which
+inherit exactly the Table path's behaviour on that encoder - but a report of aomenc dying instantly
+on any table mode is this, not a regression.
+
+What the rows themselves were verified against, headless through the real `MainWindow` and the built
+assembly: both tabs offer the same four modes and neither offers Measured or Photon noise; the AV1AN
+row has no denoise tick and no strength spinner; an AV1AN Table or Preset config comes back with
+`Denoise` false and `NeedsDenoisePass` false, where Quick Convert's Preset with the tick comes back
+with `hqdn3d=4:3:0:0`; a Preset config reads as `UsesTable`, `NeedsPresetTable`, `NeedsGrav1synth`,
+not `IsUtilityOnly`, and owning `fgs-table`; `Measured` still reads as `IsUtilityOnly` and its message
+names the Measure operation rather than the already-encoded wording photon noise gets; the preset
+dropdowns hold all fourteen names, the widest of which (`Modern35-1`) measures 137 against the box's
+150; each readout sits below its dropdown sharing a left edge; and a zscale tone map beside a
+denoise-wanting grain plan no longer pulls a pass in front. That last check's other half - that
+libplacebo still did - is moot rather than merely superseded: there is no pass on this tab at all now,
+so no grain plan can pull one, and re-running that assertion would fail on a tab behaving correctly.
 
 ## Tone mapping
 

@@ -30,8 +30,10 @@ namespace Nmkoder.Data
         /// <summary> A grain table file the user already has. </summary>
         Table,
 
-        /// <summary> One of grav1synth's built-in film stock tables. **Utility only** - it is written into
-        /// a finished file, which is not something an encoder can be asked to do. </summary>
+        /// <summary> One of grav1synth's built-in film stock tables. Read out of grav1synth as a table
+        /// when the encode starts (<see cref="Media.Grav1synth.MakePresetTableAsync"/>) and delivered
+        /// through the encoder exactly as <see cref="Table"/> is, so it costs no pass over the video and
+        /// no rewrite of the output. </summary>
         Preset,
 
         /// <summary> Photon noise at a given ISO, synthesised by grav1synth from the frame size and the
@@ -81,10 +83,15 @@ namespace Nmkoder.Data
     /// one number and no extra pass, and denoises the picture itself - which is where the bitrate saving
     /// actually comes from. It is the right answer for most people and it stays the cheap default.
     /// <para/>
-    /// What the other two modes add is accuracy: a table measured off this scan rather than an encoder's
-    /// guess at it, or one measured earlier and kept. Grain written into a *finished* file - the film stock
-    /// presets, the photon noise - is not here at all; that is the Film Grain utility, because this row is
-    /// what the encoder does while it encodes.
+    /// What the table modes add is a description this app did not have to guess at: one measured earlier
+    /// and kept, or one of grav1synth's built-in film stocks. All three reach the encoder the same way, as
+    /// its own grain-table parameter, so all three cost the encode nothing beyond the encode.
+    /// <para/>
+    /// What is still not here is grain written into a *finished* file - the photon noise, and every one of
+    /// these applied after the fact. That is the Film Grain utility, because this row is what the encoder
+    /// does while it encodes. The film stock presets used to be filed under that heading too and are not,
+    /// for the reason <see cref="EncodeModes"/> gives: a preset is a table, and only the way grav1synth
+    /// hands it over made it look like a post-pass.
     /// </summary>
     public class GrainSynthConfig
     {
@@ -174,13 +181,24 @@ namespace Nmkoder.Data
 
         /// <summary>
         /// What both encode tabs' rows offer: the modes an encoder carries out while it encodes, for one
-        /// number or one file and no pass of its own. Three of the six are missing on purpose and the enum
-        /// keeps all six because the Film Grain utility uses this same class to say where its grain comes
-        /// from.
+        /// number or one table and no pass over the video. Two of the six are missing on purpose and the
+        /// enum keeps all six because the Film Grain utility uses this same class to say where its grain
+        /// comes from.
         /// <para/>
-        /// <see cref="GrainSynthMode.Preset"/> and <see cref="GrainSynthMode.PhotonNoise"/> are grav1synth
-        /// writing grain into a finished bitstream, which no encoder can be asked to do.
-        /// <see cref="GrainSynthMode.Measured"/> left later and for a different reason: it *was* an encode
+        /// **<see cref="GrainSynthMode.Preset"/> is here, and the rule it looked like it broke is the
+        /// reason it fits.** A film stock preset was utility-only on the grounds that grav1synth writes it
+        /// into a finished bitstream, which no encoder can be asked to do - and that is true of
+        /// <c>grav1synth apply</c> and not of the preset. The preset itself is an ordinary grain table:
+        /// <c>apply</c> onto a throwaway stub and <c>inspect</c> back off it yields one, the round trip
+        /// costs a fraction of a second, and nothing about the result depends on the stub - tables read off
+        /// a 320x240 clip and a 1920x1080 one are byte-identical bar the final segment's end tick, which
+        /// this app extends itself. From there it is <see cref="Table"/> in every respect: the same
+        /// delivery, the same refusals, the same encoder parameter. What the row does not do is what it
+        /// never did - rewrite the output afterwards.
+        /// <para/>
+        /// <see cref="GrainSynthMode.PhotonNoise"/> stays out because it is genuinely not a fixed table:
+        /// grav1synth synthesises it from the frame size and the transfer curve, so it is the utility's.
+        /// <see cref="GrainSynthMode.Measured"/> is out for a different reason again: it *was* an encode
         /// mode on the AV1AN tab, made of a lossless denoise render and a grav1synth diff running in front
         /// of av1an - hours of single-threaded measuring before the parallel encode began, on every run of
         /// it. Measuring is a thing to do once per source, not once per encode, and the utility's Measure
@@ -189,7 +207,7 @@ namespace Nmkoder.Data
         /// left one place it could be selected and one place it could not.
         /// </summary>
         public static readonly GrainSynthMode[] EncodeModes =
-            { GrainSynthMode.Off, GrainSynthMode.Encoder, GrainSynthMode.Table };
+            { GrainSynthMode.Off, GrainSynthMode.Encoder, GrainSynthMode.Table, GrainSynthMode.Preset };
 
         /// <summary> Whether anything happens at all. Encoder mode at a strength of 0 is Off spelled
         /// differently - both encoders read 0 as "leave the source alone" - so it is reported as such
@@ -199,11 +217,26 @@ namespace Nmkoder.Data
             get { return Mode != GrainSynthMode.Off && (Mode != GrainSynthMode.Encoder || Strength > 0); }
         }
 
-        /// <summary> Whether this mode is a grain *table*, which is the half grav1synth measures or the
-        /// user supplies, as against the half an encoder or grav1synth generates for itself. </summary>
+        /// <summary> Whether this mode reaches the encoder as a grain *table* - measured, supplied, or
+        /// read out of grav1synth's own presets - as against a strength the encoder analyses the source
+        /// with. All three are the same argument to the encoder and are refused in the same places, which
+        /// is why they answer one question rather than being tested for by name. </summary>
         public bool UsesTable
         {
-            get { return Runs && (Mode == GrainSynthMode.Measured || Mode == GrainSynthMode.Table); }
+            get
+            {
+                return Runs && (Mode == GrainSynthMode.Measured || Mode == GrainSynthMode.Table ||
+                    Mode == GrainSynthMode.Preset);
+            }
+        }
+
+        /// <summary> Whether the table has to be built before the encode rather than already existing on
+        /// disk, which is exactly the preset: it is read out of grav1synth by a stub round trip, not
+        /// picked in a file browser. Cheap - a 64x64 clip and two bitstream passes over it - but it can
+        /// fail, so it happens where a failure can still stop the run. </summary>
+        public bool NeedsPresetTable
+        {
+            get { return Runs && Mode == GrainSynthMode.Preset; }
         }
 
         /// <summary> Whether the picture handed to the encoder is denoised, which is the difference
@@ -213,7 +246,8 @@ namespace Nmkoder.Data
             get
             {
                 return Runs && (Mode == GrainSynthMode.Measured ||
-                    ((Mode == GrainSynthMode.Encoder || Mode == GrainSynthMode.Table) && Denoise));
+                    ((Mode == GrainSynthMode.Encoder || Mode == GrainSynthMode.Table ||
+                        Mode == GrainSynthMode.Preset) && Denoise));
             }
         }
 
@@ -222,7 +256,11 @@ namespace Nmkoder.Data
         /// pass and no intermediate. </summary>
         public bool NeedsDenoisePass
         {
-            get { return Runs && (Mode == GrainSynthMode.Measured || (Mode == GrainSynthMode.Table && Denoise)); }
+            get
+            {
+                return Runs && (Mode == GrainSynthMode.Measured ||
+                    ((Mode == GrainSynthMode.Table || Mode == GrainSynthMode.Preset) && Denoise));
+            }
         }
 
         /// <summary> Whether grav1synth has to measure a table, as against being handed one. </summary>
@@ -231,12 +269,12 @@ namespace Nmkoder.Data
             get { return Runs && Mode == GrainSynthMode.Measured; }
         }
 
-        /// <summary> Whether grav1synth has to be present for this mode to run at all, which on this row is
-        /// exactly the mode that measures: everything else either needs no tool or is handed a table that
-        /// already exists. </summary>
+        /// <summary> Whether grav1synth has to be present for this mode to run at all: the mode that
+        /// measures a table, and the one that reads a built-in preset out of the tool. A table the user
+        /// already has needs no tool, and neither does a strength. </summary>
         public bool NeedsGrav1synth()
         {
-            return Runs && Mode == GrainSynthMode.Measured;
+            return Runs && (Mode == GrainSynthMode.Measured || Mode == GrainSynthMode.Preset);
         }
 
         /// <summary>
@@ -261,7 +299,7 @@ namespace Nmkoder.Data
         /// elsewhere cannot smuggle one in. </summary>
         public bool IsUtilityOnly
         {
-            get { return Mode == GrainSynthMode.Preset || Mode == GrainSynthMode.PhotonNoise || Mode == GrainSynthMode.Measured; }
+            get { return Mode == GrainSynthMode.PhotonNoise || Mode == GrainSynthMode.Measured; }
         }
 
         /// <summary> Why a utility-only mode is not an encode setting, worded for the mode - the two
@@ -388,6 +426,14 @@ namespace Nmkoder.Data
                 case GrainSynthMode.Table:
                     parts.Add($"Table '{Path.GetFileName(TablePath)}'" +
                         (Denoise ? $", source denoised ({GetDenoiseFilter()}) to match it" : ""));
+                    break;
+                case GrainSynthMode.Preset:
+                    // Named as grav1synth's, because it is: the encoder is handed that tool's own table
+                    // rather than analysing anything. "handed to the encoder" is the clause that separates
+                    // this from the Film Grain utility's identically-named presets, which write the same
+                    // grain into a file that has already been encoded.
+                    parts.Add($"grav1synth's '{Preset}' film stock table, handed to the encoder" +
+                        (Denoise ? $", source denoised ({GetDenoiseFilter()}) first" : ""));
                     break;
             }
 

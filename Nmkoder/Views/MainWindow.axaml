@@ -337,6 +337,14 @@
                             <Button Content="…" Classes="icon" Click="Av1anGrainTableBrowse_Click" />
                           </StackPanel>
 
+                          <!-- No Denoise tick here either, for the reason above: this tab runs no denoise
+                               pass. A preset reaches the encoder as a table exactly as the box above does,
+                               so the two share every check downstream. -->
+                          <StackPanel x:Name="Av1anGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <ComboBox x:Name="Av1anGrainPresetBox" Width="150" SelectionChanged="Av1anGrainSetting_Changed"
+                                      ToolTip.Tip="grav1synth's own built-in film stock tables, handed to the encoder as a grain table - so the encoder synthesises the grain while it encodes, with no extra pass over the video and no rewrite of the finished file. The three format presets take a film stock modifier as a suffix: 16mm-3 is 16mm shot on Kodak Vision3 200T. This describes a film stock rather than your source, so it adds a look; to save bitrate the source's own grain has to come out first, which on this tab means denoising it beforehand or using Quick Convert." />
+                          </StackPanel>
+
                         </WrapPanel>
                         <TextBlock x:Name="Av1anGrainInfoLabel" Classes="hint" TextWrapping="Wrap" Text="" />
                       </StackPanel>
@@ -605,14 +613,26 @@
                           <StackPanel x:Name="EncGrainTablePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
                             <TextBox x:Name="EncGrainTableBox" Width="180" PlaceholderText="Path to a .tbl grain table" LostFocus="EncGrainTable_Changed" />
                             <Button Content="…" Classes="icon" Click="EncGrainTableBrowse_Click" />
-                            <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainTableDenoise_Changed"
-                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Film Grain utility measured the table with. Leave it off for a table you are using to add grain to a clean source; tick it to reproduce the encode a measured table came from, which is where the bitrate saving is. Set the strength to whatever the table was measured at." />
                           </StackPanel>
 
-                          <!-- The strength for the tick beside the table - the only thing that brings this
-                               panel on screen now. It carried a "Denoise" label of its own for the Measured
-                               mode, which is the Film Grain utility's; under Table the tickbox to its left
-                               already says the word, and two of it in a row read as two settings. -->
+                          <StackPanel x:Name="EncGrainPresetPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <ComboBox x:Name="EncGrainPresetBox" Width="150" SelectionChanged="EncGrainSetting_Changed"
+                                      ToolTip.Tip="grav1synth's own built-in film stock tables, handed to the encoder as a grain table - so the encoder synthesises the grain while it encodes, with no extra pass over the video and no rewrite of the finished file. The three format presets take a film stock modifier as a suffix: 16mm-3 is 16mm shot on Kodak Vision3 200T. This describes a film stock rather than your source, so tick Denoise beside it to take the source's own grain out and let the film stock replace it - that is where the bitrate saving is. Left unticked it is a look laid on top of the grain already there." />
+                          </StackPanel>
+
+                          <!-- Shared by both table modes, and out of the table panel for that reason: what
+                               it describes - take the source's own grain out so the synthesised grain
+                               replaces it rather than sitting on top of it - is one operation whichever
+                               supplied the table. -->
+                          <StackPanel x:Name="EncGrainDenoisePanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                            <CheckBox x:Name="EncGrainTableDenoiseBox" Content="Denoise" IsCheckedChanged="EncGrainTableDenoise_Changed"
+                                      ToolTip.Tip="Take the grain out of the picture before encoding it, with the same denoiser the Film Grain utility measures a table with. Leave it off for grain you are adding to a clean source; tick it to reproduce the encode a measured table came from, or to let a film stock preset replace the source's own grain instead of piling on top of it - which is where the bitrate saving is. Set the strength to whatever a measured table was measured at." />
+                          </StackPanel>
+
+                          <!-- The strength for the tick beside it - the only thing that brings this panel on
+                               screen. It carried a "Denoise" label of its own for the Measured mode, which
+                               is the Film Grain utility's; the tickbox to its left already says the word,
+                               and two of it in a row read as two settings. -->
                           <StackPanel x:Name="EncGrainMeasuredPanel" Orientation="Horizontal" Spacing="6" IsVisible="False">
                             <NumericUpDown x:Name="EncGrainDenoiseStrengthUpDown" Classes="num" Minimum="1" Maximum="16" Increment="1" Value="4"
                                            ValueChanged="EncGrainSynthStrength_ValueChanged"
