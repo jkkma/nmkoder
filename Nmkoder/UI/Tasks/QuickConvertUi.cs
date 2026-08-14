@@ -955,7 +955,7 @@ namespace Nmkoder.UI.Tasks
             if (codec != CodecUtils.VideoCodec.DirectSvtAv1 || config == null || !config.DenoisesSource)
                 return "";
 
-            string what = config.NeedsDenoisePass
+            string what = config.NeedsDenoiseFilter
                 ? "the source is denoised in the filter chain, in front of the encoder"
                 : "Denoise is ticked, so the encoder codes the denoised picture";
 
@@ -1787,7 +1787,7 @@ namespace Nmkoder.UI.Tasks
             // pass.
             GrainPlan grainPlan = CurrentGrain ?? GrainSynthUi.GetQuickConvertPlan();
 
-            if (grainPlan.Config.NeedsDenoisePass)
+            if (grainPlan.Config.NeedsDenoiseFilter)
             {
                 filters.Add(grainPlan.Config.GetDenoiseFilter());
                 Logger.Log($"Denoising the source for the grain table ({grainPlan.Config.GetDenoiseFilter()}), so the " +

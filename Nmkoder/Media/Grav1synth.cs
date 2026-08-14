@@ -158,6 +158,175 @@ namespace Nmkoder.Media
         }
 
         /// <summary>
+        /// How long the throwaway stub a preset is read off has to be, in seconds.
+        /// <para/>
+        /// A preset is not one parameter set but a short sequence of them, and the sequence **saturates**:
+        /// measured on 16mm, the parameters vary over roughly the first 8.5 seconds and then one final
+        /// segment runs to the end of the file, whatever that is - a 2-hour stub produced 35 segments, the
+        /// last of them covering 7191 of the 7200 seconds. So a stub only has to outlast the varying part,
+        /// and everything past that is one segment this code re-times itself. 15 gives that a margin
+        /// without costing anything: at <see cref="StubWidth"/> square it is a few hundred frames.
+        /// </summary>
+        private const int StubSeconds = 15;
+
+        /// <summary> The stub's frame size. It is square and tiny because **nothing about a preset's table
+        /// depends on it** - tables read off a 320x240 stub and a 1920x1080 one were byte-identical bar the
+        /// final segment's end tick - so this is only ever paying for frames to hang timestamps on. </summary>
+        private const int StubWidth = 64;
+
+        /// <summary> The stub's frame rate. The table's segment boundaries land on this grid, which is
+        /// why it is an ordinary rate rather than something degenerate: a 1 fps stub would describe grain
+        /// that changes once a second. It deliberately does *not* track the source's rate - the boundaries
+        /// are timestamps and an encoder looks them up by timestamp, so they need not fall on its own
+        /// frames. </summary>
+        private const int StubFps = 24;
+
+        /// <summary>
+        /// How far the finished table is made to reach, in the 100ns ticks its timestamps are written in -
+        /// 24 hours, which is past any video anyone will encode and nowhere near <c>int64</c>'s range.
+        /// <para/>
+        /// The stub is 15 seconds long, so grav1synth stops the last segment at 15 seconds and an encoder
+        /// that looks its table up by timestamp - which libaom does - would grain the first 15 seconds of a
+        /// film and leave the rest clean. Extending that one segment is the whole of the fix, and it
+        /// restores exactly the shape grav1synth writes for a long file anyway: a varying head and one
+        /// segment holding to the end. SVT-AV1 is unaffected either way, reading only the first segment.
+        /// </summary>
+        private const long TableCoverageTicks = 24L * 3600L * 10000000L;
+
+        /// <summary>
+        /// Turns one of the built-in film stock presets into a grain table, so the encoder can be handed it
+        /// like any other table. Returns why it could not, or "" when it did.
+        /// <para/>
+        /// **grav1synth has no command that emits a preset**, which is what this works around: <c>apply</c>
+        /// writes one into an AV1 bitstream and <c>inspect</c> reads one back out, and neither half exists
+        /// on its own. So a throwaway AV1 stub is encoded, the preset is applied to it, and the table is
+        /// read back off that - which is a round trip through the tool's own writer and reader rather than
+        /// a reimplementation of its tables, and the reason no constant in this file describes grain.
+        /// <para/>
+        /// The stub costs almost nothing and is *not* a pass over the video: it is a 64x64 black clip, and
+        /// none of its properties reach the table. What matters is that this keeps the Grain Synthesis row's
+        /// rule intact - the encoder still does the synthesising, at encode time, from a table - where
+        /// applying a preset the way the Film Grain utility does would mean rewriting the finished file.
+        /// </summary>
+        public static async Task<string> MakePresetTableAsync(string preset, string tablePath)
+        {
+            if (preset.IsEmpty())
+                return "No film stock preset is picked.";
+
+            if (!IsAvailable())
+                return DescribeMissing();
+
+            string stub = Path.Combine(Paths.GetSessionDataPath(), "grain-preset-stub.mkv");
+            string grained = Path.Combine(Paths.GetSessionDataPath(), "grain-preset-stub.grained.mkv");
+
+            try
+            {
+                IoUtils.TryDeleteIfExists(tablePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(tablePath));
+
+                string problem = await WriteStubAsync(stub);
+
+                if (problem.IsNotEmpty() || RunTask.canceled)
+                    return problem;
+
+                // --replace because the stub is freshly encoded and carries no grain, so it costs nothing
+                // here - and because a silent skip is what its absence buys, which is the failure this
+                // whole file is written to avoid.
+                string output = await Run($"apply {stub.Wrap()} -o {grained.Wrap()} --preset {preset.Wrap()} --replace -y", indeterminate: true);
+
+                if (RunTask.canceled)
+                    return "";
+
+                if (!output.Contains(DoneMarker) || IoUtils.GetFilesize(grained) < 1)
+                    return $"{ToolName} could not build the '{preset}' film stock preset.\n\n{LastLines(output)}";
+
+                string read = await InspectAsync(grained, tablePath);
+
+                if (read.IsNotEmpty() || RunTask.canceled)
+                    return read;
+
+                return ExtendFinalSegment(tablePath);
+            }
+            catch (Exception e)
+            {
+                return $"Could not build the '{preset}' film stock preset as a grain table: {e.Message}";
+            }
+            finally
+            {
+                IoUtils.TryDeleteIfExists(stub);
+                IoUtils.TryDeleteIfExists(grained);
+            }
+        }
+
+        /// <summary>
+        /// The throwaway AV1 clip a preset is read off. Two encoders are tried because only the *bundled*
+        /// ffmpeg is known to carry libsvtav1 - a distribution build behind a PATH fallback may have
+        /// neither, which is a refusal rather than something to discover inside grav1synth.
+        /// </summary>
+        private static async Task<string> WriteStubAsync(string stubPath)
+        {
+            IoUtils.TryDeleteIfExists(stubPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(stubPath));
+
+            string source = $"-f lavfi -i color=black:size={StubWidth}x{StubWidth}:rate={StubFps}:duration={StubSeconds}";
+
+            foreach (string encoder in new[] { "-c:v libsvtav1 -preset 12 -crf 63", "-c:v libaom-av1 -cpu-used 8 -crf 63" })
+            {
+                await AvProcess.RunFfmpeg(new AvProcess.FfmpegSettings
+                {
+                    Args = $"{source} {encoder} {stubPath.Wrap()}",
+                    LoggingMode = AvProcess.LogMode.Hidden,
+                    ReportFailure = false, // A first encoder that is absent is ordinary; only both failing is a problem
+                });
+
+                if (RunTask.canceled)
+                    return "";
+
+                if (IoUtils.GetFilesize(stubPath) > 0)
+                    return "";
+
+                IoUtils.TryDeleteIfExists(stubPath);
+            }
+
+            return "A film stock preset has to be read out of an AV1 file, and this FFmpeg could not write one - " +
+                "it has neither libsvtav1 nor libaom-av1.\n\nThe FFmpeg bundled with this app has both; a build " +
+                "picked up from your PATH instead may not. Encoder analysis needs no AV1 encoder but the one " +
+                "doing the encoding, and works on every AV1 build.";
+        }
+
+        /// <summary>
+        /// Runs the table's last segment out to <see cref="TableCoverageTicks"/>, so it describes a film
+        /// rather than the 15-second stub it was read off. Returns why it could not, or "" when it did.
+        /// <para/>
+        /// Only the final segment moves, and only outwards: every boundary before it is grav1synth's own,
+        /// and the tail it is extending is already the one segment that preset holds to the end of a long
+        /// file. A table whose last segment somehow already reaches further is left exactly as it is.
+        /// </summary>
+        private static string ExtendFinalSegment(string tablePath)
+        {
+            string[] lines = File.ReadAllLines(tablePath);
+            int last = Array.FindLastIndex(lines, l => l.StartsWith("E "));
+
+            if (last < 0)
+                return $"{ToolName} wrote a grain table with no segments in it.";
+
+            // "E <start> <end> <apply_grain> <seed> <update_parameters>" - the end is the one field that
+            // moves, and it is rewritten in place so nothing else about the line can be disturbed.
+            string[] fields = lines[last].Split(' ');
+
+            if (fields.Length < 3 || !long.TryParse(fields[2], out long end))
+                return $"{ToolName} wrote a grain table segment this app could not read: '{lines[last]}'.";
+
+            if (end >= TableCoverageTicks)
+                return "";
+
+            fields[2] = TableCoverageTicks.ToString();
+            lines[last] = string.Join(" ", fields);
+            File.WriteAllLines(tablePath, lines);
+            return "";
+        }
+
+        /// <summary>
         /// Reads the grain table out of an AV1 file that already carries one, and returns why it could
         /// not - or "" when it did.
         /// <para/>
@@ -262,22 +431,37 @@ namespace Nmkoder.Media
                     continue;
                 }
 
-                // Every entry in both blocks is "<token>  (<description>)"; everything else - headings,
-                // blank lines, the "Example:" lines - has no bracket or no token.
+                // **The two blocks are not written alike, and reading them alike cost nine of the
+                // fourteen names.** A preset is "<name>  (<description>)"; a modifier is
+                // "-1  Fujifilm Eterna 500T", with no bracket anywhere on the line - so a single
+                // bracket-based parse found no suffixes at all, returned the five bare presets, and
+                // *replaced* the fourteen-name fallback with them, since any non-empty parse wins. The
+                // dropdown then offered 16mm and not 16mm-3 on every machine that has the tool, which is
+                // the half of the list naming actual film stocks.
+                if (inModifiers)
+                {
+                    // The default's own line carries a description and no token ("Fujifilm Eterna 250D
+                    // (default)"), and the block ends with an "Example:" line; a leading '-' is what
+                    // separates a real modifier from both.
+                    string modifier = line.Split(' ')[0];
+
+                    if (modifier.Length > 1 && modifier.StartsWith("-"))
+                        suffixes.Add(modifier);
+
+                    continue;
+                }
+
                 int bracket = line.IndexOf('(');
 
                 if (bracket < 1 || line.StartsWith("Example") || !line.EndsWith(")"))
                     continue;
 
-                string token = line.Substring(0, bracket).Trim();
+                string name = line.Substring(0, bracket).Trim();
 
-                if (token.IsEmpty() || token.Contains(' '))
-                    continue; // A modifier's own description line ("Fujifilm Eterna 250D  (default)")
+                if (name.IsEmpty() || name.Contains(' '))
+                    continue;
 
-                if (inModifiers)
-                    suffixes.Add(token);
-                else
-                    names.Add(token);
+                names.Add(name);
             }
 
             if (names.Count < 1)

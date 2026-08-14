@@ -179,6 +179,18 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // After the check above, so a run a mainline SVT-AV1 is going to refuse costs nothing
+                // first. A no-op for every mode but the film stock preset, which has no table on disk
+                // until grav1synth is asked for one.
+                string presetProblem = await GrainSynthUi.BuildPresetTableAsync(QuickConvertUi.CurrentGrain,
+                    QuickConvertUi.CurrentGrain.TablePath);
+
+                if (presetProblem.IsNotEmpty())
+                {
+                    RunTask.Cancel(presetProblem);
+                    return;
+                }
+
                 // Logged rather than refused: the encode runs either way and one of the two settings is
                 // going to reach the encoder. Which one is the thing nobody could otherwise see.
                 string grainCollision = QuickConvertUi.GetGrainSynthProblem(GetCurrentCodecV(), QuickConvertUi.CurrentGrain);

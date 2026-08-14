@@ -292,10 +292,18 @@ namespace Nmkoder.UI.Tasks
 
                     // Settled here rather than at the encode, because the encoder's arguments are built
                     // on the next line and one of the things this decides is whether they carry
-                    // --fgs-table at all. The table is the user's own file: this row runs no measuring
-                    // pass any more, so there is no run-produced table to name a path for.
+                    // --fgs-table at all. The table is usually the user's own file - this row runs no
+                    // measuring pass any more - and a film stock preset is the exception: it has no file
+                    // until grav1synth is asked for one below.
                     GrainSynthConfig grainConfig = GrainSynthUi.GetAv1anConfig();
-                    string grainTablePath = grainConfig.TablePath;
+
+                    // Named off the run's own temp folder, which buys two things: GetPreparedInputs
+                    // already sweeps a ".grain." sibling when it deletes that folder, and a resume
+                    // replaying its saved command finds the table where the command says it is, this
+                    // path being derived from the same overrideTempDir the resume was given.
+                    string grainTablePath = grainConfig.NeedsPresetTable
+                        ? $"{GetTempDirPath(overrideTempDir, timestamp)}.grain.tbl"
+                        : grainConfig.TablePath;
 
                     GrainDelivery grainDelivery = await GrainSynthUi.ResolveDeliveryAsync(grainConfig, vCodec, grainTablePath);
                     string grainSetupProblem = await GrainSynthUi.GetProblemAsync(grainConfig, grainDelivery, vCodec, grainTablePath);
@@ -307,6 +315,17 @@ namespace Nmkoder.UI.Tasks
                     }
 
                     Av1anUi.CurrentGrain = new GrainPlan { Config = grainConfig, Delivery = grainDelivery, TablePath = grainTablePath };
+
+                    // After the checks above, so a run a mainline SVT-AV1 is going to refuse costs nothing
+                    // first, and before the arguments below, which is where the path has to appear. A
+                    // no-op for every mode but the preset.
+                    string presetProblem = await GrainSynthUi.BuildPresetTableAsync(Av1anUi.CurrentGrain, grainTablePath);
+
+                    if (presetProblem.IsNotEmpty())
+                    {
+                        RunTask.Cancel(presetProblem);
+                        return;
+                    }
 
                     // Kept rather than built inline: the pixel format the color format box resolved to is
                     // needed again below, to work out who should convert to it.
