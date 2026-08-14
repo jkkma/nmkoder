@@ -3269,6 +3269,25 @@ the bundler being best-effort by design, and the only way to know is to look in 
 also went out with a fix for the wrong cause: the DLLs were a real requirement and not the reason the
 build was failing, which was only visible once the log was read rather than reasoned about.
 
+**And it happened again in 2.8.65, transiently, which is the shape to recognise next time.** That
+release's win-x64 job logged `[skip] grav1synth - cargo build failed - see the log above` and
+`Bundled: 27 | Skipped: 1`, went green, and shipped an archive with no grav1synth in it - so the Film
+Grain utility and the Grain Synthesis row's film stock presets both refused on Windows, cleanly
+(`Grav1synth.DescribeMissing`) but entirely. **Nothing had changed**: no commit touched `.github/`
+since 2.8.64, the pinned dev-headers URL still returned 200, the win64 shared zip still carried all
+eight `.lib` import libraries, and the linux job built and bundled the tool in that same run. Two
+plausible causes were tested and **both were wrong** - the crate is the `+ffmpeg-8.1` generation and
+looked like it needed 8.x headers, but grav1synth at the pinned rev builds clean against BtbN's
+`n7.1` headers locally (avutil 59, cargo 1.94), and the dev zip's layout was intact. A bare re-run
+with no change at all produced the tool: 484,073,901 bytes of win-x64 artifact against 418,935,257.
+So it was transient, and **the useful diagnostic was the artifact size, not the reasoning** - roughly
+65 MB is what grav1synth plus its ffmpeg shared DLLs adds.
+
+Two things follow. Spot-check `Nmkoder/bin/grav1synth.exe` in the published zip on any release that
+matters to it, the way this section already says to. And note there is **no gate** for it the way
+there is for ffmpeg - deliberately, since the bundler is best-effort and a flaky upstream would
+otherwise block every release - so the check is the person cutting the release, not the workflow.
+
 **The binary is copied by hand rather than through `install_binary`, and it is the only tool here that
 is.** That helper also takes every DLL sitting beside the binary it found, which is right for a
 downloaded release - those are its runtime libraries - and wrong for a cargo target directory, where
