@@ -2914,22 +2914,47 @@ never did - rewrite the output afterwards.
 Four things about that were measured rather than reasoned out, and each is why the stub can be as
 cheap as it is:
 
-- **Nothing about the table depends on the stub.** Tables read off a 320x240/1s stub and a
-  1920x1080/5s one are byte-identical bar the final segment's end tick. So the stub is 64x64 black.
-- **A preset's pattern saturates.** Timestamps are 100ns ticks and frame-aligned; the parameters vary
-  over roughly the first 8.5 seconds and then **one final segment runs to the end of the file** - a
-  2-hour stub produced 35 segments, the last covering 7191 of the 7200 seconds. So `StubSeconds` is 15,
-  comfortably past the varying part, and `ExtendFinalSegment` runs that last segment out to 24 hours.
-  That restores exactly the shape grav1synth writes for a long file anyway. Without it, an encoder that
-  looks the table up by timestamp - libaom does - would grain the first 15 seconds and leave the rest
-  clean.
+- **Nothing about the table depends on the stub's frame.** Swept over 14 presets × 13 stub shapes -
+  resolution 64x64/320x240/1920x1080, 8- and 10-bit, three source contents - **segment 1's parameter
+  block is byte-identical in all 182 round trips**, and resolution, depth and content change nothing
+  anywhere in the table. So the stub is 64x64 black. Confirmed from the other end too: tables built
+  from a deliberately mismatched stub (64x64/8-bit/60fps/1s) against a matched one produce
+  **byte-identical elementary streams** for all 14 presets on a 1920x1080/24fps/10-bit encode.
+- **A preset's pattern saturates, and how soon is per preset *and* per frame rate.** Timestamps are
+  100ns ticks and frame-aligned; the parameters vary for a few seconds and then **one final segment
+  runs to the end of the file** - a 2-hour stub produced 35 segments, the last covering 7191 of the
+  7200 seconds. The 8.5s figure this once gave is 16mm's alone: at 30fps ten of the fourteen only
+  settle at 10s. `StubSeconds` is **15**, and that is measured at the stub's own 24fps rather than
+  carried over - Modern35-3 and Classic35-2 each gain a segment between 10s and 15s there, so 10 would
+  have been short, and from 15s to 45s the segment count and the whole parameter-block sequence are
+  identical for every preset. `ExtendFinalSegment` then runs that last segment out to 24 hours, which
+  restores the shape grav1synth writes for a long file anyway. Without it an encoder that looks the
+  table up by timestamp - libaom does, measured: an as-generated table covers 83.3% of a 12s clip -
+  would grain the first 15 seconds and leave the rest clean.
 - **SVT-AV1 reads the first segment and nothing else.** Given `--fgs-table` it writes one segment for
   the whole encode whose parameters equal the table's segment 1, with a seed of its own (7391 where the
-  table's are 21912/54780/10956/32868). Truncated and extended tables produced byte-identical output.
-  So the extension is for aomenc's sake; on SVT the table's length cannot matter.
+  table's are 21912/54780/10956/32868) - all 14 presets, none rejected, all 14 outputs distinct, and a
+  table truncated to 0.1s still grains a 3s clip end to end. So the extension is for aomenc's sake; on
+  SVT the table's length cannot matter.
 - **The round trip costs about a second.** The 2-hour stub above took 72s to encode, which is why the
-  stub is short rather than matched to the source: `apply` and `inspect` over it were 2.9s and 3.1s,
-  and over a 15-second stub the whole thing is well under one.
+  stub is short rather than matched to the source. `apply` and `inspect` are a bitstream rewrite rather
+  than a decode and cost ~0.09s **whatever the stub's length** - a 60s 1080p file measures the same as
+  a tiny one - so the whole cost is the stub encode.
+
+**All 14 names are genuinely different grain**, at segment 1 and whole-table alike, with no collisions:
+the `-1`/`-2`/`-3` modifiers really do change the film stock and no bare name equals a modified form.
+They differ structurally rather than only numerically - `p` field 2 is 6/9/7/8 for
+Super8/MaxMid/16mm/Classic35, and 16mm-2 carries `sY 13` where 16mm carries `sY 14`.
+
+**Two things about the tail are worth knowing before comparing two tables.** The final segment's
+**seed** moves with the stub's duration as well as its end tick (16mm-1: 43824 at 10s, 54780 at 60s),
+and the **frame rate** changes the block sequence past segment 1 - four distinct sequences for
+24/25/30/60 in 13 of the 14. Neither reaches what SVT encodes, which is segment 1 only; for aomenc it
+means the stub's rate decides where the grain changes, and whether a 30fps table on a 24fps encode is
+perceptually equivalent was not measured. **Do not re-time by writing `end = -1`**: measured, that
+yields no grain at all, silently. `int64` max is safe on both encoders - aomenc's output with it is
+byte-identical to an exactly-spanning table - and 24 hours is used because it is as good and reads as
+a duration.
 
 Verified end to end through the real code: `MakePresetTableAsync` out of the built assembly produced a
 19512-byte table whose first line is `filmgrn1`, 36 segments, final end tick 864000000000 (24h) with
@@ -3144,9 +3169,10 @@ Measured, and a grid `noise` with the row Off correctly say nothing.
 the spelling differs - which matters more now that a table an encoder cannot take stops the encode. Measured: a table passed in comes back out of the encode intact, and an encode with
 both `--film-grain-table` and `--denoise-noise-level` produces a grain table byte-identical to the one
 with the table alone - the same precedence SVT has, so sending a strength beside a table would be sending
-a number that is silently discarded. **That was measured against aomenc 3.8.2 and does not generalise to
-every build:** Ubuntu's aborts on any table at all - see "What is not verified" below, which is where
-that belongs, since it hits Grain table file exactly as it hits the film stock presets.
+a number that is silently discarded. Re-confirmed against aomenc 3.8.2 across all fourteen film stock
+presets, a real `grav1synth diff` table, twelve invocation shapes and a 100,000-segment table: no
+rejections. A crash reported here once was that build's WebM muxer rather than anything to do with
+tables - see "What is not verified" below.
 
 That is a narrower question than the one `EncoderArgPresets.Av1anEncoderName` refuses to ask, and the
 distinction matters: that map refuses x264 because its `--help` is a short list with the rest behind
@@ -3360,18 +3386,40 @@ SvtAv1EncApp comes back out of a published linux-x64 release (see `.claude/skill
 the whole chain has been run - the denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1
 encode of the denoised file, `apply` with the resulting table, an `inspect` round trip, and the film
 stock presets' own `MakePresetTableAsync` → `--fgs-table` → `inspect` comparison recorded above. The
-table format is aom's own `filmgrn1`, which is what the parameter takes. A full av1an *measured-grain*
-run is still a real-machine check, there being no av1an that executes in a web session.
+table format is aom's own `filmgrn1`, which is what the parameter takes.
 
-**aomenc's `--film-grain-table` is the one that has gone the other way, and it is a pre-existing
-fault rather than anything the presets introduced.** Ubuntu's aomenc aborts with
-`*** buffer overflow detected ***` on **every** table fed to it - including one produced by
-`grav1synth diff`, which is the app's own Measured output and the path Grain table file has always
-used. So it is not preset-specific and not table-content-specific as far as could be told here. This
-project's own measurement of that flag was made against aomenc 3.8.2 and still stands for that build;
-what it does not cover is whatever aomenc a user has. Nothing about it blocks the presets, which
-inherit exactly the Table path's behaviour on that encoder - but a report of aomenc dying instantly
-on any table mode is this, not a regression.
+**What is still a real-machine check is the AV1AN tab's own delivery**, and it is worth being precise
+about which half: the SVT measurements above were made by launching `SvtAv1EncApp` directly, which is
+exactly what Quick Convert's `DirectSvtAv1` does, so that tab's path is field-verified. On the AV1AN
+tab the same table path lands inside av1an's `-v "…"` string and is re-split on whitespace before it
+reaches the binary, and no av1an executes in a web session - so the space refusal is reasoned from
+this file's own established limit rather than measured for this argument. A full av1an
+*measured-grain* run is likewise still a real-machine check.
+
+**An aomenc grain-table crash was reported here and it was a misattribution - the lesson is the
+control, not the crash.** Ubuntu's aomenc 3.8.2 aborts with `*** buffer overflow detected ***` on
+every grain table fed to it, which was written up as a pre-existing fault in Grain table file. It is
+not a grain-table fault at all: **that build's WebM muxer aborts with no table on the command line
+either.** Measured across the three output containers, table and no table: `.webm` aborts in both
+cases, `--ivf` and `--obu` succeed in both, and through IVF the grain lands correctly - the output's
+parameter block is byte-identical to the table's segment 1. The app never meets it, writing `.ivf`
+for aomenc (see "Driving the encoder binaries directly"), and av1an owns the output on the other tab.
+
+What produced the wrong conclusion was running four different *tables* and no run *without* one.
+Four tables failing looks like "tables are the problem" and is equally consistent with "this command
+shape always fails" - and the two are told apart by the control, which costs one run. A second
+opinion disagreeing is what prompted re-testing; the disagreement was real and neither side had it
+right, since the tables genuinely do abort under that command and genuinely are not the cause.
+
+Table content *can* crash libaom, but nothing grav1synth writes gets near it: hand-crafted
+`ar_coeff_lag=9` aborts with `free(): corrupted unsorted chunks`, `chroma_scaling_from_luma=1` beside
+non-zero cb/cr points trips an assert in `bitstream.c`, and scaling-point counts past the array bounds
+are a **silent** heap overflow that this build does not trap at all. Across 20,576 `p` lines and 61,728
+scaling lines of grav1synth output, sY tops out at 14, sCb and sCr at 10 - exactly aom's limits -
+`ar_coeff_lag` is always 3, and there are no declared-versus-actual count mismatches.
+
+One real trap does remain: a table with **CRLF** line endings parses to no grain, rc=0, no warning.
+Nothing here writes one, but a table round-tripped through a Windows editor would fail silently.
 
 What the rows themselves were verified against, headless through the real `MainWindow` and the built
 assembly: both tabs offer the same four modes and neither offers Measured or Photon noise; both rows'
