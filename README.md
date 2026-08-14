@@ -69,7 +69,7 @@ On Windows, [Scoop](https://scoop.sh) can install and update it for you. This re
 doubles as a bucket:
 
 ```
-scoop bucket add nmkoder https://github.com/jkkma/nmkoder
+scoop bucket add nmkoder-avalonia https://github.com/jkkma/nmkoder
 scoop install nmkoder-avalonia
 ```
 
