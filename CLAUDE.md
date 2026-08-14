@@ -3429,7 +3429,10 @@ Denoise ticks ship ticked, and an AV1AN Preset config comes back `Denoise`/`Deno
 rather than saving", once the tick is cleared; a Preset config reads as `UsesTable`,
 `NeedsPresetTable`, `NeedsGrav1synth`,
 not `IsUtilityOnly`, and owning `fgs-table`; `Measured` still reads as `IsUtilityOnly` and its message
-names the Measure operation rather than the already-encoded wording photon noise gets; the preset
+names the Measure operation rather than the already-encoded wording photon noise gets; the av1an
+command built for SVT-AV1 carries `--fgs-table <path>` inside its `-v "…"` string with no
+`--film-grain` strength beside it, and the space refusal fires for a generated path containing one and
+stands down for one without; the preset
 dropdowns hold all fourteen names, the widest of which (`Modern35-1`) measures 137 against the box's
 150; each readout sits below its dropdown sharing a left edge; and a zscale tone map beside a
 denoise-wanting grain plan no longer pulls a pass in front. That last check's other half - that
