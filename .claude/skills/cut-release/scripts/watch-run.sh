@@ -9,8 +9,9 @@
 #
 # TWO TRAPS THIS EXISTS TO AVOID, both of which cost a release session real time:
 #
-# 1. **Never round-trip the JSON through `echo`.** /bin/sh here is dash, whose builtin
-#    echo expands backslash escapes - so `j=$(curl ...); echo "$j" | jq` turns every \n
+# 1. **Never round-trip the JSON through `echo`.** On the host this was written on, /bin/sh
+#    was dash, whose builtin echo expands backslash escapes (Git Bash's sh is bash, but a
+#    poller has no business depending on which) - so `j=$(curl ...); echo "$j" | jq` turns every \n
 #    inside a JSON string (commit messages are full of them) into a real newline and jq
 #    dies with "control characters ... must be escaped". Measured: the same bytes through
 #    `printf '%s'` parse fine. curl is piped straight into jq below, which sidesteps it

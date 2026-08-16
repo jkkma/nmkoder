@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Local Windows dev setup for Nmkoder - the counterpart of .claude/setup.sh, which is the web
-# container's installer and is Linux-only (apt-get, /usr/local/bin) and so has never run on a
-# laptop or desktop. Run this once per machine, from Git Bash, in the repo:
+# Dev setup for Nmkoder on the user's Windows machines - the one installer there is. (It began
+# as the local counterpart of a Linux `setup.sh` for Claude Code on the web's containers; that
+# went when development moved off them in August 2026.) Run this once per machine, from Git
+# Bash, in the repo:
 #
 #     bash .claude/setup-windows.sh
 #
@@ -44,8 +45,7 @@
 #
 #  3. Appends the cache's tool folders to the user PATH - bin, bin\av1an, bin\av1an\enc and
 #     bin\av1an\vsynth - so SvtAv1EncApp, av1an, x264/x265/aomenc/vpxenc, mkvmerge, grav1synth
-#     and VSPipe answer from any shell, which is what .claude/setup.sh's /usr/local/bin installs
-#     buy a web session. vsynth is on the list because av1an.exe panics without VSScript.dll
+#     and VSPipe answer from any shell. vsynth is on the list because av1an.exe panics without VSScript.dll
 #     ("VSScript API not available") - it is the same PATH AvProcess.RunAv1an composes for it, and
 #     with it `av1an --version` lists every plugin and encoder the release carries. Appended, not
 #     prepended: a Scoop ffmpeg or python already on PATH keeps answering to its name (vsynth
@@ -53,7 +53,7 @@
 #     measure against per CLAUDE.md - is always at ~/.nmkoder-dev/bin/ffmpeg.exe. A shell has to
 #     be reopened (and Claude Desktop restarted) to see the change.
 #
-# No `set -e`, for the same reason setup.sh has none: every step reports its own failure and the
+# No `set -e`: every step reports its own failure and the
 # summary at the end reads back what is actually there. The exit code is honest, though - nothing
 # runs this at session startup, so a run that could not stage the toolchain exits 1.
 set -uo pipefail
@@ -62,7 +62,7 @@ log() { echo "setup-windows: $*"; }
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) ;;
-  *) log "this is the Windows setup; on Linux the environment runs .claude/setup.sh"; exit 0 ;;
+  *) log "this is the Windows setup and there is no other - development happens on Windows"; exit 0 ;;
 esac
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -109,7 +109,7 @@ fi
 # ---------------------------------------------------------------------------------------
 # Which release: NMKODER_TOOLS_VERSION pins one; otherwise the latest published. `gh` first
 # (installed and authenticated on the user's machines), api.github.com by curl otherwise - a
-# local machine reaches it, unlike the web sandbox setup.sh describes.
+# machine reaches it directly.
 latest_version() {
   local v=""
   if command -v gh >/dev/null 2>&1; then

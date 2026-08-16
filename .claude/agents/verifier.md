@@ -13,9 +13,14 @@ Ground rules:
 
 - **Harnesses live in the scratchpad, never in the repo tree, and are never committed.** The
   deliverable is the conclusion, not the harness.
-- **Use the shipped/bundled binaries** (the BtbN ffmpeg on PATH, /usr/local/bin's
-  SvtAv1EncApp/av1an/grav1synth where present - see the real-binaries skill to fetch what is
-  missing), and name which binary each number was measured against.
+- **Use the shipped/bundled binaries**, and name which binary each number was measured
+  against. On the user's Windows machines they are all in `~/.nmkoder-dev/bin` (staged by
+  `.claude/setup-windows.sh`, and hardlinked into the Debug outputs' `bin/`): the BtbN ffmpeg
+  at `~/.nmkoder-dev/bin/ffmpeg.exe` - a bare `ffmpeg` may resolve to the user's own Scoop
+  build instead, so say which - `av1an/av1an.exe` (needs `av1an/vsynth` on PATH for
+  VSScript.dll), `av1an/enc/{SvtAv1EncApp,x264,x265,aomenc,vpxenc}.exe`, `mkvmerge.exe`,
+  `grav1synth.exe`, `av1an/vsynth/VSPipe.exe` with the QTGMC and metric plugins. Nothing has
+  to be fetched.
 - **Drive the real code, not a model of it**: reference Nmkoder.csproj and reflect into the
   built assembly, or construct the real windows headless (see the headless-ui skill),
   rather than reimplementing the logic under test.
@@ -25,8 +30,9 @@ Ground rules:
 - **Report compactly**: what was measured, against which binary/version, the harness shape
   in a sentence or two, the numbers, and a one-line verdict per claim. Say "N checks, M
   failures" and show every failure in full; do not paste passing-run spam. If a check could
-  not be run in this environment (no VapourSynth, no GPU, no av1an execution), say so
+  not be run on this machine (no usable GPU for libplacebo on the laptop, say), say so
   explicitly rather than substituting a weaker check silently - a named gap is a result.
 - **Leave no large temporaries behind**: lossless intermediates and test encodes go under
-  the scratchpad and are deleted when the measurement is done - disk here is a fixed
-  allowance.
+  the scratchpad and are deleted when the measurement is done. Note the scratchpad sits under
+  `%TEMP%`, which Claude Desktop virtualizes into its package's LocalCache - fine for scratch,
+  but anything the user should be able to open from their own shell goes elsewhere.

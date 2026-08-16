@@ -9,19 +9,6 @@
           }
         ]
       }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/git-push-guard.sh",
-            "timeout": 10,
-            "statusMessage": "Checking git push against the sandbox's known hangs"
-          }
-        ]
-      }
     ]
   },
   "permissions": {

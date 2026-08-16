@@ -1,15 +1,16 @@
 ---
 name: headless-ui
-description: Render Nmkoder's real UI to PNGs in a session with no display - screenshot the MainWindow tabs, open dialogs, force hover/press/focus states, and measure rendered control geometry. Use whenever a change touches .axaml or view code-behind and needs to be seen or measured, or the user asks to screenshot, look at, verify, or check the layout of any window, tab, dialog, control, style, or palette change.
+description: Render Nmkoder's real UI to PNGs without capturing the screen - screenshot the MainWindow tabs, open dialogs, force hover/press/focus states, and measure rendered control geometry. The way to see the UI on the desktop, whose sessions cannot capture the screen (on the laptop, launching the app and screenshotting its window is simpler - see .claude/README.md). Use whenever a change touches .axaml or view code-behind and needs to be seen or measured, or the user asks to screenshot, look at, verify, or check the layout of any window, tab, dialog, control, style, or palette change.
 ---
 
-# Seeing the UI without a display
+# Seeing the UI without capturing the screen
 
-There is no display in a web session, but the UI can still be rendered for real: a throwaway
-console project referencing `Nmkoder.csproj` plus `Avalonia.Headless` and `Avalonia.Skia`
-draws through the same Skia the app ships, so what comes out is the actual pixels - CLAUDE.md's
-UI conventions were all verified this way. **Look at the PNGs, do not just confirm they were
-written.**
+A local session on the desktop cannot capture the screen, but the UI can still be rendered for
+real: a throwaway console project referencing `Nmkoder.csproj` plus `Avalonia.Headless` and
+`Avalonia.Skia` draws through the same Skia the app ships, so what comes out is the actual
+pixels - CLAUDE.md's UI conventions were all verified this way, and it is also the only way to
+force hover/press/focus states or measure control geometry on either machine. **Look at the
+PNGs, do not just confirm they were written.**
 
 ## Setup (once per session, in your scratchpad directory - never in the repo tree)
 
@@ -24,11 +25,12 @@ dotnet run --project "$H" -- "$H/shots"
 
 The Avalonia version is read out of the app's csproj so the harness cannot drift from the
 pinned 12.1.x - a headless package from another minor renders another theme. The `cygpath` is
-for a local Windows session run from Git Bash, where `$(pwd)` is `/c/Users/...` - a path MSBuild
-cannot resolve inside a csproj, so the ProjectReference silently points at nothing; `cygpath -m`
-turns it into `C:/Users/...` and is a no-op everywhere else. (This is the desktop's way to see the
-UI, a local session there being unable to capture the screen; on the laptop the app can simply be
-launched and screenshotted - see `.claude/README.md`.)
+because under Git Bash `$(pwd)` is `/c/Users/...` - a path MSBuild cannot resolve inside a
+csproj, so the ProjectReference silently points at nothing; `cygpath -m` turns it into
+`C:/Users/...` and is a no-op on any other shell. Verified rendering all six tabs from Git Bash
+on Windows. On a Windows host `Nmkoder.csproj` multi-targets; the harness is `net10.0`, so the
+ProjectReference builds and loads the `net10.0` flavour, which is fine - the UI is the same in
+both.
 
 The template's `InitAppState()` runs `Paths.Init()` and `Config.Init()` by reflection (both
 classes are app-internal) before any window is constructed - the same order `Program.Main`

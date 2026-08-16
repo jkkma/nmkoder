@@ -1,10 +1,16 @@
 # Skill evals
 
-`skills-evals.json` is the benchmark suite for the four project skills - two realistic
-tasks per skill, each with the assertions it is graded on. It exists so a future session
-can re-benchmark the skills after editing them, instead of reinventing test cases; the
-prompts are written to be safe to run (read-only against GitHub, repo tree untouched,
-release steps prepared-not-executed).
+`skills-evals.json` is the benchmark suite for the two project skills - two realistic tasks
+per skill, each with the assertions it is graded on. It exists so a future session can
+re-benchmark the skills after editing them, instead of reinventing test cases; the prompts
+are written to be safe to run (read-only against GitHub, repo tree untouched, release steps
+prepared-not-executed).
+
+It used to cover four skills. `win-compile-check` and `real-binaries` were removed when
+development moved off the cloud environments and onto the user's two Windows machines
+(August 2026) - the first because a Windows host compiles the `#if WINDOWS` code in an
+ordinary build, the second because `.claude/setup-windows.sh` puts every shipped binary on
+the machine. Their evals went with them; the baseline numbers below still name them.
 
 ## How to run a pass
 
@@ -23,11 +29,10 @@ Per skill-creator's protocol, adapted to this repo:
    `iteration-N/eval-<name>/<config>/run-1/{outputs,grading.json,timing.json}`) and
    render `eval-viewer/generate_review.py --static` for the user.
 
-Two traps met the first time: run grading/battery commands from a *file* (a command that
-merely quotes `git push --tags` is denied by the push-guard hook), and keep grading.json's
-`timing` key empty so the aggregator reads real token counts from the sibling timing.json.
+One trap met the first time: keep grading.json's `timing` key empty so the aggregator reads
+real token counts from the sibling timing.json.
 
-## Baseline numbers (for comparison, measured 2026-08-12 on v2.8.60)
+## Baseline numbers (for comparison, measured 2026-08-12 on v2.8.60, in a cloud session)
 
 Iteration 1, 8 evals x with/without skill, one run each, claude-fable-5: pass rate 100%
 in both arms (33/33 assertions); with-skill averaged 309s / 172.7k tokens / 18.4 calls

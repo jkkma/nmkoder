@@ -1,5 +1,5 @@
 {
-  "skill_name": "nmkoder-skills (cut-release, headless-ui, win-compile-check, real-binaries)",
+  "skill_name": "nmkoder-skills (cut-release, headless-ui)",
   "evals": [
     {
       "id": 0,
@@ -53,59 +53,6 @@
         "The PNG actually shows the CropWindow dialog (rendered UI, not a blank frame)",
         "Constructed the dialog directly via its parameterless constructor and rendered through Skia",
         "Left no harness project inside the repo tree (built in scratch)"
-      ]
-    },
-    {
-      "id": 4,
-      "name": "wincheck-still-compiles",
-      "skill": "wincheck",
-      "prompt": "Prove Nmkoder's #if WINDOWS code compiles for the Windows target from this Linux box, and explain why a plain dotnet build doesn't answer it.",
-      "expected_output": "A throwaway project targeting net10.0-windows10.0.19041.0 with EnableWindowsTargeting=true and a compile-assets-only App SDK reference actually builds WindowsToast.cs green; explains the app csproj only evaluates the Windows TFM on a Windows host.",
-      "assertions": [
-        "Actually ran a compile against the Windows target framework (net10.0-windows...), not just reasoning",
-        "The Windows-only code compiled successfully (green)",
-        "Used EnableWindowsTargeting and a compile-assets-only Microsoft.WindowsAppSDK reference (excluded build/MSIX assets)",
-        "Explains that a plain `dotnet build` on this host only evaluates the net10.0 TFM, so #if WINDOWS code is never compiled here"
-      ]
-    },
-    {
-      "id": 5,
-      "name": "wincheck-planted-patch",
-      "skill": "wincheck",
-      "prompt": "Would replacing Register() with the (nonexistent) RegisterEverywhere() still compile the Windows build? Check for real against a copy, don't touch repo files.",
-      "expected_output": "Compile fails - AppNotificationManager has no RegisterEverywhere member; verdict says the patch would NOT compile, with the compiler error as evidence; repo file left unmodified.",
-      "assertions": [
-        "Verdict is that the patched code does NOT compile",
-        "Backs the verdict with an actual compiler error about RegisterEverywhere / missing member (not reasoning alone)",
-        "Ran the check against the Windows target framework",
-        "Did not modify the real Nmkoder/OS/WindowsToast.cs in the repo (worked on a copy)"
-      ]
-    },
-    {
-      "id": 6,
-      "name": "realbin-shipped-av1an",
-      "skill": "realbin",
-      "prompt": "For the av1an binary shipped in the current release archives (not a local one), does --help include --sc-only and where is the default log? No Windows box, no 485MB download.",
-      "expected_output": "Pulls av1an.exe out of the win-x64 release zip via ranged requests (the linux tarball ships no av1an), strings it: --sc-only present; default log logs/av1an.log.",
-      "assertions": [
-        "Answer is based on the av1an binary from the current RELEASE archive, not an arbitrary local/apt av1an",
-        "Reports that --sc-only IS present in the shipped av1an",
-        "Reports the default log location as logs/av1an.log (relative)",
-        "Obtained the binary without downloading the whole ~485MB zip (ranged extraction), and/or notes the linux tarball ships no av1an",
-        "Evidence comes from the binary itself (strings/help), not only from CLAUDE.md prose"
-      ]
-    },
-    {
-      "id": 7,
-      "name": "realbin-svt-line",
-      "skill": "realbin",
-      "prompt": "Is the reachable SvtAv1EncApp the PSY line or mainline, proven not asserted, where from, and what does it mean for a 'presets dropping parameters' report?",
-      "expected_output": "Proves PSY line by a PSY-only flag (e.g. fgs-table/tx-bias in --help); notes it came from the shipped release tarball; explains that a mainline binary is what makes the AV1AN presets half-apply/drop params, so the user's binary should be checked.",
-      "assertions": [
-        "Concludes the reachable SvtAv1EncApp is the PSY line",
-        "Proves it by probing the binary for a PSY-only flag (e.g. fgs-table / tx-bias / noise*), not by assertion",
-        "Identifies where the binary came from (extracted from the shipped release / setup.sh), not an assumed system install",
-        "Connects the finding to the user's report: mainline vs PSY is exactly what makes AV1AN content presets drop parameters"
       ]
     }
   ]

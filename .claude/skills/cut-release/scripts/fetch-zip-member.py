@@ -6,9 +6,9 @@
 With no member-path, lists every entry. A zip's central directory sits at its end, so this
 reads the tail with a ranged request, locates the end-of-central-directory record, fetches
 the directory exactly, and then fetches only the requested member's bytes - which is what
-makes the shipped av1an.exe (a few MB) reachable out of a 485 MB win-x64 release zip. The
-sandbox's egress proxy passes github.com/<repo>/releases/download/ URLs and honours range
-requests; api.github.com it does not, for repositories not attached to the session.
+makes the shipped av1an.exe (a few MB) reachable out of a 485 MB win-x64 release zip -
+the way to spot-check what a just-published release actually carries without pulling
+the whole asset. GitHub's release-asset host honours range requests.
 
 Classic zip only (no zip64): fine for these releases, which stay under 4 GB and 65k entries.
 """
@@ -19,9 +19,10 @@ import zlib
 
 
 def fetch(url, start, end):
-    # Absolute ranges only: the sandbox's proxy serves "bytes=a-b" and answers a suffix
-    # range ("bytes=-N") with 501 Unsupported client range - measured, not guessed. That is
-    # why the size is probed first instead of asking for "the last N bytes".
+    # Absolute ranges only ("bytes=a-b"), never a suffix range ("bytes=-N"): not every
+    # host between here and the asset honours the suffix form (one proxy answered it with
+    # 501 Unsupported client range), so the size is probed first and the tail asked for by
+    # offset. Costs one HEAD-shaped request and works everywhere.
     req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
     with urllib.request.urlopen(req, timeout=120) as r:
         return r.read()

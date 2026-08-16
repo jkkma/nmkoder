@@ -4,114 +4,94 @@ Media encoding/muxing toolkit. Avalonia UI on .NET 10.
 
 Build with `dotnet build Nmkoder/Nmkoder.csproj`.
 
-**The toolchain is installed by `.claude/setup.sh` and by nothing else.** It is the
-environment's setup script - run once when the environment is created, snapshotted with it -
-and it installs the .NET SDK the csproj targets and the FFmpeg build the app ships against,
-plus the measurement toolkit - the CLI encoders and MKVToolNix from the archive, and the
-shipped SvtAv1EncApp and grav1synth extracted from the latest published linux-x64 release
-(see `.claude/skills/real-binaries` for why that is the one reachable source, and for how to
-read the shipped av1an, which the linux tarball does not carry) - then warms the NuGet
-cache. Point the environment's setup command at that file rather than
-pasting a copy into the environment's settings, so the two cannot drift - and spell the
-command
+**Development happens on the user's two Windows machines - a laptop and a desktop, worked in
+tandem - and nowhere else since August 2026.** Sessions used to run in Claude Code on the web's
+Linux containers as well, and this file was written across both; where a passage below says a
+thing "could not be measured in a web session" (no av1an that executes, no VapourSynth, no GPU,
+no Dolby Vision file to be had), that was the constraint of the time and it is recorded as the
+history of how a claim was established. Every shipped binary is on both machines now, at
+`~/.nmkoder-dev/bin`, so those measurements can be made here - the note stays because it says
+what was and was not run, not because it is still true of the environment.
 
-```
-cd nmkoder 2>/dev/null; bash .claude/setup.sh
-```
+**A machine is set up by `.claude/setup-windows.sh`, run by hand from Git Bash in the repo** -
+once, and again after a `dotnet clean`, a fresh clone or a worktree (~5 s when nothing has
+changed). It checks the .NET SDK the csproj targets, builds if nothing is built, and then puts
+right the thing a plain `dotnet build` leaves missing: the app looks for its tools in `bin/`
+beside the exe (`Paths.GetBinPath`) and squeezes the launched tools' PATH to that folder plus
+`C:\Windows` (`OsUtils.GetPathVar`), so a Debug output has `encoderArgs` and `iso639.csv` from
+`BinFiles/` and nothing else - no ffmpeg of its own, no av1an, no encoders, no mkvmerge - and
+Quick Convert refuses every direct-encoder codec while the AV1AN tab cannot start. The script
+takes the *shipped* `bin/` out of the latest published win-x64 zip - the bundler's own output,
+so the exact binaries users get, PSY-line SvtAv1EncApp and all, where Scoop's svt-av1 is
+mainline and running `bundle-tools.sh` locally would want MSYS2 and cargo - caches it at
+`~/.nmkoder-dev/bin`, hardlinks it into every build output beside an `Nmkoder.exe` (never
+overwriting the working tree's own `BinFiles/` copies), and appends the four tool folders to the
+user PATH. Verified by launching the Debug build: its own startup probe rendered a QTGMC frame
+through the staged VapourSynth. `dotnet clean` leaves the staged tools alone; only a deleted
+`bin/` costs a re-run.
 
-because the setup step does not run inside the clone. Provisioning works from the workspace
-root, `/home/user`, with the repo one level down at `/home/user/nmkoder` - only Claude Code
-itself is launched inside it - so the bare `bash .claude/setup.sh` an environment naturally
-carries fails with `bash: .claude/setup.sh: No such file or directory`, exit 127, before the
-script's first line, and the environment then installs nothing, ever, with the only symptom
-being the session-start hook's missing-toolchain lines. The `;` rather than `&&`, with the
-`cd`'s error dropped, keeps the command working from either directory should the platform
-ever move setup into the repo.
+The BtbN `master-latest` ffmpeg in that folder is what `bundle-tools.sh` puts in a release, so a
+measurement against it is a measurement against the binary users get. A bare `ffmpeg` on the
+user's PATH resolves to their own Scoop build first - the script *appends* rather than shadows -
+so a harness that means the shipped one names `~/.nmkoder-dev/bin/ffmpeg.exe`, and a
+measurement says which it used. `av1an.exe` panics without `VSScript.dll` beside it on PATH
+("VSScript API not available"); `bin\av1an\vsynth` is on the user PATH for that reason and is
+the same PATH `AvProcess.RunAv1an` composes.
 
-The SDK comes from the Ubuntu archive rather than the usual dot.net installer script: that
-script redirects to `builds.dotnet.microsoft.com`, which the sandbox's egress proxy refuses
-with a 403, so the download fails before it starts. `apt-get update` has to run first, because
-the preloaded package index points at `.deb`s the mirror has already superseded and every
-download 404s without it.
+**Claude Desktop is a packaged app with file-system write virtualization on**, and that is worth
+more than the script. Anything a session writes under `%LOCALAPPDATA%` or `%TEMP%` - the
+scratchpad included - lands in `…\AppData\Local\Packages\Claude_<id>\LocalCache\Local\…` and does
+not exist for a process launched outside Claude: a tool "installed" there from a session is one
+the user's own shell cannot see, with no error anywhere. `fsutil hardlink list <file>` prints the
+real NTFS path and is how it was caught. The profile root, `~/scoop`, `~/.nuget` and the repo are
+not virtualized, which is why the cache is `~/.nmkoder-dev`; and registry writes are not
+virtualized either (the package manifest disables that half), so a user-PATH edit from a session
+is real. Git Bash's `unzip` does not cross `/` with `*` on this build - `Nmkoder/bin/*` yields
+`bin/`'s top-level files and none of `av1an/` - so the script extracts with Windows' own `tar.exe`
+(bsdtar), which takes a bare `Nmkoder/bin` as the whole subtree.
 
-FFmpeg is BtbN's `master-latest`, which is what `bundle-tools.sh` puts in a release - so
-anything measured in a session is measured against the binary users get. The presence check
-looks for `libplacebo`, `zscale`, `tonemap`, `setparams` and `sidedata` rather than for
-`ffmpeg` on PATH, because a distribution build routinely ships without some of them and the
-app's own probes would then report a machine that cannot tone-map rather than a toolchain that
-was never installed properly.
+**The session-start hook does one thing: `git pull --ff-only` on the checked-out branch.** A
+session opening on whichever machine sat idle is opening on a clone the other has already moved
+past. It runs at startup, resume and clear and not on compact - the one `SessionStart` that fires
+mid-turn, where a working tree moving under a running edit is exactly what an automatic pull must
+not do - and it never merges or rebases: a diverged branch, a dirty file in the way, no upstream or
+no network each leave the tree as it was, and the hook's one `session-start:` line says which.
+**That line is what a session reads before touching a file, and a session that opens with no such
+line is one where the hook did not run - pull by hand.** Every path exits 0. It leans on `sed`
+rather than `jq` to read the hook's `source` field, and it was checked under Git Bash
+specifically: `core.autocrlf=true` leaves the working copy CRLF, which that bash strips
+transparently - measured, not assumed - so a CRLF hook runs there where a stock bash would choke
+on it. It installs nothing, on purpose.
 
-**The setup script must end in a zero exit**, since a non-zero one fails session startup - so
-it has no `set -e`, every step reports its own failure, and a failure is therefore silent from
-the outside. `.claude/hooks/session-start.sh` is where that surfaces: it installs nothing, and
-its last act is to read `dotnet --version` and `ffmpeg -version` back off PATH and name
-whichever is missing. A session that starts without a toolchain says so in its first line
-instead of failing at the first build. The hook carried a duplicate SDK install until the user
-asked for one installer; do not add it back.
-
-What the hook does keep is the git repair, which cannot move: the staleness *is* the snapshot
-ageing, so it has to run per session rather than once.
-
-**On a local machine the same hook does one different thing: `git pull --ff-only` on the checked-out
-branch, and nothing else.** The user works on a laptop and a desktop in tandem, so a session opening on
-whichever machine sat idle is opening on a clone the other has already moved past. It runs at startup,
-resume and clear and not on compact - the one `SessionStart` that fires mid-turn, where a working tree
-moving under a running edit is exactly what an automatic pull must not do - and it never merges or
-rebases: a diverged branch, a dirty file in the way, no upstream or no network each leave the tree as
-it was, and the hook's one `session-start:` line says which. **That line is what a session reads before
-touching a file, and a session that opens with no such line is one where the hook did not run - pull by
-hand.** It reaches a machine through the repo, so the laptop gets it on its next pull; until then that
-is the machine to pull by hand on. Every path exits 0, for the reason the setup script's paragraph
-gives. Windows is why the script leans on `sed` rather than `jq` to read the hook's `source` field, and
-why it was checked under Git Bash specifically: `core.autocrlf=true` leaves the working copy CRLF, which
-that bash strips transparently - measured, not assumed - so a CRLF hook runs there where a stock bash
-would choke on it.
-
-**A local Windows machine is set up by `.claude/setup-windows.sh`, not by `setup.sh`**, which is
-`apt-get` and `/usr/local/bin` and has never run on either of the user's machines. Run it from Git
-Bash in the repo, once per machine and again after a `dotnet clean`, a fresh clone or a worktree
-(~5 s when nothing has changed). What it puts right is the thing a plain `dotnet build` leaves
-missing: the app looks for its tools in `bin/` beside the exe and squeezes the launched tools' PATH
-to that folder plus `C:\Windows`, so a Debug output has `encoderArgs` and `iso639.csv` from
-`BinFiles/` and nothing else - no ffmpeg of its own, no av1an, no encoders, no mkvmerge, and Quick
-Convert refuses every direct-encoder codec while the AV1AN tab cannot start. The script takes the
-*shipped* `bin/` out of the latest published win-x64 zip - the bundler's own output, PSY-line
-SvtAv1EncApp and all, where Scoop's svt-av1 is mainline and running `bundle-tools.sh` locally would
-want MSYS2 and cargo - caches it at `~/.nmkoder-dev/bin`, hardlinks it into every build output
-beside an `Nmkoder.exe`, and appends the four tool folders to the user PATH. Verified by launching
-the Debug build: its own startup probe rendered a QTGMC frame through the staged VapourSynth.
-
-Two facts about that machine are worth more than the script. **Claude Desktop is a packaged app
-with file-system write virtualization on**: anything a session writes under `%LOCALAPPDATA%` or
-`%TEMP%` lands in `…\AppData\Local\Packages\Claude_<id>\LocalCache\Local\…` and does not exist for a
-process launched outside Claude - which is why the cache is under the profile root and not AppData,
-and why a tool "installed" to `%LOCALAPPDATA%` from a session is one the user's own shell cannot
-see. `fsutil hardlink list <file>` prints the real NTFS path and is how it was caught. Registry
-writes are *not* virtualized (the package manifest disables that half), so a user-PATH edit from a
-session is real. And on the laptop the UI is seen by launching the app and screenshotting its
-window rather than through the headless harness: `Nmkoder/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Nmkoder.exe`
-is the release's shape, and the pwsh capture wants `SetProcessDPIAware()` before `GetWindowRect`, or
-a scaled display hands back the top-left quarter of the window. A local session on the desktop
-cannot capture the screen (cause not established), so the headless-ui skill - which renders without
-a display - stays the way to see the UI there; under Git Bash its `__REPO__` has to be a Windows
-path, which the skill's setup line now handles.
+**Seeing the UI differs between the two machines.** On the laptop, launch the Debug build and
+screenshot its window: `Nmkoder/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Nmkoder.exe` is
+the release's shape (App SDK notifications and all; `…/net10.0/Nmkoder.exe` is the
+cross-platform one), its `data/` and `logs/` land beside it, and the pwsh capture wants
+`SetProcessDPIAware()` before `GetWindowRect`, or a scaled display hands back the top-left
+quarter of the window - `GetWindowRect` reports logical pixels and `Graphics.CopyFromScreen`
+reads physical ones. A local session on the desktop cannot capture the screen (reported; cause
+not established), so there the headless-ui skill - Avalonia.Headless rendering to PNG, never
+touching the display - is the way to see it, and it is the only way on either machine to force
+hover/press/focus states or measure control geometry. Under Git Bash its `__REPO__` has to be a
+Windows path (`cygpath -m`), which the skill's setup line does.
 
 The project multi-targets, but only on Windows: `net10.0` everywhere, plus
 `net10.0-windows10.0.19041.0` when the *host* is Windows. That second framework
 is the one carrying the Windows App SDK, and its build runs MSIX tooling
 (`MakePri.exe` and friends) - Windows binaries, so a Linux or macOS host cannot
 evaluate that TFM at all, not even far enough to compile. Hence the condition on
-`TargetFrameworks`, which keeps the command above working everywhere.
+`TargetFrameworks`, which keeps the command above working everywhere - the release
+workflow's linux and macOS jobs among them.
 
-The practical consequence for a web session: **nothing under `#if WINDOWS` is
-compiled here, so nothing checks it.** To compile-check that code, build a
-throwaway project that targets `net10.0-windows10.0.19041.0` with
-`EnableWindowsTargeting=true`, `<Compile Include>`s just the files in question
-alongside stubs for what they touch, and references
-`Microsoft.WindowsAppSDK` with `IncludeAssets="compile"
-ExcludeAssets="build;buildTransitive;native;runtime;analyzers"` - excluding the
-build assets is what skips the MSIX targets that cannot run. That checks the
-code; the *publish* can only be proven by the release workflow's win-x64 job.
+On the machines development happens on both TFMs build, so an ordinary `dotnet build`
+compiles everything under `#if WINDOWS` and there is nothing special to do to check it.
+(From a Linux or macOS host it is not compiled at all; the recipe, should one ever be
+needed again, is a throwaway project targeting `net10.0-windows10.0.19041.0` with
+`EnableWindowsTargeting=true` that `<Compile Include>`s just the files in question beside
+stubs for what they touch and references `Microsoft.WindowsAppSDK` with
+`IncludeAssets="compile" ExcludeAssets="build;buildTransitive;native;runtime;analyzers"` -
+excluding the build assets is what skips the MSIX targets that cannot run.) The *publish*
+is still only proven by the release workflow's win-x64 job.
 
 ## UI conventions
 
@@ -267,9 +247,11 @@ drew accent lines down its middle. The buttons' template binds no `CornerRadius`
 at all, so a hover fill is square unless the `ContentPresenter` inside is given
 one; `Border.ClipToBounds` will not round it for you, having a rectangular clip.
 
-There is no display in a web session, but the UI can still be seen: a throwaway
-console project referencing `Nmkoder.csproj` plus `Avalonia.Headless` and
-`Avalonia.Skia` can `AppBuilder.Configure<Nmkoder.App>().UseSkia().UseHeadless(new
+A session on the desktop cannot capture the screen (on the laptop, launch the app and
+screenshot it - see the top of this file), but the UI can still be seen for real without a
+display, and this is also the only way on either machine to force a hover or measure a
+control: a throwaway console project referencing `Nmkoder.csproj` plus `Avalonia.Headless`
+and `Avalonia.Skia` can `AppBuilder.Configure<Nmkoder.App>().UseSkia().UseHeadless(new
 AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).SetupWithoutStarting()`,
 construct `MainWindow` directly (the lifetime is null, so `App` does not open one
 itself), `Show()` it, pump `Dispatcher.UIThread.RunJobs()` for a second or two
@@ -299,30 +281,19 @@ pinned Avalonia version exactly rather than whatever the docs site publishes.
 `.github/workflows/release.yml` builds and publishes. It runs on either a `v*`
 tag push or a manual dispatch.
 
-**Do not push the tag from a Claude Code on the web session.** The sandbox's git
-proxy takes an ordinary branch push and hangs up on anything else. A tag push and
-a branch deletion fail identically:
+**Use the dispatch path, and let it create the tag.** A `v*` tag push publishes for real
+too, but the dispatch takes the version and `publish` as inputs and tags the commit itself, so
+nothing has to be tagged by hand and a local tag can never get ahead of, or out of step with,
+what the workflow created. (The dispatch path was born of a Claude Code on the web sandbox
+whose git proxy hung up on every tag push and every remote branch deletion, identically and
+on every retry - `send-pack: unexpected disconnect while reading sideband packet`. Sessions do
+not run there any more, and it stays the route because it is the better one.)
 
-```
-send-pack: unexpected disconnect while reading sideband packet
-fatal: the remote end hung up unexpectedly
-Everything up-to-date
-```
-
-It fails the same way every time, so retrying with backoff only burns time - this
-is a property of the sandbox, not of the repository, the ref, or GitHub. The
-workflow's dispatch path exists precisely to work around it and creates the tag
-itself.
-
-Deleting a finished branch has no such workaround. `git push --delete` hangs up
-as above, and the GitHub MCP server has `create_branch` and `list_branches` but
-nothing that removes a ref, so both routes are closed and the branch can only be
-deleted from the repository's branches page by hand. Delete the local one and
-leave the remote alone - **and do not report either fact.** The user has asked
-not to hear about it again: it is the same sentence every release, about a
-housekeeping detail they never asked for, and the queue of merged `claude/*`
-branches sitting on the remote costs nothing. Never claim a branch *was*
-deleted when only the local copy is gone; just say nothing about branches.
+**Say nothing about branches in the report.** Delete a finished local branch if wanted and
+leave the remote one alone - the user has asked not to hear about it again: it is the same
+sentence every release, about a housekeeping detail they never asked for, and the queue of
+merged branches sitting on the remote costs nothing. Never claim a branch *was* deleted when
+only the local copy is gone; just say nothing about branches.
 
 The steps:
 
@@ -331,20 +302,11 @@ The steps:
    "Bump version to X.Y.Z". The generated notes list commit subjects newest
    first, so this becomes the changelog's first line.
 3. Push `master`.
-4. Dispatch the workflow with `version=X.Y.Z` and `publish=true`. From a Claude
-   session that is `mcp__github__actions_run_trigger`, method `run_workflow`,
-   `workflow_id: release.yml`, `ref: master`. Leaving `publish` off or false
-   produces a *draft* release instead of a public one.
-
-**A web container's clone is snapshotted with the environment and shallow, so its local
-`master` is as old as that snapshot and its history is truncated.** Both are repaired by
-`.claude/hooks/session-start.sh` now, which unshallows and fast-forwards the ref; the comment
-there says why each half matters. What it is worth knowing anyway is the failure it produced,
-because the shallow half does not look like a stale clone: ancestry across a graft boundary
-answers "no", so a `master` that is only behind reads as *divergent*, `git merge --ff-only`
-refuses it, and a search of `git log origin/master` misses commits that are on the remote.
-That was reported once as a rewritten remote history, which it was not. `git fetch --unshallow`
-before believing any of it.
+4. Dispatch the workflow with `version=X.Y.Z` and `publish=true`:
+   `gh workflow run release.yml --repo jkkma/nmkoder --ref master -f version=X.Y.Z -f publish=true`.
+   Leaving `publish` off or false produces a *draft* release instead of a public one.
+   `.claude/skills/cut-release` carries the whole procedure with the watch and
+   verification commands.
 
 Check the version against the published releases before picking it - the csproj
 is bumped in the same commit range as the release it belongs to, so the number
@@ -467,7 +429,8 @@ would pin whoever installed once to that release's ffmpeg forever. The manifest'
 portable users to do.
 
 Submitting to the community `Extras` bucket instead would mean a PR against
-`ScoopInstaller/Extras`, which is not a repository a session here can reach.
+`ScoopInstaller/Extras`, a separate repository with its own review queue; the own-bucket
+route needs nobody's approval and moves with every release.
 
 ## Notifications
 
@@ -3455,8 +3418,8 @@ afterwards reporting no grain headers.
 ### What is not verified
 
 **The `--fgs-table` path is no longer on this list**, which this section used to head: the shipped
-SvtAv1EncApp comes back out of a published linux-x64 release (see `.claude/skills/real-binaries`), so
-the whole chain has been run - the denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1
+SvtAv1EncApp was pulled back out of a published linux-x64 release for that measurement (and is
+simply on the machine now, at `~/.nmkoder-dev/bin/av1an/enc`), so the whole chain has been run - the denoise pass as `DenoisePass` builds it, the diff, an SVT-AV1
 encode of the denoised file, `apply` with the resulting table, an `inspect` round trip, and the film
 stock presets' own `MakePresetTableAsync` → `--fgs-table` → `inspect` comparison recorded above. The
 table format is aom's own `filmgrn1`, which is what the parameter takes.
