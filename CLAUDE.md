@@ -67,6 +67,35 @@ why it was checked under Git Bash specifically: `core.autocrlf=true` leaves the 
 that bash strips transparently - measured, not assumed - so a CRLF hook runs there where a stock bash
 would choke on it.
 
+**A local Windows machine is set up by `.claude/setup-windows.sh`, not by `setup.sh`**, which is
+`apt-get` and `/usr/local/bin` and has never run on either of the user's machines. Run it from Git
+Bash in the repo, once per machine and again after a `dotnet clean`, a fresh clone or a worktree
+(~5 s when nothing has changed). What it puts right is the thing a plain `dotnet build` leaves
+missing: the app looks for its tools in `bin/` beside the exe and squeezes the launched tools' PATH
+to that folder plus `C:\Windows`, so a Debug output has `encoderArgs` and `iso639.csv` from
+`BinFiles/` and nothing else - no ffmpeg of its own, no av1an, no encoders, no mkvmerge, and Quick
+Convert refuses every direct-encoder codec while the AV1AN tab cannot start. The script takes the
+*shipped* `bin/` out of the latest published win-x64 zip - the bundler's own output, PSY-line
+SvtAv1EncApp and all, where Scoop's svt-av1 is mainline and running `bundle-tools.sh` locally would
+want MSYS2 and cargo - caches it at `~/.nmkoder-dev/bin`, hardlinks it into every build output
+beside an `Nmkoder.exe`, and appends the four tool folders to the user PATH. Verified by launching
+the Debug build: its own startup probe rendered a QTGMC frame through the staged VapourSynth.
+
+Two facts about that machine are worth more than the script. **Claude Desktop is a packaged app
+with file-system write virtualization on**: anything a session writes under `%LOCALAPPDATA%` or
+`%TEMP%` lands in `…\AppData\Local\Packages\Claude_<id>\LocalCache\Local\…` and does not exist for a
+process launched outside Claude - which is why the cache is under the profile root and not AppData,
+and why a tool "installed" to `%LOCALAPPDATA%` from a session is one the user's own shell cannot
+see. `fsutil hardlink list <file>` prints the real NTFS path and is how it was caught. Registry
+writes are *not* virtualized (the package manifest disables that half), so a user-PATH edit from a
+session is real. And on the laptop the UI is seen by launching the app and screenshotting its
+window rather than through the headless harness: `Nmkoder/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Nmkoder.exe`
+is the release's shape, and the pwsh capture wants `SetProcessDPIAware()` before `GetWindowRect`, or
+a scaled display hands back the top-left quarter of the window. A local session on the desktop
+cannot capture the screen (cause not established), so the headless-ui skill - which renders without
+a display - stays the way to see the UI there; under Git Bash its `__REPO__` has to be a Windows
+path, which the skill's setup line now handles.
+
 The project multi-targets, but only on Windows: `net10.0` everywhere, plus
 `net10.0-windows10.0.19041.0` when the *host* is Windows. That second framework
 is the one carrying the Windows App SDK, and its build runs MSIX tooling

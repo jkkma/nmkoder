@@ -17,12 +17,18 @@ written.**
 H=<your-scratchpad-dir>/uiharness && mkdir -p "$H"
 cp .claude/skills/headless-ui/assets/Harness.csproj .claude/skills/headless-ui/assets/Program.cs "$H/"
 AV=$(grep -oP '(?<=Include="Avalonia" Version=")[^"]+' Nmkoder/Nmkoder.csproj)
-sed -i "s|__AVALONIA_VERSION__|$AV|; s|__REPO__|$(pwd)|" "$H/Harness.csproj"
+REPO=$(cygpath -m "$(pwd)" 2>/dev/null || pwd)   # Windows path under Git Bash, plain pwd elsewhere
+sed -i "s|__AVALONIA_VERSION__|$AV|; s|__REPO__|$REPO|" "$H/Harness.csproj"
 dotnet run --project "$H" -- "$H/shots"
 ```
 
 The Avalonia version is read out of the app's csproj so the harness cannot drift from the
-pinned 12.1.x - a headless package from another minor renders another theme.
+pinned 12.1.x - a headless package from another minor renders another theme. The `cygpath` is
+for a local Windows session run from Git Bash, where `$(pwd)` is `/c/Users/...` - a path MSBuild
+cannot resolve inside a csproj, so the ProjectReference silently points at nothing; `cygpath -m`
+turns it into `C:/Users/...` and is a no-op everywhere else. (This is the desktop's way to see the
+UI, a local session there being unable to capture the screen; on the laptop the app can simply be
+launched and screenshotted - see `.claude/README.md`.)
 
 The template's `InitAppState()` runs `Paths.Init()` and `Config.Init()` by reflection (both
 classes are app-internal) before any window is constructed - the same order `Program.Main`

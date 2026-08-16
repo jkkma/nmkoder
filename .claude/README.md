@@ -13,6 +13,42 @@ ffmpeg the app ships against, and now the measurement toolkit - `x264`, `x265`, 
 presence-gated (a re-run is ~1s) and failure-tolerant, and the final `toolkit:` line lists
 what actually landed rather than what was intended.
 
+**`setup-windows.sh`** - the local counterpart, for the laptop and the desktop, where
+`setup.sh` (apt-get, `/usr/local/bin`) has never run. `bash .claude/setup-windows.sh` from Git
+Bash in the repo: checks the SDK, builds if nothing is built, pulls the *shipped* toolchain out
+of the latest published win-x64 zip (~485 MB once, the bundler's own output - PSY-line
+SvtAv1EncApp, av1an, VapourSynth, MKVToolNix, grav1synth, BtbN ffmpeg) into `~/.nmkoder-dev/bin`,
+hardlinks it into every build output's `bin/` beside `Nmkoder.exe` (the only place the app looks
+- its launched-tool PATH is squeezed to `bin/` + `C:\Windows`, so a Scoop encoder is invisible
+to it), and appends the four tool folders to the user PATH. Presence-gated, ~5 s on re-run;
+re-run after `dotnet clean`, a fresh clone or a worktree. The build's own `BinFiles/` copies
+are never overwritten by the release's. Verified by launching the Debug build: its startup probe
+rendered a QTGMC frame through the staged VapourSynth and listed grav1synth's presets.
+
+  Two things it had to learn the hard way, both in its header: **Claude Desktop is a packaged
+  app with file-system write virtualization on**, so anything a session writes under
+  `%LOCALAPPDATA%` (or `%TEMP%`) lands in `…\Packages\Claude_<id>\LocalCache\Local\…` and is
+  invisible outside Claude - `fsutil hardlink list <file>` prints the real path, which is how it
+  was caught; the profile root, `~/scoop` and the repo are not virtualized, and registry writes
+  are not either (the manifest disables that half), which is why the PATH edit is real. And Git
+  Bash's `unzip` does not cross `/` with `*` here, so `Nmkoder/bin/*` yields only `bin/`'s
+  top-level files - Windows' own `tar.exe` (bsdtar) with a bare `Nmkoder/bin` pattern is what
+  extracts the subtree.
+
+  On the laptop the app can simply be launched and screenshotted, and the headless-ui skill
+  below - the web container's substitute for a display - is not needed there. Launch
+  `Nmkoder/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Nmkoder.exe` (the release's shape,
+  App SDK notifications and all; `…/net10.0/Nmkoder.exe` is the cross-platform one), and
+  capture its window from pwsh with `SetProcessDPIAware()` called **before** `GetWindowRect` -
+  without it, on a scaled display, `GetWindowRect` reports logical pixels and
+  `Graphics.CopyFromScreen` reads physical ones, and the PNG is the top-left quarter of the
+  window blown up. Its `data/` and `logs/` land beside the exe in that output folder. **A local
+  session on the desktop cannot capture the screen** (reported by the user; the cause is not
+  established), so there the headless-ui skill stays the way to see the UI - it renders through
+  Avalonia.Headless and never touches the display. Its setup line is written for Linux; under Git
+  Bash the repo path handed to `__REPO__` has to be a Windows one (`cygpath -m`), which the
+  skill now does.
+
 **`hooks/session-start.sh`** (SessionStart) - in a web container, per-session git repair
 (unshallow + fast-forward master) and the toolchain report; on a local machine, one
 `git pull --ff-only` of the checked-out branch at startup, resume and clear (not compact),
