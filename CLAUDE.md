@@ -52,6 +52,21 @@ asked for one installer; do not add it back.
 What the hook does keep is the git repair, which cannot move: the staleness *is* the snapshot
 ageing, so it has to run per session rather than once.
 
+**On a local machine the same hook does one different thing: `git pull --ff-only` on the checked-out
+branch, and nothing else.** The user works on a laptop and a desktop in tandem, so a session opening on
+whichever machine sat idle is opening on a clone the other has already moved past. It runs at startup,
+resume and clear and not on compact - the one `SessionStart` that fires mid-turn, where a working tree
+moving under a running edit is exactly what an automatic pull must not do - and it never merges or
+rebases: a diverged branch, a dirty file in the way, no upstream or no network each leave the tree as
+it was, and the hook's one `session-start:` line says which. **That line is what a session reads before
+touching a file, and a session that opens with no such line is one where the hook did not run - pull by
+hand.** It reaches a machine through the repo, so the laptop gets it on its next pull; until then that
+is the machine to pull by hand on. Every path exits 0, for the reason the setup script's paragraph
+gives. Windows is why the script leans on `sed` rather than `jq` to read the hook's `source` field, and
+why it was checked under Git Bash specifically: `core.autocrlf=true` leaves the working copy CRLF, which
+that bash strips transparently - measured, not assumed - so a CRLF hook runs there where a stock bash
+would choke on it.
+
 The project multi-targets, but only on Windows: `net10.0` everywhere, plus
 `net10.0-windows10.0.19041.0` when the *host* is Windows. That second framework
 is the one carrying the Windows App SDK, and its build runs MSIX tooling

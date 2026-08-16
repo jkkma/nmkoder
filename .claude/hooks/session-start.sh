@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Per-session repair for a Claude Code on the web container: the git ref the environment
-# snapshot left stale, and the environment variables the rest of the session wants set.
+# snapshot left stale, and the environment variables the rest of the session wants set. On a
+# local machine it does one different thing - a fast-forward pull - and nothing else; see the
+# block below.
 #
 # **It installs nothing.** The toolchain - the .NET SDK and the FFmpeg build this project
 # measures against - belongs to the environment's setup script, `.claude/setup.sh`, which runs
@@ -12,12 +14,72 @@
 # in its first line instead of failing at the first build.
 set -euo pipefail
 
-# Only the web containers need any of this; leave local machines alone.
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+
+# A local machine gets exactly one thing from this hook, and it is not the repair below: a
+# `git pull --ff-only` of the checked-out branch. The user works on a laptop and a desktop in
+# tandem, so a session opening on whichever machine sat idle is opening on a clone the other
+# has already moved past, and the first edit lands on stale code. Nothing else here reaches a
+# local machine - the ref repair, the env file and the toolchain report are all the web
+# container's, and the early return at the end of this block keeps them there.
+#
+# The hook's stdin is a JSON object whose "source" says which SessionStart this is - startup,
+# resume, clear or compact. The pull runs for the first three, which are the moments a session
+# begins or begins again, and not for compact, which fires mid-turn: a working tree that moves
+# under a running edit is the one thing an automatic pull must never do. There is no jq on a
+# Windows machine, so a sed reads the field, and a source it cannot read is treated as a
+# startup - pulling is the safe default; the check exists only to keep compact out.
+#
+# --ff-only is the whole safety story. It never writes a merge commit and never rebases: a
+# branch that has diverged, a dirty file the pull would overwrite, no upstream, or no network
+# each leave the tree exactly as it was, and the one line printed says which. That line is
+# injected into the session's context, so it is what the session reads before touching a
+# file - and a session that starts with no `session-start:` line at all is one where the hook
+# did not run, which is its own instruction to pull by hand. Every path exits 0: a pull that
+# could not happen is a fact to report, not a reason to fail startup. `timeout` bounds a hung
+# network under the harness's own 60s hook limit wherever the machine has it (Git for Windows
+# and Linux do; a bare macOS does not, and runs unbounded).
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
+  INPUT=""
+  [ -t 0 ] || INPUT="$(cat 2>/dev/null || true)"
+  SOURCE="$(printf '%s\n' "$INPUT" | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+  [ "$SOURCE" = "compact" ] && exit 0
+
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+  BRANCH="$(git -C "$PROJECT_DIR" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [ -z "$BRANCH" ]; then
+    echo "session-start: HEAD is detached, so nothing was pulled"
+    exit 0
+  fi
+  UPSTREAM="$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  if [ -z "$UPSTREAM" ]; then
+    echo "session-start: ${BRANCH} has no upstream, so nothing was pulled"
+    exit 0
+  fi
+
+  BOUND=""
+  command -v timeout >/dev/null 2>&1 && BOUND="timeout 45"
+  BEFORE="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
+  # --no-rebase beside --ff-only so the outcome does not depend on anybody's pull.rebase:
+  # fast-forward or nothing, whatever the machine's config says.
+  if OUT="$(GIT_TERMINAL_PROMPT=0 $BOUND git -C "$PROJECT_DIR" pull --no-rebase --ff-only 2>&1)"; then
+    AFTER="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
+    if [ "$BEFORE" = "$AFTER" ]; then
+      echo "session-start: ${BRANCH} is up to date with ${UPSTREAM}"
+    else
+      N="$(git -C "$PROJECT_DIR" rev-list --count "${BEFORE}..${AFTER}")"
+      echo "session-start: pulled ${N} commit(s) into ${BRANCH} from ${UPSTREAM} (${BEFORE:0:7}..${AFTER:0:7})"
+    fi
+  else
+    # git's own reason, in one line: the first fatal:/error: line where there is one (a
+    # diverged branch, a file in the way and an unreachable remote all print one), else the
+    # last non-empty line, else the timeout's silence.
+    WHY="$(printf '%s\n' "$OUT" | grep -m1 -E '^(fatal|error):' || printf '%s\n' "$OUT" | grep -v '^[[:space:]]*$' | tail -n1 || true)"
+    [ -n "$WHY" ] || WHY="no output - the pull timed out"
+    echo "session-start: git pull --ff-only did NOT update ${BRANCH} (${WHY}) - the tree is as it was; pull by hand before editing"
+  fi
   exit 0
 fi
-
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # Everything below logs here rather than to the terminal. A SessionStart hook's output is
 # injected into the model's context, so only the summary and real failures are printed.

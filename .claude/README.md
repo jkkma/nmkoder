@@ -13,8 +13,16 @@ ffmpeg the app ships against, and now the measurement toolkit - `x264`, `x265`, 
 presence-gated (a re-run is ~1s) and failure-tolerant, and the final `toolkit:` line lists
 what actually landed rather than what was intended.
 
-**`hooks/session-start.sh`** (SessionStart) - per-session git repair (unshallow +
-fast-forward master) and the toolchain report. Installs nothing, on purpose; unchanged.
+**`hooks/session-start.sh`** (SessionStart) - in a web container, per-session git repair
+(unshallow + fast-forward master) and the toolchain report; on a local machine, one
+`git pull --ff-only` of the checked-out branch at startup, resume and clear (not compact),
+because the user works on a laptop and a desktop in tandem and a session should open on
+what the other machine pushed. Fast-forward or nothing - a diverged branch, a dirty file in
+the way or no network leaves the tree as it was and says so in the hook's one line. Installs
+nothing, on purpose. Verified by running it against throwaway repos on Windows Git Bash:
+up to date, ff by 2, ff past an unrelated untracked file, conflicting edit refused, diverged
+refused, no upstream, detached HEAD, unresolvable host, blackhole host (curl's own 21s
+connect timeout answers before the 45s `timeout` backstop), not a repo - all exit 0.
 
 **`hooks/git-push-guard.sh`** (PreToolUse on Bash) - denies, with the explanation and the
 alternative, the two pushes the sandbox's git proxy hangs up on every time: tag pushes
