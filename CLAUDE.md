@@ -1469,6 +1469,18 @@ lines through `NoteChunkFailure` so the out-of-memory explanation fires in conso
 av1an old enough to append its own `.log` to the value (0.4.x and earlier did) just makes the read
 come back empty, which costs the quote and nothing else.
 
+**The launch script puts `bin/av1an` on its own PATH as well as `CD`ing into it, because cmd only
+resolves a bare `av1an` from the current directory while `NoDefaultCurrentDirectoryInExePath` is
+unset.** That is a documented Windows setting - hardening guides recommend it, and a parent process
+can hand it down; Claude Code's own shell tools do, which is how it was met. With it set, every
+visible-console encode died at startup with `'av1an' is not recognized` and exit code 9009 (cmd's
+"command not found"), while the piped mode, which launches av1an by full path, ran fine - and the
+`--scenes` retry fired for it, correctly, as an unrelated startup failure that fails the same way
+twice. Reproduced by running the script with the variable set and unset, from three different
+`bin/av1an` folders; fixed by adding the folder to the script's PATH list, and re-run under the
+variable to a finished encode. The same shape is worth remembering for any other script that names
+a bundled tool bare after a `cd`.
+
 **Nothing under av1an's Scene Detection heading goes out for Split Method "None".** It is `-x` and
 nothing else there, so `--sc-downscale-height` named a resolution for a pass that never ran.
 `Av1anUi.SceneDetectionEnabled` is the one statement of which entry is which, and
@@ -1541,8 +1553,13 @@ tiling, unknown top-level fields surviving via the template, and the abandon pat
 reporting a length other than its cut, a gap in a list, a scene without its frame fields, files
 without `split_scenes` (merged without inventing one), and ranges that read as inclusive. Of the
 binary's half, `--sc-only` over `.vpy` slices is field-confirmed - see the constants note below -
-and the load-skips-detection behaviour is the part still to watch a real encode for: the log
-should say "skips its own pass" and chunks should start within seconds of av1an launching.
+and the load-skips-detection behaviour is now measured too, on the shipped av1an (0.5.2-unstable,
+rev 7df934d) through the real `MainWindow`: a 2700-frame 720p fixture, 2 slices, 5 scenes in 3 s,
+and av1an went from "Generating VapourSynth cache file" straight to `Queue 11 Workers 6` with no
+detection pass of its own - the chunk queue was up 4 s after launch (the lwi index being the whole
+of that), the first chunk finished at 12 s, the run in 37 s, and the 11 keyframes in the output
+include the slice boundary at frame 1350. The retry stays as
+insurance against a different binary, not because this one is in doubt.
 
 The merged list lives at `{tempDir}.scenes.json` - `Av1anUi.GetScenesFilePath` - beside the temp
 folder like every prepared input and for the same reasons: av1an empties its temp at startup, and a
@@ -1568,7 +1585,8 @@ visible log line naming both numbers - the number on the tab is the user's, so a
 quiet. Machines under four cores default to 1, the same stand-down they had before the box
 existed. That report also settled the launch half of what could not be run
 here: av1an accepted the `.vpy` slices and ran `--sc-only` over them in parallel. The load half -
-the encode actually skipping its own pass - is still only watched for, so the retry stays.
+the encode actually skipping its own pass - was measured afterwards on a local machine (see the
+paragraph above); the retry stays as insurance rather than as an open question.
 
 **The Concat Method dropdown offers what the container box can actually produce, which is two
 entries.** av1an has a third, `ivf`, and it was on that list without ever being able to run: IVF is a

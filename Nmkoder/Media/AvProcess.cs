@@ -359,7 +359,15 @@ namespace Nmkoder.Media
                 }
                 else
                 {
-                    string scriptPath = WriteLaunchScript(dir, new string[] { vsynthPath, encPath, ffmpegPath }, args);
+                    // av1an's own folder goes on the script's PATH as well as being its working
+                    // directory. The script names the binary bare, and cmd only resolves a bare
+                    // name from the current directory while NoDefaultCurrentDirectoryInExePath is
+                    // unset - a documented Windows setting some hardening guides recommend, and one
+                    // a parent process can hand down. With it set, every visible-console encode died
+                    // at startup with "'av1an' is not recognized" (exit code 9009) while the piped
+                    // mode above, which launches av1an by full path, ran fine. Measured by running
+                    // the launch script with the variable set and unset.
+                    string scriptPath = WriteLaunchScript(dir, new string[] { dir, vsynthPath, encPath, ffmpegPath }, args);
                     av1an.StartInfo.Arguments = Shell.BuildArguments(scriptPath.Wrap());
                 }
 
