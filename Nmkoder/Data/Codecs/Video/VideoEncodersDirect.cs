@@ -52,15 +52,14 @@ namespace Nmkoder.Data.Codecs.Video
         /// <summary>
         /// Whether ffmpeg can copy the encoder's output into the final container as it stands.
         /// <para/>
-        /// **False means raw Annex B, and that is not a detail.** Measured on ffmpeg 6.1 and on the
-        /// BtbN master build this project bundles: a raw <c>.264</c> or <c>.265</c> read back with
-        /// <c>-framerate N</c> yields packets with no timestamps at all, and Matroska refuses them -
-        /// "Timestamps are unset in a packet for stream 0", then "Error muxing a packet", and no output.
-        /// The MP4-family muxers stamp them instead, so a raw stream is containerised into MP4 first
-        /// only where the *output* is one that refuses it - see <c>Containers.StampsUntimedPackets</c>,
-        /// which is what decides that and where the measurement lives. The <c>setts</c> bitstream
-        /// filter looks like the cheaper answer and is not: its packet index counts in *decode* order,
-        /// so on any stream with B-frames it would stamp the frames into the wrong presentation order.
+        /// **False means raw Annex B, and that is not a detail.** No ffmpeg route can stamp one
+        /// correctly: read back with <c>-framerate N</c> its packets have no timestamps, Matroska
+        /// refuses them outright, and the muxers that stamp them (the MP4 family) write pts in
+        /// *decode* order - frames in the right sequence carrying the wrong times, a dup-and-drop
+        /// judder at every mini-GOP once B-frames reorder. The <c>setts</c> bitstream filter has the
+        /// same fault by construction. So a false here means mkvmerge containerises the stream before
+        /// the mux, whatever the output container, and the run refuses up front when there is no
+        /// mkvmerge - see <c>QuickConvert.BuildDirectCommand</c>, where the measurements live.
         /// </summary>
         bool StreamCarriesTiming { get; }
 

@@ -85,6 +85,20 @@ namespace Nmkoder.UI.Tasks
                     return;
                 }
 
+                // The raw Annex B encoders need mkvmerge to put presentation timestamps on their
+                // output - see BuildDirectCommand for why ffmpeg cannot do it - and a missing
+                // mkvmerge is the same invisible failure a missing encoder is, so it is refused
+                // here with the same kind of message. bundle-tools.sh ships MKVToolNix for win-x64
+                // alone, so on Linux and macOS this is not hypothetical.
+                if (directEnc != null && !directEnc.StreamCarriesTiming && !AvProcess.IsToolAvailable("mkvmerge"))
+                {
+                    RunTask.Cancel($"{directEnc.FriendlyName} writes a raw bitstream, and mkvmerge is what puts " +
+                        $"correct timestamps on it - without that, every B-frame lands at the wrong time and the " +
+                        $"output judders.\n\nInstall MKVToolNix - 'apt install mkvtoolnix' on Linux, 'brew install " +
+                        $"mkvtoolnix' on macOS - or pick an encoder that writes its own container (SVT-AV1, AV1/VP9).");
+                    return;
+                }
+
                 // One video track is what the pipe carries. The old single command encoded every ticked
                 // video track through the same -c:v, which a raw stream from one encoder process cannot
                 // express - and quietly copying or dropping the extras would be worse than saying so.
@@ -591,41 +605,37 @@ namespace Nmkoder.UI.Tasks
             }
 
             string encodedVideo = files.Intermediate;
-            // The demuxer arguments the encoded video's own '-i' needs, which is nothing at all for a
-            // stream in a container that already states its timing.
-            string encodedVideoIn = "";
 
-            // Raw Annex B carries no timestamps: read back with -framerate, its packets arrive at the
-            // muxer with none at all, and only some muxers will stamp them - see
-            // Containers.StampsUntimedPackets, which is where that measurement lives. Into MP4, MOV or
-            // M4A the stream goes straight to the mux as its last '-i'; into Matroska it has to be
-            // containerised into MP4 first, because Matroska refuses it. The setts bitstream filter is
-            // not the cheaper answer it looks like - its packet index counts in decode order, so on any
-            // stream with B-frames it stamps the frames into the wrong presentation order. The rate is
-            // the post-filter one: an fps resample or a bob changes what the frames arrive at, and the
-            // raw stream knows nothing the demuxer could check it against.
+            // Raw Annex B carries no timestamps, and ffmpeg cannot invent the right ones: whichever
+            // muxer stamps the unstamped packets - the MP4 family directly, or Matroska via an MP4
+            // intermediate - writes pts equal to dts in *decode* order, with no reordering info. The
+            // frames themselves stay in the right sequence (the decoder orders by POC), but on any
+            // stream with B-frames the timestamps assign them to the wrong ticks, so a pts-honouring
+            // player duplicates one frame and drops another at every mini-GOP. Measured through this
+            // app's own output on a frame-numbered source: at 30fps screen ticks the viewer saw frames
+            // 0, 0, 1, 3, 4, 5. The old route-vs-route check could not see it, both routes carrying
+            // the same wrong stamps and agreeing with each other. The setts bitstream filter has the
+            // same fault by construction, its packet index counting in decode order.
+            //
+            // mkvmerge is what gets it right: it parses the stream's own reordering and writes real
+            // presentation timestamps - measured, 0 non-monotonic frames where the MP4 route had 60 of
+            // 150, and the fps-tick check reads 0,1,2,3,4,5. So the raw stream is containerised into
+            // an MKV intermediate for *every* output container, and the final mux copies from that.
+            // The rate is the post-filter one - an fps resample or a bob changes what the frames leave
+            // the chain at - spelled as a fraction, which mkvmerge takes exactly (24000/1001 measured).
+            // Without a readable rate the flag is left off and the VUI timing x264/x265 wrote from the
+            // y4m header governs, which is the same number by construction.
             if (!enc.StreamCarriesTiming)
             {
                 Fraction rate = QuickConvertUi.GetPostFilterRate();
-                string rateArg = rate.GetFloat() > 0.01f ? $"-framerate {rate} " : "";
-                string rawIn = $"{rateArg}-f {(enc.StreamExt == "265" ? "hevc" : "h264")} ";
+                string rateArg = rate.GetFloat() > 0.01f ? $"--default-duration 0:{rate}fps " : "";
+                // Resolved to a full path like the encoder above and for the same reason: the console
+                // debug modes launch through UseShellExecute, where SetPathVar cannot put bin/ on the
+                // PATH a bare name would need.
+                string mkvmerge = Shell.WrapArg(AvProcess.ResolveToolPath("mkvmerge"));
 
-                if (rateArg.IsEmpty())
-                    Logger.Log($"The source's frame rate could not be read, so the raw {enc.StreamExt} stream is " +
-                        $"read back at FFmpeg's default rate - the output's timing may be wrong.", true);
-
-                if (Containers.StampsUntimedPackets(GetCurrentContainer()))
-                {
-                    // Saves writing and reading a second whole copy of the encoded video, which for a
-                    // feature-length encode is the largest scratch file this tab produces.
-                    encodedVideoIn = rawIn;
-                }
-                else
-                {
-                    cmd += $" && ffmpeg -y -loglevel warning -stats {rawIn}" +
-                        $"-i {Shell.WrapArg(files.Intermediate)} -c copy {Shell.WrapArg(files.Mp4)}";
-                    encodedVideo = files.Mp4;
-                }
+                cmd += $" && {mkvmerge} -o {Shell.WrapArg(files.Timed)} {rateArg}{Shell.WrapArg(files.Intermediate)}";
+                encodedVideo = files.Timed;
             }
 
             // The same input index convention as DeinterlacePipeInput: batch mode passes one original
@@ -633,7 +643,7 @@ namespace Nmkoder.UI.Tasks
             int encodedInput = RunTask.currentFileListMode == RunTask.FileListMode.Batch ? 1 : FileList.Items.Count;
             string muxIn = TrackList.GetInputFilesString(QuickConvertUi.GetMuxTrimInputArgs());
 
-            cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} {encodedVideoIn}-i {Shell.WrapArg(encodedVideo)} " +
+            cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} -i {Shell.WrapArg(encodedVideo)} " +
                 $"{TrackList.GetMuxMapArgs(encodedInput)} -c:v copy {a} {s} {meta} " +
                 $"{QuickConvertUi.GetMuxTrimOutputArgs()} {muxing} {Shell.WrapArg(outPath)}";
 
@@ -719,11 +729,11 @@ namespace Nmkoder.UI.Tasks
             /// <summary> What the encoder writes: an IVF, or a raw Annex B stream. </summary>
             public readonly string Intermediate;
 
-            /// <summary> The containerised Annex B stream, written only where the encoder's raw output
-            /// carries no timing *and* the output container refuses an unstamped packet - so for x264
-            /// and x265 into Matroska, and nothing else. Named unconditionally all the same, since the
-            /// cleanup has to sweep it after a run that changed container mid-session. </summary>
-            public readonly string Mp4;
+            /// <summary> The mkvmerge-containerised Annex B stream, written for x264 and x265 whatever
+            /// the output container - mkvmerge is the one tool here that writes real presentation
+            /// timestamps onto a raw stream, see BuildDirectCommand. Named unconditionally all the
+            /// same, since the cleanup has to sweep it after a run that changed codec mid-session. </summary>
+            public readonly string Timed;
 
             /// <summary> The two-pass statistics stem. x265 writes a second file beside it
             /// (.cutree), x264 a third (.mbtree), so it is a stem to clean up rather than one file. </summary>
@@ -741,7 +751,7 @@ namespace Nmkoder.UI.Tasks
             {
                 string dir = Paths.GetSessionDataPath();
                 Intermediate = Path.Combine(dir, $"pipe_video.{enc.StreamExt}");
-                Mp4 = Path.Combine(dir, "pipe_video.mp4");
+                Timed = Path.Combine(dir, "pipe_video_timed.mkv");
                 StatsStem = Path.Combine(dir, "pipe_2pass.stats");
                 EncoderLog1 = Path.Combine(dir, "pipe_encoder_pass1.log");
                 EncoderLog2 = Path.Combine(dir, "pipe_encoder_pass2.log");
@@ -757,7 +767,7 @@ namespace Nmkoder.UI.Tasks
 
             public void CleanUp()
             {
-                foreach (string file in new[] { Intermediate, Mp4, StatsStem, $"{StatsStem}.cutree",
+                foreach (string file in new[] { Intermediate, Timed, StatsStem, $"{StatsStem}.cutree",
                     $"{StatsStem}.mbtree", EncoderLog1, EncoderLog2, Progress1, Progress2 })
                 {
                     IoUtils.TryDeleteIfExists(file);

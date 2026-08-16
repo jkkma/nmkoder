@@ -1843,40 +1843,41 @@ transfer curve, no matrix. So colour has to be handed to the encoder by flag in 
 which is the same reason the av1an classes do it, and why `ColorDataUtils`' aom and x264 name tables are
 load-bearing here too.
 
-**Raw Annex B cannot be `-c copy`'d into Matroska, and that is what decides the intermediate format.**
-Measured on ffmpeg 6.1 *and* on the BtbN master build this project bundles: a `.264` or `.265` read back
-with `-framerate N` yields packets with no timestamps, and Matroska refuses them - "Timestamps are unset
-in a packet for stream 0", then "Error muxing a packet", and no output. `-fflags +genpts`, `+igndts`,
-`-fps_mode` and an output-side `-r` all fail the same way. (The wording has drifted since - a current
-master build says "Can't write packet with unknown timestamp" - so match the shape, not the sentence.)
-**The `setts` bitstream filter looks like the cheaper answer and must not be used**: its packet index
-counts in *decode* order, so on any stream with B-frames it stamps the frames into the wrong
-presentation order - it "works" on a test clip encoded without them and scrambles a real encode.
+**Raw Annex B cannot be given correct timestamps by any ffmpeg route, and mkvmerge is what
+containerises it - for every output container.** The intermediates are `.ivf` for SVT-AV1, aomenc and
+vpxenc, whose IVF header carries the frame rate and mux straight in; and raw Annex B for x264 and
+x265, which is where the trap lives. Read back with `-framerate N` the packets have no timestamps:
+Matroska refuses them outright ("Timestamps are unset in a packet for stream 0" / a current master's
+"Can't write packet with unknown timestamp" - match the shape, not the sentence - plus a **796-byte
+stub**, the `File.Exists` trap this file warns about twice), and the muxers that will stamp them - the
+MP4 family - write **pts equal to dts in decode order, with no reordering info**. The frames stay in
+the right sequence (the decoder orders by POC; PSNR-matching output position N to source frame N is a
+clean diagonal), but on any stream with B-frames the timestamps put them at the wrong ticks, and a
+pts-honouring player duplicates one frame and drops another at every mini-GOP. Measured through the
+app's own output on a frame-numbered source: at 30fps screen ticks the viewer saw frames **0, 0, 1, 3,
+4, 5** - and the container ran 67 ms long. That shipped from 2.8.44 to 2.8.67 as the MKV route (raw →
+MP4 intermediate → mux) *and* the MP4-direct route (raw straight to the mux), because the measurement
+that blessed them compared **the two routes against each other** - "same PTS and DTS in presentation
+order" was true, both carrying the same wrong stamps - and never against the source's timing. The
+fps-tick render (`fps=30` samples by pts, like a player) is the check that catches it; frame-content
+matching and duration checks do not. `-fflags +genpts`, `+igndts`, `-fps_mode`, an output-side `-r`
+and the `setts` bitstream filter (packet index in decode order) are all wrong the same way.
 
-So the intermediates are `.ivf` for SVT-AV1, aomenc and vpxenc, whose IVF header carries the frame rate
-and mux straight in; and raw Annex B for x264 and x265. x264 *can* mux Matroska itself where its build
-has the muxer, and that is a build option rather than a promise - both Annex B encoders take the same
-route rather than each taking its own.
+**mkvmerge parses the stream's own reordering and writes real presentation timestamps** - measured, 0
+non-monotonic frames where the MP4 route had 60 of 150, the fps-tick check reads 0,1,2,3,4,5, and a
+fractional `--default-duration 0:24000/1001fps` comes out exactly. So `BuildDirectCommand` runs it on
+the raw stream into `pipe_video_timed.mkv` whatever the output container, the final mux copies from
+that, and `QuickConvert.Run` refuses up front, naming MKVToolNix, when a raw-Annex-B codec is picked
+with no mkvmerge to call - the same invisible-failure argument as a missing encoder, and it is real
+off Windows, where MKVToolNix is not bundled. `Containers.StampsUntimedPackets` is deleted with its
+one caller; a comment where it sat says why. x264 *can* mux Matroska itself where its build has the
+muxer (also measured clean), but that is a build option rather than a promise, x265 has no muxer at
+all, and both encoders taking the same route is worth more than saving x264 the step.
 
-**The MP4 containerise step is Matroska's alone, because it is only the muxer that refuses that decides
-it.** The MP4-family muxers stamp an unstamped packet themselves, so into MP4, MOV or M4A the raw stream
-goes straight to the mux as its last `-i` and no intermediate MP4 is written - one whole extra write and
-read of the encoded video saved, which on a feature-length encode is the largest scratch file this tab
-produces. `Containers.StampsUntimedPackets` is the one statement of which containers those are.
-Measured against a current BtbN master build over H.264 and H.265 streams carrying B-frames and a
-b-pyramid, comparing the two routes: same packet count, same PTS and DTS in presentation order, and
-bit-identical decoded frames, differing only in a stream duration field by one unit of a 1/1200000
-timebase. Matroska refusing it also leaves a **796-byte stub** behind, which is the `File.Exists` trap
-this file already warns about twice - the run is judged by its stream count, not by a file existing.
-
-**The `-framerate` is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an fps resample or a
-bob changes what the frames leave the chain at, the raw stream knows nothing a demuxer could check
-against, and the y4m header's rate died with the pipe - so a resampled x264/x265 encode stated at the
-source's rate would play at the wrong speed with its audio drifting away from it. It rides in front of
-the encoded video's own `-i` now rather than on a containerise command, which is the same position and
-the same argument. Worth knowing before reading a mismatch into it: x264 and x265 write VUI timing from
-the y4m header, and **the bitstream's own timing wins over `-framerate`** where the two disagree - which
-the app cannot produce, both numbers coming from the same post-filter rate.
+**The rate on the mkvmerge command is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an
+fps resample or a bob changes what the frames leave the chain at, and the raw stream knows nothing a
+demuxer could check against. Left unreadable, the flag is omitted and the VUI timing x264/x265 wrote
+from the y4m header governs - the same number by construction, both coming from the post-filter rate.
 
 Two-pass runs the pipe twice against one stats stem - `--pass N --stats` on x264, x265 and SVT,
 `--passes=2 --pass=N --fpf=` on aomenc and vpxenc, which also want `--passes=1` stating for a

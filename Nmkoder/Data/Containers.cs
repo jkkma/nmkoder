@@ -164,28 +164,13 @@ namespace Nmkoder.Data
                      codec.StartsWith("wmv") || codec.StartsWith("msmpeg4")); // MP4 takes the rest
         }
 
-        /// <summary>
-        /// Whether this container's muxer accepts packets that arrive carrying no timestamps at all
-        /// and stamps them itself, rather than refusing them.
-        /// <para/>
-        /// **This is what decides whether a raw Annex B stream needs containerising before it can be
-        /// muxed.** x264 and x265 write one, and read back with <c>-framerate</c> its packets have no
-        /// timestamps: Matroska refuses them ("Can't write packet with unknown timestamp", then
-        /// "Error muxing a packet") and leaves a header-sized stub behind - the same "ffmpeg created
-        /// a file" trap <c>OcrUtils</c> fell into. The MP4-family muxers stamp them instead, so where
-        /// the output is one of those the raw stream can go straight into the mux as its last '-i'
-        /// and the intermediate MP4 is not written at all.
-        /// <para/>
-        /// All three MP4-family muxers take it - mp4, mov, and the ipod muxer .m4a goes to - measured
-        /// against a current BtbN master build over an H.264 and an H.265 stream carrying B-frames and
-        /// a b-pyramid, comparing the two routes: same packet count, same PTS and DTS in presentation
-        /// order, and bit-identical decoded frames, differing only in a stream duration field by one
-        /// unit of a 1/1200000 timebase. WebM holds neither codec at all, so it never asks.
-        /// </summary>
-        public static bool StampsUntimedPackets(Container c)
-        {
-            return c == Container.Mp4 || c == Container.Mov || c == Container.M4a;
-        }
+        // StampsUntimedPackets sat here and is gone with its one caller: it decided whether a raw
+        // Annex B stream could go straight to the mux (MP4/MOV/M4A stamp unstamped packets where
+        // Matroska refuses them), and both of those stampings turned out to write pts in *decode*
+        // order - frames right, timestamps wrong, a dup-and-drop judder at every mini-GOP on any
+        // B-frame stream. The route-vs-route measurement its doc recorded was internally consistent
+        // and never compared against the source's timing, which is how it shipped. mkvmerge
+        // containerises every raw stream now - see QuickConvert.BuildDirectCommand.
 
         /// <summary>
         /// Whether a data stream can be copied into <paramref name="c"/>. Only QuickTime takes one -
