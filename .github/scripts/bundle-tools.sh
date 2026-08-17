@@ -1434,18 +1434,41 @@ grav1synth_ffmpeg_dev() {
       brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg >/dev/null 2>&1 || return 1
       ;;
     win-x64)
-      # **Pinned to 7.1 rather than master, and that is the whole reason this ever worked.** BtbN's
-      # master-latest is FFmpeg 8, and ffmpeg-the-third - the crate grav1synth binds through - does not
-      # compile against it: eleven errors, of which the first is `no associated item named V410 found
-      # for AVCodecID`. Reproduced locally against both of BtbN's Linux shared builds, which carry the
-      # same headers: master (avutil 61) fails identically, n7.1 (avutil 59) builds clean.
+      # **Pinned to a major rather than to master, and that is the whole reason this ever worked.**
+      # ffmpeg-the-third - the crate grav1synth binds through - does not compile against FFmpeg
+      # master: eleven errors, of which the first is `no associated item named V410 found for
+      # AVCodecID`. Reproduced against both of BtbN's Linux shared builds, which carry the same
+      # headers: master (avutil 61) fails identically, n7.1 (avutil 59) builds clean.
       #
       # The other two platforms only worked by accident of their package managers - Ubuntu's dev
-      # packages are 6.1 and Homebrew's are 7.x - so Windows was the one platform aimed at a rolling
-      # upstream, and it broke on the version of it that happened to be current. A pinned major is the
-      # fix; within it BtbN's own -latest is fine, ABI being what a major number promises.
-      local url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip"
-      fetch "$url" "$WORK/ffdev.zip" || return 1
+      # packages are 6.1 and Homebrew's are 7.x - so Windows is the one platform aimed at a rolling
+      # upstream.
+      #
+      # **A single hardcoded asset URL was the fragility, not the pin.** BtbN ages a major off their
+      # rolling `latest` release once it is old enough, and when n7.1 went - between 2026-08-16 and
+      # 2026-08-17, which is 2.8.67 to 2.8.68 - that URL began 404ing and every Windows release
+      # silently shipped without grav1synth, the bundler being best-effort. So the version is resolved
+      # rather than spelled: each candidate is tried on `latest` first and then across the dated
+      # autobuilds, which keep a major for a while after `latest` drops it.
+      #
+      # 8.1 leads because the locked crate is `ffmpeg-the-third 5.0.0+ffmpeg-8.1` and its build script
+      # detects those headers and turns its own `ffmpeg_8_1` feature on - measured, against BtbN's
+      # n8.1 (avutil 60). 7.1 stays behind it as the version this shipped against for months. Do not
+      # add master or an n9.x here: that is the avutil 61 the crate cannot build against.
+      local ver url found=""
+
+      for ver in 8.1 7.1; do
+        url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n${ver}-latest-win64-gpl-shared-${ver}.zip"
+        fetch "$url" "$WORK/ffdev.zip" && { found="$ver"; break; }
+
+        # -F, not -E: the version is full of dots that would otherwise match anything.
+        url="$(gh_api_asset_urls BtbN/FFmpeg-Builds "releases?per_page=${GH_RELEASE_SCAN:-8}" \
+               | grep -F "ffmpeg-n${ver}-latest-win64-gpl-shared" | head -1)"
+        [ -n "$url" ] && fetch "$url" "$WORK/ffdev.zip" && { found="$ver"; break; }
+      done
+
+      [ -n "$found" ] || return 1
+      echo "  grav1synth: building against FFmpeg $found development headers"
       extract "$WORK/ffdev.zip" "$WORK/ffdev" || return 1
       local root
       root="$(find "$WORK/ffdev" -type d -name include -print -quit)" || return 1
@@ -1528,9 +1551,11 @@ bundle_grav1synth() {
   # brought them: it copies DLLs sitting next to the binary it found, and a cargo build's target
   # directory has none.
   #
-  # They are 7.1's - avutil-59, avcodec-61, avformat-61 - and the ones already in av1an/enc/ are
-  # FFmpeg 8's, from MSYS2. That is not a collision: Windows resolves an import by file name, the two
-  # sets are named apart by their soname, and grav1synth is launched with bin/ as its own directory.
+  # They are whichever major grav1synth_ffmpeg_dev settled on - avutil-59/avcodec-61/avformat-61 for
+  # 7.1, avutil-60 for 8.1 - and the ones already in av1an/enc/ come from MSYS2. That is not a
+  # collision whichever way it lands: Windows resolves an import by file name, the sets are named
+  # apart by their soname, and grav1synth is launched with bin/ as its own directory. Nothing here
+  # names a soname, so the copy does not care which major won.
   #
   # It costs about 168 MB uncompressed on a Windows download that is already large, and that is the
   # deliberate trade: the alternative is --features ffmpeg_static, which builds ffmpeg from source on
