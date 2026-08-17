@@ -340,7 +340,7 @@ namespace Nmkoder.Media
                     // package, and worth saying the setting can be changed instead. Not for H.265,
                     // where av1an has no other way to join its chunks.
                     string advice = missing == "mkvmerge"
-                        ? "Install MKVToolNix - 'apt install mkvtoolnix' on Linux, 'brew install mkvtoolnix' on macOS - or pick a different Concat Method on the Av1an Options tab. H.265 can only be concatenated by mkvmerge, so for that one the install is the only way."
+                        ? $"{MkvToolNixInstallAdvice()} Or pick a different Concat Method on the Av1an Options tab. H.265 can only be concatenated by mkvmerge, so for that one the install is the only way."
                         : $"Put it in '{encPath}' or install it, then try again.";
 
                     RunTask.Cancel($"{missing} was not found.\n\nIt is neither bundled with this build nor on your PATH. {advice}");
@@ -617,6 +617,20 @@ namespace Nmkoder.Media
             string[] roots = new[] { Paths.GetBinPath() }.Concat(extraDirs ?? new string[0]).ToArray();
             IEnumerable<string> dirs = OsUtils.GetPathVar(roots).Split(Shell.PathSeparator).Where(d => d.IsNotEmpty());
             return File.Exists(Shell.ResolveExecutable(name, dirs));
+        }
+
+        /// <summary>
+        /// How to get MKVToolNix, worded once for every caller that finds it missing.
+        /// <para/>
+        /// Four messages said this in three different phrasings, so the day a package is renamed - or
+        /// the day <c>bundle-tools.sh</c> stops shipping it for win-x64 alone - four strings in four
+        /// files would have had to be found. Each caller appends its own "or do X instead" clause,
+        /// which is the only part that differs between them.
+        /// </summary>
+        public static string MkvToolNixInstallAdvice()
+        {
+            return "Install MKVToolNix - 'apt install mkvtoolnix' on Linux, 'brew install mkvtoolnix' on macOS. " +
+                "It ships with the Windows build.";
         }
 
         /// <summary>

@@ -33,7 +33,7 @@ namespace Nmkoder.UI.Tasks
                     // "command not found" to a stream nothing here reads, and the first thing that
                     // notices is a File.Move onto a chunk that was never written - which surfaces as
                     // "Could not find file", naming a temp path the user has never heard of.
-                    RunTask.Fail("Concatenation is done with mkvmerge, which is not installed. It ships with the Windows build; on Linux and macOS install MKVToolNix from your package manager (e.g. 'apt install mkvtoolnix' or 'brew install mkvtoolnix').");
+                    RunTask.Fail($"Concatenation is done with mkvmerge, which is not installed.\n\n{AvProcess.MkvToolNixInstallAdvice()}");
                     return;
                 }
 

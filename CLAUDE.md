@@ -1874,6 +1874,33 @@ one caller; a comment where it sat says why. x264 *can* mux Matroska itself wher
 muxer (also measured clean), but that is a build option rather than a promise, x265 has no muxer at
 all, and both encoders taking the same route is worth more than saving x264 the step.
 
+**"Comes out exactly" is the stream's rate and not the frames', and the difference is Matroska's 1 ms
+timestamp scale.** Measured on 24000/1001 through to MP4: packet durations come back as 84x672 and
+36x656 ticks of a 1/16000 timebase - 42 ms and 41 ms alternating - where an exactly-spaced track is
+uniform, so anything that reads durations calls the output variable frame rate. `r_frame_rate` and the
+total are exact (24000/1001, 5.005000 over 120 frames), so nothing drifts and no frame sits more than
+half a millisecond off its true tick, which is three orders under the dup-and-drop it replaces.
+`--timestamp-scale -1` does **not** fix it - measured, the same 656/672 split - so this is the price of
+routing through Matroska rather than a flag anyone forgot. Expect it before re-measuring it as a bug.
+
+**mkvmerge exits 1 for warnings and its output is usable at that status**, so the chain swallows its
+exit code (`|| ver > nul` on Windows, `|| true` elsewhere, **parenthesised** - written bare, `A && B ||
+ok` runs `ok` when *A* fails and hands the mux a chain that died upstream) and
+`GetDirectRunProblemAsync` judges the artifact instead, which is what every other mkvmerge caller here
+already does. Measured against the bundled v93: a warning run exits 1 having written a complete file, a
+clean one 0, a real failure 2. Left on `&&`, one line of advice about a perfectly good file threw away
+the whole encode with the mux never run. That check is asked *before* the exit code, and only where the
+intermediate is non-empty - without it the encoder or the pipe above it is what died, and blaming the
+containerise step for that is the misattribution this file already warns about in the other direction.
+
+**`--disable-track-statistics-tags` goes out with it**, because mkvmerge writes those tags by default
+and the mux copies them straight through: measured, an MKV output carried `BPS`, `DURATION`,
+`NUMBER_OF_FRAMES`, `NUMBER_OF_BYTES`, `_STATISTICS_WRITING_APP=mkvmerge v93.0` and a
+`_STATISTICS_WRITING_DATE_UTC` of the moment it ran. The date is the WebM SegmentUID trap under another
+name - two otherwise identical encodes differ - and the rest describe the intermediate rather than the
+file, on the video track alone, and only for a Matroska output, MP4 keeping just `language` and
+`handler_name`. Nobody asked for any of it.
+
 **The rate on the mkvmerge command is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an
 fps resample or a bob changes what the frames leave the chain at, and the raw stream knows nothing a
 demuxer could check against. Left unreadable, the flag is omitted and the VUI timing x264/x265 wrote

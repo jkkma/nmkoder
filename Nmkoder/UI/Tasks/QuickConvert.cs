@@ -94,8 +94,8 @@ namespace Nmkoder.UI.Tasks
                 {
                     RunTask.Cancel($"{directEnc.FriendlyName} writes a raw bitstream, and mkvmerge is what puts " +
                         $"correct timestamps on it - without that, every B-frame lands at the wrong time and the " +
-                        $"output judders.\n\nInstall MKVToolNix - 'apt install mkvtoolnix' on Linux, 'brew install " +
-                        $"mkvtoolnix' on macOS - or pick an encoder that writes its own container (SVT-AV1, AV1/VP9).");
+                        $"output judders.\n\n{AvProcess.MkvToolNixInstallAdvice()} Or pick an encoder that writes " +
+                        $"its own container (SVT-AV1, AV1/VP9).");
                     return;
                 }
 
@@ -463,6 +463,10 @@ namespace Nmkoder.UI.Tasks
 
                 if (directProblem.IsNotEmpty())
                 {
+                    // The intermediate and the logs stay as the failure's evidence, but not two copies
+                    // of the same video: where mkvmerge already superseded the raw stream, the raw one
+                    // goes. The session folder is not emptied until the next launch.
+                    directFiles.DropSupersededIntermediate();
                     RunTask.Fail(directProblem);
                     return;
                 }
@@ -535,8 +539,10 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// The whole command chain for an encoder binary: one decode-and-filter ffmpeg per pass piping
-        /// y4m into the encoder, an MP4 containerise step where the encoder writes raw Annex B *and*
-        /// the output container will not stamp it, and a final ffmpeg muxing the encoded video with
+        /// y4m into the encoder, an mkvmerge containerise step wherever the encoder writes raw Annex B
+        /// - for every output container, since no ffmpeg route can stamp such a stream correctly and
+        /// the old "only where the container refuses it" condition is exactly the belief that shipped
+        /// wrong timestamps from 2.8.44 to 2.8.67 - and a final ffmpeg muxing the encoded video with
         /// everything that never went down the pipe.
         /// <para/>
         /// The mux reads the original inputs exactly as the single command did - same files, same
@@ -624,7 +630,18 @@ namespace Nmkoder.UI.Tasks
             // The rate is the post-filter one - an fps resample or a bob changes what the frames leave
             // the chain at - spelled as a fraction, which mkvmerge takes exactly (24000/1001 measured).
             // Without a readable rate the flag is left off and the VUI timing x264/x265 wrote from the
-            // y4m header governs, which is the same number by construction.
+            // y4m header governs, which is the same number by construction - said in the log all the
+            // same, since an inferred rate and a stated one are otherwise indistinguishable afterwards.
+            //
+            // What the route costs is *precision*, and "the rate comes out exactly" is true of the
+            // stream and not of the frames: Matroska's default timestamp scale is 1 ms, so each frame
+            // is quantised to it. Measured on 24000/1001 through to MP4, packet durations come back as
+            // 84x672 and 36x656 ticks of a 1/16000 timebase - 42 ms and 41 ms alternating - where an
+            // exactly-spaced track would be uniform, so anything reading durations calls the result
+            // variable frame rate. r_frame_rate and the total duration stay exact (24000/1001,
+            // 5.005000 over 120 frames), so there is no drift and no frame is more than half a
+            // millisecond from its true tick - three orders under the dup-and-drop this replaces.
+            // --timestamp-scale -1 does not help: measured, the same 656/672 split comes out of it.
             if (!enc.StreamCarriesTiming)
             {
                 Fraction rate = QuickConvertUi.GetPostFilterRate();
@@ -634,8 +651,32 @@ namespace Nmkoder.UI.Tasks
                 // PATH a bare name would need.
                 string mkvmerge = Shell.WrapArg(AvProcess.ResolveToolPath("mkvmerge"));
 
-                cmd += $" && {mkvmerge} -o {Shell.WrapArg(files.Timed)} {rateArg}{Shell.WrapArg(files.Intermediate)}";
+                if (rateArg.IsEmpty())
+                    Logger.Log($"The frame rate the chain outputs could not be read, so the raw {enc.StreamExt} stream " +
+                        $"is containerised at whatever rate the encoder wrote into the bitstream.", true);
+
+                // mkvmerge writes track statistics tags unless told not to, and the mux copies them
+                // straight through: measured, an MKV output carried BPS, DURATION, NUMBER_OF_FRAMES,
+                // NUMBER_OF_BYTES, _STATISTICS_WRITING_APP=mkvmerge and a _STATISTICS_WRITING_DATE_UTC
+                // of the moment it ran. That last one makes two otherwise identical encodes differ -
+                // the WebM SegmentUID trap under another name - and the rest describe the intermediate
+                // rather than the file, on the video track alone, and only for a Matroska output.
+                // Nobody asked for any of it, so it is switched off rather than filtered out later.
+                string mkvArgs = $"--disable-track-statistics-tags {rateArg}";
+
+                // mkvmerge exits 1 for warnings over a file it has written perfectly well - its own
+                // contract calls that output usable - so its status is swallowed rather than allowed
+                // to stop the chain, which would throw away hours of encoding over a line of advice.
+                // Measured: a warning run exits 1 having written a complete file, a clean one 0 and a
+                // real failure 2. What judges the step instead is its artifact, the way every other
+                // mkvmerge caller here already does - see GetDirectRunProblemAsync. The parentheses
+                // are load-bearing on both shells: written bare, "A && B || ok" runs ok when *A*
+                // fails, which would hand the mux a chain that had already died upstream of it.
+                string ignoreStatus = Shell.IsWindows ? "|| ver > nul" : "|| true";
+
+                cmd += $" && ({mkvmerge} -o {Shell.WrapArg(files.Timed)} {mkvArgs}{Shell.WrapArg(files.Intermediate)} {ignoreStatus})";
                 encodedVideo = files.Timed;
+                files.AddTimedStep();
             }
 
             // The same input index convention as DeinterlacePipeInput: batch mode passes one original
@@ -658,6 +699,19 @@ namespace Nmkoder.UI.Tasks
         /// </summary>
         private static async Task<string> GetDirectRunProblemAsync(AvProcess.FfmpegSettings settings, DirectRunFiles files, string outPath)
         {
+            // The containerise step is judged by its artifact and nothing else, because its status is
+            // deliberately swallowed in the chain - mkvmerge exits 1 over warnings about a file that
+            // is perfectly good, so BuildDirectCommand cannot let it stop the mux. Asked before the
+            // exit code because the mux then fails over an input that is not there, and "no such file"
+            // naming a scratch path is not what happened. The intermediate has to be there for this to
+            // be mkvmerge's fault at all: without it the encoder or the pipe above it is what died,
+            // and that is what the checks below are for - which is also why the encoder's log is not
+            // quoted here, the encoder having finished its work.
+            if (files.UsesTimedStep && IoUtils.GetFilesize(files.Intermediate) > 0 && IoUtils.GetFilesize(files.Timed) < 1)
+                return $"The encoded video could not be containerised: mkvmerge did not write " +
+                    $"'{Path.GetFileName(files.Timed)}'. The encoder's own output is intact, so this is the step " +
+                    $"between it and the mux; mkvmerge's complaint is in the log above.";
+
             // The exit code and the evidence lines first - RunFfmpeg has already worded these, and the
             // encoder's own last words are appended where it wrote any, since a nonzero status from
             // the chain is very often the encoder's and its complaint went to its log, not the stream.
@@ -732,8 +786,20 @@ namespace Nmkoder.UI.Tasks
             /// <summary> The mkvmerge-containerised Annex B stream, written for x264 and x265 whatever
             /// the output container - mkvmerge is the one tool here that writes real presentation
             /// timestamps onto a raw stream, see BuildDirectCommand. Named unconditionally all the
-            /// same, since the cleanup has to sweep it after a run that changed codec mid-session. </summary>
+            /// same, since the cleanup has to sweep it after a run that changed codec mid-session.
+            /// <para/>
+            /// It is a second whole copy of the encoded video, and for an MP4-family output that is a
+            /// cost the old route did not pay - it handed the raw stream straight to the mux, which is
+            /// where the wrong timestamps came from, so the copy is what correctness costs rather than
+            /// something to optimise away. For a feature-length encode it is the largest scratch file
+            /// this tab produces, twice over: <see cref="DropSupersededIntermediate"/> is why a failed
+            /// run does not leave both of them sitting there until the next launch. </summary>
             public readonly string Timed;
+
+            /// <summary> Whether this run's chain contains the mkvmerge step, which only the raw Annex
+            /// B encoders need. The judgment asks, because the step's artifact is the only thing that
+            /// can speak for it - its exit status is swallowed in the chain. </summary>
+            public bool UsesTimedStep { get; private set; }
 
             /// <summary> The two-pass statistics stem. x265 writes a second file beside it
             /// (.cutree), x264 a third (.mbtree), so it is a stem to clean up rather than one file. </summary>
@@ -764,6 +830,28 @@ namespace Nmkoder.UI.Tasks
             /// too. Called by the command builder, which is where the pass count is known. </summary>
             public void AddPass1() { ProgressFiles.Add(Progress1); }
             public void AddPass2() { ProgressFiles.Add(Progress2); }
+
+            /// <summary> Marks the mkvmerge containerise step as part of this run, so the judgment
+            /// knows to hold its artifact to account. Called by the command builder, for the same
+            /// reason the pass markers are: that is where the shape of the chain is decided. </summary>
+            public void AddTimedStep() { UsesTimedStep = true; }
+
+            /// <summary>
+            /// Drops the raw stream once the containerised copy has superseded it, which is what keeps
+            /// a *failed* run from leaving two whole copies of the video behind - the session folder is
+            /// only emptied at the next launch, and on a feature that is tens of gigabytes twice over.
+            /// <para/>
+            /// The timed file is kept rather than the raw one because it is the better evidence: same
+            /// frames, plus the timestamps, and playable by anything. Neither is touched unless both
+            /// are there, so a run that died before or during mkvmerge keeps whatever it did produce.
+            /// </summary>
+            public void DropSupersededIntermediate()
+            {
+                if (!UsesTimedStep || IoUtils.GetFilesize(Timed) < 1 || IoUtils.GetFilesize(Intermediate) < 1)
+                    return;
+
+                IoUtils.TryDeleteIfExists(Intermediate);
+            }
 
             public void CleanUp()
             {

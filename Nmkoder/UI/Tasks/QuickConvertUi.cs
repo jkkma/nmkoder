@@ -1988,12 +1988,19 @@ namespace Nmkoder.UI.Tasks
 
         /// <summary>
         /// The rate the frames leave the filter chain at, which is what a raw Annex B stream has to be
-        /// containerised as - x264 and x265 write no timestamps, so the MP4 step is told the rate and
-        /// the rate has to be the *encoded* one. Three things can move it off the file's own: a bob
-        /// deinterlacer doubles it before any other filter sees a frame, the Frame Rate box resamples
-        /// it, and the box only counts when it actually builds a filter - the same tolerance
-        /// <see cref="GetVideoFilterArgs"/> decides that with, read from the same two sources, so the
-        /// two cannot disagree about whether a resample ran.
+        /// containerised as - x264 and x265 write no timestamps, so mkvmerge's <c>--default-duration</c>
+        /// is told the rate and the rate has to be the *encoded* one. Three things can move it off the
+        /// file's own: a bob deinterlacer doubles it before any other filter sees a frame, the Frame
+        /// Rate box resamples it, and the box only counts when it actually builds a filter - the same
+        /// tolerance <see cref="GetVideoFilterArgs"/> decides that with, read from the same two
+        /// sources, so the two cannot disagree about whether a resample ran.
+        /// <para/>
+        /// Returning nothing readable is not a failure: the flag is left off and the VUI timing
+        /// x264/x265 wrote out of the y4m header governs instead, which is the same number by
+        /// construction - measured, mkvmerge with no <c>--default-duration</c> reads 30/1 back off an
+        /// x264 stream and 24000/1001 off an x265 one, matching the flagged runs exactly. The encode
+        /// logs which of the two happened, an inferred rate and a stated one being indistinguishable
+        /// from the output.
         /// </summary>
         public static Fraction GetPostFilterRate()
         {

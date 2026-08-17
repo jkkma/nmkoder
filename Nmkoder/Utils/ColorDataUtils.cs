@@ -611,7 +611,7 @@ namespace Nmkoder.Utils
 
                 if (!AvProcess.IsToolAvailable("mkvmerge"))
                 {
-                    RunTask.Fail("Color data is written with mkvmerge, which is not installed. It ships with the Windows build; on Linux and macOS install MKVToolNix from your package manager (e.g. 'apt install mkvtoolnix' or 'brew install mkvtoolnix').");
+                    RunTask.Fail($"Color data is written with mkvmerge, which is not installed.\n\n{AvProcess.MkvToolNixInstallAdvice()}");
                     return;
                 }
 
