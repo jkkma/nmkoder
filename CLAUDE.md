@@ -3346,10 +3346,46 @@ with no change at all produced the tool: 484,073,901 bytes of win-x64 artifact a
 So it was transient, and **the useful diagnostic was the artifact size, not the reasoning** - roughly
 65 MB is what grav1synth plus its ffmpeg shared DLLs adds.
 
-Two things follow. Spot-check `Nmkoder/bin/grav1synth.exe` in the published zip on any release that
-matters to it, the way this section already says to. And note there is **no gate** for it the way
-there is for ffmpeg - deliberately, since the bundler is best-effort and a flaky upstream would
-otherwise block every release - so the check is the person cutting the release, not the workflow.
+**And a third time in 2.8.68, permanently, which is what finally moved the fix from the pin to the
+lookup.** BtbN ages a major off their rolling `latest` release once it is old enough, and n7.1 went
+between 2026-08-16 and 2026-08-17 - which is exactly 2.8.67 to 2.8.68. The hardcoded
+`ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip` began returning **404**, `grav1synth_ffmpeg_dev`
+returned 1, and the job logged `[skip] grav1synth - could not get ffmpeg development headers for
+win-x64` and went green. The 65 MB tell was there again: 420,408,591 bytes against 2.8.67's
+485,618,562. Their dated autobuilds date the cutover precisely - `autobuild-2026-08-11-13-11` still
+carries n7.1 assets, `autobuild-2026-08-17-13-05` carries only n8.1 and n9.0.
+
+**The pin was never the fragility; naming a single asset was.** `grav1synth_ffmpeg_dev` resolves the
+version now - each candidate major tried on `latest` first, then across the dated autobuilds, which
+keep a major for a while after `latest` drops it - which is the argument `gh_api_asset_urls`' own
+comment had already made about hardcoded version numbers going stale. **8.1 leads and master/n9.x are
+deliberately absent**: the locked crate is `ffmpeg-the-third 5.0.0+ffmpeg-8.1`, and against BtbN's n8.1
+(avutil 60) its build script probes those headers and turns its own `ffmpeg_8_1` feature on, where
+avutil 61 is the master the eleven V410 errors above belong to. 7.1 stays behind it and is already out
+of the scan window, so 8.1 is what builds today - measured on the runner rather than reasoned about:
+a `publish=false` dispatch logged `grav1synth: building against FFmpeg 8.1 development headers`, then
+`Compiling grav1synth v0.2.0`, then `[ok] grav1synth`, which is only printed once the DLLs are beside
+it and `grav1synth presets` has actually run. `Bundled: 28 | Skipped: 0`, against the broken run's
+`27 | 1`, and a 492 MB win-x64 zip against 420 MB.
+
+That measurement is also the correction to a claim two paragraphs up: **"does not compile against
+FFmpeg 8" belonged to an older crate**, and the 2.8.65 note's suspicion that "the crate is the
+`+ffmpeg-8.1` generation" was right about the crate and wrong to dismiss. What the crate cannot build
+against is avutil 61, whatever that is called this month - so read the *avutil soname*, not the ffmpeg
+version, when judging a candidate.
+
+Three things follow. Spot-check `Nmkoder/bin/grav1synth.exe` in the published zip on any release that
+matters to it, the way this section already says to. Note there is **no gate** for it the way there is
+for ffmpeg - deliberately, since the bundler is best-effort and a flaky upstream would otherwise block
+every release - so the check is the person cutting the release, not the workflow. And when it does go
+missing, **read the skip reason before theorising**: the three outages so far were three different
+causes - wrong ffmpeg major, a transient cargo failure that a bare re-run fixed, and an upstream asset
+that had been aged out - and only the log line tells them apart.
+
+A `publish=false` dispatch is the cheap way to test a bundler change before it reaches anyone: it
+builds every RID and attaches the archives to a **draft**, which creates no tag (GitHub only tags on
+publish) and stands the Scoop-manifest step down. Delete the draft afterwards and cut the real release
+normally.
 
 **The binary is copied by hand rather than through `install_binary`, and it is the only tool here that
 is.** That helper also takes every DLL sitting beside the binary it found, which is right for a
@@ -4330,8 +4366,8 @@ disagree.
 the packaging.** It would be the easiest tool in `bundle-tools.sh` and the opposite of grav1synth in
 every respect that made grav1synth painful: MIT, prebuilt release assets for all four RIDs (win-x64
 3.3 MB exe, linux-x64 4.1 MB `static-pie` musl with no glibc floor, one `lipo` universal macOS binary
-covering osx-x64 *and* osx-arm64 - where grav1synth must be compiled, needs ffmpeg dev headers pinned
-to n7.1 on Windows, and is skipped outright on osx-x64), a single self-contained binary with no runtime
+covering osx-x64 *and* osx-arm64 - where grav1synth must be compiled, needs ffmpeg dev headers whose
+avutil soname the crate accepts on Windows, and is skipped outright on osx-x64), a single self-contained binary with no runtime
 libraries, ~3-6 MB per archive. It simply has nothing to do here. Profile 7 FEL/MEL to 8.1 buys nothing
 - `HasUnusableBaseLayer` is already false for profile 7, so the tone map already runs correctly, and
 the chain deletes all seven HDR side-data kinds anyway. RPU **stripping** is already in-house:
