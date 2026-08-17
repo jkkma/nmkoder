@@ -442,7 +442,7 @@ jobs:
             a bucket, and updates in place from then on:
 
             ```
-            scoop bucket add nmkoder-avalonia https://github.com/jkkma/nmkoder
+            scoop bucket add ayylmao https://github.com/jkkma/nmkoder
             scoop install nmkoder-avalonia
             ```
 

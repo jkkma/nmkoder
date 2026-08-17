@@ -69,13 +69,15 @@ On Windows, [Scoop](https://scoop.sh) can install and update it for you. This re
 doubles as a bucket:
 
 ```
-scoop bucket add nmkoder-avalonia https://github.com/jkkma/nmkoder
+scoop bucket add ayylmao https://github.com/jkkma/nmkoder
 scoop install nmkoder-avalonia
 ```
 
-The app is `nmkoder-avalonia` rather than `nmkoder` because Scoop's community `extras` bucket
-carries the pre-fork WinForms Nmkoder (1.10.0) under that name, and a bare `scoop install nmkoder`
-resolves to it. The longer name is unambiguous, and the two can be installed side by side.
+`ayylmao` is only what the bucket is called on your machine — Scoop takes whatever name you type
+there, and the bucket may carry other apps besides this one. The app is `nmkoder-avalonia` rather
+than `nmkoder` because Scoop's community `extras` bucket carries the pre-fork WinForms Nmkoder
+(1.10.0) under that name, and a bare `scoop install nmkoder` resolves to it. The longer name is
+unambiguous, and the two can be installed side by side.
 
 `scoop update nmkoder-avalonia` moves to the newest release from then on, and the manifest is
 pointed at each one as it is published, so there is no lag. Settings and logs (`data` and `logs`)

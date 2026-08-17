@@ -376,19 +376,28 @@ that is the one upgrade worth unpacking fresh.
 ## The Scoop bucket
 
 `bucket/nmkoder-avalonia.json` makes this repository its own Scoop bucket, so
-`scoop bucket add nmkoder-avalonia https://github.com/jkkma/nmkoder` and then
+`scoop bucket add ayylmao https://github.com/jkkma/nmkoder` and then
 `scoop install nmkoder-avalonia` is all a Windows user needs. Scoop finds a bucket
-by its `bucket/` directory, and one manifest per app is the whole of it.
+by its `bucket/` directory, and one manifest per app is the whole of it - so the bucket
+carries whatever else is filed in there later, one manifest each.
 
 **The bucket's name is not a property of this repository** - `scoop bucket add <name> <url>`
 takes whatever the user types, and nothing here declares one - so the three places that name it
 (this file, the README, and the release notes template in `release.yml`) are documentation and
-have to be changed together or not at all. It is spelled `nmkoder-avalonia` to match the app
-rather than the repo, which is only consistency: the collision that mattered was the *app* name,
-and that is what the manifest's own name settles. Anyone who added it as `nmkoder` before is
-unaffected; re-adding under the new name without `scoop bucket rm nmkoder` first is the one way
-to get the same repo attached twice, and Scoop then prints the familiar
-`WARN Multiple buckets contain manifest 'nmkoder-avalonia'`.
+have to be changed together or not at all. It is spelled `ayylmao` because the bucket is the
+user's own and is meant to carry their other apps beside this one; it was `nmkoder-avalonia`
+before that, matching the app, which is exactly the assumption a bucket holding more than one
+app cannot keep.
+
+**The bucket's name and the app's are different things, and renaming one must not rename the
+other.** The collision that mattered was the *app* name and the manifest's own name is what
+settles it, so `bucket/nmkoder-avalonia.json`, the `scoop install`/`scoop update` lines, the
+persist directory and the `WARN Multiple buckets contain manifest 'nmkoder-avalonia'` warning
+all keep that name whatever the bucket is called. The bucket name reaches nothing but the three
+sentences above. Anyone who added the bucket under an earlier name - `nmkoder`, then
+`nmkoder-avalonia` - is unaffected; re-adding under the new name without `scoop bucket rm <old>`
+first is the one way to get the same repo attached twice, and Scoop then prints that same
+familiar warning.
 
 **The app is not called `nmkoder`, and must not be renamed to it.** Scoop's community
 `extras` bucket already carries a `nmkoder` - n00mkrad's pre-fork WinForms 1.10.0, still
