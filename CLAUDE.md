@@ -3374,6 +3374,20 @@ FFmpeg 8" belonged to an older crate**, and the 2.8.65 note's suspicion that "th
 against is avutil 61, whatever that is called this month - so read the *avutil soname*, not the ffmpeg
 version, when judging a candidate.
 
+**The encoders come from MSYS2 and that is the flakiest step in the script**, which is worth knowing
+because it is no longer only the AV1AN tab's problem: since 2.8.44 Quick Convert launches `x264` and
+`x265` itself, and since 2.8.68 an x264/x265 encode *refuses* without them. A win-x64 zip missing
+`bin/av1an/enc/` is a build with no H.264 or H.265 encoding at all. 2.8.69's first attempt logged
+`[skip] aomenc + x265 + x264 - pacman could not install: …` where the run twenty minutes before it had
+installed all three, and the live mingw64 database carried every one throughout (aom 3.14.1-2, x264
+0.165.r3222, x265 4.3-1) - so the runner image's MSYS2 goes stale between image releases and a rotated
+keyring, an out-of-sync mirror or a half-refreshed database all land here. `bundle_msys2_encoders`
+retries once with `-Syy`, which forces the refresh that `-Sy` will skip when it thinks the database is
+current, and keeps the tail of pacman's own complaint in the skip line - it used to go to `/dev/null`,
+which is how a skip reason ends up naming the packages and not one word of why. **Cancel the run rather
+than let it publish**: nothing is released until the Publish job finishes, so `gh run cancel` on a bad
+build leaves the version number free to use again.
+
 Three things follow. Spot-check `Nmkoder/bin/grav1synth.exe` in the published zip on any release that
 matters to it, the way this section already says to. Note there is **no gate** for it the way there is
 for ffmpeg - deliberately, since the bundler is best-effort and a flaky upstream would otherwise block

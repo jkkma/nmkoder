@@ -1177,9 +1177,29 @@ bundle_msys2_encoders() {
   for entry in $MSYS2_ENCODERS; do packages+=("${entry#*:}"); done
 
   # -Sy refreshes the image's package database, which is usually months stale.
-  if ! "$pacman" -Sy --noconfirm --needed "${packages[@]}" >/dev/null 2>&1; then
-    note_skip "$names" "pacman could not install: ${packages[*]}"
-    return
+  #
+  # **Retried once, and its own words are kept.** This is the flakiest step in the script: the
+  # runner image's MSYS2 goes stale between image releases, so a keyring that has rotated, a mirror
+  # that is briefly out of sync, or a half-refreshed database all land here - and the packages
+  # themselves are fine, which is the confusing part. 2.8.69's first attempt skipped all three where
+  # the run 20 minutes before it had installed them, and the live mingw64 database had every one
+  # (aom 3.14.1-2, x264 0.165.r3222, x265 4.3-1) the whole time.
+  #
+  # The output used to go to /dev/null, so the skip line named the packages and not one word of why
+  # - which is the opposite of what this file's own advice about reading a skip reason needs. Now
+  # the tail of pacman's own complaint rides along, and a second attempt gets a fresh database
+  # first: -Syy forces a refresh where -Sy will trust a database it thinks is current, which is
+  # exactly the state a half-finished first attempt leaves behind.
+  local pac_log="$WORK/pacman.log" pac_why=""
+
+  if ! "$pacman" -Sy --noconfirm --needed "${packages[@]}" >"$pac_log" 2>&1; then
+    echo "  pacman failed, refreshing the database and retrying once"
+
+    if ! "$pacman" -Syy --noconfirm --needed "${packages[@]}" >>"$pac_log" 2>&1; then
+      pac_why="$(grep -iE "^(error|warning)" "$pac_log" | tail -3 | tr '\n' ' ')"
+      note_skip "$names" "pacman could not install: ${packages[*]}${pac_why:+ - $pac_why}"
+      return
+    fi
   fi
 
   mkdir -p "$ENC_DIR"
