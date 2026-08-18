@@ -10,6 +10,7 @@ Portable and self-contained on Windows, Linux and macOS. Nothing to install.
 
 [![Latest release](https://img.shields.io/github/v/release/jkkma/nmkoder?style=flat-square&label=release&color=79D1C6&labelColor=2B2D31)](https://github.com/jkkma/nmkoder/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/jkkma/nmkoder/total?style=flat-square&label=downloads&color=79D1C6&labelColor=2B2D31)](https://github.com/jkkma/nmkoder/releases)
+[![Scoop](https://img.shields.io/scoop/v/nmkoder-avalonia?bucket=https%3A%2F%2Fgithub.com%2Fjkkma%2Fnmkoder&style=flat-square&label=scoop&color=79D1C6&labelColor=2B2D31)](#download)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-79D1C6?style=flat-square&labelColor=2B2D31)](#download)
 [![.NET 10](https://img.shields.io/badge/.NET-10-79D1C6?style=flat-square&labelColor=2B2D31)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Avalonia](https://img.shields.io/badge/UI-Avalonia-79D1C6?style=flat-square&labelColor=2B2D31)](https://avaloniaui.net/)
