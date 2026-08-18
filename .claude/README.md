@@ -146,12 +146,14 @@ prose, distilled to executable form with templates, each validated by running it
   is not effect, presence is not loadability, read the avutil soname not the ffmpeg version.
   Worth a run before a release or after a bundler change. It reports; it does not edit CLAUDE.md.
 
-**Evals** (`evals/`) - the benchmark suite, and how to run a pass. It covers `cut-release` and
-`headless-ui`, two tasks each. **`record-finding` has none yet**, said here rather than left to
-be assumed from the directory: its output is prose whose quality is a judgement call, so the
-assertions want writing carefully - a with/without pair on "record this measurement in
-CLAUDE.md", graded on provenance, the why-it-looked-right clause, and correcting in place
-rather than appending, is the shape.
+**Evals** (`evals/`) - the benchmark suite, and how to run a pass. Six tasks, two each for
+`cut-release`, `headless-ui` and `record-finding`. The last pair took the shape this file
+predicted for it and one correction it did not: because the prose is graded on its *properties*
+rather than on whether the finding is true, the prompts **supply** the measurement - a named
+binary, a belief that looked right, a control never run - and ask only for a draft, so a pass
+leaves the repo tree untouched and "edited no tracked file" is an assertion rather than an
+assumption. Writing them is also what caught `record-finding` still routing findings the
+pre-split way; see below.
 
 ## Considered and not adopted
 
@@ -218,6 +220,17 @@ it. Check for that before splitting anything else out.
 One accepted cost, recorded rather than fixed: 23 passages inside the moved bodies say "this
 file" meaning CLAUDE.md. Each skill's preamble says so. Rewriting them would have broken the
 byte-identity that makes the move checkable.
+
+**The split left `record-finding` stale, and writing its evals is what caught it.** That skill
+was authored the day before, so its "Where it goes" listed all eighteen `##` sections flat and
+told a session to file a finding "in the section whose subject it is" - which for the four moved
+ones is now a digest, the one place a measurement must not go. Its description said findings go
+"into CLAUDE.md" full stop. Both are fixed: it carries the routing table (measurement to the
+skill, cross-area rule to both, everything else to CLAUDE.md), the rule that a digest is not a
+summary to be kept in sync, and the warning that `Deinterlacing` owns the trim material and
+`The AV1AN tab` the geometry. **The shape to recognise: a skill that documents where things go is
+invalidated by moving things**, and nothing about the move itself would have flagged it - the
+checksums all passed. Check the meta-documentation after any future move.
 
 ## Maintenance
 

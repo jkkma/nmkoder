@@ -1,5 +1,5 @@
 {
-  "skill_name": "nmkoder-skills (cut-release, headless-ui)",
+  "skill_name": "nmkoder-skills (cut-release, headless-ui, record-finding)",
   "evals": [
     {
       "id": 0,
@@ -53,6 +53,37 @@
         "The PNG actually shows the CropWindow dialog (rendered UI, not a blank frame)",
         "Constructed the dialog directly via its parameterless constructor and rendered through Skia",
         "Left no harness project inside the repo tree (built in scratch)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "recordfinding-measured-correction",
+      "skill": "recordfinding",
+      "prompt": "A measurement came out of a session and needs recording. Draft the entry exactly as you would write it into the project's record, say which file it goes in, and give the commit subject. Draft only - do not edit CLAUDE.md or any other tracked file.\n\nWhat was measured: the grain-table path refusal was believed to fire for any path containing a space. Run against the shipped SvtAv1EncApp at ~/.nmkoder-dev/bin/av1an/enc, it fires on the AV1AN tab only - Quick Convert launches the encoder itself and quotes the path, and took a spaced path fine. The old belief looked right because every path tried had been generated under the install directory, which has no space in it. No control was run: a spaceless path on the AV1AN tab was never tested.",
+      "expected_output": "A prose entry in the house style routed to .claude/skills/grain-synthesis (a measurement in a moved area, NOT the CLAUDE.md digest), naming the binary, stating why the old belief looked right, flagging the missing control rather than presenting the finding as settled, correcting the existing claim in place; commit subject imperative and naming the finding. No tracked file edited.",
+      "assertions": [
+        "Routes the entry to the grain-synthesis skill (.claude/skills/grain-synthesis/SKILL.md), NOT to CLAUDE.md's digest, on the grounds that a measurement belongs in the skill",
+        "Names the binary the measurement was made against (the shipped SvtAv1EncApp under ~/.nmkoder-dev/bin/av1an/enc)",
+        "States why the old belief looked right - every path tried came from a spaceless install directory",
+        "Flags the missing control (a spaceless path on the AV1AN tab) rather than presenting the finding as settled, or runs/plans it",
+        "Corrects the existing claim in place, keeping the old belief visible as something that used to be believed, rather than appending a contradiction beside it",
+        "Commit subject is imperative and names the finding, not the file (not 'Update CLAUDE.md' / 'docs')",
+        "Edited no tracked file - the entry was drafted, and git status is unchanged"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "recordfinding-route-and-refuse",
+      "skill": "recordfinding",
+      "prompt": "Two things came out of a session. For each, decide whether it belongs in the project's record at all and exactly where, then draft what you would write. Draft only - do not edit CLAUDE.md or any other tracked file.\n\n(a) A new denoise pass writes its output beside the temp folder as `{tempDir}.dn2.mkv`. It is lossless FFV1. Anything that sweeps temp folders has to know that suffix or the file is orphaned on disk permanently.\n\n(b) `GrainSynthUi.RefreshInfo` writes both tabs' readouts and is called from three places.",
+      "expected_output": "(a) recorded in BOTH the grain-synthesis skill and CLAUDE.md's '## Grain synthesis' digest, because it is a rule breakable from outside its own area (a cleanup edit); it states the cost, not just the mechanism, and does not weaken the existing .deint./.denoised./.grainref./.grain. rule. (b) declined as recoverable from the code. No tracked file edited.",
+      "assertions": [
+        "Records (a) in the grain-synthesis skill AND in CLAUDE.md's '## Grain synthesis' digest, explicitly because it can be broken from outside its own area",
+        "Explicitly declines to record (b), on the grounds that it is readable from the code and would cost every future session context for nothing",
+        "States what (a) costs when it goes wrong - a lossless copy of a whole video orphaned on disk - rather than only the mechanism",
+        "Leaves the existing GetPreparedInputs rule (.deint., .denoised., .grainref., .grain.) intact and unweakened, extending rather than replacing it",
+        "Does not paraphrase or summarise surrounding skill prose while editing near it",
+        "Edited no tracked file - both were drafted, and git status is unchanged"
       ]
     }
   ]

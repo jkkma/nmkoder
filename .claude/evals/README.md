@@ -1,10 +1,21 @@
 # Skill evals
 
-`skills-evals.json` is the benchmark suite for the two project skills - two realistic tasks
-per skill, each with the assertions it is graded on. It exists so a future session can
-re-benchmark the skills after editing them, instead of reinventing test cases; the prompts
+`skills-evals.json` is the benchmark suite for the three project skills - two realistic tasks
+per skill, six in all, each with the assertions it is graded on. It exists so a future session
+can re-benchmark the skills after editing them, instead of reinventing test cases; the prompts
 are written to be safe to run (read-only against GitHub, repo tree untouched, release steps
-prepared-not-executed).
+prepared-not-executed, findings drafted rather than filed).
+
+**The `record-finding` pair is graded on the write-up, not on the finding.** Its two prompts
+*supply* the raw material - a measurement with a named binary, a belief that looked right, a
+control that was never run - so the grader is judging provenance, the why-it-looked-right
+clause, correcting in place, and routing, none of which need the finding to be true. That is
+also what keeps them safe: both say "draft only", so a pass leaves the repo tree untouched,
+and "edited no tracked file" is one of the assertions rather than an assumption. Eval 4 is a
+measurement, which belongs in the skill that owns the area; eval 5 pairs a rule that must go in
+**both** the skill and the CLAUDE.md digest with something that should not be recorded at all,
+which is the discriminator - the without-skill arm tends to record both and to file the
+measurement in CLAUDE.md.
 
 It used to cover four skills. `win-compile-check` and `real-binaries` were removed when
 development moved off the cloud environments and onto the user's two Windows machines
