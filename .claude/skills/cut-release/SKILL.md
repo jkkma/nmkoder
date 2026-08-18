@@ -80,18 +80,28 @@ After a green run:
   `git show origin/master:bucket/nmkoder-avalonia.json | jq -r .version` - and pull before
   doing anything else on master, or the next push rejects.
 - **Spot-check an asset when anything about bundling changed.** A green run is not evidence a
-  best-effort tool shipped, and grav1synth has gone missing from win-x64 three times for three
-  different reasons: 2.8.31/2.8.32 (aimed at the wrong ffmpeg major), 2.8.65 (a transient cargo
-  failure a bare re-run fixed) and 2.8.68 (upstream aged the pinned dev-headers asset out, so
+  best-effort tool shipped, and grav1synth has gone missing from win-x64 four times for three
+  different reasons: 2.8.31/2.8.32 (aimed at the wrong ffmpeg major), 2.8.65 and 2.8.72 (a transient
+  cargo failure a bare re-run fixed) and 2.8.68 (upstream aged the pinned dev-headers asset out, so
   the URL 404'd - permanent until the resolver replaced it). **Read the job's skip reason before
   theorising**; the three look identical from the outside.
+
+  **The transient one has a signature, and it is the only one of the three a bare re-run fixes, so
+  it is worth knowing on sight.** 2.8.72's win-x64 log reads `thread 'main' (6080) has overflowed
+  its stack`, then `warning: build failed`, then `[skip] grav1synth - cargo build failed` - a crash
+  inside the build script, saying nothing about a URL, a version or a header, which is what tells it
+  apart from the other two. Measured across three releases inside two hours on an unchanged bundler:
+  2.8.71 bundled 28 and skipped 0, 2.8.72 bundled 27 and skipped grav1synth, the 2.8.73 re-run was
+  back to 28/0. Re-dispatching is the whole fix - but 2.8.72 was already public by the time the
+  asset was checked, so it cost a version number rather than a re-run, which is the argument for
+  checking the size before moving on rather than after.
 
   The cheapest tell is the **asset size**, one API call and no download. grav1synth plus its
   ffmpeg shared DLLs is roughly 65 MB, so compare against the *previous* release rather than
   against a remembered absolute - the healthy size grows release on release (485.6 MB at 2.8.67,
   492.6 MB at 2.8.70), where the drop does not. Measured on the real assets: v2.8.67
   485,618,562 against the broken v2.8.68's 420,408,591, a **65.2 MB** gap, and v2.8.65's broken
-  zip landed at 420,398,797 - the same hole from a different cause.
+  zip landed at 420,398,797 - the same hole from a different cause; and v2.8.72's 420,412,014 against a healthy 492,554,796 at 2.8.71 and 492,558,069 at 2.8.73, a **72.1 MB** gap and its repair.
 
   ```bash
   gh release view vX.Y.Z --repo jkkma/nmkoder --json assets \
