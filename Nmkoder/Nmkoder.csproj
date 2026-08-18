@@ -23,7 +23,7 @@
     <Product>Nmkoder</Product>
     <Company>NMKD</Company>
     <Copyright>Copyright © NMKD</Copyright>
-    <Version>2.8.73</Version>
+    <Version>2.8.74</Version>
     <!-- The UI code deliberately fires async event handlers without awaiting them. -->
     <NoWarn>$(NoWarn);CS1998;CS4014</NoWarn>
   </PropertyGroup>
