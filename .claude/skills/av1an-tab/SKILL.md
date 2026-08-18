@@ -111,9 +111,13 @@ for one line does not describe the other.
 denoise flag only where they are synthesising grain at all - aomenc's `--enable-dnl-denoising`
 applies "when denoise-noise-level is enabled", and SVT-AV1 answers one set against `--film-grain 0`
 with "ignored when film grain is off" - so at a strength of 0 it was a tickable box that did
-nothing. `Av1anUi.ApplyGrainDenoiseEnabled` is the one statement of that, called from
-`VidEncoderSelected` and from the strength box's own handler. It does not *clear* the tick, only
-disable it: a strength dropped to 0 and put back should bring the choice back with it. The readout
+nothing. **`GrainSynthUi.Apply` is the one statement of that** - `encoderDenoise.IsEnabled =
+strength > 0`, reached from `ApplyControlVisibility` for both tabs' rows. (This paragraph said
+`Av1anUi.ApplyGrainDenoiseEnabled` until 2.8.70, which was right while the row was the AV1AN
+tab's alone; the row moved into `GrainSynthUi` when Quick Convert grew one - see "Both encode
+tabs carry the row" in the grain-synthesis skill - and the sentence did not move with it. The
+behaviour never changed, only where it is written.) It does not *clear* the tick, only disable
+it: a strength dropped to 0 and put back should bring the choice back with it. The readout
 states the strength against its 0-50 scale, and from `GrainSynthConfig.HeavyDenoiseStrength` (30) up
 names the denoise as a cost of its own - both encoders denoise at the number the strength sets, so the
 top of the scale is maximum smoothing of the real picture as well as maximum synthetic grain, and
