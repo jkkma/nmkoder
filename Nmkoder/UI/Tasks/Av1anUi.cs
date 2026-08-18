@@ -1525,6 +1525,22 @@ namespace Nmkoder.UI.Tasks
                 Form.Av1anOutputPathBox.Text = Path.ChangeExtension(IoUtils.GetAvailableFilename(UiData.GetOutPath()), null);
         }
 
+        /// <summary> The rate the frames reach the encoder at: the source's, doubled by a bob
+        /// deinterlacer, or the Frame Rate box's where that actually resamples. The same answer
+        /// <see cref="GetFrame"/> works the resize out against, and the same shape as Quick Convert's
+        /// <see cref="QuickConvertUi.GetPostFilterRate"/>. </summary>
+        public static Fraction GetPostFilterRate()
+        {
+            var vs = TrackList.current?.File?.VideoStreams?.FirstOrDefault();
+            Fraction sourceRate = Deinterlace.GetEffectiveSourceRate(vs, CurrentDeinterlace);
+            Fraction fps = GetUiFps();
+
+            if (fps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(sourceRate, fps))
+                return fps;
+
+            return sourceRate;
+        }
+
         public static Fraction GetUiFps()
         {
             return MiscUtils.GetFpsFromString(Form.Av1anFpsBox.Text);

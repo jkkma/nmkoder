@@ -108,12 +108,25 @@ namespace Nmkoder.Data
             return null;
         }
 
-        public static string GetKeyIntArg(MediaFile mediaFile, int intervalSeconds, string arg = "-g ", int max = 480)
+        /// <summary>
+        /// A keyframe every <paramref name="intervalSeconds"/> seconds, as a frame count.
+        /// <para/>
+        /// <paramref name="rateOverride"/> is the rate the frames being encoded actually arrive at,
+        /// which is not the source's whenever something upstream changed it - a bob deinterlacer
+        /// emits one frame per field, and the Frame Rate box resamples. Measured against the source
+        /// rate instead, an interlaced encode got half the GOP length it asked for, on every
+        /// interlaced source rather than only the odd one: 29.97 x 10 = 300 frames, which in a 59.94
+        /// fps output is five seconds. Left unsupplied - the CRF ladder, which runs no deinterlacer -
+        /// the source rate is the right answer and is what it falls back to.
+        /// </summary>
+        public static string GetKeyIntArg(MediaFile mediaFile, int intervalSeconds, string arg = "-g ", int max = 480, Fraction rateOverride = default)
         {
             if (mediaFile == null || mediaFile.VideoStreams.Count < 1)
                 return "";
 
-            int keyInt = ((float)(mediaFile?.VideoStreams.FirstOrDefault().Rate.GetFloat() * intervalSeconds)).RoundToInt();
+            bool overridden = rateOverride.Denominator != 0 && rateOverride.GetFloat() > 0.01f;
+            float rate = overridden ? rateOverride.GetFloat() : mediaFile.VideoStreams.FirstOrDefault().Rate.GetFloat();
+            int keyInt = ((float)(rate * intervalSeconds)).RoundToInt();
             return $"{arg}{keyInt.Clamp(12, max)}";
         }
 

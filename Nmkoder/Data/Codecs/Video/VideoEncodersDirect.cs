@@ -1,6 +1,7 @@
 using Nmkoder.Data.Colors;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.UI.Tasks;
 using Nmkoder.OS;
 using Nmkoder.Utils;
 using System.Collections.Generic;
@@ -176,7 +177,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             bool vbr = DirectEncoderUtils.IsVbr(encArgs);
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, QuickConvertUi.GetPostFilterRate());
             string q = DirectEncoderUtils.Get(encArgs, "q", QDefault.ToString());
             string preset = DirectEncoderUtils.Get(encArgs, "preset", Presets[PresetDefault]);
             string adv = DirectEncoderUtils.ToSpaceSeparated(DirectEncoderUtils.Get(encArgs, "advanced"));
@@ -248,7 +249,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             bool vbr = DirectEncoderUtils.IsVbr(encArgs);
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, QuickConvertUi.GetPostFilterRate());
             string q = DirectEncoderUtils.Get(encArgs, "q", QDefault.ToString());
             string preset = DirectEncoderUtils.Get(encArgs, "preset", Presets[PresetDefault]);
             string adv = DirectEncoderUtils.Get(encArgs, "advanced"); // aomenc takes --flag=value, as the list writes it
@@ -320,7 +321,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             bool vbr = DirectEncoderUtils.IsVbr(encArgs);
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, QuickConvertUi.GetPostFilterRate());
             string q = DirectEncoderUtils.Get(encArgs, "q", QDefault.ToString());
             string preset = DirectEncoderUtils.Get(encArgs, "preset", Presets[PresetDefault]);
             string adv = DirectEncoderUtils.Get(encArgs, "advanced"); // vpxenc takes --flag=value too
@@ -385,7 +386,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             bool vbr = DirectEncoderUtils.IsVbr(encArgs);
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, QuickConvertUi.GetPostFilterRate());
             string q = DirectEncoderUtils.Get(encArgs, "q", QDefault.ToString());
             string preset = DirectEncoderUtils.Get(encArgs, "preset", Presets[PresetDefault]);
             string adv = DirectEncoderUtils.ToSpaceSeparated(DirectEncoderUtils.Get(encArgs, "advanced"));
@@ -451,7 +452,7 @@ namespace Nmkoder.Data.Codecs.Video
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
             bool vbr = DirectEncoderUtils.IsVbr(encArgs);
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, QuickConvertUi.GetPostFilterRate());
             string q = DirectEncoderUtils.Get(encArgs, "q", QDefault.ToString());
             string preset = DirectEncoderUtils.Get(encArgs, "preset", Presets[PresetDefault]);
             string adv = DirectEncoderUtils.ToSpaceSeparated(DirectEncoderUtils.Get(encArgs, "advanced"));

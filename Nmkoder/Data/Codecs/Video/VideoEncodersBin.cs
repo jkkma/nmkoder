@@ -1,6 +1,7 @@
 ﻿using Nmkoder.Data.Colors;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
+using Nmkoder.UI.Tasks;
 using Nmkoder.Utils;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,7 +31,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, Av1anUi.GetPostFilterRate());
             bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
             string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
@@ -95,7 +96,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, Av1anUi.GetPostFilterRate());
             bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
 
             string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
@@ -173,7 +174,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, Av1anUi.GetPostFilterRate());
             bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
             string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];
@@ -270,7 +271,7 @@ namespace Nmkoder.Data.Codecs.Video
 
         public CodecArgs GetArgs(Dictionary<string, string> encArgs = null, MediaFile mediaFile = null, Pass pass = Pass.OneOfOne)
         {
-            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "");
+            string g = CodecUtils.GetKeyIntArg(mediaFile, Config.GetInt(Config.Key.DefaultKeyIntSecs), "", 480, Av1anUi.GetPostFilterRate());
             bool targetQual = encArgs.ContainsKey("qMode") && (UI.Tasks.Av1an.QualityMode)encArgs["qMode"].GetInt() != UI.Tasks.Av1an.QualityMode.Crf;
             string q = targetQual ? "0" : encArgs.ContainsKey("q") ? encArgs["q"] : QDefault.ToString();
             string preset = encArgs.ContainsKey("preset") ? encArgs["preset"] : Presets[PresetDefault];

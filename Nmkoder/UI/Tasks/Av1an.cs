@@ -503,7 +503,7 @@ namespace Nmkoder.UI.Tasks
                     sceneDetection = Av1anUi.SceneDetectionEnabled;
                     sceneDetectSlices = form.Av1anOptsScDetectSlicesUpDown.Value.AsInt();
                     scDownscaleArg = GetScDownscaleHeightArg();
-                    keyIntArg = CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ");
+                    keyIntArg = CodecUtils.GetKeyIntArg(TrackList.current.File, Config.GetInt(Config.Key.DefaultKeyIntSecs), "-x ", 480, Av1anUi.GetPostFilterRate());
 
                     // The input is not named here. A trim has to cut its section out first, and where
                     // that copy goes is only settled once this run's temp folder is, so the '-i' is

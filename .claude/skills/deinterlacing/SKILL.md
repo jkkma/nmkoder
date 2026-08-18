@@ -197,6 +197,69 @@ will come down the pipe. `Qtgmc.SetProgressTargetAsync` asks before the encode a
 fraction and not as the decimal beside it - 59.940 is not 60000/1001, and over a couple of
 hundred thousand frames that rounding is seconds.
 
+**That paragraph is right about the frame count and it is not a licence to trust the timeline, which
+is the distinction a padded capture turns on.** VapourSynth has no variable-rate clip: a source
+plugin opened plain hands over every coded picture and calls the result constant-rate at the file's
+nominal fps. A capture whose TBC covered for timing slips by *duplicating frames* therefore comes
+out as long as its frame count instead of as long as its recording, and the audio - muxed straight
+from the file, knowing nothing of any of this - stops partway through the picture. Measured on a
+720x480 NTSC MPEG-PS: **15319 coded frames across a 364.7 s recording**, which LSMASH called 511.1 s,
+so QTGMC's output ran **1.4014x long** and the audio ended at 71% of it. The symptom is slow motion
+with the sound running out, and nothing in the run reports anything wrong.
+
+The audio is what settles which side is lying, and it is worth naming because the container's own
+duration cannot: 15197 MP2 packets × 1152 / 48000 = **364.728 s** of real samples with strictly
+monotonic PTS and no anomalies, against video PTS that are non-monotonic 3332 times, carry deltas of
+0.008 s and 0.048 s where 0.0334 is due, and include one `N/A`. mpdecimate keeps 10806 of the 15319,
+and the two ratios agree to four figures - 15319/10930 = 1.4016 against a PTS-implied 42/29.97 =
+1.4014 - which is what makes "the capture emitted 42 coded fps of 29.97 content" a measurement
+rather than a story. So the frame count *is* a count, exactly as the paragraph above says; it is
+simply not a duration, and on this class of file the container was right and VapourSynth was wrong.
+
+**ffmpeg does this conversion by default and that is the whole reason only one engine was
+affected.** Its default `-fps_mode` for a rate-carrying container is CFR, so bwdif and yadif absorb
+the padding without anyone having written a line for it. Measured through the real `MainWindow` on a
+30 s cut of that capture, SVT-AV1 out, audio 30.00 s throughout: QTGMC gave 2518 frames / **42.00 s**,
+bwdif 1805 frames / 30.11 s. That is the control - one file, one setting changed - and it is what
+says the fault is the VapourSynth path rather than the source being unencodable.
+
+`Qtgmc.WriteScript` therefore hands the source plugin `fpsnum`/`fpsden` off the plan's own file, so
+the clip is rebuilt at the rate whole frames arrive at. **Asked for unconditionally, because on a
+file already constant-rate at that rate it is a no-op** - measured, 300 frames in and 300 out - so
+there is no case wanting the plain open in preference and therefore no detection to get wrong. With
+it, the same 30 s cut comes out 1800 frames / 30.02 s against 30.00 s of audio, through both the IVF
+route and the raw-Annex-B one; a clean CFR interlaced control is 600 frames in, 1200 out, 20.01 s
+against 20.00 s, and still opens through lsmas.
+
+**Which plugin can do it was measured, and the order in `open_video` is that measurement rather than
+the app's ordinary preference.** On the padded capture: `lsmas` refuses `fpsnum` outright ("Filter
+LWLibavSource returned zero or negative frame count"); `bestsource` accepts it, reports a correct 902
+frames - the number ffmpeg's own `-fps_mode cfr` produces - and then **fails every `get_frame` with
+"file has frames with unknown timestamps"**, which is that lone `N/A` PTS; `ffms2` converts to 900
+frames and renders them. On a clean CFR file all three take `fpsnum` and return the same 300 frames,
+so lsmas keeps the fast path it has always had. The converted attempts are therefore ordered lsmas →
+ffms2 → bestsource and are **all** tried before any plain open: falling back to a plain open of the
+preferred plugin would keep that plugin and quietly lose the conversion, which is the entire bug.
+Measured against VapourSynth Core R72 / API R4.1 with BestSource R20, ffms2 and libvslsmashsource as
+bundled at toolchain 2.8.66.
+
+**Constructing a source is not opening one - the same lesson as eedi3m, arriving through a different
+door.** bestsource's failure is invisible until a frame is pulled, and the first cut of this fix
+shipped it: the attempt loop validated the constructor, bestsource won, and the encode died with
+`Error opening input files: Invalid argument` and no output file at all. Each attempt renders frame 0
+before it counts. One frame rather than all of them, deliberately: it is what separates a plugin that
+cannot do the job from one that can, and VSPipe's own "Output N frames" line already catches a source
+that dies partway through.
+
+What is **not** verified: the 900-versus-902 difference between ffms2 and bestsource on a 30 s cut is
+0.07 s and was not chased - 30.0 s of audio implies 899.1 frames, so if anything ffms2 is the closer
+of the two, but nothing here established which picks the better frames. Nor was a full-length run
+made: the fault was measured on a 30 s cut and on the first 320 MB, with a chunk from the end of the
+1.65 GB source confirming the same 41.9 fps padding ratio, but the whole file was never encoded. And
+the jitter is not repaired by any of this - the conversion picks frames by timestamp and those
+timestamps are damaged, so motion can be slightly uneven where it lands badly; what it fixes is the
+length and the sync.
+
 The indexing this pays for is not added work: the encode's own VSPipe would do it moments later,
 and every source plugin in `WriteScript` is told to cache its index - so it moves that step in
 front of the encode rather than adding one, which also gives the pause before a QTGMC encode
