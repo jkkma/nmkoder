@@ -496,7 +496,7 @@ clip.set_output()
         for problem in problems:
             print('  ' + problem, file=sys.stderr)
 
-    for name, build in builders(['lsmas', 'bestsource', 'ffms2']):
+    for name, build in builders(PLAIN_ORDER):
         clip = usable(name + ' at its own rate', build, {})
 
         if clip is not None:
@@ -553,6 +553,9 @@ clip.set_output()
             // a perfectly good open. Zero turns the check off rather than failing it.
             bool sourceIsThePlansFile = plan.File != null && sourcePath == plan.File.ImportPath;
             sb.AppendLine($"EXPECT_MS = {(sourceIsThePlansFile ? plan.File.DurationMs : 0)}");
+            // The order the plain opens are tried in. Unchanged for this script; the cadence repair
+            // asks for a different one, for the reason CadenceRepair gives.
+            sb.AppendLine("PLAIN_ORDER = ['lsmas', 'bestsource', 'ffms2']");
             sb.AppendLine();
             sb.AppendLine(OpenVideoPy);
             sb.AppendLine();
