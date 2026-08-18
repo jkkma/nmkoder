@@ -80,9 +80,27 @@ After a green run:
   `git show origin/master:bucket/nmkoder-avalonia.json | jq -r .version` - and pull before
   doing anything else on master, or the next push rejects.
 - **Spot-check an asset when anything about bundling changed.** A green run is not evidence a
-  best-effort tool shipped (2.8.31/2.8.32 were green and shipped no grav1synth; 2.8.65 too,
-  transiently) - look in the archive. For the win-x64 zip, list it - or pull one file out of
-  it - without downloading 485 MB:
+  best-effort tool shipped, and grav1synth has gone missing from win-x64 three times for three
+  different reasons: 2.8.31/2.8.32 (aimed at the wrong ffmpeg major), 2.8.65 (a transient cargo
+  failure a bare re-run fixed) and 2.8.68 (upstream aged the pinned dev-headers asset out, so
+  the URL 404'd - permanent until the resolver replaced it). **Read the job's skip reason before
+  theorising**; the three look identical from the outside.
+
+  The cheapest tell is the **asset size**, one API call and no download. grav1synth plus its
+  ffmpeg shared DLLs is roughly 65 MB, so compare against the *previous* release rather than
+  against a remembered absolute - the healthy size grows release on release (485.6 MB at 2.8.67,
+  492.6 MB at 2.8.70), where the drop does not. Measured on the real assets: v2.8.67
+  485,618,562 against the broken v2.8.68's 420,408,591, a **65.2 MB** gap, and v2.8.65's broken
+  zip landed at 420,398,797 - the same hole from a different cause.
+
+  ```bash
+  gh release view vX.Y.Z --repo jkkma/nmkoder --json assets \
+    --jq '.assets[]|select(.name|test("win-x64"))|"\(.name) \(.size)"'
+  # compare against the previous release - a ~65 MB drop is grav1synth missing
+  ```
+
+  Then look in the archive. For the win-x64 zip, list it - or pull one file out of it - without
+  downloading 485 MB:
 
   ```bash
   url="https://github.com/jkkma/nmkoder/releases/download/vX.Y.Z/Nmkoder-X.Y.Z-win-x64.zip"

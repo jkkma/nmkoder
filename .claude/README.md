@@ -232,6 +232,29 @@ summary to be kept in sync, and the warning that `Deinterlacing` owns the trim m
 invalidated by moving things**, and nothing about the move itself would have flagged it - the
 checksums all passed. Check the meta-documentation after any future move.
 
+That prompted an audit of everything else in this layer, and it found one more: **`verifier`**
+opened by telling itself to read "the CLAUDE.md sections that touch the area under test - most
+harness shapes you will need are already described there", which for the four moved areas is now
+a digest carrying rules and no harnesses. That is the worst place in the layer for the fault,
+since building harnesses is the whole job, so it now names the four skills, says the digest is
+not what it wants, and carries three sample traps with their homes - the `scenecut=0` fixture
+rule (`tone-mapping`), the odd-frame 4:4:4-in/FFV1-out requirement (`av1an-tab`), and the
+IVF-never-WebM SegmentUID trap, which is an example of a harness trap that stayed in CLAUDE.md.
+**`cut-release` and `headless-ui` came back clean on this point** and need no re-checking: they
+cite only `Cutting a release`, `UI conventions` and `The palette`, all three retained. Every
+factual claim in all three was re-run rather than read - the 11 binary paths under
+`~/.nmkoder-dev/bin`, both cut-release scripts, the manifest and csproj and latest release all
+agreeing at 2.8.70, the Avalonia-version grep returning 12.1.0, and headless-ui's "all six tabs"
+confirmed against `MainTabs` (File List, Track List, AV1AN, Quick Convert, Utilities, Settings)
+after a first parse got it wrong.
+
+`cut-release` gained the one thing the audit found missing rather than stale: its
+green-run-is-not-evidence list stopped at 2.8.65, so it now carries all three grav1synth
+outages, the point that they had three different causes and look identical from outside, and the
+asset-size check that catches the class in one API call - measured on the real assets at 65.2 MB
+(v2.8.67 485,618,562 against the broken v2.8.68's 420,408,591), and framed as a delta against
+the previous release because the healthy absolute grows over time (492.6 MB by 2.8.70).
+
 ## Maintenance
 
 Measured facts in the skills are stamped with the release they were measured on (2.8.66
