@@ -90,6 +90,17 @@ namespace Nmkoder.Media
             sb.AppendLine("FPS_NUM = 0");
             sb.AppendLine("FPS_DEN = 0");
             sb.AppendLine("EXPECT_MS = 0");
+            // bestsource first here, where the deinterlace script asks for lsmas. All three decode
+            // this file identically frame for frame - measured, 0 of 1259 differ between any pair -
+            // and all three are exact for the requests DeleteFrames actually makes, which are forward
+            // with gaps. They part company the moment a request goes *backwards*: measured on the
+            // same file, lsmas raises 'failed to output a video frame', ffms2 answers 971 of 1259
+            // requests with the wrong picture and no complaint at all, and bestsource gets every one
+            // right. So the correctness of this script rested on nothing but DeleteFrames happening
+            // to ask in order - an invariant nobody wrote down and any later filter could break, with
+            // the ffms2 failure being the silent kind. Naming the exact plugin costs an index and
+            // removes the trap.
+            sb.AppendLine("PLAIN_ORDER = ['bestsource', 'lsmas', 'ffms2']");
             sb.AppendLine();
             sb.AppendLine(Qtgmc.OpenVideoPy);
             sb.AppendLine();
@@ -197,6 +208,9 @@ else:
             sb.AppendLine("FPS_NUM = 0");     // plain opens only - see WriteScript
             sb.AppendLine("FPS_DEN = 0");
             sb.AppendLine("EXPECT_MS = 0");
+            // Only a frame count is wanted here, and all three agree on it, so this keeps the cheap
+            // order rather than the exact-random-access one the repair itself asks for.
+            sb.AppendLine("PLAIN_ORDER = ['lsmas', 'bestsource', 'ffms2']");
             sb.AppendLine();
             sb.AppendLine(Qtgmc.OpenVideoPy);
             sb.AppendLine();

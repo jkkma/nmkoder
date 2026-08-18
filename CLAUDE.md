@@ -1775,6 +1775,23 @@ it worked, and leaves the next deinterlace running at the wrong parity on a file
 same four flags read `tb` for all of them when the y4m comes from ffmpeg rather than VSPipe, so a test
 that does not use the real producer proves nothing.
 
+**The three source plugins decode this file identically and answer a *backwards* request three
+different ways, one of them silently wrong.** Measured on the same 1259-frame capture: sequentially
+all three are exact and agree with each other frame for frame, 0 of 1259 differing between any pair;
+asked for frames forward-with-gaps - which is all `DeleteFrames` ever does - all three are exact
+again; asked for frames out of order, **lsmas raises "failed to output a video frame", ffms2 answers
+971 of 1259 requests with the wrong picture and no complaint at all, and bestsource gets every one
+right.** So "which plugin" is free on a sequential read and decisive on a random one, and the failure
+that matters is ffms2's, being the quiet one.
+
+The repair therefore names `bestsource` first through `PLAIN_ORDER` while the deinterlace script keeps
+`lsmas`. Not because the repair was wrong - it was measured correct on lsmas, byte for byte the same
+output - but because its correctness rested on nothing except `DeleteFrames` happening to ask in
+order, which is an invariant nobody had written down and any later filter could break. `PLAIN_ORDER`
+is the one place that choice is stated, per script. Note that bestsource reports this file's rate as
+`4680000/117031` where lsmas says `30000/1001`; only the frame *count* is read here and `AssumeFPS`
+states the output rate, so it changes nothing - expect it in the log rather than re-diagnosing it.
+
 **`FPS_NUM`/`FPS_DEN` are `open_video`'s names and mean "rebuild the clip at this rate".** Naming a
 script's *output* rate that way hands the padded file to the very conversion the script exists to
 replace: caught by running it, the repair opened 900 frames of a 1259-frame file and reported nothing
