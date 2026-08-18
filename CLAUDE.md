@@ -1792,6 +1792,29 @@ is the one place that choice is stated, per script. Note that bestsource reports
 `4680000/117031` where lsmas says `30000/1001`; only the frame *count* is read here and `AssumeFPS`
 states the output rate, so it changes nothing - expect it in the log rather than re-diagnosing it.
 
+**DGIndex and d2vsource were fetched, run against this file and deliberately not adopted** - which is
+worth writing down, because "why does this not use the proper MPEG-2 source the way StaxRip does" is a
+reasonable question to ask later. StaxRip's default route for an `.mpg` really is a different one: a
+demuxer in `Demux.vb` (`InputExtensions = {mpg, mpeg, vob, m2ts, m2v, mts, m2t}`, `InputFormats =
+{mpeg2}`, active by default where its eac3to and D2V Witch siblings set `.Active = False`) runs DGIndex
+into a `.d2v`, and the source-filter table then maps `d2v` to `core.d2v.Source`, so the `*` default of
+ffms2 never sees the file.
+
+Measured here with DGIndex 1.5.8 (GPL-2, `rlaphoenix/DGIndex`) indexing in 0.4 s and d2vsource 1.3
+(LGPL-2.1) loading cleanly into R72: **it decodes this file identically to what is already bundled -
+0 of 1259 frames differ from bestsource** - reports the same 1259 coded frames, so it removes none of
+the padding and the repair is needed either way, and it **fails the same random-access test lsmas
+fails** ("Seek pattern broke d2vsource! Please send a sample"). Sequential decode is 3850 fps against
+bestsource's 2896, which on the full file is 20 s against 26 s inside an hour-long encode.
+
+The one thing it does better is read `Frame_Rate=29970 (30000/1001)` and `Field_Operation=0` out of the
+MPEG-2 sequence header rather than from timestamps - genuinely the right way round, and exactly nothing
+this app needs, since `avg_frame_rate` already answers that (see `Reading what the tools print`). So the
+cost is a Windows-only 2010 binary, a 15.8 MB plugin, a per-file pre-index step and a new intermediate
+format, against no measurable gain. D2V Witch, the open-source indexer, is worse still to bundle: it
+ships as a bare exe needing Qt5 plus ffmpeg 4.x shared libraries (`avutil-56`, where the bundle carries
+`avutil-61`).
+
 **`FPS_NUM`/`FPS_DEN` are `open_video`'s names and mean "rebuild the clip at this rate".** Naming a
 script's *output* rate that way hands the padded file to the very conversion the script exists to
 replace: caught by running it, the repair opened 900 frames of a 1259-frame file and reported nothing
