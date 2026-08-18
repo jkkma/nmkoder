@@ -1719,12 +1719,14 @@ Read it before changing anything here; what follows is only what has to hold wha
 - **The defaults are stated in exactly three places** - `DeinterlaceUi.DefaultMode`,
   `DeinterlaceUi.Av1anDefaultMode` and `Qtgmc.DefaultPreset` - and the last is not only a default:
   it also decides which plugin set has to be present.
-- **Presence is not loadability, and construction is not loadability either.** A VapourSynth plugin
-  can be a valid file of the right architecture that the core refuses over its API version, with no
-  message anywhere; and a *source* can construct, report a correct frame count, and then fail every
-  `get_frame` - bestsource does exactly that on a capture with a damaged PTS among its frames.
-  Render a frame. `Qtgmc`'s `open_video` judges every attempt that way, which is why an attempt list
-  there may be reordered but must never go back to trusting the constructor.
+- **Presence is not loadability, construction is not loadability, and a rendered frame is not a
+  length.** A VapourSynth plugin can be a valid file the core refuses over its API version, with no
+  message anywhere; a *source* can construct, report a correct frame count and then fail every
+  `get_frame` (bestsource, on a capture with a damaged PTS); and one can render frame 0 perfectly
+  over a clip of the wrong length (lsmas, answering a 30-minute capture with 25 frames - which
+  shipped in 2.8.71 and was worse than the bug it replaced). `Qtgmc`'s `open_video` checks all
+  three, the last against `EXPECT_MS`. An attempt list there may be reordered; it must never go
+  back to trusting the constructor, the exception, or the frame count alone.
 - **QTGMC's source is opened at the file's true frame rate (`fpsnum`/`fpsden`), and that is
   load-bearing rather than tidy.** VapourSynth has no variable-rate clip, so a plain open hands over
   every coded picture and calls it constant-rate: a capture padded with duplicate frames by its TBC
