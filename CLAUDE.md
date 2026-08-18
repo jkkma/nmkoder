@@ -672,6 +672,30 @@ stream copy and an audio encode, which is why `FfmpegOutputHandler`'s gate on
 `frame=`/`size=` covers both and does not need widening. That one looks like a
 gap and is not.
 
+**ffprobe answers "what frame rate is this" twice, and for every NTSC tape capture the two
+differ by a factor of two.** `r_frame_rate` is the lowest rate all the timestamps can be expressed
+in, which for a field-coded MPEG-2 stream is the *field* rate; `avg_frame_rate` is the frame count
+over the duration. Measured on a 720x480 capture: `r_frame_rate=60000/1001` against
+`avg_frame_rate=30000/1001`, with every frame reporting `duration=3003`, `interlaced_frame=1` and
+`repeat_pict=0` - ordinary 29.97 interlaced content, no telecine. `FfmpegCommands.GetFramerate`
+read the first of those, so `VideoStream.Rate` was the field rate, and it is the number every rate
+in this app measures itself against: a bob deinterlacer doubled it again and told mkvmerge
+`--default-duration 0:120000/1001fps` over a stream that is 59.94, which is half speed with the
+audio ending at 71% of the picture. It reads `avg_frame_rate` now and keeps `r_frame_rate` behind
+it, that one being what answers when ffprobe cannot measure the other (`0/0` on a stream with no
+duration, some piped inputs).
+
+What made it invisible is that **the two agree on every file that is not field-coded**, which is
+almost everything anyone loads - a modern download, an MKV remux, an mp4 off a phone all give one
+number twice. So the bug needed a source class rather than a source to show up, and inside that
+class it needed the deinterlacer to be on before the doubling made it visible. The one line that
+now says which number was used is in `GetFramerate` itself, logged only where the two disagree.
+
+Measured against the bundled BtbN build `N-126122-gca821e458a-20260813` (toolchain 2.8.66), and
+the control is the same encode of a clean CFR interlaced fixture where `r_frame_rate ==
+avg_frame_rate`: unchanged before and after, which is what says the change is confined to the
+sources that state a field rate.
+
 **`File.Exists` is not a test of whether ffmpeg wrote something.** It creates the
 output file before it writes the header, so a codec the container refuses leaves
 a stub behind and the check passes - measured at 291 bytes for `-map 0:s -c copy`
@@ -1090,6 +1114,22 @@ file, on the video track alone, and only for a Matroska output, MP4 keeping just
 fps resample or a bob changes what the frames leave the chain at, and the raw stream knows nothing a
 demuxer could check against. Left unreadable, the flag is omitted and the VUI timing x264/x265 wrote
 from the y4m header governs - the same number by construction, both coming from the post-filter rate.
+
+**So is the keyframe interval, and it was not.** `CodecUtils.GetKeyIntArg` multiplied the *source*
+rate by the configured seconds, so an encode whose frames leave at twice that rate - which is every
+bob deinterlace - got half the GOP it asked for: 29.97 x 10 = 300 frames, which in a 59.94 fps
+output is five seconds, not ten. That is one place rather than two, so it is fixed by handing it
+the rate the frames actually arrive at; it takes a `rateOverride` now, which Quick Convert fills
+from `QuickConvertUi.GetPostFilterRate` and the AV1AN tab from `Av1anUi.GetPostFilterRate` (added
+to match, the same answer `Av1anUi.GetFrame` already worked the resize out against). The CRF ladder
+passes nothing and is right to: it runs no deinterlacer, so the source rate *is* the post-filter one.
+
+Pre-existing and uniform rather than new, which is worth saying because fixing the field-rate read
+above is what exposed it - on a capture stating a field rate the old arithmetic happened to land on
+the right answer for the wrong reason, and correcting the rate made that file behave like every
+other interlaced one. Measured through the real command: `--keyint 480` before, 300 after the rate
+fix alone, 480 again once the GOP was given the post-filter rate - and 480 on a clean CFR
+interlaced source too, where it had always been 300.
 
 Two-pass runs the pipe twice against one stats stem - `--pass N --stats` on x264, x265 and SVT,
 `--passes=2 --pass=N --fpf=` on aomenc and vpxenc, which also want `--passes=1` stating for a
@@ -1679,8 +1719,19 @@ Read it before changing anything here; what follows is only what has to hold wha
 - **The defaults are stated in exactly three places** - `DeinterlaceUi.DefaultMode`,
   `DeinterlaceUi.Av1anDefaultMode` and `Qtgmc.DefaultPreset` - and the last is not only a default:
   it also decides which plugin set has to be present.
-- **Presence is not loadability.** A VapourSynth plugin can be a valid file of the right
-  architecture that the core refuses over its API version, with no message anywhere. Render a frame.
+- **Presence is not loadability, and construction is not loadability either.** A VapourSynth plugin
+  can be a valid file of the right architecture that the core refuses over its API version, with no
+  message anywhere; and a *source* can construct, report a correct frame count, and then fail every
+  `get_frame` - bestsource does exactly that on a capture with a damaged PTS among its frames.
+  Render a frame. `Qtgmc`'s `open_video` judges every attempt that way, which is why an attempt list
+  there may be reordered but must never go back to trusting the constructor.
+- **QTGMC's source is opened at the file's true frame rate (`fpsnum`/`fpsden`), and that is
+  load-bearing rather than tidy.** VapourSynth has no variable-rate clip, so a plain open hands over
+  every coded picture and calls it constant-rate: a capture padded with duplicate frames by its TBC
+  then comes out as long as its frame count instead of as long as its recording - measured, 1.4014x
+  long, with the audio ending at 71% of the picture. ffmpeg does this conversion by default, which
+  is the only reason bwdif and yadif were never affected. The rate comes off the plan's own file, so
+  anything that changes what `VideoStream.Rate` means changes this too.
 - **A stream-copy cut ends two frames late on any B-frame source**, and `-frames:v` is not the fix
   however much it looks like one - it truncates in decode order and can take a hole out of the
   middle of the picture. Leave it.

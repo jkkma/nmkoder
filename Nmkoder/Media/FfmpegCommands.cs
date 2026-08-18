@@ -86,24 +86,59 @@ namespace Nmkoder.Media
             return FormatUtils.TimestampToMs(output);
         }
 
+        /// <summary>
+        /// The rate frames leave the decoder at. ffprobe answers this question twice and the two are
+        /// not the same number: <c>r_frame_rate</c> is "the lowest framerate with which all timestamps
+        /// can be represented", which for a field-coded MPEG-2 stream - which is every NTSC tape
+        /// capture - is the *field* rate, twice the rate whole frames actually arrive at, while
+        /// <c>avg_frame_rate</c> is the frame count over the duration. Measured on a 720x480 capture:
+        /// 60000/1001 against 30000/1001. Reading the first of those made a bob deinterlace declare
+        /// its output at 119.88 fps, so mkvmerge stamped 59.94 fps of frames at twice that - half
+        /// speed, the audio ending at 71% of the picture, and nothing anywhere saying so.
+        /// <para/>
+        /// <c>avg_frame_rate</c> is <c>0/0</c> whenever ffprobe cannot measure it - a stream carrying
+        /// no duration, some piped inputs - which is the case <c>r_frame_rate</c> is kept behind it
+        /// for. For an ordinary constant-rate file the two are equal and this picks the same number
+        /// either way, so the change is confined to the sources that state a field rate.
+        /// </summary>
         public static async Task<Fraction> GetFramerate(string inputFile, bool preferFfmpeg = false, int streamIndex = 0)
         {
             Logger.Log($"GetFramerate(inputFile = '{inputFile}', preferFfmpeg = {preferFfmpeg})", true, false, "ffmpeg");
             Fraction ffprobeFps = new Fraction(0, 1);
             Fraction ffmpegFps = new Fraction(0, 1);
 
-            try
+            async Task<Fraction> ReadRate(string entry)
             {
-                string ffprobeOutput = await GetVideoInfo.GetFfprobeInfoAsync(inputFile, GetVideoInfo.FfprobeMode.ShowStreams, "r_frame_rate", streamIndex);
-                string fpsStr = ffprobeOutput.SplitIntoLines().First();
-                string[] numbers = fpsStr.Split('/');
-                Logger.Log($"Fractional FPS from ffprobe: {numbers[0]}/{numbers[1]} = {((float)numbers[0].GetInt() / numbers[1].GetInt())}", true, false, "ffmpeg");
-                ffprobeFps = new Fraction(numbers[0].GetInt(), numbers[1].GetInt());
+                try
+                {
+                    string output = await GetVideoInfo.GetFfprobeInfoAsync(inputFile, GetVideoInfo.FfprobeMode.ShowStreams, entry, streamIndex);
+                    string[] numbers = output.SplitIntoLines().First().Split('/');
+
+                    if (numbers.Length != 2)
+                        return new Fraction(0, 1);
+
+                    int num = numbers[0].GetInt(), den = numbers[1].GetInt();
+                    return den == 0 ? new Fraction(0, 1) : new Fraction(num, den);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"GetFramerate ffprobe Error reading {entry}: {e.Message}", true, false);
+                    return new Fraction(0, 1);
+                }
             }
-            catch (Exception ffprobeEx)
-            {
-                Logger.Log("GetFramerate ffprobe Error: " + ffprobeEx.Message, true, false);
-            }
+
+            Fraction avgFps = await ReadRate("avg_frame_rate");
+            Fraction rFps = await ReadRate("r_frame_rate");
+            Logger.Log($"Fractional FPS from ffprobe: avg_frame_rate {avgFps} = {avgFps.GetFloat()}, r_frame_rate {rFps} = {rFps.GetFloat()}", true, false, "ffmpeg");
+
+            ffprobeFps = avgFps.GetFloat() > 0.01f ? avgFps : rFps;
+
+            // Worth a line of its own rather than only the pair above: this is the one case where the
+            // two disagree about what a frame is, and it is the shape that reaches every rate in the
+            // app at once, so a run that later looks wrong should say here which number it was built on.
+            if (avgFps.GetFloat() > 0.01f && rFps.GetFloat() > 0.01f && !MiscUtils.IsSameFrameRate(avgFps, rFps))
+                Logger.Log($"'{Path.GetFileName(inputFile)}' states two frame rates - {rFps} (r_frame_rate) and {avgFps} " +
+                    $"(avg_frame_rate). Using {avgFps}, the rate whole frames arrive at; a field-coded source states the field rate as the first of those.", true);
 
             try
             {

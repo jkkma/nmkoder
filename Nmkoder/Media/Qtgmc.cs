@@ -419,12 +419,16 @@ clip.set_output()
         public static string WriteScript(DeinterlacePlan plan, string sourcePath, string scriptPath)
         {
             var sb = new StringBuilder();
+            // The plan's own file rather than the loaded one: in muxing mode the video comes from
+            // a different file, and the plan is already the thing that names which.
+            Fraction rate = plan.File?.VideoStreams?.FirstOrDefault()?.Rate ?? new Fraction(0, 1);
             string cacheDir = Path.Combine(Paths.GetSessionDataPath(), "vsindex");
             Directory.CreateDirectory(cacheDir);
 
             sb.AppendLine("# Written by Nmkoder for one encode - it is rewritten every run, so edits do not survive.");
             sb.AppendLine("import vapoursynth as vs");
             sb.AppendLine("import havsfunc");
+            sb.AppendLine("import sys");
             sb.AppendLine();
             sb.AppendLine("core = vs.core");
             sb.AppendLine($"SOURCE = {PyString(sourcePath)}");
@@ -432,26 +436,80 @@ clip.set_output()
             sb.AppendLine($"TFF = {(plan.TopFieldFirst ? "True" : "False")}");
             sb.AppendLine($"PRESET = {PyString(plan.QtgmcPreset)}");
             sb.AppendLine($"FPS_DIVISOR = {(plan.DoubleRate ? 1 : 2)}");
+            // The rate this file's whole frames arrive at, handed to the source plugin so it rebuilds
+            // the clip at that rate rather than at one frame per coded picture.
+            //
+            // VapourSynth has no variable-rate clip. A source plugin opened plain hands over every
+            // coded frame and calls the result constant-rate, so a capture that padded itself with
+            // duplicate frames - a TBC covering for timing slips - comes out as long as its frame
+            // count instead of as long as its timeline, and the audio, which is muxed from the file
+            // and knows nothing of this, stops partway through. Measured on an NTSC capture: 15319
+            // coded frames across a 364.7 s recording, which VapourSynth called 511.1 s, so QTGMC's
+            // output ran 1.40x long and the audio ended at 71% of the picture. ffmpeg performs this
+            // conversion by default when it writes a rate-carrying container, which is exactly why
+            // bwdif and yadif were never affected and only the one engine that leaves ffmpeg was.
+            //
+            // Asked for unconditionally, because on a file that is already constant-rate at this rate
+            // it is a no-op - measured, 300 frames in and 300 frames out - so there is no case that
+            // wants the plain open in preference and therefore no detection to get wrong.
+            sb.AppendLine($"FPS_NUM = {(rate.GetFloat() > 0.01f ? rate.Numerator : 0)}");
+            sb.AppendLine($"FPS_DEN = {(rate.GetFloat() > 0.01f ? rate.Denominator : 0)}");
             sb.AppendLine();
-            // Index files are written beside the source by default, which would leave .lwi litter in
-            // the user's own folders; every plugin here can be told to put them somewhere else, and
-            // each is tried again without that argument in case this build of it cannot.
             sb.AppendLine(@"def open_video(path):
-    attempts = [
-        ('lsmas', lambda: core.lsmas.LWLibavSource(source=path, cachedir=CACHE_DIR)),
-        ('lsmas', lambda: core.lsmas.LWLibavSource(source=path)),
-        ('bestsource', lambda: core.bs.VideoSource(source=path, cachepath=CACHE_DIR)),
-        ('bestsource', lambda: core.bs.VideoSource(source=path)),
-        ('ffms2', lambda: core.ffms2.Source(source=path, cachefile=CACHE_DIR + '/ffms2.ffindex')),
-        ('ffms2', lambda: core.ffms2.Source(source=path)),
-    ]
-    problems = []
-
-    for name, attempt in attempts:
+    # Constructing a source is not opening one, which is the same lesson the plugin probe learned
+    # from eedi3m and it bites again here for a different reason: bestsource accepts fpsnum on this
+    # file and reports a correct frame count, then fails every single get_frame with 'file has
+    # frames with unknown timestamps' - a capture with a damaged PTS among its frames, which is
+    # exactly the file this conversion exists for. So each attempt has to render before it counts.
+    # One frame, not all of them: it is what separates a plugin that cannot do the job from one
+    # that can, and VSPipe's own 'Output N frames' line is what catches a source that dies partway.
+    def usable(name, build, kwargs):
         try:
-            return attempt()
+            clip = build(kwargs)
+            clip.get_frame(0)
         except Exception as e:
             problems.append('%s: %s' % (name, e))
+            return None
+
+        print('Nmkoder: opened through %s - %d frames at %d/%d' % (name, clip.num_frames, clip.fps_num, clip.fps_den), file=sys.stderr)
+        return clip
+
+    # Index files are written beside the source by default, which would leave .lwi litter in the
+    # user's own folders; every plugin here can be told to put them somewhere else, and each is
+    # tried again without that argument in case this build of it cannot.
+    def builders(order):
+        both = {
+            'lsmas': [lambda kw: core.lsmas.LWLibavSource(source=path, cachedir=CACHE_DIR, **kw),
+                      lambda kw: core.lsmas.LWLibavSource(source=path, **kw)],
+            'ffms2': [lambda kw: core.ffms2.Source(source=path, cachefile=CACHE_DIR + '/ffms2.ffindex', **kw),
+                      lambda kw: core.ffms2.Source(source=path, **kw)],
+            'bestsource': [lambda kw: core.bs.VideoSource(source=path, cachepath=CACHE_DIR, **kw),
+                           lambda kw: core.bs.VideoSource(source=path, **kw)],
+        }
+        return [(name, build) for name in order for build in both[name]]
+
+    problems = []
+
+    # Rate-converted first, and every plugin gets a turn at it before any of them is opened plain -
+    # falling back to a plain open of the preferred plugin would keep that plugin and quietly lose
+    # the conversion, which is the whole bug. The order within it is measured on the capture this
+    # was written for rather than inherited: lsmas refuses fpsnum outright there ('returned zero or
+    # negative frame count'), bestsource takes it and then cannot render a frame, ffms2 converts and
+    # renders. The plain list below keeps the app's ordinary preference, no conversion being at stake.
+    if FPS_NUM > 0 and FPS_DEN > 0:
+        for name, build in builders(['lsmas', 'ffms2', 'bestsource']):
+            clip = usable('%s at %d/%d' % (name, FPS_NUM, FPS_DEN), build, {'fpsnum': FPS_NUM, 'fpsden': FPS_DEN})
+
+            if clip is not None:
+                return clip
+
+    # A clip of the wrong length still beats no encode at all, and the line each attempt prints is
+    # what says which of the two happened.
+    for name, build in builders(['lsmas', 'bestsource', 'ffms2']):
+        clip = usable(name + ' at its own rate', build, {})
+
+        if clip is not None:
+            return clip
 
     raise RuntimeError('No VapourSynth source plugin could open the file.\n  ' + '\n  '.join(problems))
 
