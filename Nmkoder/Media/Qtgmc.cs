@@ -412,56 +412,16 @@ clip.set_output()
         #region Script
 
         /// <summary>
-        /// Writes the script this encode will be fed through and returns its path. Regenerated per run
-        /// rather than kept, because everything in it - the source, the field order, the preset - is
-        /// this run's, and in a batch it is a different file every time.
+        /// The source open every VapourSynth script here shares - the plugin fallback list, the
+        /// render check and the length check. One copy, so the deinterlace and the cadence repair
+        /// cannot come to disagree about which plugin opened a file or on what terms.
+        /// <para/>
+        /// Expects SOURCE, CACHE_DIR, FPS_NUM, FPS_DEN and EXPECT_MS defined above it. FPS_NUM = 0
+        /// turns the rate conversion off, which is what a caller doing its own decimation wants:
+        /// that one needs every coded frame, padding included, because the padding is what it is
+        /// there to identify.
         /// </summary>
-        public static string WriteScript(DeinterlacePlan plan, string sourcePath, string scriptPath)
-        {
-            var sb = new StringBuilder();
-            // The plan's own file rather than the loaded one: in muxing mode the video comes from
-            // a different file, and the plan is already the thing that names which.
-            Fraction rate = plan.File?.VideoStreams?.FirstOrDefault()?.Rate ?? new Fraction(0, 1);
-            string cacheDir = Path.Combine(Paths.GetSessionDataPath(), "vsindex");
-            Directory.CreateDirectory(cacheDir);
-
-            sb.AppendLine("# Written by Nmkoder for one encode - it is rewritten every run, so edits do not survive.");
-            sb.AppendLine("import vapoursynth as vs");
-            sb.AppendLine("import havsfunc");
-            sb.AppendLine("import sys");
-            sb.AppendLine();
-            sb.AppendLine("core = vs.core");
-            sb.AppendLine($"SOURCE = {PyString(sourcePath)}");
-            sb.AppendLine($"CACHE_DIR = {PyString(cacheDir)}");
-            sb.AppendLine($"TFF = {(plan.TopFieldFirst ? "True" : "False")}");
-            sb.AppendLine($"PRESET = {PyString(plan.QtgmcPreset)}");
-            sb.AppendLine($"FPS_DIVISOR = {(plan.DoubleRate ? 1 : 2)}");
-            // The rate this file's whole frames arrive at, handed to the source plugin so it rebuilds
-            // the clip at that rate rather than at one frame per coded picture.
-            //
-            // VapourSynth has no variable-rate clip. A source plugin opened plain hands over every
-            // coded frame and calls the result constant-rate, so a capture that padded itself with
-            // duplicate frames - a TBC covering for timing slips - comes out as long as its frame
-            // count instead of as long as its timeline, and the audio, which is muxed from the file
-            // and knows nothing of this, stops partway through. Measured on an NTSC capture: 15319
-            // coded frames across a 364.7 s recording, which VapourSynth called 511.1 s, so QTGMC's
-            // output ran 1.40x long and the audio ended at 71% of the picture. ffmpeg performs this
-            // conversion by default when it writes a rate-carrying container, which is exactly why
-            // bwdif and yadif were never affected and only the one engine that leaves ffmpeg was.
-            //
-            // Asked for unconditionally, because on a file that is already constant-rate at this rate
-            // it is a no-op - measured, 300 frames in and 300 frames out - so there is no case that
-            // wants the plain open in preference and therefore no detection to get wrong.
-            sb.AppendLine($"FPS_NUM = {(rate.GetFloat() > 0.01f ? rate.Numerator : 0)}");
-            sb.AppendLine($"FPS_DEN = {(rate.GetFloat() > 0.01f ? rate.Denominator : 0)}");
-            // What the converted open is checked against - see open_video. Only where the script is
-            // reading the plan's own file: DeinterlacePass also feeds this a *cut* of it, whose length
-            // is not the length that file reports, and checking one against the other would throw away
-            // a perfectly good open. Zero turns the check off rather than failing it.
-            bool sourceIsThePlansFile = plan.File != null && sourcePath == plan.File.ImportPath;
-            sb.AppendLine($"EXPECT_MS = {(sourceIsThePlansFile ? plan.File.DurationMs : 0)}");
-            sb.AppendLine();
-            sb.AppendLine(@"def open_video(path):
+        public const string OpenVideoPy = @"def open_video(path):
     # Constructing a source is not opening one, which is the same lesson the plugin probe learned
     # from eedi3m and it bites again here for a different reason: bestsource accepts fpsnum on this
     # file and reports a correct frame count, then fails every single get_frame with 'file has
@@ -542,10 +502,61 @@ clip.set_output()
         if clip is not None:
             return clip
 
-    raise RuntimeError('No VapourSynth source plugin could open the file.\n  ' + '\n  '.join(problems))
+    raise RuntimeError('No VapourSynth source plugin could open the file.\n  ' + '\n  '.join(problems))";
 
+        /// <summary>
+        /// Writes the script this encode will be fed through and returns its path. Regenerated per run
+        /// rather than kept, because everything in it - the source, the field order, the preset - is
+        /// this run's, and in a batch it is a different file every time.
+        /// </summary>
+        public static string WriteScript(DeinterlacePlan plan, string sourcePath, string scriptPath)
+        {
+            var sb = new StringBuilder();
+            // The plan's own file rather than the loaded one: in muxing mode the video comes from
+            // a different file, and the plan is already the thing that names which.
+            Fraction rate = plan.File?.VideoStreams?.FirstOrDefault()?.Rate ?? new Fraction(0, 1);
+            string cacheDir = Path.Combine(Paths.GetSessionDataPath(), "vsindex");
+            Directory.CreateDirectory(cacheDir);
 
-clip = open_video(SOURCE)
+            sb.AppendLine("# Written by Nmkoder for one encode - it is rewritten every run, so edits do not survive.");
+            sb.AppendLine("import vapoursynth as vs");
+            sb.AppendLine("import havsfunc");
+            sb.AppendLine("import sys");
+            sb.AppendLine();
+            sb.AppendLine("core = vs.core");
+            sb.AppendLine($"SOURCE = {PyString(sourcePath)}");
+            sb.AppendLine($"CACHE_DIR = {PyString(cacheDir)}");
+            sb.AppendLine($"TFF = {(plan.TopFieldFirst ? "True" : "False")}");
+            sb.AppendLine($"PRESET = {PyString(plan.QtgmcPreset)}");
+            sb.AppendLine($"FPS_DIVISOR = {(plan.DoubleRate ? 1 : 2)}");
+            // The rate this file's whole frames arrive at, handed to the source plugin so it rebuilds
+            // the clip at that rate rather than at one frame per coded picture.
+            //
+            // VapourSynth has no variable-rate clip. A source plugin opened plain hands over every
+            // coded frame and calls the result constant-rate, so a capture that padded itself with
+            // duplicate frames - a TBC covering for timing slips - comes out as long as its frame
+            // count instead of as long as its timeline, and the audio, which is muxed from the file
+            // and knows nothing of this, stops partway through. Measured on an NTSC capture: 15319
+            // coded frames across a 364.7 s recording, which VapourSynth called 511.1 s, so QTGMC's
+            // output ran 1.40x long and the audio ended at 71% of the picture. ffmpeg performs this
+            // conversion by default when it writes a rate-carrying container, which is exactly why
+            // bwdif and yadif were never affected and only the one engine that leaves ffmpeg was.
+            //
+            // Asked for unconditionally, because on a file that is already constant-rate at this rate
+            // it is a no-op - measured, 300 frames in and 300 frames out - so there is no case that
+            // wants the plain open in preference and therefore no detection to get wrong.
+            sb.AppendLine($"FPS_NUM = {(rate.GetFloat() > 0.01f ? rate.Numerator : 0)}");
+            sb.AppendLine($"FPS_DEN = {(rate.GetFloat() > 0.01f ? rate.Denominator : 0)}");
+            // What the converted open is checked against - see open_video. Only where the script is
+            // reading the plan's own file: DeinterlacePass also feeds this a *cut* of it, whose length
+            // is not the length that file reports, and checking one against the other would throw away
+            // a perfectly good open. Zero turns the check off rather than failing it.
+            bool sourceIsThePlansFile = plan.File != null && sourcePath == plan.File.ImportPath;
+            sb.AppendLine($"EXPECT_MS = {(sourceIsThePlansFile ? plan.File.DurationMs : 0)}");
+            sb.AppendLine();
+            sb.AppendLine(OpenVideoPy);
+            sb.AppendLine();
+            sb.AppendLine(@"clip = open_video(SOURCE)
 # Said rather than inferred: the source plugin passes through whatever the file claims, and the
 # whole reason a file reaches this script is that what it claims cannot be relied on.
 clip = core.std.SetFieldBased(clip, 2 if TFF else 1)
@@ -717,7 +728,7 @@ clip.set_output()");
         /// <summary> How long the video this script produces will be, in milliseconds, or -1 where
         /// VSPipe would not say - it not being installed, the script not evaluating, or an output
         /// whose length or frame rate is not fixed, which a QTGMC graph's never is. </summary>
-        private static async Task<long> GetOutputDurationMsAsync(string scriptPath)
+        public static async Task<long> GetOutputDurationMsAsync(string scriptPath)
         {
             string vspipe = GetVspipePath();
 

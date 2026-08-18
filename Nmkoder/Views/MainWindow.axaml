@@ -851,6 +851,16 @@
                   </StackPanel>
                 </Border>
 
+                <Border x:Name="UtilsRepairCadencePanel" Classes="card util" Tapped="SelectRepairCadence"
+                        ToolTip.Tip="For a capture whose hardware repeated frames to cover timing slips - the tell is a file that plays in slow motion with the audio ending early once it has been deinterlaced. Such a file carries far more pictures than its own length accounts for, and every rate conversion in ffmpeg and VapourSynth alike decides what to drop from the timestamps, which on that kind of capture are the damaged part. This decides from the pictures instead. Run it first, then deinterlace and encode the file it writes.">
+                  <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="30">
+                      <TextBlock Grid.Column="0" Text="Repair Frame Cadence" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Classes="dim" TextWrapping="Wrap" Text="Removes the duplicate frames a bad capture padded a file with, writing a constant-rate copy that is still interlaced. No settings - the recording's own length is the answer. Refuses a file whose frame count already matches it." />
+                  </StackPanel>
+                </Border>
+
                 <Border x:Name="UtilsFilmGrainPanel" Classes="card util" Tapped="SelectFilmGrain"
                         ToolTip.Tip="grav1synth on its own, for the parts of a grain workflow that are not an encode: measuring a table off a source without committing to the encode that will use it, reading one back out of an encode somebody else made, or putting grain onto a finished AV1 file and taking it off again. For a grain-synthesised encode, the AV1AN tab's Grain Synthesis row does all of this in one run and this card is unnecessary.">
                   <StackPanel>
