@@ -1,16 +1,4 @@
 {
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "Bash(dotnet build:*)",
@@ -21,12 +9,73 @@
       "Bash(dotnet --version:*)",
       "Bash(ffmpeg:*)",
       "Bash(ffprobe:*)",
+      "Bash(mkvmerge:*)",
+      "Bash(mkvinfo:*)",
+      "Bash(mkvextract:*)",
+      "Bash(vspipe:*)",
+      "Bash(grav1synth:*)",
+      "Bash(av1an:*)",
+      "Bash(SvtAv1EncApp:*)",
+      "Bash(x264:*)",
+      "Bash(x265:*)",
+      "Bash(aomenc:*)",
+      "Bash(vpxenc:*)",
       "Bash(git status:*)",
       "Bash(git log:*)",
       "Bash(git diff:*)",
       "Bash(git show:*)",
       "Bash(git branch:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git rev-list:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(gh release list:*)",
+      "Bash(gh release view:*)",
+      "Bash(gh workflow list:*)",
+      "Bash(gh workflow view:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-if-gitignored.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-if-unpushed.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "vercel@claude-plugins-official": false,
+    "cloudflare@claude-plugins-official": false,
+    "google-cloud-storage@claude-plugins-official": false,
+    "supabase@claude-plugins-official": false
   }
 }
