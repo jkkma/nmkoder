@@ -454,6 +454,12 @@ clip.set_output()
             // wants the plain open in preference and therefore no detection to get wrong.
             sb.AppendLine($"FPS_NUM = {(rate.GetFloat() > 0.01f ? rate.Numerator : 0)}");
             sb.AppendLine($"FPS_DEN = {(rate.GetFloat() > 0.01f ? rate.Denominator : 0)}");
+            // What the converted open is checked against - see open_video. Only where the script is
+            // reading the plan's own file: DeinterlacePass also feeds this a *cut* of it, whose length
+            // is not the length that file reports, and checking one against the other would throw away
+            // a perfectly good open. Zero turns the check off rather than failing it.
+            bool sourceIsThePlansFile = plan.File != null && sourcePath == plan.File.ImportPath;
+            sb.AppendLine($"EXPECT_MS = {(sourceIsThePlansFile ? plan.File.DurationMs : 0)}");
             sb.AppendLine();
             sb.AppendLine(@"def open_video(path):
     # Constructing a source is not opening one, which is the same lesson the plugin probe learned
@@ -463,13 +469,29 @@ clip.set_output()
     # exactly the file this conversion exists for. So each attempt has to render before it counts.
     # One frame, not all of them: it is what separates a plugin that cannot do the job from one
     # that can, and VSPipe's own 'Output N frames' line is what catches a source that dies partway.
-    def usable(name, build, kwargs):
+    def usable(name, build, kwargs, check_length=False):
         try:
             clip = build(kwargs)
             clip.get_frame(0)
         except Exception as e:
             problems.append('%s: %s' % (name, e))
             return None
+
+        # A frame count is not a duration, and rendering frame 0 does not check one. lsmas takes
+        # fpsnum on some damaged files and answers with a clip of 25 frames whose frame 0 renders
+        # perfectly - measured, on a 30-minute capture where it *refused* the same argument on a
+        # 30 s cut of itself, so neither an exception nor a rendered frame separates the good
+        # answer from the absurd one. Only the length does. The band is deliberately wide: it is
+        # here to catch a conversion that collapsed, not to adjudicate a few frames either way,
+        # and a container whose own duration is somewhat wrong must still pass it.
+        if check_length and EXPECT_MS > 0:
+            secs = clip.num_frames * clip.fps_den / float(clip.fps_num)
+            ratio = secs / (EXPECT_MS / 1000.0)
+
+            if ratio < 0.5 or ratio > 2.0:
+                problems.append('%s: gave %d frames = %.1fs, %.4gx the %.1fs the file reports - rejected'
+                                % (name, clip.num_frames, secs, ratio, EXPECT_MS / 1000.0))
+                return None
 
         print('Nmkoder: opened through %s - %d frames at %d/%d' % (name, clip.num_frames, clip.fps_num, clip.fps_den), file=sys.stderr)
         return clip
@@ -498,13 +520,22 @@ clip.set_output()
     # renders. The plain list below keeps the app's ordinary preference, no conversion being at stake.
     if FPS_NUM > 0 and FPS_DEN > 0:
         for name, build in builders(['lsmas', 'ffms2', 'bestsource']):
-            clip = usable('%s at %d/%d' % (name, FPS_NUM, FPS_DEN), build, {'fpsnum': FPS_NUM, 'fpsden': FPS_DEN})
+            clip = usable('%s at %d/%d' % (name, FPS_NUM, FPS_DEN), build, {'fpsnum': FPS_NUM, 'fpsden': FPS_DEN}, check_length=True)
 
             if clip is not None:
                 return clip
 
     # A clip of the wrong length still beats no encode at all, and the line each attempt prints is
-    # what says which of the two happened.
+    # what says which of the two happened. Reaching here on a file that needed converting means the
+    # output will be as long as the frame count rather than as long as the recording, so the reasons
+    # go to stderr too - they are the difference between 'no plugin could' and 'every plugin lied'.
+    if FPS_NUM > 0 and FPS_DEN > 0:
+        print('Nmkoder: no source plugin could rebuild this file at %d/%d, so it is opened as it '
+              'stands and the output will be as long as its frame count:' % (FPS_NUM, FPS_DEN), file=sys.stderr)
+
+        for problem in problems:
+            print('  ' + problem, file=sys.stderr)
+
     for name, build in builders(['lsmas', 'bestsource', 'ffms2']):
         clip = usable(name + ' at its own rate', build, {})
 
@@ -653,11 +684,22 @@ clip.set_output()");
                 // Worth putting in front of the user rather than only in the debug log, because it is
                 // a fact about their file and not about this app: the output will not be the length
                 // the source claims, and nothing else would ever explain why.
+                //
+                // It used to say outright that the container's duration was wrong, which is one of the
+                // two ways this happens and was written from the one that had been seen - a capture
+                // card's timestamps under-reporting a 3.3 GB program stream. The other is a capture
+                // padded with duplicate frames, where the container is right and the frame count is
+                // the inflated side: measured, 76080 coded frames across a 30:12 recording, which
+                // VapourSynth reads as 42:18. open_video converts that away where a plugin can, so
+                // reaching here means it could not, and which of the two it is cannot be told from
+                // these two numbers alone - the audio is what separates them. So it names the
+                // disagreement and stops there rather than blaming either side.
                 if (claimedMs > 0 && Math.Abs(durationMs - claimedMs) > FfmpegOutputHandler.TargetToleranceMs(claimedMs))
                 {
                     Logger.Log($"Note: '{source.Name.Trunc(40)}' reports a duration of {FormatUtils.Time(claimedMs)}, but " +
-                        $"there are {FormatUtils.Time(durationMs)} of video in it - its container's duration is wrong. " +
-                        $"Progress is measured against the real length, and what this writes will be that long.");
+                        $"VapourSynth reads {FormatUtils.Time(durationMs)} of video in it. What this writes will be " +
+                        $"{FormatUtils.Time(durationMs)} long and progress is measured against that; if the audio ends " +
+                        $"early, the file's frame count is the wrong half and its timestamps need repairing first.");
                 }
                 else
                 {

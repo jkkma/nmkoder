@@ -232,11 +232,11 @@ route and the raw-Annex-B one; a clean CFR interlaced control is 600 frames in, 
 against 20.00 s, and still opens through lsmas.
 
 **Which plugin can do it was measured, and the order in `open_video` is that measurement rather than
-the app's ordinary preference.** On the padded capture: `lsmas` refuses `fpsnum` outright ("Filter
-LWLibavSource returned zero or negative frame count"); `bestsource` accepts it, reports a correct 902
-frames - the number ffmpeg's own `-fps_mode cfr` produces - and then **fails every `get_frame` with
-"file has frames with unknown timestamps"**, which is that lone `N/A` PTS; `ffms2` converts to 900
-frames and renders them. On a clean CFR file all three take `fpsnum` and return the same 300 frames,
+the app's ordinary preference.** On a 30 s cut of the padded capture: `lsmas` refuses `fpsnum`
+outright ("Filter LWLibavSource returned zero or negative frame count"); `bestsource` accepts it,
+reports a correct 902 frames - the number ffmpeg's own `-fps_mode cfr` produces - and then **fails
+every `get_frame` with "file has frames with unknown timestamps"**, which is that lone `N/A` PTS;
+`ffms2` converts to 900 frames and renders them. On a clean CFR file all three take `fpsnum` and return the same 300 frames,
 so lsmas keeps the fast path it has always had. The converted attempts are therefore ordered lsmas →
 ffms2 → bestsource and are **all** tried before any plain open: falling back to a plain open of the
 preferred plugin would keep that plugin and quietly lose the conversion, which is the entire bug.
@@ -250,6 +250,38 @@ shipped it: the attempt loop validated the constructor, bestsource won, and the 
 before it counts. One frame rather than all of them, deliberately: it is what separates a plugin that
 cannot do the job from one that can, and VSPipe's own "Output N frames" line already catches a source
 that dies partway through.
+
+**And a rendered frame is not a length, which is the third turn of the same screw and the one that
+shipped.** 2.8.71 went out with the conversion validated by rendering frame 0, and on the *whole*
+1.65 GB capture - as against the 30 s cut every earlier measurement here was made on - `lsmas`
+**accepts `fpsnum` and answers with a clip of 25 frames whose frame 0 renders perfectly**. So the same
+plugin, on the same fault, fails two different ways depending on how much of the file it is given:
+an exception on the cut, a plausible object on the whole thing. The encode ran to completion in 30
+seconds and wrote a 29 MB, 0.8-second file, which is **worse than the bug it replaced** - the
+unfixed build at least produced all the video, merely 1.4014x too long.
+
+Measured on the full file, expected length 1812.5 s: `lsmas` plain 76080 frames = 2538.5 s (ratio
+1.4006, the padded length); `lsmas` with `fpsnum` 25 frames (ratio 0.0005); **`ffms2` with `fpsnum`
+54321 frames = 1812.5 s, ratio 1.0000**. Nothing but the length separates the good answer from the
+absurd one - not an exception, not a rendered frame, not a frame count read on its own - so
+`usable()` now checks a converted open against `EXPECT_MS`, the duration the file reports, and
+rejects anything outside 0.5x to 2x of it. The band is wide on purpose: it is there to catch a
+conversion that collapsed, not to adjudicate a few frames either way, and the case above where a
+container under-reports its own length has to keep passing it. `EXPECT_MS` is 0 - the check off -
+where the script is reading something other than the plan's own file, which is `DeinterlacePass`
+handing it a cut whose length is not the length that file reports.
+
+Rejecting every converted open is not fatal: the plain opens still run, so the worst case is the
+old 1.4x-long clip rather than no encode, and the reasons every plugin was turned down go to stderr
+together, since "no plugin could" and "every plugin lied" are the two cases worth telling apart.
+
+The lesson generalises past this file and is why it is written three times over: **each check
+established only what it tested.** The plugin probe learned that a present DLL may not register;
+bestsource added that a registered plugin may not render; lsmas adds that a rendering clip may not
+be the right length. Every one of the three looked like proof at the time. What is *still* untested
+is whether a converted clip that is the right length is right all the way through - nothing here
+renders more than frame 0 of it, and VSPipe's "Output N frames" line remains the only thing that
+would catch a source that dies partway.
 
 What is **not** verified: the 900-versus-902 difference between ffms2 and bestsource on a 30 s cut is
 0.07 s and was not chased - 30.0 s of audio implies 899.1 frames, so if anything ffms2 is the closer
