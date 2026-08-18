@@ -1792,6 +1792,43 @@ is the one place that choice is stated, per script. Note that bestsource reports
 `4680000/117031` where lsmas says `30000/1001`; only the frame *count* is read here and `AssumeFPS`
 states the output rate, so it changes nothing - expect it in the log rather than re-diagnosing it.
 
+**Measured across ten downloaded samples, no source plugin is safe on MPEG-2 and all three are
+perfect on everything else - and the reason first given for ffms2's wrongness was wrong.** This file
+used to say the divergence was "measured on the same file", with the guess offered alongside it that
+ffms2's silent errors were down to that capture's damaged timestamps and that a clean MKV would be
+fine. Half of that survives. Sources: ffmpeg's own sample archive (`dvd.mpeg`, `broken-ntsc.mpg`,
+`interlaced/burosch1.mpg`, `mpeg2_field_encoding.ts`, a VOB) and test-videos.co.uk (H.264 MP4, VP9
+WebM, AV1 MP4), plus an MKV remuxed from the first, first 600 frames of each, forward-with-gaps and
+true-random against a sequential reference:
+
+| sample | lsmas | ffms2 | bestsource |
+|---|---|---|---|
+| MP4/H.264, MKV/H.264, WebM/VP9, MP4/AV1 | clean | clean | clean |
+| `dvd.mpeg` (progressive PS) | clean | clean | clean, but **1 frame of 600 decodes differently from both others** |
+| `burosch1.mpg` (interlaced PS) | clean | **132 of 600 wrong on random access** | clean |
+| `broken-ntsc.mpg` | **refuses**: "repeat requested for 1438 frames by input video, but unable to obey" | clean | clean |
+| `mpeg2_field_encoding.ts` | clean | clean | **refuses**: "No frame returned for frame number 30" |
+| the padded capture | random access errors | 446 of 600 wrong | clean |
+
+So the *class* is right and the *cause* was not: ffms2's silent wrongness is not a symptom of damaged
+timestamps, because `burosch1.mpg` is an ordinary test pattern and shows it, while the VOB - also
+interlaced MPEG-2 - does not. And bestsource is not the universal answer the paragraph above implies:
+it is the only one that refuses a field-encoded transport stream outright, and the only one that
+disagrees with the other two about a frame of a clean DVD stream. Each of the three has at least one
+hard failure or silent error somewhere in five MPEG-2 samples, and never on the same file as another.
+
+**Which is the argument for trying rather than declaring.** A StaxRip-style table keyed on extension
+cannot express this: `.mpg` alone wants bestsource on one file, ffms2 on the next and lsmas on a
+third. Only the ordered attempt list with a validating check copes, and that is what `open_video` is.
+
+The operational half: **forward-with-gaps access is exact on all three plugins across all ten
+samples**, 0 wrong in every cell. That is the only pattern `DeleteFrames` produces, so the cadence
+repair is safe whichever plugin wins its fallback - which is what makes naming bestsource first a
+defence against a *future* filter rather than a fix for a present bug. Not verified: on
+`mpeg2_field_encoding.ts` lsmas and ffms2 return different pictures for 30 of 41 frames and
+bestsource, which would have been the tie-break, refuses the file - so which of them is right there
+is unknown.
+
 **DGIndex and d2vsource were fetched, run against this file and deliberately not adopted** - which is
 worth writing down, because "why does this not use the proper MPEG-2 source the way StaxRip does" is a
 reasonable question to ask later. StaxRip's default route for an `.mpg` really is a different one: a
