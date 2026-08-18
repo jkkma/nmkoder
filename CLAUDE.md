@@ -1824,10 +1824,27 @@ third. Only the ordered attempt list with a validating check copes, and that is 
 The operational half: **forward-with-gaps access is exact on all three plugins across all ten
 samples**, 0 wrong in every cell. That is the only pattern `DeleteFrames` produces, so the cadence
 repair is safe whichever plugin wins its fallback - which is what makes naming bestsource first a
-defence against a *future* filter rather than a fix for a present bug. Not verified: on
-`mpeg2_field_encoding.ts` lsmas and ffms2 return different pictures for 30 of 41 frames and
-bestsource, which would have been the tie-break, refuses the file - so which of them is right there
-is unknown.
+defence against a *future* filter rather than a fix for a present bug.
+
+**The one disagreement that looked alarming is an off-by-one, and it was settled by asking ffmpeg.**
+`mpeg2_field_encoding.ts` had lsmas and ffms2 returning different pictures for 30 of its 41 frames,
+with bestsource - the obvious tie-break - refusing the file, and *its own suggested remedy of
+`threads=1` does not help*, nor does d2vsource, which refuses it too. The reference is therefore
+ffmpeg itself, per-frame luma through `signalstats`: it decodes **31 frames from the stream's 41
+packets**, the leading ones being undecodable ("Invalid frame dimensions 0x0", "ac-tex damaged").
+Both plugins report 41 - the packet count - and pad the head with held copies of the first picture,
+lsmas with 11 and ffms2 with 12. At those offsets each reproduces **30 of ffmpeg's 31 frames
+exactly**, differing only on the final partial one, and they match *each other* on 40 of 41 at a
+shift of one. So neither decodes anything wrongly; they disagree by a single frame about where real
+content begins in a damaged stream, and both overstate its length.
+
+**Getting that answer needed the right tolerance, which is the trap worth keeping.** The content is
+nearly static - every frame's luma average lies between 0.2624 and 0.2707 - so the first comparison,
+run at 0.002, manufactured agreement out of neighbouring frames and reported lsmas matching 31/31
+against ffms2's 30/31, which reads as "lsmas is right and ffms2 is not". At 1e-5, which is still
+fifty times the rounding error of the four decimal places `signalstats` prints, both come out at
+30/31 and the real relationship - a one-frame offset - appears. On near-constant material a loose
+tolerance does not blur a comparison, it invents one.
 
 **DGIndex and d2vsource were fetched, run against this file and deliberately not adopted** - which is
 worth writing down, because "why does this not use the proper MPEG-2 source the way StaxRip does" is a
