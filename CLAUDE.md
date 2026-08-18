@@ -1734,9 +1734,66 @@ Read it before changing anything here; what follows is only what has to hold wha
   long, with the audio ending at 71% of the picture. ffmpeg does this conversion by default, which
   is the only reason bwdif and yadif were never affected. The rate comes off the plan's own file, so
   anything that changes what `VideoStream.Rate` means changes this too.
+- **A capture padded with duplicate frames is not a deinterlacing fault and cannot be fixed here.**
+  Its frame count exceeds its own recording, so every rate conversion - ffmpeg's and VapourSynth's
+  alike - picks the wrong frames from its damaged timestamps: measured, 12.8% of the padding, ~1.5
+  hitches a second. The Repair Frame Cadence utility rewrites it first; see that section.
 - **A stream-copy cut ends two frames late on any B-frame source**, and `-frames:v` is not the fix
   however much it looks like one - it truncates in decode order and can take a hole out of the
   middle of the picture. Leave it.
+
+## Repairing a padded capture
+
+The Repair Frame Cadence utility, which removes the duplicate frames a capture inserted and writes a
+constant-rate copy. `CadenceRepair` holds the script and the run, `UtilRepairCadence` the task.
+
+**Every rate conversion in this app decides what to drop from the timestamps, and on the capture this
+exists for the timestamps are the damaged half.** ffmpeg's `-fps_mode cfr` and a VapourSynth source
+plugin's `fpsnum` are the same idea twice, so the ffmpeg deinterlacers and QTGMC inherit the same
+fault. Measured on 15319 coded frames decimated to 10936: the timestamp-driven result leaves **560
+adjacent-identical pairs, 5.12% of its own output**, and the total count being right means each one
+cost a real frame. That is **12.8% of the padding identified wrongly**, about 1.5 visible hitches a
+second. Deciding from the pictures instead: **25 hard stutters to 0** on a 30 s cut, and fewer
+near-duplicates at every threshold (28 against 1 at 1e-4, 76 against 24 at 1e-3).
+
+**The decimation is per cycle and must not be "simplified" into a global sort.** Dropping the
+globally-most-duplicate frames minimises the total difference thrown away and is the wrong answer: it
+strips a static stretch wholesale, so the picture runs ahead for the rest of the file while the length
+still comes out right. Measured on 15319 frames, max local drift **29 frames - 968 ms - against 64 ms**
+for the cycle version, and *both leave zero duplicate pairs behind*, so a stutter count cannot tell
+them apart. The cycle is the file's own cadence rather than a constant: the keep-ratio 0.71388 is 5/7,
+so seven frames dropping two lands on the padding's rhythm, and small denominators win near-ties
+because the cycle is what bounds the drift (cycle 7 → 64 ms, cycle 60 → 149 ms).
+
+**y4m has no field order and VapourSynth declares the opposite of the truth, which bites anything
+piping interlaced frames from VapourSynth into ffmpeg.** VSPipe's header reads `... F30000:1001 Ip` -
+`Ip` is *progressive* - so ffmpeg marks every frame progressive on the way in. Measured against a `tt`
+source through a real VSPipe producer: `-x264-params tff=1` alone gives `field_order=progressive`;
+`-flags +ilme+ildct -x264-params tff=1` gives **`bt`, the wrong parity**; `-vf setfield=tff
+-x264-params tff=1` gives `tb`, which is right. The middle row is the one to remember - it looks like
+it worked, and leaves the next deinterlace running at the wrong parity on a file just "repaired". The
+same four flags read `tb` for all of them when the y4m comes from ffmpeg rather than VSPipe, so a test
+that does not use the real producer proves nothing.
+
+**`FPS_NUM`/`FPS_DEN` are `open_video`'s names and mean "rebuild the clip at this rate".** Naming a
+script's *output* rate that way hands the padded file to the very conversion the script exists to
+replace: caught by running it, the repair opened 900 frames of a 1259-frame file and reported nothing
+to decimate. The repair script sets both to 0 and calls its own rate `OUT_FPS_NUM`/`OUT_FPS_DEN`.
+
+**It is a utility rather than something an encode tab does on the way past**, for the reason the
+Deinterlace Video utility gives plus two of its own: the metrics pass is a full extra decode, and one
+repaired file fixes every downstream path rather than one. The judgement is also not one to make
+silently - deciding a file's frame count is wrong and its container right is a claim about somebody's
+capture, and `CadenceRepair.TargetFrames` records that the opposite case exists and cannot be told
+apart from these two numbers alone. It has no settings; the recording's own length is the answer. A
+file whose frame count already matches its length is **refused** rather than copied.
+
+Verified through the real `MainWindow` and `RunTask`: 1259 coded frames → 901 at 30000/1001, cycle 7
+chosen on its own, `field_order=tb` preserved from a `tt` source, 30.06 s of video against 30.00 s of
+audio, and the repaired file then read back through QTGMC on the fast `lsmas` path to 1802 frames -
+exactly twice its own count - still 30.06 s against 30.00 s. What is **not** verified: no full-length
+repair was run, and nothing here establishes that the *real* frames were themselves captured at even
+instants - a frame count matching the recording only proves none were lost.
 
 ## Grain synthesis
 

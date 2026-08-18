@@ -17,7 +17,7 @@ namespace Nmkoder.Main
 {
     public class RunTask
     {
-        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace, UtilFilmGrain, UtilCrfLadder };
+        public enum TaskType { Null, None, Convert, Av1an, UtilReadBitrates, UtilGetMetrics, UtilOcr, UtilColorData, UtilConcat, UtilCut, PlotBitrate, UtilDeinterlace, UtilFilmGrain, UtilCrfLadder, UtilRepairCadence };
 
         public enum FileListMode { Mux, Batch };
         public static FileListMode currentFileListMode;
@@ -312,7 +312,8 @@ namespace Nmkoder.Main
 
             bool loadedFileRequired = task == TaskType.Convert || task == TaskType.Av1an || task == TaskType.UtilReadBitrates
                 || task == TaskType.UtilOcr || task == TaskType.UtilCut || task == TaskType.UtilDeinterlace
-                || task == TaskType.UtilFilmGrain || task == TaskType.UtilCrfLadder;
+                || task == TaskType.UtilFilmGrain || task == TaskType.UtilCrfLadder
+                || task == TaskType.UtilRepairCadence;
 
             if (loadedFileRequired && TrackList.current == null && (inBatch || currentFileListMode == FileListMode.Mux))
             {
@@ -362,6 +363,7 @@ namespace Nmkoder.Main
                 else if (task == TaskType.UtilDeinterlace) await UtilDeinterlace.Run();
                 else if (task == TaskType.UtilFilmGrain) await UtilFilmGrain.Run();
                 else if (task == TaskType.UtilCrfLadder) await UtilCrfLadder.Run();
+                else if (task == TaskType.UtilRepairCadence) await UtilRepairCadence.Run();
             }
             catch (Exception e)
             {
@@ -441,6 +443,7 @@ namespace Nmkoder.Main
                 case TaskType.UtilDeinterlace: return "Deinterlace pass";
                 case TaskType.UtilFilmGrain: return "Film grain edit";
                 case TaskType.UtilCrfLadder: return "CRF ladder";
+                case TaskType.UtilRepairCadence: return "Cadence repair";
                 default: return "Task";
             }
         }

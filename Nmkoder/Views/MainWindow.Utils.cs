@@ -27,6 +27,7 @@ namespace Nmkoder.Views
         private void SelectDeinterlace(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilDeinterlace);
         private void SelectFilmGrain(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilFilmGrain);
         private void SelectCrfLadder(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilCrfLadder);
+        private void SelectRepairCadence(object sender, TappedEventArgs e) => SelectUtilCard(e, RunTask.TaskType.UtilRepairCadence);
 
         private async void UtilsCrfLadderConf_Click(object sender, RoutedEventArgs e)
         {
@@ -201,6 +202,7 @@ namespace Nmkoder.Views
                 { UtilsDeinterlacePanel, RunTask.TaskType.UtilDeinterlace },
                 { UtilsFilmGrainPanel, RunTask.TaskType.UtilFilmGrain },
                 { UtilsCrfLadderPanel, RunTask.TaskType.UtilCrfLadder },
+                { UtilsRepairCadencePanel, RunTask.TaskType.UtilRepairCadence },
             };
 
             foreach (var pair in panels)
