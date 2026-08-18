@@ -20,12 +20,19 @@ namespace Nmkoder.UI.Tasks
     /// kind of source, so the row appears for that kind and is not on screen at all otherwise. A file
     /// whose transfer curve is PQ or HLG gets the control; every ordinary BT.709 download never sees it.
     /// <para/>
-    /// **What it does not share with that row is a default that does anything.** Deinterlacing an
-    /// interlaced file is what almost everyone wants and the row opens armed; tone-mapping an HDR file is
-    /// a deliberate choice, because the other thing people load an HDR source for is to re-encode it as
-    /// HDR - which is most of what the AV1AN tab's 10-bit AV1 encoding is for. So this opens on
-    /// <see cref="ToneMapMode.Off"/> and the row's whole job at that point is to say the file is HDR and
-    /// that it will stay that way. Nothing here ever selects a curve on the user's behalf.
+    /// **Both tabs open armed, and which curve differs by tab.** Quick Convert opens on
+    /// <see cref="ToneMapMode.Spline"/>, which is libplacebo's own default and the best of the set; it is
+    /// the one entry needing a GPU, and where there is none <see cref="ToneMapConfig.GetCurveName"/> falls
+    /// back to hable with the log saying so, so selecting it costs nothing on a machine that cannot run it.
+    /// The AV1AN tab cannot offer Spline at all - it never runs libplacebo, see
+    /// <see cref="ToneMapConfig.Av1anModes"/> - and opens on <see cref="Av1anDefaultMode"/> instead.
+    /// <para/>
+    /// **This used to open on Off, and the argument for that is worth keeping in view rather than
+    /// forgetting:** the conversion is destructive and irreversible, and the other reason to load an HDR
+    /// source is to re-encode it as HDR, which is most of what the AV1AN tab's 10-bit AV1 encoding is for.
+    /// What contains it is that the row exists only for a file that really is HDR - see
+    /// <see cref="IsRowRelevant"/> - so no SDR source is touched by either default, and the readout states
+    /// the conversion on screen before anything is encoded.
     /// <para/>
     /// <see cref="ModeInEffect"/> reports Off whenever the row is off screen, which is what makes hiding
     /// it safe rather than merely tidy - a curve left selected behind a hidden row would otherwise
@@ -35,10 +42,30 @@ namespace Nmkoder.UI.Tasks
     {
         private static MainWindow Form { get { return Program.MainWin; } }
 
-        /// <summary> What both tabs open on, what Reset On New File goes back to. Off, for the reason in
-        /// the class summary: the conversion is destructive and irreversible, and wanting it is not the
-        /// same as having loaded a file it could apply to. </summary>
-        public const ToneMapMode DefaultMode = ToneMapMode.Off;
+        /// <summary> What Quick Convert opens on, and what Reset On New File puts it back to. Spline
+        /// because that tab is the one that can run libplacebo, and Spline is its own default curve -
+        /// measured the brightest and closest to the reference of the set, 129/152 at 100 and 203 nits
+        /// against hable's 115/143. A machine with no usable GPU substitutes hable and says so, so this
+        /// is not a setting that can fail to run. </summary>
+        public const ToneMapMode DefaultMode = ToneMapMode.Spline;
+
+        /// <summary>
+        /// What the AV1AN tab opens on, and what Reset On New File puts it back to there. It cannot be
+        /// <see cref="DefaultMode"/>: that tab never runs libplacebo, so <see cref="ToneMapConfig.Av1anModes"/>
+        /// does not carry Spline at all, and the nearest thing to it is the right default instead.
+        /// <para/>
+        /// Mobius is that nearest thing, measured rather than assumed. On a 4K HDR10 source (PQ, MaxCLL
+        /// 1529) against a real Spline render of the same file: as encoded, Mobius scores VMAF 67.9 and
+        /// SSIM 0.9884, against Reinhard's 60.4 / 0.9836 and Hable's 44.2 / 0.9614. Reinhard takes raw
+        /// PSNR-y (28.3 against 27.7) purely because its average brightness happens to land nearer -
+        /// equalise the exposure and Mobius wins every metric, VMAF 90.2 / PSNR-y 36.6 / SSIM 0.9931
+        /// against Reinhard's 87.5 / 33.5 / 0.9869. So Mobius tracks Spline's tone curve *shape* best
+        /// rather than merely sitting at the right level, which is what makes it the substitute.
+        /// <para/>
+        /// None of the three is close in absolute terms - Spline detects the peak per frame where this
+        /// tab is pinned to one static roll-off - so this picks the best available stand-in, not a match.
+        /// </summary>
+        public const ToneMapMode Av1anDefaultMode = ToneMapMode.Mobius;
 
         public static void Init()
         {
@@ -47,14 +74,16 @@ namespace Nmkoder.UI.Tasks
             Form.EncToneMapModeBox.SetItems(ToneMapConfig.AllModes.Select(m => (object)ToneMapConfig.GetLabel(m)),
                 Array.IndexOf(ToneMapConfig.AllModes, DefaultMode));
             Form.Av1anToneMapModeBox.SetItems(ToneMapConfig.Av1anModes.Select(m => (object)ToneMapConfig.GetLabel(m)),
-                Array.IndexOf(ToneMapConfig.Av1anModes, DefaultMode));
+                Array.IndexOf(ToneMapConfig.Av1anModes, Av1anDefaultMode));
         }
 
-        /// <summary> Both tabs back to <see cref="DefaultMode"/>, for Reset On New File. </summary>
+        /// <summary> Each tab back to its own default - <see cref="DefaultMode"/> and
+        /// <see cref="Av1anDefaultMode"/> - for Reset On New File. They differ, so one constant cannot
+        /// serve both: the AV1AN box has no Spline entry to select. </summary>
         public static void ResetModes()
         {
             Form.EncToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.AllModes, DefaultMode);
-            Form.Av1anToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.Av1anModes, DefaultMode);
+            Form.Av1anToneMapModeBox.SelectedIndex = Array.IndexOf(ToneMapConfig.Av1anModes, Av1anDefaultMode);
         }
 
         /// <summary>

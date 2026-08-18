@@ -3582,19 +3582,40 @@ so no grain plan can pull one, and re-running that assertion would fail on a tab
 
 ## Tone mapping
 
-**Both encode tabs hide the Tone Mapping row for a file that is not HDR**, and unlike the
-Deinterlace row above it, the setting behind it defaults to doing nothing. `ColorDataUtils.IsHdr`
-decides which a file is and reads the **transfer curve alone** - 16 (PQ) or 18 (HLG). Wide *gamut*
-is deliberately not enough: BT.2020 primaries under an ordinary BT.709 transfer is a colour space,
-not a dynamic range, and tone-mapping is a luminance operation with nothing to say about it.
+**Both encode tabs hide the Tone Mapping row for a file that is not HDR**, and like the Deinterlace
+row above it, the setting behind it now opens armed. `ColorDataUtils.IsHdr` decides which a file is
+and reads the **transfer curve alone** - 16 (PQ) or 18 (HLG). Wide *gamut* is deliberately not
+enough: BT.2020 primaries under an ordinary BT.709 transfer is a colour space, not a dynamic range,
+and tone-mapping is a luminance operation with nothing to say about it.
 
-The default is Off because the other reason to load an HDR file is to re-encode it *as* HDR, which
-is most of what this app's 10-bit AV1 encoding is for. Deinterlacing an interlaced file is what
-almost everyone wants and that row opens armed; converting HDR to SDR is a choice, and an
-irreversible one. So the row's whole job at rest is to say the file is HDR and that it will stay
-that way. `ToneMapUi.ModeInEffect` reports Off whenever the row is off screen, which is what makes
-hiding it safe rather than merely tidy - a curve left selected behind a hidden row would otherwise
-convert a file nobody was looking at.
+**The two tabs default to different curves, and that is forced rather than chosen.** Quick Convert
+opens on Spline, libplacebo's own default and the best of the set. The AV1AN tab cannot offer Spline
+at all - it never runs libplacebo, so `ToneMapConfig.Av1anModes` does not carry the entry - so it
+opens on **Mobius**, the curve measured closest to what Spline produces. `ToneMapUi.DefaultMode` and
+`ToneMapUi.Av1anDefaultMode` are the two statements of that; one constant cannot serve both, since
+the AV1AN box has no Spline entry to select.
+
+Mobius was measured rather than picked. On a 4K HDR10 source (PQ, MaxCLL 1529, mastering display
+4000 nits) against a real Spline render of the same file, compared at a matched 1920x804 with the
+letterbox cropped off: as encoded, Mobius scores **VMAF 67.9 / SSIM 0.9884** against Reinhard's
+60.4 / 0.9836 and Hable's 44.2 / 0.9614. Reinhard takes raw PSNR-y (28.3 against 27.7) and that is
+an exposure artifact rather than a better match - its mean luma lands 4.7 code values from Spline's
+where Mobius lands 10.0 - because equalising the exposure flips it: gain-matched, Mobius wins every
+metric at **VMAF 90.2 / PSNR-y 36.6 / SSIM 0.9931**, against Reinhard's 87.5 / 33.5 / 0.9869 and
+Hable's 79.4 / 31.6 / 0.9841. A straight-line fit to Spline says the same thing - Mobius R2 0.9916
+against Reinhard's 0.9876 and Hable's 0.9766 - so Mobius tracks Spline's *shape* best rather than
+merely sitting at the right level. **None of the three is close in absolute terms**: Spline detects
+the peak per frame where this tab is pinned to one static roll-off, worth some 31 code values, so
+this is the best available stand-in and not a match.
+
+**The old default was Off, and the argument for it is worth keeping in view rather than losing.**
+Tone-mapping is destructive and irreversible, and the other reason to load an HDR file is to
+re-encode it *as* HDR, which is most of what this app's 10-bit AV1 encoding is for. What contains
+that now is the row's own relevance test: it exists only for a file that really is HDR, so no SDR
+source is touched by either default, and the readout states the conversion on screen before
+anything is encoded. `ToneMapUi.ModeInEffect` still reports Off whenever the row is off screen,
+which is what makes hiding it safe rather than merely tidy - a curve left selected behind a hidden
+row would otherwise convert a file nobody was looking at.
 
 **`MediaFile.ColorData` is now filled in when a file loads**, on a background task beside the
 interlace scan. Before this it was assigned in exactly one place - `Av1an.cs`, at encode time - so
