@@ -720,6 +720,19 @@ tool will be *launched* with rather than this process's own, because
 full PATH would vouch for an mkvmerge in Program Files that the launcher then
 cannot resolve, which is the same mystery under a new name.
 
+**ffprobe's diagnostics go to the same stream as its answer, so a value asked for with `nokey=1`
+cannot be told from a complaint.** `AvProcess.RunFfprobe` hands back both together, and with
+`-of default=noprint_wrappers=1:nokey=1` the answer is a bare token with nothing marking it - so
+"the first non-empty line" is the *warning* whenever there is one, and any guard on the value's
+shape then rejects it and the caller silently gets nothing. Ask for `key=value` and match on the
+`key=` prefix; one call can carry several entries, which is fewer ffprobe runs as well.
+
+Both of the app's `nokey=1` call sites were checked. `Av1anSceneDetect.GetDurationSecondsAsync`
+is safe, and **only** because its `LogLevel` is `quiet` - nothing else about it defends against
+this. `CadenceRepair`'s colour restatement was at `error` and shipped the failure; what it cost,
+and the capture that reproduces it, is under `Repairing a padded capture`. A third such parse
+written at `error` would be the same bug again, which is why this is here rather than only there.
+
 ## The file list and the track list
 
 **`TrackList.SetAsMainFile` empties the stream list, and every caller has to say what it wants of
@@ -1846,6 +1859,34 @@ confidently, with the half-tagged output as its evidence. The numbers and the na
 identically; the spelling was never what decided it. What settled it was running the AVOption and
 `setparams` forms against each other **through the real pipe**, which is a different question from
 whether the command parses.
+
+**The colour repair was got wrong a third time, and this time nothing about the command was wrong -
+the value never arrived.** The four properties are probed off the source and re-stated through
+`setparams`, and each was asked for *bare* (`-of default=noprint_wrappers=1:nokey=1`), taking the
+first non-empty line of what came back. ffprobe writes its diagnostics to the same stream as its
+answer, so a bare value is not distinguishable from a complaint - and on a capture cut mid-audio-frame
+`[mp2 @ 0000026f1f808e80] Header missing` arrives **first**. That line failed the character guard that
+exists to keep a `:` or an `=` out of the filter graph, so all four properties were dropped,
+`setparams=field_mode=tff` went out alone, and the repair wrote a file tagged `unknown` for primaries,
+transfer and matrix **while reporting success** - the "every player left to guess the matrix" outcome
+this section already warns about, reached from the other end rather than through the AVOptions.
+
+Why it survived every earlier check is the disguise: the *same file* probes clean when nothing
+complains, so the bug needs a source ffprobe has something to say about, and the complaint is about the
+**audio** while the values being lost are the video's. The fix is `key=value` in one call rather than
+four bare values, matched on the `key=` prefix - a diagnostic cannot be shaped like one. That is robust
+whatever the log level, which is the point: the only other `nokey=1` call in the app,
+`Av1anSceneDetect.GetDurationSecondsAsync`, is safe **solely** because its `LogLevel` is `quiet`, and a
+correctness resting on a log level is one edit away from being lost. Do not re-narrow this to a
+`LogLevel` change on those grounds.
+
+Verified by running the real repair on the file that reproduced it, against the bundled BtbN build:
+`setparams=field_mode=tff` and `unknown/unknown/unknown/tv` before, and
+`setparams=field_mode=tff:color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv` with
+`bt470m/bt470m/bt470bg/tv` after, `field_order=tb` still preserved from a `tt` source; plus the clean
+probe, which yields the same four values, and a file that genuinely states no colour, which yields four
+`unknown` lines and is correctly left alone. Not verified: a diagnostic that happens to *begin*
+`color_space=` would still fool the prefix match, and nothing has been seen to produce one.
 
 **The three source plugins decode this file identically and answer a *backwards* request three
 different ways, one of them silently wrong.** Measured on the same 1259-frame capture: sequentially

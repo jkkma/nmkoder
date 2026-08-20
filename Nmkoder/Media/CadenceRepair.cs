@@ -440,16 +440,42 @@ else:
             // lazily and may not have been asked for yet. The names ffprobe prints and the values
             // setparams accepts come out of the same libavutil tables, so this round trip is lossless
             // by construction - which is true of *this* filter and was never true of the AVOptions.
-            foreach (var pair in new[] { ("color_primaries", "color_primaries"), ("color_transfer", "color_trc"),
-                                         ("color_space", "colorspace"), ("color_range", "range") })
-            {
-                var probe = new AvProcess.FfprobeSettings
-                {
-                    Args = $"-select_streams v:0 -show_entries stream={pair.Item1} -of default=noprint_wrappers=1:nokey=1 {file.ImportPath.Wrap()}",
-                    LogLevel = "error",
-                };
+            //
+            // Asked for as `key=value` in one call rather than as four bare values in four, and that
+            // is a fix for a silent failure rather than a tidy-up. ffprobe's diagnostics share the
+            // stream that carries its answer, so with `nokey=1` there is nothing in the output that
+            // distinguishes the value from a complaint - and taking the first non-empty line took the
+            // complaint. Measured on an NTSC capture cut mid-audio-frame, which makes ffprobe print
+            // `[mp2 @ 0000026f1f808e80] Header missing` before the value it was asked for: that line
+            // failed the character test below, so *every* colour property was dropped and the repair
+            // wrote a file tagged `unknown` for primaries, transfer and matrix while reporting
+            // success. That is the "every player left to guess the matrix" outcome the comment above
+            // is about, arrived at from the other end.
+            //
+            // A `key=` prefix cannot be confused with a diagnostic, which makes this robust whatever
+            // the log level - the sibling call in Av1anSceneDetect survives only because it is set to
+            // `quiet`, and a correctness that rests on a log level is one line away from being lost.
+            var wanted = new[] { ("color_primaries", "color_primaries"), ("color_transfer", "color_trc"),
+                                 ("color_space", "colorspace"), ("color_range", "range") };
 
-                string value = (await AvProcess.RunFfprobe(probe)).SplitIntoLines().FirstOrDefault(x => x.IsNotEmpty())?.Trim() ?? "";
+            var probe = new AvProcess.FfprobeSettings
+            {
+                Args = $"-select_streams v:0 -show_entries stream={string.Join(",", wanted.Select(x => x.Item1))} " +
+                    $"-of default=noprint_wrappers=1 {file.ImportPath.Wrap()}",
+                LogLevel = "error",
+            };
+
+            string[] probed = (await AvProcess.RunFfprobe(probe)).SplitIntoLines();
+
+            foreach (var pair in wanted)
+            {
+                // Last rather than first: one stream is asked for, so one line per key is expected,
+                // and preferring the last costs nothing if that holds and picks the real answer over
+                // a diagnostic that happened to be shaped like one if it ever does not.
+                string value = probed.Select(x => x.Trim())
+                    .Where(x => x.StartsWith($"{pair.Item1}=", StringComparison.Ordinal))
+                    .Select(x => x.Substring(pair.Item1.Length + 1).Trim())
+                    .LastOrDefault() ?? "";
 
                 // "unknown" and "N/A" are ffprobe saying the source states nothing, and every setparams
                 // property defaults to `auto` - keep whatever came in - so leaving it off is exactly
