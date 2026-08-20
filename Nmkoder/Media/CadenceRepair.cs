@@ -3,7 +3,9 @@ using Nmkoder.Data.Streams;
 using Nmkoder.Extensions;
 using Nmkoder.IO;
 using Nmkoder.Main;
+using Nmkoder.Utils;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -27,7 +29,24 @@ namespace Nmkoder.Media
     /// since the total count is right each one means a real frame was discarded to make room. That
     /// is 12.8% of the padding identified wrongly, about 1.5 visible hitches per second.
     /// <para/>
-    /// This ignores the timestamps entirely - they are the damaged part - and decides by content.
+    /// **It uses the timestamps to decide where each frame goes and the content to decide which frame
+    /// goes there.** Neither alone is enough, and this file used to say the opposite - that the
+    /// timestamps were "the damaged part" and were ignored entirely. They are damaged *individually*,
+    /// jittering between 8 and 79 ms where 33 is due and running backwards thousands of times, and
+    /// their trend is still the only record of when each picture belongs. Choosing by index instead -
+    /// a constant keep-ratio, however carefully carried - assumes the coded frames are spread evenly
+    /// through the recording, and they are not: measured on a 95-minute capture, the picture ran up to
+    /// <b>6.99 s ahead of its own audio</b> in the middle while both ends lined up. Placing every frame
+    /// against its own timestamp instead holds the error to <b>0.054 s</b> over the same file, bounded
+    /// by the source's jitter rather than accumulating.
+    /// <para/>
+    /// <b>The index selection leaves fewer duplicate frames than this does, and that is not a reason to
+    /// go back to it.</b> Measured over the same source frames on a 30 s cut, it left 0 adjacent pairs
+    /// within 1e-4 and 14 within 1e-3 where this leaves 16 and 83 - it optimises for exactly that
+    /// quantity, and pays in the one that ruins a file. Nine percent of frames near their predecessor
+    /// is a mild softness; seconds of audio drift is unwatchable. Against a pure nearest-in-time pick,
+    /// which is what ffmpeg's own conversion does, the content tie-break wins at every threshold
+    /// (16 against 21, 83 against 98) - that is the comparison this selection is entitled to claim.
     /// </summary>
     class CadenceRepair
     {
@@ -62,7 +81,7 @@ namespace Nmkoder.Media
         /// time - a full decode before a single frame is handed on - which is the reason this is a
         /// utility that writes a file rather than something an encode tab does on its way through.
         /// </summary>
-        public static string WriteScript(MediaFile file, string sourcePath, string scriptPath)
+        public static string WriteScript(MediaFile file, string sourcePath, string scriptPath, string timesPath)
         {
             var sb = new StringBuilder();
             VideoStream vs = file.VideoStreams.First();
@@ -101,6 +120,7 @@ namespace Nmkoder.Media
             // the ffms2 failure being the silent kind. Naming the exact plugin costs an index and
             // removes the trap.
             sb.AppendLine("PLAIN_ORDER = ['bestsource', 'lsmas', 'ffms2']");
+            sb.AppendLine($"TIMES_FILE = {PyString(timesPath)}");
             sb.AppendLine();
             sb.AppendLine(Qtgmc.OpenVideoPy);
             sb.AppendLine();
@@ -113,7 +133,8 @@ namespace Nmkoder.Media
         }
 
         /// <summary> Kept as its own constant so the Python is readable as Python, and so the two
-        /// numbers it is built on - the cycle and the carry - sit beside the reasoning for them. </summary>
+        /// things it balances - the moment a frame belongs at, and which of the frames near that moment
+        /// is not a repeat - sit beside the reasoning for them. </summary>
         private const string ScriptBody = @"clip = open_video(SOURCE)
 n = clip.num_frames
 ratio = TARGET / float(n)
@@ -133,56 +154,170 @@ else:
     diff = [f.props['PlaneStatsDiff'] for f in stats.frames()]
     diff[0] = 1e9                     # frame 0 has no predecessor and is never a duplicate
 
-    # The cycle is the file's own cadence rather than a constant. Measured on the capture this was
-    # written for, the keep-ratio is 0.71388, whose best small-denominator approximation is 5/7 - so
-    # a 7-frame cycle dropping 2 lands on the padding's own rhythm. Small denominators win near-ties
-    # because the cycle is what bounds the timing drift: measured, cycle 7 holds it to 1.9 frames
-    # (64 ms) where cycle 60 reaches 4.5 (149 ms).
-    def pick_cycle(r, maxden=30):
-        best, err = 7, 1e9
+    # **Where each output frame goes is decided by time, not by counting.** Choosing by index - a
+    # constant keep-ratio, however carefully carried - assumes the coded frames are spread evenly
+    # through the recording, and they are not: measured on a 95-minute capture, 41.25 fps on average
+    # but varying locally, so index-resampling showed the frame belonging at 933.91 s at 929.85 s and
+    # was 6.99 s out at its worst. The picture ran ahead of its own audio by seconds in the middle
+    # while both ends lined up, which is why comparing total durations reported success.
+    #
+    # So: the timestamps say *when* (they are jittery but their trend is the only record of it), and
+    # the content says *which* of the frames sitting near that moment to take (so a duplicate is not
+    # chosen when a real frame is available). Neither alone is enough - that was the whole mistake.
+    times = []
 
-        for den in range(2, maxden + 1):
-            num = int(round(r * den))
+    with open(TIMES_FILE, 'r') as fh:
+        for line in fh:
+            line = line.strip()
 
-            if num <= 0 or num >= den:
+            if line:
+                times.append(float(line))
+
+    # ffprobe and the source plugin can disagree by a frame or two about how many pictures a damaged
+    # file holds - measured, ffprobe counted 240108 where bestsource and ffmpeg's own decode both said
+    # 240107. Insisting on equality threw away a six-minute pass over a one-frame difference at the
+    # tail, which cannot move anything: the array is only ever read by binary search on time, so a
+    # spare entry past the end is never reached and a missing one costs the last frame its placement.
+    # A large disagreement is different - that would mean these timestamps describe another file - so
+    # it still refuses past a handful.
+    if abs(len(times) - n) > 10:
+        raise RuntimeError('timestamps (%d) do not line up with frames (%d)' % (len(times), n))
+
+    if len(times) != n:
+        print('Nmkoder: %d timestamps for %d frames - trimming to match' % (len(times), n), file=sys.stderr)
+
+    times = times[:n]
+    guess = (times[-1] - times[0]) / max(len(times) - 1, 1)
+
+    while len(times) < n:
+        times.append(times[-1] + guess)
+
+    import bisect
+    t0 = times[0]
+    step = float(OUT_FPS_DEN) / OUT_FPS_NUM
+    keep = []
+    prev = -1
+    worst = 0.0
+
+    for k in range(TARGET):
+        want = t0 + k * step
+        j = bisect.bisect_left(times, want)
+
+        # Among the frames sitting at that moment, prefer the one that is not a repeat of what came
+        # before it. **Half an output step, not two** - the window is a tie-break between frames at
+        # the same instant, and any wider it stops being one: allowing two steps let a
+        # higher-difference frame be fetched from 67 ms away and pushed the worst placement error to
+        # 92 ms, which is inside the range where lip-sync is noticeable. Timing wins, content breaks
+        # ties, in that order.
+        best, best_diff = None, -1.0
+        lo = max(prev + 1, j - 2)
+        hi = min(n, j + 3)
+
+        for c in range(lo, hi):
+            if abs(times[c] - want) > 0.5 * step:
                 continue
 
-            e = abs(r - num / float(den))
+            if diff[c] > best_diff:
+                best, best_diff = c, diff[c]
 
-            if e < err - 1e-12:
-                err, best = e, den
+        if best is None:
+            # Nothing at that instant - the source's own gaps run to 79 ms where a step is 33 - so
+            # take whichever frame is nearest it and let the error be the file's rather than ours.
+            for c in range(lo, hi):
+                if best is None or abs(times[c] - want) < abs(times[best] - want):
+                    best = c
 
-        return best
+        if best is None:                              # nothing in range: take the next frame along
+            best = min(max(prev + 1, j), n - 1)
 
-    CYCLE = pick_cycle(ratio)
-    print('Nmkoder: decimating in cycles of %d' % CYCLE, file=sys.stderr)
+            # The last output slot can want a moment past the last frame there is, and by then every
+            # earlier frame has been used. Stopping is right: what is lost is the tail fraction of a
+            # second, where advancing off the end of the array is an exception mid-run.
+            if best <= prev:
+                print('Nmkoder: ran out of source frames at output %d of %d' % (k, TARGET), file=sys.stderr)
+                break
 
-    # Drop the lowest-difference frames inside each cycle, carrying the rounding forward so the
-    # total is exact and the local rate cannot wander.
-    #
-    # Deciding per cycle rather than over the whole file is load-bearing and not tidiness. Dropping
-    # the globally-most-duplicate frames is what minimises the total difference thrown away, and it
-    # strips a static stretch wholesale - so the picture runs ahead for the rest of the file while
-    # the length still comes out right. Measured on 15319 frames: global greedy drifts 29 frames out
-    # of step, 968 ms, against 64 ms for this. Both leave zero duplicate pairs behind, so the drift
-    # is the only thing that tells them apart - do not 'simplify' this into a global sort.
-    drop, kept_exact, kept_actual = [], 0.0, 0
+        keep.append(best)
+        prev = best
+        err = abs(times[best] - want)
 
-    for s in range(0, n, CYCLE):
-        e = min(s + CYCLE, n)
-        kept_exact += (e - s) * ratio
-        keep_here = int(round(kept_exact)) - kept_actual
-        dn = (e - s) - keep_here
+        if err > worst:
+            worst = err
 
-        if dn > 0:
-            drop.extend(sorted(range(s, e), key=lambda i: diff[i])[:dn])
+    # The check the first version did not have, and the reason it shipped: this is the timing error
+    # over the *whole* file rather than at its ends. One frame is 33 ms; seconds here means drift.
+    print('Nmkoder: worst placement error %.3f s (%.2f frames) across %d output frames'
+          % (worst, worst * OUT_FPS_NUM / float(OUT_FPS_DEN), len(keep)), file=sys.stderr)
 
-        kept_actual += max(keep_here, 0)
-
-    out = core.std.DeleteFrames(clip, sorted(drop))
+    kept = set(keep)
+    drop = [i for i in range(n) if i not in kept]
+    out = core.std.DeleteFrames(clip, drop)
     print('Nmkoder: dropped %d, left %d frames at %d/%d' % (len(drop), out.num_frames, OUT_FPS_NUM, OUT_FPS_DEN), file=sys.stderr)
     out = core.std.AssumeFPS(out, fpsnum=OUT_FPS_NUM, fpsden=OUT_FPS_DEN)
     out.set_output()";
+
+        /// <summary>
+        /// Writes one presentation timestamp per decoded frame, in the clip's own frame order, and
+        /// returns the path - or "" when the file yields none.
+        /// <para/>
+        /// This is the half the first version of this utility threw away, and throwing it away is what
+        /// made it produce a file whose picture ran up to <b>7 seconds</b> ahead of its own audio. The
+        /// reasoning was that a padded capture's timestamps are damaged, which is true of them
+        /// individually - non-monotonic, jittering between 8 ms and 79 ms where 33 ms is due - and does
+        /// not make them worthless, because their *trend* is the only record of when each picture
+        /// belongs. Measured on a 95-minute capture: the coded frames are not uniform in time (41.25
+        /// fps on average, varying locally), so choosing output frames by index instead put the frame
+        /// belonging at 933.91 s at 929.85 s, and the worst case 6.99 s out at 37 minutes in. The
+        /// error returns to nearly zero at both ends, which is exactly why comparing total durations
+        /// passed it.
+        /// <para/>
+        /// <c>best_effort_timestamp_time</c> rather than packet PTS because it is emitted once per
+        /// *decoded* frame, in presentation order, with ffmpeg's own interpolation where a packet
+        /// carries none - so it lines up index-for-index with the clip VapourSynth opens. Measured, the
+        /// counts match exactly; raw packet PTS do not, this capture having 3326 frames with no PTS at
+        /// all out of 240107.
+        /// </summary>
+        public static async Task<string> WriteTimestampsAsync(MediaFile file, string path)
+        {
+            var settings = new AvProcess.FfprobeSettings
+            {
+                Args = $"-select_streams v:0 -show_entries frame=best_effort_timestamp_time -of csv=p=0 {file.ImportPath.Wrap()}",
+                LogLevel = "error",
+            };
+
+            string output = await AvProcess.RunFfprobe(settings);
+            var times = new List<string>();
+            double last = 0;
+
+            foreach (string line in output.SplitIntoLines())
+            {
+                // A blank line is not a frame. ffprobe's output ends with one, and counting it made
+                // the array one longer than the clip - caught by the length check below, which is
+                // there precisely because an off-by-one here would misplace every frame after it.
+                if (line.Trim().Length == 0)
+                    continue;
+
+                string value = line.Trim().TrimEnd(',').Split(',')[0];
+
+                // A frame ffmpeg could not time at all, and the running maximum below: the array has to
+                // be non-decreasing for a search over it to mean anything, and 6 steps in 1259 went
+                // backwards on the fixture. Flattening them costs at most one frame's placement each.
+                if (!double.TryParse(value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double t))
+                    t = last;
+
+                last = Math.Max(last, t);
+                times.Add(last.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            if (times.Count < 2)
+                return "";
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllLines(path, times);
+            Logger.Log($"Read {times.Count} frame timestamps spanning {times[times.Count - 1]}s for the cadence repair.", true);
+            return path;
+        }
 
         /// <summary>
         /// How many pictures the file actually carries, asked of VapourSynth rather than of ffprobe.
@@ -240,7 +375,15 @@ else:
 
             string vsLogPath = Path.Combine(Paths.GetSessionDataPath(), "cadence.log");
             IoUtils.TryDeleteIfExists(vsLogPath);
-            string script = WriteScript(file, file.ImportPath, Path.Combine(Paths.GetSessionDataPath(), "cadence.vpy"));
+            // Before the script, because the script cannot place a single frame without it.
+            RunTask.ReportProgress("Reading the frame timestamps...");
+            string timesPath = await WriteTimestampsAsync(file, Path.Combine(Paths.GetSessionDataPath(), "cadence-times.txt"));
+
+            if (timesPath.IsEmpty())
+                return "The frame timestamps could not be read, and without them there is no way to tell where each " +
+                    "picture belongs - which is the whole of what this repair decides.";
+
+            string script = WriteScript(file, file.ImportPath, Path.Combine(Paths.GetSessionDataPath(), "cadence.vpy"), timesPath);
 
             await Qtgmc.SetProgressTargetAsync(script, file);
 
@@ -249,26 +392,76 @@ else:
 
             // The output is still interlaced - this repairs the *cadence* and nothing else, so the
             // fields are handed on woven exactly as they arrived and the file is still something to
-            // deinterlace afterwards. y4m carries no field order, so x264 has to be told: measured,
-            // an interlaced encode written this way comes back as field_order=tb, which
-            // InterlaceDetect.ParseFfprobeFieldOrder reads as top-field-first, the same as tt.
-            // **y4m has no field order and VapourSynth declares the opposite of the truth**, which is
-            // what makes this two arguments rather than one. VSPipe's header reads
-            // `YUV4MPEG2 C420 W720 H480 F30000:1001 Ip` - `Ip` is *progressive* - so ffmpeg marks
-            // every frame progressive on the way in and the encoder is told nothing by x264's own
-            // flag alone. Measured against a tt source through a real VSPipe producer:
+            // deinterlace afterwards.
             //
-            //   -x264-params tff=1                       -> field_order=progressive
-            //   -flags +ilme+ildct -x264-params tff=1    -> field_order=bt   (the wrong parity)
-            //   -vf setfield=tff -x264-params tff=1      -> field_order=tb   (right)
+            // **y4m carries a frame size, a rate and a range and nothing else, so the field order and
+            // the colour both have to be re-stated - and that is one problem with one fix, not two.**
+            // VSPipe's header reads `YUV4MPEG2 C420 W720 H480 F30000:1001 Ip` - `Ip` is *progressive* -
+            // so ffmpeg marks every frame progressive on the way in, and everything the source said
+            // about its primaries, transfer and matrix is gone by the time ffmpeg reads the pipe. An
+            // NTSC capture declaring bt470m/bt470m/bt470bg came back `unknown` on all three, and the
+            // AV1 encode reading that file was then handed `--color-primaries 2
+            // --transfer-characteristics 2 --matrix-coefficients 2`, leaving every player to guess the
+            // matrix of a file that had said precisely what it was.
             //
-            // So `setfield` re-asserts what VapourSynth threw away and x264's tff/bff turns
-            // interlaced encoding on. The middle row is the one to remember: it looks like it worked
-            // and leaves the next deinterlace running at the wrong parity on a file this utility had
-            // just repaired. The same trap waits for anything else piping interlaced VapourSynth
-            // frames into ffmpeg.
+            // **The frame's own properties beat the output AVOptions, which is why `-color_primaries`
+            // and `-color_trc` cannot do this job.** Measured through this exact pipe shape on that
+            // capture, reading primaries/transfer/matrix/range back off the result:
+            //
+            //   -color_primaries bt470m -color_trc bt470m -colorspace bt470bg -color_range tv
+            //                                              -> unknown, unknown, bt470bg, tv
+            //   the same four written numerically (4/4/5/1) -> unknown, unknown, bt470bg, tv
+            //   -vf setparams=color_primaries=bt470m:...    -> bt470m,  bt470m,  bt470bg, tv
+            //
+            // Two of the four are honoured and two are dropped in silence, *identically* whether they
+            // are spelled as names or as numbers. An earlier fix here changed only the spelling and
+            // shipped believing that had settled it - the spelling was never what decided it. The same
+            // command reading the source as a **file** rather than through the pipe tags all four
+            // correctly, which is what confines this to piped y4m and what makes a test that does not
+            // use the real pipe worthless here.
+            //
+            // Setting them on the frames settles the field order in the same filter, so `setfield` is
+            // subsumed rather than kept beside it. Measured against a tt source through a real VSPipe
+            // producer:
+            //
+            //   -x264-params tff=1                          -> field_order=progressive
+            //   -flags +ilme+ildct -x264-params tff=1       -> field_order=bt   (the wrong parity)
+            //   -vf setparams=field_mode=tff ... tff=1      -> field_order=tb   (right)
+            //
+            // The middle row is the one to remember: it looks like it worked, and leaves the next
+            // deinterlace running at the wrong parity on a file this utility had just repaired. x264's
+            // own tff/bff stays beside the filter because it turns interlaced *encoding* on, which is a
+            // different question from what the frames are marked as. The same trap waits for anything
+            // else piping interlaced VapourSynth frames into ffmpeg.
             bool bff = file.VideoStreams.First().FieldOrder == FieldOrder.BottomFieldFirst;
-            string interlace = $"-vf setfield={(bff ? "bff" : "tff")} -x264-params {(bff ? "bff=1" : "tff=1")}";
+            var setParams = new List<string> { $"field_mode={(bff ? "bff" : "tff")}" };
+
+            // Probed from the source rather than taken off MediaFile.ColorData, which is populated
+            // lazily and may not have been asked for yet. The names ffprobe prints and the values
+            // setparams accepts come out of the same libavutil tables, so this round trip is lossless
+            // by construction - which is true of *this* filter and was never true of the AVOptions.
+            foreach (var pair in new[] { ("color_primaries", "color_primaries"), ("color_transfer", "color_trc"),
+                                         ("color_space", "colorspace"), ("color_range", "range") })
+            {
+                var probe = new AvProcess.FfprobeSettings
+                {
+                    Args = $"-select_streams v:0 -show_entries stream={pair.Item1} -of default=noprint_wrappers=1:nokey=1 {file.ImportPath.Wrap()}",
+                    LogLevel = "error",
+                };
+
+                string value = (await AvProcess.RunFfprobe(probe)).SplitIntoLines().FirstOrDefault(x => x.IsNotEmpty())?.Trim() ?? "";
+
+                // "unknown" and "N/A" are ffprobe saying the source states nothing, and every setparams
+                // property defaults to `auto` - keep whatever came in - so leaving it off is exactly
+                // right: asserting `unknown` would state ignorance as though it were a measurement.
+                // The character test guards a value being spliced into a filter graph, where a `:` or
+                // an `=` would change the graph's shape rather than fail.
+                if (value.IsNotEmpty() && value != "unknown" && value != "N/A" && value.All(c => char.IsLetterOrDigit(c) || c == '-'))
+                    setParams.Add($"{pair.Item2}={value}");
+            }
+
+            string interlace = $"-vf setparams={string.Join(":", setParams)} -x264-params {(bff ? "bff=1" : "tff=1")}";
+            Logger.Log($"Re-stating what y4m drops: setparams={string.Join(":", setParams)}.", true);
 
             string args = $"-i {file.ImportPath.Wrap()} -f yuv4mpegpipe -thread_queue_size 1024 -i - " +
                 $"-map 1:v:0 -map 0:a? -map 0:s? -map 0:t? " +

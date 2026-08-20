@@ -1736,8 +1736,18 @@ Read it before changing anything here; what follows is only what has to hold wha
   anything that changes what `VideoStream.Rate` means changes this too.
 - **A capture padded with duplicate frames is not a deinterlacing fault and cannot be fixed here.**
   Its frame count exceeds its own recording, so every rate conversion - ffmpeg's and VapourSynth's
-  alike - picks the wrong frames from its damaged timestamps: measured, 12.8% of the padding, ~1.5
-  hitches a second. The Repair Frame Cadence utility rewrites it first; see that section.
+  alike - chooses from the timestamps alone and never looks at the pictures: measured, 12.8% of the
+  padding identified wrongly, ~1.5 hitches a second. The Repair Frame Cadence utility rewrites it
+  first; see that section. Note what that does *not* license: the timestamps are damaged frame by
+  frame and are still the only record of when each picture belongs, and a repair that discards them
+  and resamples by index drifts **seconds** in the middle of a file whose ends line up perfectly.
+- **Piping VapourSynth into ffmpeg loses the field order and the colour, and only a filter can put
+  them back.** y4m carries a frame size, a rate and a range and nothing else; the frame's own
+  properties then beat the output AVOptions, so `-color_primaries`/`-color_trc` are dropped in
+  silence while `-colorspace`/`-color_range` are honoured - identically whether spelled as names or
+  as numbers. `-vf setparams=field_mode=…:color_primaries=…:color_trc=…:colorspace=…:range=…` sets
+  all of it on the frames, which is what survives. Reading the source as a *file* tags everything
+  correctly, so a test that skips the real pipe proves nothing.
 - **A stream-copy cut ends two frames late on any B-frame source**, and `-frames:v` is not the fix
   however much it looks like one - it truncates in decode order and can take a hole out of the
   middle of the picture. Leave it.
@@ -1747,33 +1757,95 @@ Read it before changing anything here; what follows is only what has to hold wha
 The Repair Frame Cadence utility, which removes the duplicate frames a capture inserted and writes a
 constant-rate copy. `CadenceRepair` holds the script and the run, `UtilRepairCadence` the task.
 
-**Every rate conversion in this app decides what to drop from the timestamps, and on the capture this
-exists for the timestamps are the damaged half.** ffmpeg's `-fps_mode cfr` and a VapourSynth source
-plugin's `fpsnum` are the same idea twice, so the ffmpeg deinterlacers and QTGMC inherit the same
-fault. Measured on 15319 coded frames decimated to 10936: the timestamp-driven result leaves **560
-adjacent-identical pairs, 5.12% of its own output**, and the total count being right means each one
-cost a real frame. That is **12.8% of the padding identified wrongly**, about 1.5 visible hitches a
-second. Deciding from the pictures instead: **25 hard stutters to 0** on a 30 s cut, and fewer
-near-duplicates at every threshold (28 against 1 at 1e-4, 76 against 24 at 1e-3).
+**Every rate conversion in this app decides what to drop from the timestamps alone and never looks at
+the pictures, which is the half this utility does differently.** ffmpeg's `-fps_mode cfr` and a
+VapourSynth source plugin's `fpsnum` are the same idea twice, so the ffmpeg deinterlacers and QTGMC
+inherit the same fault. Measured on 15319 coded frames decimated to 10936: the timestamp-only result
+leaves **560 adjacent-identical pairs, 5.12% of its own output**, and the total count being right
+means each one cost a real frame. That is **12.8% of the padding identified wrongly**, about 1.5
+visible hitches a second.
 
-**The decimation is per cycle and must not be "simplified" into a global sort.** Dropping the
-globally-most-duplicate frames minimises the total difference thrown away and is the wrong answer: it
-strips a static stretch wholesale, so the picture runs ahead for the rest of the file while the length
-still comes out right. Measured on 15319 frames, max local drift **29 frames - 968 ms - against 64 ms**
-for the cycle version, and *both leave zero duplicate pairs behind*, so a stutter count cannot tell
-them apart. The cycle is the file's own cadence rather than a constant: the keep-ratio 0.71388 is 5/7,
-so seven frames dropping two lands on the padding's rhythm, and small denominators win near-ties
-because the cycle is what bounds the drift (cycle 7 → 64 ms, cycle 60 → 149 ms).
+**The content tie-break earns its place against that, and the margin is modest - do not quote it as
+though it were the old algorithm's.** Measured on the 30 s cut by running each selection over the same
+source frames, with no encode in the way (`PlaneStatsDiff` is normalised 0-1, so the thresholds are
+1e-5/1e-4/1e-3 - reading them as 0-255 makes 90% of any file look duplicated):
 
-**y4m has no field order and VapourSynth declares the opposite of the truth, which bites anything
-piping interlaced frames from VapourSynth into ffmpeg.** VSPipe's header reads `... F30000:1001 Ip` -
-`Ip` is *progressive* - so ffmpeg marks every frame progressive on the way in. Measured against a `tt`
-source through a real VSPipe producer: `-x264-params tff=1` alone gives `field_order=progressive`;
-`-flags +ilme+ildct -x264-params tff=1` gives **`bt`, the wrong parity**; `-vf setfield=tff
--x264-params tff=1` gives `tb`, which is right. The middle row is the one to remember - it looks like
-it worked, and leaves the next deinterlace running at the wrong parity on a file just "repaired". The
-same four flags read `tb` for all of them when the y4m comes from ffmpeg rather than VSPipe, so a test
-that does not use the real producer proves nothing.
+| selection | kept | <1e-4 | <1e-3 | worst drift |
+|---|---|---|---|---|
+| shipped: time places, content breaks ties | 900 | 16 | 83 | **0.059 s** |
+| tie-break window widened to 2 steps | 899 | 10 | 87 | 0.092 s |
+| pure nearest-in-time, no content at all | 901 | 21 | 98 | 0.045 s |
+| the old index/cycle selection, content only | 901 | **0** | **14** | 0.127 s |
+
+So the tie-break beats a pure timestamp pick at every threshold - which is the claim worth keeping -
+and the **old content-only selection beats both, by a lot.** That is not a reason to go back to it:
+it optimises for exactly the thing being counted and pays for it in the one that ruins a file. Nine
+percent of frames sitting within 1e-3 of their predecessor is a mild softness; seven seconds of audio
+drift is a memory nobody can watch. State the trade rather than claiming the new selection dominates.
+
+**The old selection's drift is 0.127 s here and was 6.99 s on the real file, which is the whole reason
+it shipped.** Index-resampling error grows with length; a 30 s fixture cannot show it. Every check
+that mattered was run on the short cut, passed, and proved nothing about the 95-minute capture the
+utility was written for. **Validate a length-dependent fault at length**, or at minimum report the
+placement error, which is a per-frame quantity and does show up on 30 s.
+
+**The timestamps say *when* an output frame belongs and the content says *which* of the frames near
+that moment to take. Dropping either half breaks it in a way the other half cannot show.** This
+section used to say the timestamps were "the damaged part" and were ignored entirely, and the code
+did exactly that - picking frames by index at a constant keep-ratio, in cycles chosen to bound the
+local drift. It is wrong, and it shipped to a user: choosing by index assumes the coded frames are
+spread evenly through the recording, and a padded capture's are not. Measured on the 95-minute
+capture this was written for, the finished file ran **up to 6.99 s ahead of its own audio** at 37
+minutes in, and −4.06 s at 16% - converging to ~0 at **both ends**. Placing every frame against its
+own timestamp, with the content used only to break ties among the frames at that instant, holds the
+worst error to **0.054 s** over that file and **0.059 s** on a 30 s cut - bounded by the source's own
+jitter rather than accumulating. The timestamps are damaged *individually* - jittering between 8 and
+79 ms where 33 is due, and running backwards thousands of times - and that is not the same as
+worthless: their trend is the only record of when each picture belongs.
+
+**So the check is the worst placement error over every frame, never a comparison of durations.** The
+endpoints agreeing is precisely the signature of the bug: total length, frame count and end-to-end
+sync were all exact while the middle was seconds out, so every check that looked at the ends passed
+and the file was handed over as verified. The number the script prints is the largest gap between
+where a kept frame belongs and where it was put, across the whole file; one frame is 33 ms, so
+anything reading in seconds is drift.
+
+**The tie-break window is half an output step and must not be widened.** It exists to prefer a real
+frame over a repeat among the frames sitting at the same instant - timing first, content second.
+Measured, allowing two steps let a higher-difference frame be fetched from 67 ms away and pushed the
+worst placement error to 92 ms, which is inside the range where lip-sync is noticeable.
+
+**y4m carries a frame size, a rate and a range and nothing else, so the field order *and* the colour
+are both lost piping VapourSynth into ffmpeg - one problem with one fix.** VSPipe's header reads
+`... F30000:1001 Ip` - `Ip` is *progressive* - so ffmpeg marks every frame progressive on the way in.
+Measured against a `tt` source through a real VSPipe producer: `-x264-params tff=1` alone gives
+`field_order=progressive`; `-flags +ilme+ildct -x264-params tff=1` gives **`bt`, the wrong parity**;
+`-vf setparams=field_mode=tff -x264-params tff=1` gives `tb`, which is right. The middle row is the
+one to remember - it looks like it worked, and leaves the next deinterlace running at the wrong parity
+on a file just "repaired". The same four flags read `tb` for all of them when the y4m comes from
+ffmpeg rather than VSPipe, so a test that does not use the real producer proves nothing.
+
+**The colour goes the same way, and the output AVOptions cannot put it back - the frame's own
+properties beat them.** Measured through the repair's exact pipe shape on a capture declaring
+bt470m/bt470m/bt470bg tv, reading primaries/transfer/matrix/range back off the result:
+`-color_primaries bt470m -color_trc bt470m -colorspace bt470bg -color_range tv` gives **unknown,
+unknown, bt470bg, tv** - two of four honoured and two dropped in silence - and the same four written
+numerically (4/4/5/1) gives exactly the same thing.
+`-vf setparams=color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv` gives all four.
+The same command reading the source as a **file** rather than through the pipe tags all four
+correctly, so this is specific to piped y4m and a test that skips the pipe proves nothing here either.
+`setparams` sets the field order too, which is why it replaces `setfield` rather than sitting beside
+it. What it costs to get wrong is downstream and quiet: the AV1 encode reading a repaired file was
+handed `--color-primaries 2 --transfer-characteristics 2 --matrix-coefficients 2`, leaving every
+player to guess the matrix of a file that had said precisely what it was.
+
+**A fix that changes only the spelling is not a fix, and this one shipped as one.** The first cut of
+the colour repair read the values as ffprobe's *names* rather than as `VideoColorData`'s numbers, on
+the theory that ffmpeg was refusing the numeric spelling - and the finding was written up that way,
+confidently, with the half-tagged output as its evidence. The numbers and the names behave
+identically; the spelling was never what decided it. What settled it was running the AVOption and
+`setparams` forms against each other **through the real pipe**, which is a different question from
+whether the command parses.
 
 **The three source plugins decode this file identically and answer a *backwards* request three
 different ways, one of them silently wrong.** Measured on the same 1259-frame capture: sequentially
@@ -1882,12 +1954,21 @@ capture, and `CadenceRepair.TargetFrames` records that the opposite case exists 
 apart from these two numbers alone. It has no settings; the recording's own length is the answer. A
 file whose frame count already matches its length is **refused** rather than copied.
 
-Verified through the real `MainWindow` and `RunTask`: 1259 coded frames → 901 at 30000/1001, cycle 7
-chosen on its own, `field_order=tb` preserved from a `tt` source, 30.06 s of video against 30.00 s of
-audio, and the repaired file then read back through QTGMC on the fast `lsmas` path to 1802 frames -
-exactly twice its own count - still 30.06 s against 30.00 s. What is **not** verified: no full-length
-repair was run, and nothing here establishes that the *real* frames were themselves captured at even
-instants - a frame count matching the recording only proves none were lost.
+Verified through the real `MainWindow` and `RunTask`, on two cuts of the capture it was written for.
+A 30 s cut: 1259 coded frames → 900 at 30000/1001, worst placement error **0.059 s**, all four colour
+properties (`bt470m`/`bt470m`/`bt470bg`, range `tv`) round-tripping from source to output,
+`field_order=tb` preserved from a `tt` source, 30.03 s of video against 29.98 s of audio. A 6-minute
+cut: 15305 → 11060, worst placement error **0.054 s**, same colour and field order, 369.035 s of video
+against a 369.041 s source - and it exercised the timestamp-count mismatch path on the way (ffprobe
+counted 15307 where bestsource decoded 15305, trimmed rather than refused). Feeding the repaired file
+back in is refused, `1x`, no output written, which is the round trip proving the output is genuinely
+constant-rate. The full 95-minute run was made and its worst placement error was 0.054 s across
+172,024 frames.
+
+What is **not** verified: nothing here establishes that the *real* frames were themselves captured at
+even instants - a frame count matching the recording only proves none were lost - and the placement
+error is measured against the source's own timestamps, so it bounds this utility's contribution to the
+drift and not the capture hardware's.
 
 ## Grain synthesis
 
