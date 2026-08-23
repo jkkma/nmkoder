@@ -125,10 +125,14 @@ namespace Nmkoder.Data.Codecs.Video
             // --film-grain and says so only in a warning nothing here reads, so sending a strength beside a
             // table would be sending a number that is silently discarded. The denoise flag goes with the
             // strength for the same reason: it is read only on the --film-grain path.
-            // The path is written bare rather than quoted: everything in here ends up inside av1an's own
-            // -v "…" string, which is split again before it reaches the encoder, and a quote of this app's
-            // own would be one more layer than that split accounts for. GrainSynthUi.ResolveDeliveryAsync
-            // keeps a path with a space in it away from this argument entirely for the same reason.
+            // The path is written unquoted: everything in here ends up inside av1an's own -v "…" string,
+            // which is split again before it reaches the encoder, and a quote of this app's own would be
+            // one more layer than that split accounts for. It arrives already backslash-escaped, which is
+            // the half that reasoning used to miss - av1an's split unescapes as well as splits, so a bare
+            // Windows path reached the binary with every separator eaten. Av1anUi.GetVideoArgsFromUi does
+            // it once for both encoder classes; see FormatUtils.GetAv1anArgPath for what was measured.
+            // GrainSynthUi.ResolveDeliveryAsync keeps a path with a space in it away from this argument
+            // entirely, that being the same parser and a refusal rather than an escape.
             string grainArgs = encArgs.ContainsKey("grainTable")
                 ? $"--fgs-table {encArgs["grainTable"]}"
                 : $"--film-grain {grain} --film-grain-denoise {denoise}";

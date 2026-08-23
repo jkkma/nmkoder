@@ -933,6 +933,15 @@ would otherwise read. A value containing a *space* cannot survive either path, t
 encoders one space-separated `key=value` string - the same limit `BuildCli` has always had on the AV1AN
 side, and no parameter either list offers takes one.
 
+**A *backslash* does not survive the AV1AN side either, and that is a second limit rather than the same
+one.** av1an's `-v "…"` string is unescaped as well as split, so a typed `C:\path\to\rpu.bin` reaches
+the binary as `C:pathtorpu.bin` - measured, and what it cost the grain table's own path is under
+`Grain synthesis`. The grid is **deliberately** not escaped for it: `FormatUtils.GetAv1anArgPath` exists
+and is applied where this app knows it is handling a path, and the grid is exactly where it does not -
+doubling every backslash in every value would corrupt the ones that are data rather than separators.
+So a path-valued parameter typed here is a known gap on the AV1AN side, and works on Quick Convert,
+which launches the binary itself. Do not "fix" it by running the whole grid through that helper.
+
 **SVT-AV1's content presets are both tabs' now, and the x264/x265 sets are the CRF ladder's - they do
 not carry to the Direct pair, and that is measured rather than forgotten.** `EncoderArgPresets` is keyed
 by encoder name and the preset row hides itself for a name it does not know, so an encoder without a
@@ -2045,6 +2054,15 @@ here; what follows is only what has to hold whatever you are doing.
 - **A utility writes a file and stops.** `Measured` and `PhotonNoise` are utility-only
   (`GrainSynthConfig.IsUtilityOnly`); the tabs' rows apply *during* an encode and cost no pass over
   the video. Neither reads the other's settings.
+- **A path put into av1an's `-v "…"` string must be backslash-escaped, because that string is
+  *unescaped* as well as split.** `FormatUtils.GetAv1anArgPath` is the one place that lives, applied
+  by `Av1anUi.GetVideoArgsFromUi`. Written bare - which looked right, a quote of this app's own being
+  one layer more than the re-split accounts for - a Windows path reached the encoder with every
+  backslash eaten (`C:\Users\…` as `C:Users…`), and **both table-bearing grain modes were
+  broken on Windows outright**, the preset's table being generated as a Windows path and a brought
+  one coming from a Windows file dialog. Anything else that ever puts a path in that string needs the
+  same call; a path typed into the Advanced grid is still eaten, and deliberately, the grid holding
+  values this app cannot tell paths from.
 
 ## Tone mapping
 

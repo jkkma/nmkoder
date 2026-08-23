@@ -359,7 +359,11 @@ namespace Nmkoder.UI.Tasks
             }
             else if (grain.IsEncoderTable)
             {
-                dict.Add("grainTable", grain.TablePath);
+                // Escaped here rather than where it is written into the encoder's own arguments, so the
+                // two encoder classes cannot drift apart over it: this is the one place a table path
+                // crosses into av1an's -v "…" string, which av1an unescapes as well as splits. Left bare
+                // it reached the binary with every backslash eaten - see FormatUtils.GetAv1anArgPath.
+                dict.Add("grainTable", FormatUtils.GetAv1anArgPath(grain.TablePath));
             }
 
             dict.Add("threads", Form.Av1anThreadsUpDown.Value.AsInt().ToString());

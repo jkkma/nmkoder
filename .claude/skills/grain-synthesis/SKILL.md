@@ -117,6 +117,46 @@ The `{tempDir}` naming buys two things: `GetPreparedInputs` already sweeps a `.g
 deletes that folder, and a resume replaying its saved command finds the table where the command says,
 the path deriving from the same `overrideTempDir` the resume was given.
 
+**av1an's `-v "…"` string is *unescaped* as well as split, and for eight releases that ate every
+backslash of the table's path - which is to say both table-bearing grain modes were broken on Windows
+outright.** The value was written bare on the reasoning quoted in `VideoEncodersBin`, that a quote of
+this app's own would be one layer more than av1an's re-split accounts for. That is true and it is half
+the story: av1an splits with a shell-style parser, which *unescapes* on the way, so `C:\Users\…` reached
+SvtAv1EncApp as `C:Users…`. The encoder answered `Invalid parameter '--fgs-table'` once per
+chunk until av1an gave up on the worker and the run produced nothing.
+
+Both modes get there honestly, which is why neither escaped it: **Film stock preset**'s table is written
+by this app at `{tempDir}.grain.tbl` under `Paths.GetAv1anTempPath()`, a Windows path by construction,
+and **Grain table file**'s comes from a Windows file dialog, which returns backslashes too. Nothing on
+the tab could produce a working table path on Windows.
+
+Measured against the bundled av1an 0.5.2-unstable (rev f9b14ed) and SVT-AV1-HDR v4.1.0-19-g8b4b9f562,
+through the real command on one fixture, with the control run: a **single-backslash** path fails as
+above and writes nothing; a **doubled-backslash** path encodes (790,301 bytes) and a **forward-slash**
+one encodes (790,296). So the parser undoes exactly one level, and both repairs work on Windows.
+
+`FormatUtils.GetAv1anArgPath` is the one place that rule lives, and doubling is what it does rather
+than the slash substitution `GetFilterPath` makes on Windows - the two ask different questions. There
+the value is read by ffmpeg; here by a shell-style parser. Doubling restores the character the caller
+meant on every platform, where substituting a slash would aim at a path that does not exist anywhere a
+backslash is legal filename data - the lesson `CreateConcatFile` and `GetVmafPath` already carry.
+`Av1anUi.GetVideoArgsFromUi` applies it once, at the single point a table path crosses into that
+string, so the two encoder classes cannot drift apart over it.
+
+Verified through the real `MainWindow` and `RunTask.Start` on a 43 s 3836x2072 10-bit HDR cut: before,
+no output and `Invalid parameter` once per chunk; after, Film stock preset (16mm) and Grain table file
+given a **backslash** path both finish, and `grav1synth inspect` reads back one segment whose seven
+parameter lines are byte-identical to the table the app generated, carrying SVT's own seed 7391.
+Encoder analysis was never affected, writing a number rather than a path.
+
+**Not fixed, and it is the same parser: a path typed into the Advanced grid.** The grid's values reach
+the same `-v "…"` string, so `--fgs-table` typed there by hand, or any other path-valued parameter, is
+eaten identically. It was left alone because the grid holds arbitrary values and this app cannot tell
+which are paths - escaping every backslash in every value would corrupt the ones that are data. A space
+in the table path is still a refusal rather than an escape, for the reason under
+`GetTableDeliveryProblem`: the refusal is deliberate and worded per mode, and making spaces silently
+work is a change of behaviour rather than a fix.
+
 **Measured from source left later, and for the second half of that rule rather than the first.** It
 *was* an encode mode on the AV1AN tab: a lossless denoise render of the whole film and a grav1synth
 diff, both in front of av1an, at about 3.7 fps at 1080p - a working day of single-threaded measuring

@@ -304,6 +304,43 @@ namespace Nmkoder.Utils
             return value.Substring(0, end) + string.Concat(value.Substring(end).Select(c => $@"\{c}"));
         }
 
+        /// <summary>
+        /// A path in the form av1an's own parser will hand on to the encoder intact.
+        /// <para/>
+        /// Everything this app sends an av1an-driven encoder goes inside one <c>-v "…"</c> string, and
+        /// av1an splits that again on the way to the binary with a shell-style parser - which
+        /// <i>unescapes</i> as well as splits, so a backslash is eaten as an escape rather than kept as a
+        /// separator. A Windows path therefore reached SvtAv1EncApp with every separator gone: measured,
+        /// C:\Users\…\1787433590416.grain.tbl arrived as C:Users…1787433590416.grain.tbl, the
+        /// encoder answered "Invalid parameter '--fgs-table'" and refused the whole configuration once
+        /// per chunk until av1an gave up on the worker and the run produced nothing.
+        /// <para/>
+        /// That was every table-bearing grain mode on the AV1AN tab on Windows, and both of them get
+        /// there honestly: the film stock preset's table is written by this app under the run's own temp
+        /// folder, and a brought table comes from a Windows file dialog - backslashes either way. The
+        /// bare spelling was deliberate and half right, the comment in VideoEncodersBin having reasoned
+        /// that a quote of this app's own would be one layer more than av1an's split accounts for. It is;
+        /// the split just unescapes too, and nothing accounted for that.
+        /// <para/>
+        /// Doubling rather than the slash substitution <see cref="GetFilterPath"/> makes on Windows,
+        /// because the two are asking different questions: there the value is read by ffmpeg, here by a
+        /// shell-style parser that will undo exactly one level. Doubling restores the character the
+        /// caller meant on every platform, where substituting a slash would aim at a path that does not
+        /// exist anywhere a backslash is legal filename data.
+        /// <para/>
+        /// Measured against the bundled av1an 0.5.2 rather than reasoned out, on one fixture through the
+        /// real command: a single-backslash path fails with the value above and writes nothing, while a
+        /// doubled one and a forward-slash one both encode (790,301 and 790,296 bytes).
+        /// <para/>
+        /// A space is not escaped here and stays a refusal in GrainSynthUi.GetTableDeliveryProblem. It is
+        /// the same parser and the same class of problem, but that refusal is deliberate and worded per
+        /// mode, and making spaces silently work would be a change of behaviour rather than a fix.
+        /// </summary>
+        public static string GetAv1anArgPath(string path)
+        {
+            return (path ?? "").Replace(@"\", @"\\");
+        }
+
         public static int GetBitDepthFromPixelFormat(string pixFmt)
         {
             pixFmt = pixFmt.ToLower();
