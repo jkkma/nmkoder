@@ -1074,6 +1074,89 @@ transfer curve, no matrix. So colour has to be handed to the encoder by flag in 
 which is the same reason the av1an classes do it, and why `ColorDataUtils`' aom and x264 name tables are
 load-bearing here too.
 
+**The one thing y4m *does* carry that the encoder still cannot pass on is the pixel aspect, and that
+shipped stretching every anamorphic source from 2.8.44 to 2.8.77.** The `A1:1` in that header is real -
+measured on a 720x480 NTSC capture it reads `A8:9`, so the shape reaches the binary intact - but **AV1
+has no sample-aspect field in its sequence header and IVF has none either**, so `SvtAv1EncApp` and
+`aomenc` cannot emit it however they are fed, and the mux then copied an elementary stream that never
+knew. Measured end to end through `QuickConvert.Run()` on a 720x480 SAR 8:9 source with no filters at
+all: **8:9 / 4:3 in, 1:1 / 3:2 out**, which plays horizontally stretched. vpxenc loses it the same way.
+x264 and x265 do **not** - raw Annex B carries the SAR in its SPS VUI and mkvmerge reads it back out,
+measured 8:9 / 4:3 through the whole route - so this is the IVF/AV1 pair and VP9, not the direct path as
+such.
+
+What let it ship is a premise in `QuickConvertUi.ResolveScaledFrame` that stopped being true underneath
+it. It leaves an anamorphic source un-squeezed and says why: *"ffmpeg carries its aspect flag through to
+the output"*. That held while this tab handed frames to an ffmpeg encoder inside one command, and stopped
+holding the moment the tab began launching encoder binaries itself - the identical constraint the AV1AN
+tab has always had, which is why that tab de-squeezes instead (`Av1anFrame.Desqueezing`) and is not
+affected. The comment even named the difference between the two tabs as deliberate; it was, and then one
+half of it changed.
+
+`QuickConvertUi.GetMuxAspectArgs` states the display aspect on the mux instead, `-aspect W:H` worked out
+from the encoded frame and the pixel shape `ResolveScaledFrame` already tracks. **Stated rather than
+baked in, and that is the difference from the AV1AN tab's answer**: av1an muxes its own output where this
+mux is ours, so the shape can be recorded rather than resampled - no scale filter, no quality cost, and
+the frame stays the size the encoder was tuned for. Emitted for every direct encoder rather than only the
+ones that need it: on the x264/x265 path it restates the ratio their own VUI already carried, which is a
+no-op by construction. An unresolved automatic crop is the one case it abstains on, the encoded frame not
+being known until the crop is - a ratio worked out from the wrong frame states, precisely, a shape the
+file does not have, where saying nothing leaves it as it was.
+
+**A separate and wider fault sat behind it: VSPipe's y4m header reads `A0:0`, so anything fed through
+VapourSynth lost the pixel aspect before ffmpeg's filters ever saw it - for every encoder, not just the
+AV1 pair.** Measured on an 8:9 fixture: `vspipe | ffmpeg -c:v libx264` gave `N/A`, where the same ffmpeg
+reading the file directly gives 8:9 / 4:3. VapourSynth has no SAR on a clip to write, so `A0:0` is honest
+rather than a bug in VSPipe; it is a loss only because everything downstream then reads the frame as
+square. `Qtgmc.GetPipeSarFilter` is the one statement of the repair - a `setsar` built from
+`VideoStream.Sar`, **read off the source file and never off the pipe, the pipe being precisely where it
+no longer is** - and it goes at the *head* of each chain, which is what makes one filter the whole fix:
+ffmpeg's scale adjusts SAR to hold the display aspect and crop and pad carry it through, so everything
+below behaves as it does un-piped. Measured through a real VSPipe producer, which is the only thing that
+shows any of this: `setsar=8/9` at the head gives 8:9 / 4:3, and with an app-style
+`scale=640:480,setsar=1/1` under it, 640x480 at 1:1 and **DAR 4:3** - the de-squeeze lands right rather
+than being disturbed by the filter above it.
+
+Three chains carry it, and `setparams` could not have: that filter takes field_mode, range and the three
+colour properties and **has no aspect of any kind**. `CadenceRepair` (whose `_cfr.mkv` is explicitly a
+deliverable for something else to encode, so the loss propagated), `DeinterlacePass` (the Deinterlace
+utility - only where `plan.UsesPipe`, since reading the file directly ffmpeg already knows the shape),
+and Quick Convert's filter chain. Verified by running the real methods against real fixtures, before and
+after: both utilities wrote `N/A` on master and `8:9 / 4:3` after, and Quick Convert's chain came back
+`-filter_complex "[0:0]setsar=8/9[vf]"` where it had been empty.
+
+**The AV1AN tab is not affected, and for two independent reasons** - worth writing down because it looks
+like it should be. It has no QTGMC at all (`DeinterlaceUi.Av1anModes` omits it), so nothing on that tab
+pipes VapourSynth into ffmpeg; and it de-squeezes anamorphic sources anyway (`Av1anFrame.Desqueezing`),
+so the shape is in the pixels before av1an ever sees them.
+
+**The verification turned up a second loss on the same pipe: `DeinterlacePass` was dropping the colour
+tags as well.** Measured on a fixture stating bt470m/bt470m/bt470bg, its output came back `unknown` for
+all three - the same y4m loss `CadenceRepair` already repaired for itself and this pass never had, on the
+utility whose output is a file people keep. `Qtgmc.GetPipeColorParamsAsync` is now the one place the
+four properties are probed and written, called by both; CadenceRepair's own copy is gone rather than left
+beside it. Measured after: `bt470m / bt470m / bt470bg`, range `tv`, out of both passes.
+
+**The field order is deliberately not part of that helper, and that is the whole reason it returns
+properties rather than a finished filter.** A cadence repair hands on woven fields and must say so; a
+deinterlace emits progressive frames and must not - asserting a field order on its output would be a lie
+the next deinterlacer acts on. Measured, the two chains come out as they should:
+
+```
+CadenceRepair    setsar=8/9,setparams=field_mode=tff:color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv
+DeinterlacePass  setsar=8/9,setparams=color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv
+```
+
+**A source that states nothing is left stating nothing**, which is the case worth checking because the
+failure is silent in the other direction: on a square-pixel fixture with no colour at all the chain comes
+out `setparams=range=tv` and no `setsar` - only the one property the file actually carries - where
+asserting `unknown` would state ignorance as though it were a measurement.
+
+**`DenoisePass` is not affected**, though the comment on `DeinterlacePass.GetSubtitleArgs` pointing at it
+makes it look as though it should be: it reads its input with `-i` and runs hqdn3d over it, with no pipe
+anywhere, so ffmpeg knows the colour and the aspect natively. What the two share is track carriage, not
+a y4m producer.
+
 **Raw Annex B cannot be given correct timestamps by any ffmpeg route, and mkvmerge is what
 containerises it - for every output container.** The intermediates are `.ivf` for SVT-AV1, aomenc and
 vpxenc, whose IVF header carries the frame rate and mux straight in; and raw Annex B for x264 and

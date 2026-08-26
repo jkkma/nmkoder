@@ -585,6 +585,113 @@ clip.set_output()");
         /// front would therefore arrive at cmd with its opening quote gone and the output file's
         /// closing quote gone with it. <see cref="GetPathDirs"/> is what makes the bare name resolve.
         /// </summary>
+        /// <summary>
+        /// The filter that puts back the pixel aspect a VapourSynth pipe drops, or "" where the
+        /// source's pixels are square and there is nothing to put back.
+        /// <para/>
+        /// <b>VSPipe's y4m header states no aspect at all.</b> Measured, it reads
+        /// <c>YUV4MPEG2 C420 W720 H480 F30000:1001 Ip A0:0</c> - where ffmpeg's own y4m muxer writes the
+        /// real value, <c>A8:9</c> on a 720x480 NTSC capture. VapourSynth has no SAR on a clip to write,
+        /// so <c>A0:0</c> is honest rather than a bug in VSPipe; it is only a loss because everything
+        /// downstream then reads the frame as square. Measured through a real VSPipe producer, which is
+        /// the only thing that shows it: an 8:9 fixture piped into libx264 comes back <c>N/A</c>, where
+        /// the same ffmpeg reading the same file directly gives 8:9 / 4:3. So a 4:3 tape came out
+        /// playing as 3:2, stretched, from every engine that leaves ffmpeg.
+        /// <para/>
+        /// It belongs at the <b>head</b> of the chain, and that is what makes one filter the whole
+        /// repair: ffmpeg's scale filter adjusts the SAR to hold the display aspect, and crop and pad
+        /// carry it through untouched, so restoring it at the top leaves every filter below behaving
+        /// exactly as it does on the un-piped path - including the app's own scales, which end in
+        /// <c>setsar=1:1</c> and are therefore unaffected by what went in above them.
+        /// <para/>
+        /// <b>Read off the source file, never off the pipe</b> - the pipe is precisely where it no
+        /// longer is. That is the same reason the deinterlace script takes its frame rate from
+        /// <see cref="Data.Streams.VideoStream.Rate"/> and the cadence repair its colour from ffprobe.
+        /// <para/>
+        /// A filter of its own rather than another property on the <c>setparams</c> call
+        /// <see cref="CadenceRepair"/> already emits, because that filter cannot express it: it takes
+        /// field_mode, range, color_primaries, color_trc and colorspace, and no aspect of any kind.
+        /// </summary>
+        public static string GetPipeSarFilter(Data.Streams.VideoStream vs)
+        {
+            return vs != null && AspectRatio.IsAnamorphic(vs.Sar) ? $"setsar={vs.Sar.Width}/{vs.Sar.Height}" : "";
+        }
+
+        /// <summary>
+        /// The colour a y4m pipe drops, probed off <paramref name="sourcePath"/> and written as
+        /// <c>setparams</c> properties - empty where the file states none, which is not a failure.
+        /// <para/>
+        /// <b>The frame's own properties beat the output AVOptions, which is why this cannot be done with
+        /// flags.</b> Measured through a real VSPipe producer on a capture declaring bt470m/bt470m/bt470bg
+        /// tv: <c>-color_primaries bt470m -color_trc bt470m -colorspace bt470bg -color_range tv</c> comes
+        /// back <b>unknown, unknown, bt470bg, tv</b> - two of four honoured and two dropped in silence -
+        /// and the same four written numerically (4/4/5/1) give exactly the same thing. Written as
+        /// setparams properties all four survive. An earlier fix here changed only the spelling and
+        /// shipped believing that had settled it; the spelling was never what decided it. The same
+        /// command reading the source as a <i>file</i> tags all four correctly, so this is confined to
+        /// piped y4m and a test that does not use the real pipe is worthless.
+        /// <para/>
+        /// Probed rather than taken off <see cref="Data.MediaFile.ColorData"/>, which is populated lazily
+        /// and may not have been asked for yet; and off a path rather than a <see cref="Data.MediaFile"/>
+        /// because the input is not always that file - <see cref="DeinterlacePass"/> is handed cuts. The
+        /// names ffprobe prints and the values setparams accepts come out of the same libavutil tables,
+        /// so the round trip is lossless by construction.
+        /// <para/>
+        /// <b>Asked for as <c>key=value</c> in one call rather than as four bare values, and that is a fix
+        /// for a silent failure rather than a tidy-up.</b> ffprobe's diagnostics share the stream that
+        /// carries its answer, so with <c>nokey=1</c> nothing distinguishes the value from a complaint -
+        /// and taking the first non-empty line took the complaint. Measured on an NTSC capture cut
+        /// mid-audio-frame, which makes ffprobe print <c>[mp2 @ …] Header missing</c> first: that line
+        /// failed the character test below, so *every* colour property was dropped and the run wrote a
+        /// file tagged <c>unknown</c> while reporting success. A <c>key=</c> prefix cannot be confused
+        /// with a diagnostic, which makes this robust whatever the log level - the sibling call in
+        /// <see cref="Av1anSceneDetect"/> survives only because it is set to <c>quiet</c>, and a
+        /// correctness that rests on a log level is one line away from being lost.
+        /// <para/>
+        /// Colour only, deliberately: the field order is the caller's business. A cadence repair hands on
+        /// woven fields and has to say so, where a deinterlace pass emits progressive frames and must
+        /// not - so <c>field_mode</c> is added by whoever wants it rather than assumed here.
+        /// </summary>
+        public static async Task<List<string>> GetPipeColorParamsAsync(string sourcePath)
+        {
+            var wanted = new[] { ("color_primaries", "color_primaries"), ("color_transfer", "color_trc"),
+                                 ("color_space", "colorspace"), ("color_range", "range") };
+            var setParams = new List<string>();
+
+            if (sourcePath.IsEmpty())
+                return setParams;
+
+            var probe = new AvProcess.FfprobeSettings
+            {
+                Args = $"-select_streams v:0 -show_entries stream={string.Join(",", wanted.Select(x => x.Item1))} " +
+                    $"-of default=noprint_wrappers=1 {sourcePath.Wrap()}",
+                LogLevel = "error",
+            };
+
+            string[] probed = (await AvProcess.RunFfprobe(probe)).SplitIntoLines();
+
+            foreach (var pair in wanted)
+            {
+                // Last rather than first: one stream is asked for, so one line per key is expected, and
+                // preferring the last costs nothing if that holds and picks the real answer over a
+                // diagnostic that happened to be shaped like one if it ever does not.
+                string value = probed.Select(x => x.Trim())
+                    .Where(x => x.StartsWith($"{pair.Item1}=", StringComparison.Ordinal))
+                    .Select(x => x.Substring(pair.Item1.Length + 1).Trim())
+                    .LastOrDefault() ?? "";
+
+                // "unknown" and "N/A" are ffprobe saying the source states nothing, and every setparams
+                // property defaults to `auto` - keep whatever came in - so leaving it off is exactly
+                // right: asserting `unknown` would state ignorance as though it were a measurement. The
+                // character test guards a value being spliced into a filter graph, where a `:` or an `=`
+                // would change the graph's shape rather than fail.
+                if (value.IsNotEmpty() && value != "unknown" && value != "N/A" && value.All(c => char.IsLetterOrDigit(c) || c == '-'))
+                    setParams.Add($"{pair.Item2}={value}");
+            }
+
+            return setParams;
+        }
+
         public static string BuildVspipeCommand(string scriptPath, string logPath, bool append = false)
         {
             return $"vspipe -c y4m {scriptPath.Wrap()} - 2{(append ? ">>" : ">")}{logPath.Wrap()} | ";

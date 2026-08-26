@@ -684,8 +684,12 @@ namespace Nmkoder.UI.Tasks
             int encodedInput = RunTask.currentFileListMode == RunTask.FileListMode.Batch ? 1 : FileList.Items.Count;
             string muxIn = TrackList.GetInputFilesString(QuickConvertUi.GetMuxTrimInputArgs());
 
+            // -aspect is the one thing the copied video stream cannot say for itself. An encoder launched
+            // directly is handed bare frames, and AV1 has no sample-aspect field to put the shape in, so
+            // an anamorphic source arrives here as pixels with no record of what they are shaped like -
+            // see GetMuxAspectArgs, which is also why this is not conditional on the encoder.
             cmd += $" && ffmpeg -y -loglevel warning -stats {muxIn} -i {Shell.WrapArg(encodedVideo)} " +
-                $"{TrackList.GetMuxMapArgs(encodedInput)} -c:v copy {a} {s} {meta} " +
+                $"{TrackList.GetMuxMapArgs(encodedInput)} -c:v copy {QuickConvertUi.GetMuxAspectArgs()} {a} {s} {meta} " +
                 $"{QuickConvertUi.GetMuxTrimOutputArgs()} {muxing} {Shell.WrapArg(outPath)}";
 
             return cmd;

@@ -1491,6 +1491,78 @@ namespace Nmkoder.UI.Tasks
         }
 
         /// <summary>
+        /// The display aspect the finished file has to be told about, as an ffmpeg <c>-aspect</c>
+        /// argument, or "" where the frame is already square-pixelled and there is nothing to say.
+        /// <para/>
+        /// <b>This exists because <see cref="ResolveScaledFrame"/>'s premise stopped being true.</b> It
+        /// leaves an anamorphic source un-squeezed on the reasoning that "ffmpeg carries its aspect flag
+        /// through to the output" - which held while this tab handed its frames to an ffmpeg encoder
+        /// inside one command, and stopped holding the moment it started launching encoder binaries
+        /// itself. A binary is handed bare frames over a pipe: y4m does carry the shape (measured, the
+        /// header reads <c>A8:9</c>), but AV1 has no sample-aspect field in its sequence header and IVF
+        /// has none either, so SvtAv1EncApp and aomenc cannot pass it on however they are fed - and the
+        /// mux then copies an elementary stream that never knew. Measured end to end on a 720x480 NTSC
+        /// capture with no filters at all: 8:9 / 4:3 in, <b>1:1 / 3:2 out</b>, which plays horizontally
+        /// stretched. vpxenc loses it the same way; x264 and x265 do not, raw Annex B carrying the SAR
+        /// in its SPS VUI where mkvmerge reads it back out.
+        /// <para/>
+        /// Stated at the mux rather than baked into the pixels, which is where this parts company with
+        /// the AV1AN tab's answer to the identical problem (<see cref="Av1anFrame.Desqueezing"/>). That
+        /// tab de-squeezes because av1an muxes its own output and this app never sees it; here the mux
+        /// is ours, so the shape can be recorded instead of resampled - no scale filter, no quality
+        /// cost, and the frame stays the size the encoder was tuned for.
+        /// <para/>
+        /// Emitted for every direct encoder rather than only the ones that need it. On the x264/x265
+        /// path without VapourSynth it restates the ratio their own VUI already carried, which is a
+        /// no-op by construction; with QTGMC in front it is the only source of it, VSPipe's y4m header
+        /// reading <c>A0:0</c> whatever the file said.
+        /// </summary>
+        public static string GetMuxAspectArgs()
+        {
+            VideoStream vs = GetVideoSourceStream();
+
+            // Square pixels: the stored frame's own ratio is already the ratio it plays at, and saying
+            // so would be stating a default. Every non-anamorphic source lands here.
+            if (vs == null || !AspectRatio.IsAnamorphic(vs.Sar))
+                return "";
+
+            // The same abstention GetEncodedFrameSize makes, for a sharper reason: that one falls back
+            // on a frame measured with the black bars still in and is merely approximate, where a
+            // *ratio* worked out from the wrong frame is worse than none - it would state, precisely, a
+            // shape the file does not have. An unresolved automatic crop therefore leaves this alone,
+            // which is the behaviour that shipped rather than a new way to be wrong.
+            if (Form.EncCropModeBox.GetText().ToLower().Contains("auto"))
+            {
+                Logger.Log($"'{vs.Sar.Width}:{vs.Sar.Height}' pixels and an automatic crop: the encoded frame is not " +
+                    $"known until the crop is resolved, so no display aspect is written and the output plays as its " +
+                    $"stored ratio. Use a manual crop to keep the shape.", true);
+                return "";
+            }
+
+            (Size scaled, Size sar) = ResolveScaledFrame(GetCroppedSourceSize(vs), vs.Sar);
+            Size frame = CurrentBorders.IsSet ? CurrentBorders.Compute(scaled, sar).Frame : scaled;
+
+            // A scale ran, so the chain ended in setsar=1:1 and the shape is already in the pixels.
+            // Border bars do not change it - they add picture around a frame, not shape to it - which is
+            // why the bars are folded in above and the pixel shape is read from the scale alone.
+            if (frame.IsEmpty || !AspectRatio.IsAnamorphic(sar))
+                return "";
+
+            int width = frame.Width * sar.Width;
+            int height = frame.Height * sar.Height;
+            int gcd = AspectRatio.Gcd(width, height);
+
+            if (gcd < 1)
+                return "";
+
+            Logger.Log($"Recording a {width / gcd}:{height / gcd} display aspect on the output: the frame is " +
+                $"{frame.Width}x{frame.Height} of {sar.Width}:{sar.Height} pixels, and an encoder launched directly " +
+                $"cannot carry that shape in its own bitstream.", true);
+
+            return $"-aspect {width / gcd}:{height / gcd}";
+        }
+
+        /// <summary>
         /// What the scale leaves when handed <paramref name="scaleInput"/>, and the shape that frame's
         /// pixels then have.
         /// <para/>
@@ -1621,6 +1693,24 @@ namespace Nmkoder.UI.Tasks
 
             if (currFile == null || currFile.VideoStreams.Count < 1 || (vCodec != null && vCodec.DoesNotEncode))
                 return "";
+
+            // Ahead of even the deinterlacer, and only where the frames come down a VapourSynth pipe:
+            // VSPipe's y4m header says A0:0 whatever the file's pixels are shaped like, so an anamorphic
+            // source reaches this chain having forgotten it. Restored at the top, everything below
+            // behaves as it does on the un-piped path - the scales end in setsar=1:1 and are unaffected,
+            // the crop and the pad carry it through - so this one filter is the whole repair.
+            if (CurrentDeinterlace != null && CurrentDeinterlace.UsesPipe)
+            {
+                string pipeSar = Qtgmc.GetPipeSarFilter(currFile.VideoStreams.First());
+
+                if (pipeSar.IsNotEmpty())
+                {
+                    filters.Add(pipeSar);
+                    Logger.Log($"Restoring the {currFile.VideoStreams.First().Sar.Width}:" +
+                        $"{currFile.VideoStreams.First().Sar.Height} pixel shape at the head of the filter chain - " +
+                        $"VapourSynth's y4m carries no aspect, so without it the output would play as its stored ratio.", quiet);
+                }
+            }
 
             // Deinterlacing comes before everything else, because everything else is measured against
             // a whole frame: a crop rectangle, a scale, a burnt-in subtitle. QTGMC contributes nothing

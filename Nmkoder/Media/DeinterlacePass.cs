@@ -4,6 +4,7 @@ using Nmkoder.IO;
 using Nmkoder.Main;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Nmkoder.Media
@@ -83,8 +84,26 @@ namespace Nmkoder.Media
                 videoMap = "1:v:0";
             }
 
-            string filter = plan.GetFfmpegFilter();
+            // Only where the frames came down a pipe. Reading the file directly ffmpeg already knows all
+            // of this and restating it would be a no-op; through VapourSynth the y4m header says A0:0 and
+            // states no colour at all, so an anamorphic capture is deinterlaced into a file that plays
+            // stretched and a capture that said precisely what its primaries were comes back `unknown`
+            // for all three. Both matter more here than almost anywhere, this utility's output being a
+            // file people keep and play.
+            //
+            // Probed against inPath rather than the source file: this pass is handed cuts, and while a
+            // cut copy carries its parent's colour, the input is the thing whose frames are being read.
+            // No field_mode - see GetPipeColorParamsAsync's last note. The output of this pass is
+            // progressive by definition, and asserting a field order on it would be a lie the next
+            // deinterlacer would act on.
+            string sarFilter = plan.UsesPipe ? Qtgmc.GetPipeSarFilter(source?.VideoStreams?.FirstOrDefault()) : "";
+            var colorParams = plan.UsesPipe ? await Qtgmc.GetPipeColorParamsAsync(inPath) : new List<string>();
+            string colorFilter = colorParams.Count > 0 ? $"setparams={string.Join(":", colorParams)}" : "";
+            string filter = string.Join(",", new[] { sarFilter, colorFilter, plan.GetFfmpegFilter() }.Where(x => x.IsNotEmpty()));
             string vf = filter.IsEmpty() ? "" : $"-vf {filter}";
+
+            if (plan.UsesPipe && filter.IsNotEmpty())
+                Logger.Log($"Re-stating what y4m drops: {filter}.", true);
 
             // Everything but the video is copied: re-encoding audio on the way through would cost
             // quality for nothing, whether the result is being kept or encoded again. Data streams are
