@@ -64,11 +64,21 @@ run on the user's Windows machines from Git Bash, with `gh` installed and authen
    and metric plugins render on win-x64), so a green run means those checks ran - a red run's
    job logs (`gh run view <run-id> --log-failed`) name the gate.
 
-   `watch-run.sh` pipes curl straight into jq and counts consecutive failures, because the
-   loop it replaced round-tripped the JSON through a shell `echo` (which mangles the `\n`
-   inside commit messages), errored on all 22 of its polls and kept going, reporting nothing,
-   while the run had already gone green: **a poller that fails every iteration looks exactly
-   like one that is waiting.**
+   `watch-run.sh` asks `gh` and counts consecutive failures, because **a poller that fails
+   every iteration looks exactly like one that is waiting** - the loop it replaced errored on
+   all 22 of its polls and kept going, reporting nothing, while the run had already gone green.
+
+   **It runs on `gh` rather than `curl | jq`, and that is the second version of this script to
+   be beaten by its own dependencies.** The curl one swallowed the reader's stderr
+   (`jq -r '…' 2>/dev/null`), so on a machine with no jq installed the "command not found" went
+   to the void, curl was left writing into a pipe nobody read, and every poll printed only
+   `curl: (23) Failure writing output to destination` - whereupon it announced *"the API is
+   unreachable"* about a missing package, with the network and the API both fine. Measured on
+   the user's desktop mid-release: curl alone fetched the run in one call and `command -v jq`
+   came back empty. `gh` is already required for the dispatch and the verification and carries
+   its own jq (`--jq` is gojq, built in), it is checked for *before* the loop, and a failed poll
+   now prints what gh actually said - `HTTP 404: Not Found` rather than a theory. Do not
+   reintroduce a bare `jq` anywhere in this skill for the same reason; use `gh --jq`.
 
 ## Verifying the published release
 
@@ -77,7 +87,8 @@ After a green run:
 - **The release exists and is not a draft**: `gh release view vX.Y.Z --repo jkkma/nmkoder --json isDraft,assets`.
 - **The Scoop manifest moved**: the workflow commits "Point the Scoop manifest at X.Y.Z" to
   master, so `git fetch origin master` and check
-  `git show origin/master:bucket/nmkoder-avalonia.json | jq -r .version` - and pull before
+  `git show origin/master:bucket/nmkoder-avalonia.json | grep -oE '"version"[^,]*'` (grep
+  rather than jq, which is not installed on either machine - see step 5) - and pull before
   doing anything else on master, or the next push rejects.
 - **Spot-check an asset when anything about bundling changed.** A green run is not evidence a
   best-effort tool shipped, and grav1synth has gone missing from win-x64 four times for three
