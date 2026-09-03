@@ -84,7 +84,8 @@ namespace Nmkoder.Data
         /// and for a build that turns out not to have it.
         /// <para/>
         /// **Both of them stop and ask at values their own argument rows offer.** <c>min-q</c> and
-        /// <c>max-q</c> are 0-63 with a default of 63 in <c>AomAv1.json</c> and <c>Vpx.json</c> alike;
+        /// <c>max-q</c> are 0-63 in <c>AomAv1.json</c> and <c>Vpx.json</c> alike, defaulting to 0 and 63
+        /// - 63 apart, so the rows left alone never meet this;
         /// set within 8 of each other the binary prints <c>Warning: Bad quantizer values…</c> followed
         /// by <c>1 encoder configuration warning(s). Continue? (y to continue)</c> and reads a byte
         /// from stdin. Measured against the 2.8.78 bundle (AV1 Encoder v3.14.1, VP9 Encoder

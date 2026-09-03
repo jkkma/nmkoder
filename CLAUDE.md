@@ -1159,8 +1159,9 @@ session folder and are deleted on success, because that folder is only emptied a
 and the intermediate is the whole video.
 
 **aomenc and vpxenc will stop and ask a question at values their own argument rows offer, and a launched
-child never answers.** Both accept `min-q` and `max-q` at 0-63 with a default of 63, which the rows
-state; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
+child never answers.** Both accept `min-q` and `max-q` at 0-63, defaulting to 0 and 63 respectively -
+which is what `AomAv1.json` and `Vpx.json` state, and 63 apart, so nobody meets this by leaving the
+rows alone; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
 differ by at least 8.` followed by `1 encoder configuration warning(s). Continue? (y to continue)` and
 reads a byte from stdin. Measured on the 2.8.78 bundle (`AV1 Encoder v3.14.1`, `VP9 Encoder
 v1.15.2-151-gd98e70839`); `--min-q=55 --max-q=63` is clean and `56` asks, so the boundary is exactly the
