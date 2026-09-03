@@ -18,7 +18,7 @@
   [
     "level",
     "",
-    "1 to 6.2, including 1b (default auto) - Decoder level written to the stream; x264 only warns, it clamps nothing",
+    "1 to 6.2, including 1b (blank lets x264 derive it) - Decoder level written to the stream; x264 only warns, it clamps nothing",
     "Tuning & Profile",
     "The decoder level written into the stream header. Levels bound resolution, frame rate, bitrate and how many reference frames may be buffered, and hardware decoders advertise the highest level they implement.\n\nx264 works out a suitable level on its own, so this is only worth setting when a target demands a specific one - Blu-ray at 4.1, or a device that refuses anything higher.\n\nBe aware that x264 only warns when your other settings exceed the level you asked for; it does not reduce ref frames or anything else to fit. Getting a conformant stream means setting those yourself.",
     "4.1|Blu-ray, and a very common hardware ceiling for 1080p.\n5.1|4K delivery to modern decoders.\n3.0|Older mobile devices at standard definition.\n4.0|Broad compatibility for 1080p without Blu-ray's constraints."
@@ -242,7 +242,7 @@
   [
     "crf-max",
     "",
-    "0.0-51.0 (default off) - With CRF and VBV together, the worst rate factor the encoder may fall back to",
+    "0.0-51.0 (blank leaves it off) - With CRF and VBV together, the worst rate factor the encoder may fall back to",
     "Rate Control",
     "When CRF is combined with a VBV constraint, the encoder will raise its rate factor - lowering quality - as far as it needs to in order to respect the bitrate ceiling. This caps how far it may go.\n\nReaching that cap means the encoder can no longer satisfy VBV, so it will exceed the ceiling rather than degrade further. That is the trade: a guaranteed minimum quality in exchange for a bitrate that may breach the constraint on the hardest material.\n\nIt does nothing without vbv-maxrate and vbv-bufsize set.",
     "25|A firm quality floor for constrained streaming.\n30|A looser floor, breaching the ceiling less often.\n20|A high floor; expect the bitrate cap to be exceeded on hard scenes."

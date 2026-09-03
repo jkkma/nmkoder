@@ -34,10 +34,10 @@
   [
     "tune",
     "",
-    "psnr, ssim, vmaf, vmaf_neg, butteraugli and variants (default psnr) - Which metric the encoder optimises for",
+    "psnr, ssim, iq, ssimulacra2 (default psnr) - Which metric the encoder optimises for",
     "Tuning & Quantization",
-    "Selects the distortion metric the encoder's decisions are scored against, which changes where bits go rather than just what gets reported. psnr minimises squared error, ssim weights by structural similarity, and the vmaf and butteraugli variants optimise against perceptual models.\n\nssim generally produces a picture people prefer over psnr. The vmaf modes optimise directly for a metric widely used to judge streaming quality, which is useful if you are being measured on it and questionable if you are not - tuning for a metric tends to exploit it.\n\nbutteraugli targets a perceptual difference model and is the most experimental of the set.",
-    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice.\nvmaf_neg|VMAF tuned to resist the usual enhancement gaming.\nbutteraugli|A perceptual difference model; experimental."
+    "Selects the distortion metric the encoder's decisions are scored against, which changes where bits go rather than just what gets reported. psnr minimises squared error, ssim weights by structural similarity, iq is a perceptual image-quality model, and ssimulacra2 optimises against the SSIMULACRA2 perceptual metric.\n\nssim generally produces a picture people prefer over psnr. ssimulacra2 optimises directly for a metric the Sample Encodes utility can also score an encode against, which is useful if you are being measured on it and questionable if you are not - tuning for a metric tends to exploit it.\n\nThe bundled aomenc offers ten tunes in its --help and can do only these four. vmaf, vmaf_neg, vmaf_with_preprocessing, vmaf_without_preprocessing and butteraugli are compile-time options this build was not built with, and libaom refuses an unusable tune outright rather than warning, so each of them is a failed encode rather than a setting that quietly does nothing. vmaf_saliency_map is the exception, and is worse: it is accepted and gives output byte-identical to psnr.",
+    "psnr|The default; minimises squared error.\nssim|Structure-weighted decisions; usually the better-looking choice.\niq|A perceptual image-quality model, aimed at how the picture looks rather than at a score.\nssimulacra2|Optimises against the SSIMULACRA2 perceptual metric."
   ],
   [
     "qm-min",

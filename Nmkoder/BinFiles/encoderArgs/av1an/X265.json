@@ -2,7 +2,7 @@
   [
     "tune",
     "",
-    "psnr, ssim, grain, zero-latency, fast-decode, animation (default none) - grain keeps film noise, animation cel art",
+    "psnr, ssim, grain, zero-latency, fast-decode, animation (blank applies no tune) - grain keeps film noise, animation cel art",
     "Tuning & Profile",
     "Tune adjusts the preset's settings towards a kind of source or a delivery constraint. grain raises the psy settings and loosens deblocking and adaptive quantisation so film noise survives rather than being smoothed into patches. animation goes the other way, suiting flat cel artwork with strong AQ and more B-frames.\n\nfast-decode removes tools that cost the decoder, for weak playback hardware. zero-latency disables lookahead and frame reordering for live use.\n\npsnr and ssim disable the psychovisual optimisations, which raises those scores and makes the picture look worse. They are benchmarking aids, not delivery settings.",
     "grain|Grainy film scans; the most commonly used tune in x265.\nanimation|Cel animation and flat 2D artwork.\nzero-latency|Live streaming, at a compression cost.\nfast-decode|Playback on weak hardware.\nssim|Metric benchmarking only; visibly softer output."
@@ -50,10 +50,10 @@
   [
     "ref",
     "",
-    "1-16 (default 3) - L0 reference frames the search may use; more helps repetitive motion, over 6 breaks conformance",
+    "1-8 (default 3) - L0 reference frames the search may use; more helps repetitive motion, and 9 or more will not open",
     "Frames & Motion",
-    "How many L0 reference frames the motion search may predict from. More references help when content recurs - repetitive motion, cuts returning to an earlier shot, animation reusing artwork - because the encoder can point at a frame that genuinely matches.\n\nEncoding time grows with each one and the gains fall off quickly on ordinary live action.\n\nCompatibility is the real limit: HEVC levels bound the decoded picture buffer, and going past about six produces a stream many hardware decoders will refuse even though x265 encodes it happily.",
-    "3|The default, fine for general content.\n5|Detailed or repetitive material, encoded offline.\n1|Fastest, and the safest for constrained decoders.\n6|About as high as is worth going before conformance suffers."
+    "How many L0 reference frames the motion search may predict from. More references help when content recurs - repetitive motion, cuts returning to an earlier shot, animation reusing artwork - because the encoder can point at a frame that genuinely matches.\n\nEncoding time grows with each one and the gains fall off quickly on ordinary live action.\n\nCompatibility is the real limit, and it is enforced rather than warned about: HEVC levels bound the decoded picture buffer, and x265 refuses to open the encoder at all once the level it derived cannot hold the count asked for. Measured on this build, 8 opens and 9 does not, at every frame size tried - the run dies with x265_encoder_open() failed and writes nothing. Naming a high --level-idc does let it open, but x265 then lowers the count to 7, so it is not a way to reach more references than leaving the level alone.",
+    "3|The default, fine for general content.\n5|Detailed or repetitive material, encoded offline.\n1|Fastest, and the safest for constrained decoders.\n8|The most this build will open; 9 and up refuse to start."
   ],
   [
     "rc-lookahead",

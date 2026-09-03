@@ -42,10 +42,10 @@
   [
     "ref",
     "",
-    "1-16 (default 3 at medium) - L0 reference frames the search may use; past 6 the level must be raised too",
+    "1-8 (default 3 at medium) - L0 reference frames the search may use; 9 or more will not open",
     "Frames & Motion",
-    "How many L0 reference frames the motion search may predict from. More references help when content recurs - repetitive motion, cuts returning to an earlier shot, animation reusing artwork - because the encoder can point at a frame that genuinely matches.\n\nEncoding time grows with each one and the gains fall off quickly on ordinary live action.\n\nCompatibility is the real limit, and here it is enforced rather than merely warned about: HEVC levels bound the decoded picture buffer, and x265 refuses to open the encoder at all once the level it derived cannot hold the count asked for. Measured, 8 is fine at 720p and 10 is refused; naming a high level-idc is what lets the larger counts through, at the price of a stream many hardware decoders will not touch.",
-    "3|The medium preset's value, fine for general content.\n5|Detailed or repetitive material, encoded offline.\n1|Fastest, and the safest for constrained decoders.\n6|About as high as is worth going before conformance suffers."
+    "How many L0 reference frames the motion search may predict from. More references help when content recurs - repetitive motion, cuts returning to an earlier shot, animation reusing artwork - because the encoder can point at a frame that genuinely matches.\n\nEncoding time grows with each one and the gains fall off quickly on ordinary live action.\n\nCompatibility is the real limit, and here it is enforced rather than merely warned about: HEVC levels bound the decoded picture buffer, and x265 refuses to open the encoder at all once the level it derived cannot hold the count asked for. Measured, 8 opens and 9 does not, at every frame size tried; naming a high level-idc does let it open, but x265 then lowers the count to 7, so it is not a way to reach more references than leaving the level alone.",
+    "3|The medium preset's value, fine for general content.\n5|Detailed or repetitive material, encoded offline.\n1|Fastest, and the safest for constrained decoders.\n8|The most this build will open; 9 and up refuse to start."
   ],
   [
     "limit-refs",

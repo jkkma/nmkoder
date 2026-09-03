@@ -1008,32 +1008,66 @@ reads as broken.
 
 **That check was re-run against the 2.8.78 toolchain, and what fails is the rows' own stated values
 rather than the parameters.** 459 values across 152 rows and five CLI binaries; 7 values across 5 rows
-are refused, and three of them are worth knowing about:
+were refused, three of them worth knowing about. **All three of those rows have since been corrected**,
+and they are three applications of one rule: **a row states what the parser accepts, and a "leave it
+blank" behaviour is said in words rather than offered as a value.**
 
-- **`SvtAv1.json`'s `lookahead` still offers the `-1` its own parser refuses, and it is the row's first
-  example.** The check above caught this and the row was never corrected: the description still reads
-  "-1 for automatic, or 0-120 (default -1)" and the example list leads with `-1|The default; the encoder
-  chooses a depth.`, byte-identical in `Nmkoder/BinFiles/encoderArgs/av1an/SvtAv1.json` and the shipped
-  copy. `SvtAv1EncApp --lookahead -1` answers `Error: Invalid parameter 'lookahead' with value '-1'` and
-  writes a 32-byte stub, where 0, 1, 60 and 120 all encode and 121 errors correctly. The binary's own
-  `--help` says `default is -1 [-1: auto, 0-120]`, so the row is faithfully copying a lie the binary
-  tells about itself - which is exactly why reading the help is not the check and running it is.
-- **`AomAv1.json`'s `tune` row names five values this aomenc cannot do.** `vmaf`, `vmaf_neg`,
-  `vmaf_with_preprocessing`, `vmaf_without_preprocessing` and `butteraugli` all fail with `Error: Tried
-  to set control 24` and the hint `try to set -DCONFIG_TUNE_VMAF=1 at the time CMake is run` - the MSYS2
-  `mingw-w64-x86_64-aom` the bundler installs is built without them. libaom *refuses* an unusable
-  parameter rather than warning, so this is a failed encode and not a silent drop. `--help` lists all
-  ten, which is the "presence is not support" shape recorded elsewhere in this file. `psnr` and `ssim`
-  work; `iq` and `ssimulacra2` work and are **not** named in the row.
-- **`X265.json`'s `ref` row states 1-16 and this x265 opens on 1-8.** 9 and above give `x265 [error]:
+- **`SvtAv1.json`'s `lookahead` offered the `-1` its own parser refuses, and it was the row's first
+  example.** `SvtAv1EncApp --lookahead -1` answers `Error: Invalid parameter 'lookahead' with value
+  '-1'` and writes a 32-byte stub, where 0, 1, 60 and 120 all encode and 121 errors correctly. The
+  binary's own `--help` says `default is -1 [-1: auto, 0-120]`, so the row was faithfully copying a lie
+  the binary tells about itself - which is exactly why reading the help is not the check and running it
+  is. The first list check caught this and the row was not corrected then; it now reads `0-120 (blank
+  lets the encoder choose)`, the `-1` example is gone, and the long description carries the trap.
+- **`AomAv1.json`'s `tune` row named five values this aomenc cannot do.** `vmaf`, `vmaf_neg`,
+  `vmaf_with_preprocessing` and `vmaf_without_preprocessing` fail with `Error: Tried to set control 24`
+  and the hint `try to set -DCONFIG_TUNE_VMAF=1 at the time CMake is run`; `butteraugli` fails the same
+  way but with `-DCONFIG_TUNE_BUTTERAUGLI=1` - this file used to give all five the VMAF hint. The MSYS2
+  `mingw-w64-x86_64-aom` the bundler installs is built without either. libaom *refuses* an unusable
+  parameter rather than warning, so this is a failed encode and not a silent drop. **The tenth value is
+  the one that does drop silently: `vmaf_saliency_map` is accepted, exits 0, and gives output
+  byte-identical to `--tune=psnr`.** So of the ten `--help` lists, four work (`psnr`, `ssim`, `iq`,
+  `ssimulacra2`), five are refused and one is inert; the row now names those four and nothing else, and
+  its details say why the other six are not offered. `psnr` being the default is measured rather than
+  assumed - an encode with no `--tune` is byte-identical to `--tune=psnr`, where `--tune=ssim` differs.
+- **`X265.json`'s `ref` row stated 1-16 and this x265 opens on 1-8.** 9 and above give `x265 [error]:
   x265_encoder_open() failed for Enc`, rc=3 and no output, preceded by `level N detected, but
-  NumPocTotalCurr (total references) is non-compliant`, independently of frame size. It is a level/DPB
-  interaction rather than a wrong range - `--ref 16 --level-idc 6.2` opens fine - but the row's text
-  warns only that "over 6 breaks conformance", which reads as a conformance caveat where in fact the
-  encoder will not start.
+  NumPocTotalCurr (total references) is non-compliant`. "Independently of frame size" is now measured
+  rather than asserted: the 8/9 boundary is identical at 320x240, 640x480 and 1920x1080, and only the
+  level x265 derives moves with the picture (2.1, 3.1, 5 at `--ref 9`). **And naming a high level is not
+  the workaround this file and the row both called it.** `--ref 16 --level-idc 6.2` does open, which is
+  all the earlier note checked - but x265 then prints `Lowering max references to 7 to meet
+  numPocTotalCurr requirement`, so it delivers *fewer* references than a plain `--ref 8`. Measured
+  identically through `libx265`'s `-x265-params`, so `av1an/X265.json` and `ffmpeg/Libx265.json` carried
+  the same wrong clause and both now say 1-8, and that a named level clamps to 7.
+
+**Two more rows were inside that count of five and were never named; the class they belong to is the
+same rule from the other end - a `(default <word>)` parenthetical whose word is not a value.**
+`X264.json`'s `level` said `(default auto)`, its `crf-max` said `(default off)`, and `X265.json`'s `tune`
+said `(default none)`; typing any of the three kills the encode (`x264 [error]: invalid argument: level
+= auto`, the same for `crf-max = off`, and `x265 [error]: preset or tune unrecognized`). Milder than
+`lookahead`, which offered its bad value as the first example, and the same defect underneath: the value
+column is free text, so a bare word standing where a value goes will be typed. All three now say what
+blank does instead. `X265.json`'s `rdoq-level` is deliberately left alone - its `(default follows rd; on
+at rd 4-6)` is a phrase rather than a bare token, and nobody types "follows".
+
+**Two things a re-run of this sweep reports as refusals which are the harness rather than the rows, and
+must not be re-diagnosed as row faults.** SVT-AV1's `qm-min`/`qm-max` and `chroma-qm-min`/`chroma-qm-max`
+are *pairs* the binary range-checks against each other (`Svt[error]: Min quant matrix level must not
+greater than max quant matrix level`), so passing one value at a time leaves one end of each row's stated
+0-15 unreachable while its partner sits at its own default - `--qm-min 0 --qm-max 0` and `--qm-min 15
+--qm-max 15` both encode, so the rows are right. And a regex reading "each end of its range" out of
+`rdoq-level`'s prose picks up the `4-6` that belongs to the **`rd`** parameter beside it; that row's own
+range is 0-2 and all three values encode.
 
 Measured against the 2.8.78 bundle - `SVT-AV1-HDR v4.1.0-20-g0bed4090b`, `AV1 Encoder v3.14.1`, x265
-`4.3+1-e9b8812`. x264 came back 100/100 clean and vpxenc 64/64.
+`4.3+1-e9b8812`, x264 `0.165.3222M`, vpxenc `v1.15.2-151-gd98e70839`. x264 came back 100/100 clean and
+vpxenc 64/64. The re-check after the corrections was 569 runs over the same five binaries: 563 accepted,
+6 refused, all six of them the two artifact classes above and none a row fault. **Not verified**: the
+original "7 values across 5 rows" was not reproduced exactly, the extractor used for the re-check being
+more liberal (583 candidate values against 459), so the two unnamed rows are identified by class rather
+than out of the original run's own record; and the values a row enumerates in prose rather than in its
+examples - x265's six tunes, x264's `1b` - were run by hand rather than swept, all of them accepted.
 
 **One latent trap sits behind the same lists.** An unknown `-svtav1-params` key logs `[libsvtav1] Error
 parsing option <key>: <val>.` and encodes anyway at rc=0 - consistent with the three-way split above -

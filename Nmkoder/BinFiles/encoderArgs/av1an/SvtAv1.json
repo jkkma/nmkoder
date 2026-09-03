@@ -314,10 +314,10 @@
   [
     "lookahead",
     "",
-    "-1 for automatic, or 0-120 (default -1) - Frames looked ahead beyond the minigop, filtering and rate control",
+    "0-120 (blank lets the encoder choose) - Frames looked ahead beyond the minigop, filtering and rate control",
     "Encoding Tools",
-    "How far ahead the encoder looks beyond what the mini-GOP structure, temporal filtering and rate control already require. Lookahead is what lets it place references well and distribute bits across a scene rather than reacting frame by frame.\n\nLeft at -1 the encoder picks a depth from the other settings, which is a sensible choice in most cases. Setting it explicitly is a way to buy better bit distribution at the cost of memory and latency, or to cut both for low-delay use.\n\nBeyond the length of a typical shot there is nothing further to learn.",
-    "-1|The default; the encoder chooses a depth.\n120|The maximum; the most information for rate control.\n60|A generous fixed depth for offline encoding.\n0|No additional lookahead, for low delay."
+    "How far ahead the encoder looks beyond what the mini-GOP structure, temporal filtering and rate control already require. Lookahead is what lets it place references well and distribute bits across a scene rather than reacting frame by frame.\n\nLeft blank the encoder picks a depth from the other settings, which is a sensible choice in most cases. Setting it explicitly is a way to buy better bit distribution at the cost of memory and latency, or to cut both for low-delay use.\n\nBeyond the length of a typical shot there is nothing further to learn.\n\nThe encoder advertises -1 as the automatic setting in its own --help, and its own parser then refuses it, answering \"Invalid parameter 'lookahead' with value '-1'\" and writing no stream. Automatic is reached by leaving this row empty, never by typing -1. Measured, 0, 1, 60 and 120 all encode and 121 is correctly refused.",
+    "120|The maximum; the most information for rate control.\n60|A generous fixed depth for offline encoding.\n0|No additional lookahead, for low delay."
   ],
   [
     "dolby-vision-rpu",
