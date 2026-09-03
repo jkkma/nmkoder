@@ -521,6 +521,18 @@ and the divergence shrinks to content brighter than the declared peak.
 `tonemap` with no peak defaults to **10**: measured, HLG signal 0.90 and 1.00 leave the filter at 1.08348
 and 1.19111, so reference white at 0.75 sits at 0.79709 and everything above it was superwhite.
 
+**Those three HLG numbers did not reproduce on the 2.8.78 re-check, and the gap is open rather than
+closed.** Against ffmpeg `N-126264-g007cd1fd43-20260825` the same three points came back **1.07875 /
+1.18833 / 0.78862** - about 1% low, in the same direction at all three, and identical whether the
+fixture is limited or full range. It is **not** being recorded as drift, because the PQ desaturation
+figures directly above (0.42517 / 0.92387 / 1.40489 at `desat=2`, 0.35508 / 0.59142 / 1.00194 at
+`desat=0`) reproduced to **five decimals** on the same build - and that chain could be reconstructed
+exactly from `ToneMapConfig.GetFilterArgs`, where this one could not: **this passage does not record how
+the HLG fixture was built**, so a 1% difference is far more likely a different fixture than a change in
+`tonemap`. That omission is the finding. Whoever built the original should re-measure and either write
+the fixture recipe down beside the numbers or correct them; until then, treat these three as
+provenance-weak and the PQ figures beside them as solid.
+
 The two converters also disagree about where 1.0 itself lands, which is why the resize ceiling is 943 and
 not 940: measured on constant float patches, swscale clamps at 1.0 and writes **943** for every input from
 1.0 to 10.0, where zimg writes 940 for 1.0 and runs to the 10-bit ceiling above it.

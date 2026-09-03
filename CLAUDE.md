@@ -659,12 +659,31 @@ of the line, not one spelling of it.
 `bundle-tools.sh` takes BtbN's `master-latest`, so the ffmpeg underneath this app
 moves continuously and a format it prints today is not a promise about next
 month. What it prints *now* was read out of the binary's own strings rather than
-guessed: exactly one size format, `size=%8.0fKiB time=`, and one bitrate format,
-`bitrate=%6.1fkbits/s`. A 1.9 GB stream still printed KiB, so the larger prefixes
-in the regexes are defensive rather than something you can produce. They are not
-scaled alike, which is the part to be careful with: a size is binary, matching
-its KiB/MiB spelling, while a bitrate is ffmpeg's own division by 1000 and so
-decimal.
+guessed: one size format on the stats line, `size=%8.0fKiB time=`, and one
+bitrate format, `bitrate=%6.1fkbits/s`. A 1.9 GB stream still printed KiB, so the
+larger prefixes in the regexes are defensive rather than something you can
+produce. They are not scaled alike, which is the part to be careful with: a size
+is binary, matching its KiB/MiB spelling, while a bitrate is ffmpeg's own
+division by 1000 and so decimal.
+
+**This file used to say there was exactly one `%8.0fKiB` format in the binary,
+and against `N-126264-g007cd1fd43-20260825` (toolchain 2.8.78) there are two.**
+The second is `ffmpeg_enc.c`'s `-vstats` file format, `s_size= %8.0fKiB time=
+%0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s` - and it contains the exact `size= `
+token `GetStreamSizeBytes` keys on, so it is the shape that would fool the parser
+if it ever reached it. It does not: it is written to a *file* rather than to
+stderr, and the app never passes `-vstats` (grepped, zero hits). Recorded because
+"exactly one" is the sort of enumeration that gets relied on, and the reason this
+one is safe is a property of the app rather than of the format.
+
+**The stats line has also gained a trailing `elapsed=` field the readout does not
+rename.** It now ends `speed= 176x elapsed=0:00:00.01`, and
+`FormatUtils.BeautifyFfmpegStats` has entries for `frame=`, `fps=`, `q=`, `time=`,
+`speed=`, `bitrate=`, `Lsize=` and `size=` and none for `elapsed=`, so the app's
+readout ends with a raw `elapsed=0:00:00.01` among renamed fields. Cosmetic, and
+**not new to this refresh** - the user's own Scoop ffmpeg (gyan.dev 9.0.1) prints
+it too, so it has been showing for a while and was simply never written down. The
+size regex and the `frame=`/`size=` gate are both unaffected.
 
 `Lsize=` never *starts* a line - it only appears after `frame=`, and an audio-only
 run's final line begins `size=`. Measured across a video stream copy, an audio
@@ -950,8 +969,13 @@ outright - same binary, same `SvtAv1.json` rows, and `Av1anEncoderName` answers 
 a preset drops what a mainline binary lacks with the same named log line. The x264/x265 sets stay where
 the libraries are: written as library parameters, four of their values are boolean-only flags on the
 CLI binaries - x264 has `--no-dct-decimate` and refuses `--dct-decimate 0` outright, and x265's
-`--sao`, `--cutree` and `--rc-grain` take no value, so `--sao 0` *enables* SAO and strands the 0 as a
-stray argument x265 only warns about. A value grid cannot express any of that, so a carried-over preset
+`--sao`, `--cutree` and `--rc-grain` take no value, so `--sao 0` strands the 0 as a stray argument that
+**kills the encode**. This file used to say x265 "only warns about" it, and the warning is still the only
+thing it prints - `x265 [warning]: extra unused command arguments given <0>` - but measured against
+`4.3+1-e9b8812` in the 2.8.78 bundle it then **exits 1 having written nothing at all**, where `--no-sao`
+on the same fixture is rc=0 and 2881 bytes. Same for `--cutree 0` and `--rc-grain 0`. The warning text
+is what made the old reading look right: it says "warning", and the exit code is the only place the
+difference shows. A value grid cannot express any of that, so a carried-over preset
 would quietly apply the opposite of its loudest entries; a Direct x264/x265 set wants writing against
 the CLI vocabulary and measuring, not mapping. The library sets were verified value by value against
 the library inside the bundled ffmpeg, which the CRF ladder still runs.
@@ -981,6 +1005,42 @@ both look like mismatches and are not. Settle the second by encoding with the ro
 set to its stated default and comparing the files, which must be **IVF or another container without a
 random UID**: WebM writes a fresh SegmentUID per mux, so two identical encodes differ and every row
 reads as broken.
+
+**That check was re-run against the 2.8.78 toolchain, and what fails is the rows' own stated values
+rather than the parameters.** 459 values across 152 rows and five CLI binaries; 7 values across 5 rows
+are refused, and three of them are worth knowing about:
+
+- **`SvtAv1.json`'s `lookahead` still offers the `-1` its own parser refuses, and it is the row's first
+  example.** The check above caught this and the row was never corrected: the description still reads
+  "-1 for automatic, or 0-120 (default -1)" and the example list leads with `-1|The default; the encoder
+  chooses a depth.`, byte-identical in `Nmkoder/BinFiles/encoderArgs/av1an/SvtAv1.json` and the shipped
+  copy. `SvtAv1EncApp --lookahead -1` answers `Error: Invalid parameter 'lookahead' with value '-1'` and
+  writes a 32-byte stub, where 0, 1, 60 and 120 all encode and 121 errors correctly. The binary's own
+  `--help` says `default is -1 [-1: auto, 0-120]`, so the row is faithfully copying a lie the binary
+  tells about itself - which is exactly why reading the help is not the check and running it is.
+- **`AomAv1.json`'s `tune` row names five values this aomenc cannot do.** `vmaf`, `vmaf_neg`,
+  `vmaf_with_preprocessing`, `vmaf_without_preprocessing` and `butteraugli` all fail with `Error: Tried
+  to set control 24` and the hint `try to set -DCONFIG_TUNE_VMAF=1 at the time CMake is run` - the MSYS2
+  `mingw-w64-x86_64-aom` the bundler installs is built without them. libaom *refuses* an unusable
+  parameter rather than warning, so this is a failed encode and not a silent drop. `--help` lists all
+  ten, which is the "presence is not support" shape recorded elsewhere in this file. `psnr` and `ssim`
+  work; `iq` and `ssimulacra2` work and are **not** named in the row.
+- **`X265.json`'s `ref` row states 1-16 and this x265 opens on 1-8.** 9 and above give `x265 [error]:
+  x265_encoder_open() failed for Enc`, rc=3 and no output, preceded by `level N detected, but
+  NumPocTotalCurr (total references) is non-compliant`, independently of frame size. It is a level/DPB
+  interaction rather than a wrong range - `--ref 16 --level-idc 6.2` opens fine - but the row's text
+  warns only that "over 6 breaks conformance", which reads as a conformance caveat where in fact the
+  encoder will not start.
+
+Measured against the 2.8.78 bundle - `SVT-AV1-HDR v4.1.0-20-g0bed4090b`, `AV1 Encoder v3.14.1`, x265
+`4.3+1-e9b8812`. x264 came back 100/100 clean and vpxenc 64/64.
+
+**One latent trap sits behind the same lists.** An unknown `-svtav1-params` key logs `[libsvtav1] Error
+parsing option <key>: <val>.` and encodes anyway at rc=0 - consistent with the three-way split above -
+but that text contains `"Error "`, which `FfmpegOutputHandler.LooksLikeTrouble` matches. It is not
+reachable today, `GetApplicablePresetPairs` filtering against `LibSvtAv1.json` and all 33 rows being
+accepted by v4.2.0, so this is recorded as what would surface if a row ever went stale rather than as a
+present fault.
 
 **Quick Convert has no custom-argument boxes and is not meant to.** There were two, one for each side of
 the ffmpeg command, kept when this tab was ported because the AV1AN tab has its pair on the Av1an Options
@@ -1055,6 +1115,22 @@ files (intermediate, stats stem and its `.cutree`/`.mbtree` siblings, logs, mark
 session folder and are deleted on success, because that folder is only emptied at the *next* launch
 and the intermediate is the whole video.
 
+**aomenc and vpxenc will stop and wait for a keypress at values their own argument rows offer, and a
+launched child never answers.** Both accept `min-q` and `max-q` at 0-63 with a default of 63, which the
+rows state; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
+differ by at least 8.` followed by `1 encoder configuration warning(s). Continue? (y to continue)` and
+blocks on stdin. With stdin an open pipe - which is what these encoders get, the y4m arriving that way -
+**it hangs indefinitely** rather than failing, so there is no exit code, no artifact and nothing in the
+log to judge: the run simply never ends. Measured on the 2.8.78 bundle (`AV1 Encoder v3.14.1`, `VP9
+Encoder v1.15.2-151-gd98e70839`); `--min-q=55 --max-q=63` is clean and `56` prompts, so the boundary is
+exactly the documented 8. `-y` / `--disable-warning-prompt` suppresses it.
+
+This is the same rule this file already records for grav1synth - *prompts interactively without `-y`* -
+reappearing on two more bundled binaries, and reachable from the argument rows' own stated range rather
+than from anything exotic. **Assume a bundled CLI tool prompts until it has been shown not to**, and
+pass its suppression flag when launching it: a hang is the one failure mode none of the artifact checks
+in this section can see, because they all run after a process that never exits.
+
 A tone-mapped encode swaps `MediaFile.ColorData` for `ToneMapConfig.GetOutputColorData` around the
 `GetArgs` calls - the same swap `Av1an.Run` makes, because these encoders are told their colour by
 flag where ffmpeg's libraries read it off the frames; without it the output is SDR pixels tagged PQ
@@ -1124,6 +1200,14 @@ utility - only where `plan.UsesPipe`, since reading the file directly ffmpeg alr
 and Quick Convert's filter chain. Verified by running the real methods against real fixtures, before and
 after: both utilities wrote `N/A` on master and `8:9 / 4:3` after, and Quick Convert's chain came back
 `-filter_complex "[0:0]setsar=8/9[vf]"` where it had been empty.
+
+**`setparams` has since grown from five options to seven, and the load-bearing half is intact.**
+Re-checked against ffmpeg `N-126264-g007cd1fd43-20260825` (toolchain 2.8.78) it now takes field_mode,
+range, the three colour properties, and additionally `chroma_location` and `alpha_mode` - while a grep
+for `aspect|sar|dar` over its option table still returns nothing, so the sentence above holds and
+`setsar` is still the only way to restate the pixel aspect. What the growth is worth noting for is that
+`chroma_location` is a **fifth** property y4m loses on the VapourSynth pipe, which
+`Qtgmc.GetPipeColorParamsAsync` could now restate and does not.
 
 **The AV1AN tab is not affected, and for two independent reasons** - worth writing down because it looks
 like it should be. It has no QTGMC at all (`DeinterlaceUi.Av1anModes` omits it), so nothing on that tab
@@ -1482,12 +1566,17 @@ The bundled `.json` files are still downloaded by `bundle-tools.sh` and still wa
 `--vmaf-path` is a path and takes one. `Paths.GetVmafPath` lost its `escape` flag with this: that branch
 existed only to feed the positional argument above.
 
-**Whether av1an has the same bug is not known and is worth one check.** `model_path` left libvmaf
+**av1an does not have the same bug - settled by reading the bundled binary.** `model_path` left libvmaf
 between ffmpeg 6.0 and 6.1 - 6.0 lists `model_path log_path log_fmt …`, 6.1 and everything since start
-at `log_path` - so if av1an still builds `libvmaf=model_path=…` out of `--vmaf-path`, target-quality
-encodes score against the built-in default and write an XML log over `bin/vmaf_v0.6.1.json`, which is
-this same fault reached through av1an instead. There is no av1an binary in a web session to ask, so this
-is unverified; `strings` on the bundled one at release time settles it.
+at `log_path` - so av1an building `libvmaf=model_path=…` out of `--vmaf-path` would score target-quality
+encodes against the built-in default and write an XML log over `bin/vmaf_v0.6.1.json`, which is this
+same fault reached through av1an instead. It does not. The string `model_path` does not appear anywhere
+in the bundled `av1an.exe` (`0.5.2-unstable (rev 805dad6)`, toolchain 2.8.78), and the template it does
+carry is `[distorted][ref]libvmaf=log_fmt='json':eof_action=endall:log_path=<X>:model='<Y>':n_threads=<N>`,
+with `path=` and `version=` adjacent as the two `model` spec prefixes. So the log goes to `log_path` and
+`--vmaf-path` reaches the model as `model='path=…'` - the right way round, and the bundled JSON is not
+overwritten. Read out of the binary's own strings rather than measured through a run, which is the
+evidence grade this file asked for when it left the question open.
 
 **A second Windows fault sat behind the same one, and it is the one the burn-in's own history warns
 about: ffmpeg's quotes are not the shell's.** `Comparison.Graph` closed its double quotes *before* the
@@ -1769,13 +1858,32 @@ every setting that produced it. The row hides for the encoders without a set, an
 an encoder switch like the speed preset beside it.
 
 **Do not put hbd-mds into LibSvtAv1.json, however measured-present it looks.** It was added for exactly
-one commit, on the strength of the measured note above that the v4.1.0 library has it - and the current
-BtbN build (`v4.1.0-279-gd3c4cb394` when checked) **segfaults** the moment hbd-mds is set beside `tune`
-(any value) or `enable-overlays`, at preset 4 and 8, 8- and 10-bit alike, while every parameter alone
-runs fine. Found by running the translated presets against the real binary before shipping them, and
-bisected to those pairs by leave-one-out. The shipped SvtAv1EncApp (`SVT-AV1-HDR v4.1.0-19-g8b4b9f562`,
-pulled back out of the published 2.8.46 linux tarball and run) takes the same combinations cleanly - so
-the AV1AN tab's presets, which pair `hbd-mds 1` with `tune 0` on that binary, are unaffected. With no
+one commit, on the strength of the measured note above that the v4.1.0 library has it - and the BtbN
+build crashes on it. **The trigger moved under a library minor-version bump, so what follows is the
+second description of it and the first is kept visible.** Against `v4.1.0-279-gd3c4cb394` this file
+said it **segfaults** the moment hbd-mds is set beside `tune` (any value) or `enable-overlays`, at
+preset 4 and 8, 8- and 10-bit alike, while every parameter alone runs fine. Three of those four clauses
+are now false. Re-measured against the 2.8.78 bundle, whose ffmpeg `N-126264-g007cd1fd43-20260825`
+carries `SVT-AV1 Encoder Lib v4.2.0-73-gfb0ed7e59`: **8-bit does not crash at all**, being a clean
+refusal at encoder open - every preset, every value, with or without a second parameter (`Svt[error]:
+Full high bit depth and hybrid 8/10 mode decision are not supported when encoder bit depth is 8`, then
+`[libsvtav1] Error setting encoder parameters: bad parameter (0x80001005)` and `AVERROR(EINVAL)`, no
+output). **10-bit is where it is accepted and where it now crashes, on hbd-mds *alone*** - `0xC0000005`
+at every preset from 5 up, 3/3 deterministic, where presets 2 and 4 encode cleanly and produce a
+readable file. `tune` no longer triggers it: `hbd-mds=1` beside `tune` 0, 1 and 2 all encode cleanly at
+10-bit preset 4. `enable-overlays=1` still does, at preset 4, 3/3, with `enable-overlays=1` alone fine.
+So the axis is no longer "beside a second parameter, at preset 4 and 8" but "10-bit, preset 5 and up,
+on its own".
+
+**The conclusion is unchanged and is better supported than when it was written.** A fault that has
+grown from "crashes when paired" to "crashes unpaired across most of the preset range", and that
+survived a minor-version bump, is not a pin-specific regression to wait out. The row-filtering
+rationale is intact too: `hbd-mds` is still a *recognised* key on v4.2.0 rather than an unknown one,
+and all 33 current `LibSvtAv1.json` rows are still accepted by it. The shipped SvtAv1EncApp
+(`SVT-AV1-HDR v4.1.0-20-g0bed4090b` in the 2.8.78 bundle, run directly) remains completely clean -
+`--hbd-mds` 0/1/2 at 8- and 10-bit, and beside `--tune 0` and `--enable-overlays 1` at presets
+2/4/5/6/8/10, 18 of 18 - so the AV1AN tab's presets, which pair `hbd-mds 1` with `tune 0` on that
+binary, are unaffected. With no
 hbd-mds row in the ffmpeg list the translation drops it, named in the log beside
 `noise-adaptive-filtering` (the genuinely absent one), and nothing in the app can produce the pairing
 through ffmpeg. Anime translates 6 of its 8 rows, Game Capture 7 of 8, and all three encoders' preset
