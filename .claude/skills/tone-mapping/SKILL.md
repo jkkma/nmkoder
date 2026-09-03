@@ -571,20 +571,38 @@ decimals. So on 6.1.x a correctly-declared file has essentially nothing above 1.
 and the divergence shrinks to content brighter than the declared peak.
 
 **HLG overshoots further, and the bound covers it too.** That path passes neither `npl` nor `peak`, and
-`tonemap` with no peak defaults to **10**: measured, HLG signal 0.90 and 1.00 leave the filter at 1.08348
-and 1.19111, so reference white at 0.75 sits at 0.79709 and everything above it was superwhite.
+`tonemap` with no peak defaults to **10**: measured, HLG signal 0.90 and 1.00 leave the filter at
+**1.07939** and **1.18833**, so reference white at 0.75 sits at **0.78862** and everything above it was
+superwhite.
 
-**Those three HLG numbers did not reproduce on the 2.8.78 re-check, and the gap is open rather than
-closed.** Against ffmpeg `N-126264-g007cd1fd43-20260825` the same three points came back **1.07875 /
-1.18833 / 0.78862** - about 1% low, in the same direction at all three, and identical whether the
-fixture is limited or full range. It is **not** being recorded as drift, because the PQ desaturation
-figures directly above (0.42517 / 0.92387 / 1.40489 at `desat=2`, 0.35508 / 0.59142 / 1.00194 at
-`desat=0`) reproduced to **five decimals** on the same build - and that chain could be reconstructed
-exactly from `ToneMapConfig.GetFilterArgs`, where this one could not: **this passage does not record how
-the HLG fixture was built**, so a 1% difference is far more likely a different fixture than a change in
-`tonemap`. That omission is the finding. Whoever built the original should re-measure and either write
-the fixture recipe down beside the numbers or correct them; until then, treat these three as
-provenance-weak and the PQ figures beside them as solid.
+**Those three numbers are the corrected ones. This passage used to give 1.08348 / 1.19111 / 0.79709,
+about 1% high, and no fixture or chain that could produce them has been found.** Ruled out one at a
+time against the 2.8.78 bundle: it is not the build - BtbN `N-126264-g007cd1fd43-20260825` and gyan.dev
+9.0.1 agree to all five decimals; not the range - a fixture built correctly for full and for limited
+gives identical results (reinterpreting one fixture's codes as the other range does move it, which is a
+different question and not this one); not the primaries conversion, which is a no-op on neutral patches;
+not `npl`, whose whole sweep moves the values *down* from here and whose 100 reproduces the no-npl case
+exactly, confirming zscale's default; and not the curve, hable being the only one of the three within
+reach of these numbers at all - mobius gives 1.01594 and reinhard 1.02824 at signal 0.90. The old
+numbers are therefore recorded as **not reproducible**, rather than as a build difference.
+
+**The fixture recipe, which is the thing that was actually missing:** three flat patches at HLG signal
+0.75, 0.90 and 1.00, written as 16-bit full-range `yuv444p16le` (code `round(s*65535)`, chroma 32768),
+tagged with
+`setparams=color_trc=arib-std-b67:color_primaries=bt2020:colorspace=bt2020nc:range=pc`, through the
+HLG half of `ToneMapConfig.GetFilterArgs` -
+`zscale=transfer=linear,format=gbrpf32le,zscale=primaries=bt709,tonemap=tonemap=hable` - tapped by
+rendering straight to `gbrpf32le` and averaging an 8x8 patch of the G plane at each band's centre.
+
+**Only the 0.90 point moves with the fixture, and it moves by exactly that fixture's own
+quantisation** - which is worth knowing before reading two measurements of it as a disagreement. Signal
+0.90 is not representable in any of these encodings: 8-bit and 10-bit limited both land on 197/219 =
+788/876 = 0.899543 and give **1.07875**, where 16-bit or an exact 0.90 gives **1.07939**. The two ends
+are bit-exact everywhere - 0.75 is 657/876 and 1.00 is nominal white - and come back as 0.78862 and
+1.18833 from every fixture tried. So quote the bit depth with the middle number, or quote only the ends.
+
+What survives untouched is everything the passage is *for*: HLG overshoots past 1.0 at both 0.90 and
+1.00, reference white at 0.75 lands below it, and the bound below is what catches the difference.
 
 The two converters also disagree about where 1.0 itself lands, which is why the resize ceiling is 943 and
 not 940: measured on constant float patches, swscale clamps at 1.0 and writes **943** for every input from
