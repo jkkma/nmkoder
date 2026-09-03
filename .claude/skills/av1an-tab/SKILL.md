@@ -754,6 +754,57 @@ archives only - the binary comes from the rolling `latest` prerelease, which is 
 tag. Download that asset and read the strings out of it; the help text names the log default and
 `finished chunk` is right there beside it.
 
+**Reading av1an's temp folder is safe; writing into it is not, and the encode-settings attachment did
+exactly that for as long as it existed.** The progress bar above is the good case - it only ever reads.
+The attachment step was the bad one: a fire-and-forget `Task.Run` started before `RunAv1an` that waited
+for `done.json` to say `audio_done`, slept 500 ms, then **deleted and replaced `audio.mkv`** inside the
+folder av1an owns. It raced av1an's own concat step, and the event it waited for is not the event that
+bounds it - what bounds it is av1an *consuming* audio.mkv, which nothing outside av1an can observe.
+
+**Measured, the window is the video encode's own duration.** Polling av1an's temp folder from the shell
+on a 3 s fixture, `audio_done` to audio.mkv being taken: **246 ms for SVT-AV1 preset 12, 1450 ms for VP9,
+2005 ms for aomenc**; on a 30 s fixture, 1163 / 13067 / 18219 ms. Audio is extracted in the first ~350 ms
+whatever the encoder, so the whole of the rest is the video. The step needed its 500 ms sleep plus up to
+a 500 ms poll interval plus an mkvmerge run, so it lost outright on a short SVT-AV1 encode and was
+marginal on the others.
+
+**So it looked codec-specific and was not - that is the control worth keeping.** The report behind this
+was four runs where AOM (2.87 s) and VP9 (2.68 s) carried the attachment and SVT-AV1 (2.37 s) did not,
+which reads as "SVT-AV1 drops it". Varying only the speed preset settles it: SVT-AV1 goes from **250 ms
+at preset 12 to 1568 ms at preset 2**, and aomenc from **1958 ms at cpu-used 9 to 12104 ms at cpu-used
+2** - a 6x swing on each, on one codec, with nothing else changed. SVT-AV1 was simply the fastest
+configuration in the sample.
+
+**The missing attachment was the mild half.** `File.Delete` then `File.Move` on a file av1an may open at
+any moment leaves a window in which audio.mkv does not exist, and av1an's mux is the thing that opens
+it. The comment that used to sit in that method guarded the same loss from *one* cause - no mkvmerge to
+call, which is every Linux and macOS build - without noticing the race could produce it too, and it had
+the stakes right: losing that text file is not worth a second's thought, losing the audio is the encode.
+
+`Av1an.AttachEncodeSettings` does it to the **finished output** instead, awaited after `succeeded` and
+before `SetWorking(false)`, and `IsAudioDone`/`IsAv1anRunning` are deleted rather than left behind -
+`audio_done` reads like a usable signal for "av1an has finished with audio.mkv", which is precisely the
+belief that made the old step wrong. The cost is one mkvmerge remux of the output: a copy, no re-encode,
+**measured at 0.23 s for 178 MB**, I/O bound and negligible beside the encode it follows, needing the
+output's size in free space while it runs.
+
+Two details there are measured rather than obvious, and both are traps in the other direction.
+**`--disable-track-statistics-tags` must not be passed** - the opposite of the call Quick Convert's
+containerise step makes - because av1an muxes with mkvmerge itself, so its output *already* carries BPS,
+DURATION, NUMBER_OF_FRAMES, NUMBER_OF_BYTES and the `_STATISTICS_` pair, and the flag would strip tags
+the encode put there. (The remux does regenerate `_STATISTICS_WRITING_DATE_UTC` - measured 05:55:31 to
+05:57:13 across an 11 s gap - which is honest, the file being genuinely rewritten then.) And **the result
+is judged by stream count, not by size**: a remux can come out *smaller* than its input despite gaining
+an attachment - measured, 186,437,450 bytes against 186,443,976, mkvmerge rewriting the seek head more
+compactly than ffmpeg had - so a "not smaller than the original" check would reject good output. It is
+judged by artifact rather than by mkvmerge's exit code for the reason recorded elsewhere: that is 1 for
+warnings over a file it has written perfectly well.
+
+**A missing mkvmerge is now a deterministic skip rather than a timing-dependent one**, logged at debug
+level: MKVToolNix is bundled for win-x64 alone, so that is every Linux and macOS build, every time, and
+a visible line per encode about a text file nobody asked for is noise. A mux that *fails* with mkvmerge
+present is logged visibly, that one being unexpected.
+
 **av1an's own log is put in the temp folder rather than left to that default.**
 `Av1an.GetLogFileArgs` names it, beside `--temp` and for the same reasons: the folder only exists once
 the run has one, and both flags sit ahead of the `-i` that `SaveJson` starts saving from, so a resume

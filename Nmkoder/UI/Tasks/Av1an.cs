@@ -767,9 +767,9 @@ namespace Nmkoder.UI.Tasks
 
             Logger.Log($"Running:\nav1an {args}", true, false, "av1an");
 
-            if (!resume) // A resumed encode finds audio.mkv already written, attachment and all
-                _ = Task.Run(() => CreateAttachmentMkv(args, tempDir));
-
+            // The encode-settings attachment used to be started here, as a fire-and-forget task that
+            // raced this run for av1an's own audio.mkv. It is done to the finished output instead -
+            // see AttachEncodeSettings, which has the measurements.
             int exitCode = await AvProcess.RunAv1an(args, AvProcess.LogMode.OnlyLastLine, true);
 
             // The pre-detected scene list is the one argument whose loading side could not be
@@ -800,12 +800,20 @@ namespace Nmkoder.UI.Tasks
             if (subsToAddAfter.Count > 0 && !RunTask.canceled)
                 await AddSubtitlesToMp4(inPath, outPath, subsToAddAfter);
 
-            Program.MainWin.SetWorking(false);
-
             // Both halves matter. av1an failing on its own - a crashed encoder, a full disk, an argument
             // it would not take - sets nothing on RunTask and used to be indistinguishable from success,
             // so the finished chunks were deleted at exactly the moment they were worth the most.
+            //
+            // Computed above SetWorking(false) rather than below it, so the attachment can be gated on
+            // it and can run while the app still says it is working - it muxes the finished file, which
+            // on a large one takes a moment. The value is a pure read of the exit code and the output,
+            // so moving it changes nothing else.
             bool succeeded = exitCode == 0 && !RunTask.canceled && IoUtils.GetFilesize(outPath) > 0;
+
+            if (succeeded)
+                await AttachEncodeSettings(args, outPath);
+
+            Program.MainWin.SetWorking(false);
 
             if (!succeeded && !RunTask.canceled)
             {
@@ -1281,76 +1289,112 @@ namespace Nmkoder.UI.Tasks
             }
         }
 
-        public static async Task CreateAttachmentMkv(string args, string tempFolder)
+        /// <summary>
+        /// Attaches a text file naming the encoder and its arguments to the **finished** MKV.
+        /// <para/>
+        /// **It used to be written into av1an's own <c>audio.mkv</c> while av1an was still running, and
+        /// that is a race nothing can win.** A fire-and-forget task waited for <c>done.json</c> to say
+        /// <c>audio_done</c>, slept 500 ms, and then deleted and replaced a file inside a temp folder
+        /// av1an owns. The event it waited for is not the event that matters: what bounds the window is
+        /// av1an *consuming* audio.mkv at its concat step, which is unobservable from outside. Measured
+        /// on a 3 s fixture, the gap between <c>audio_done</c> and audio.mkv being taken is **246 ms for
+        /// SVT-AV1, 1450 ms for VP9 and 2005 ms for aomenc**; on a 30 s one, 1163 / 13067 / 18219 ms.
+        /// The step needs the 500 ms sleep plus up to a 500 ms poll interval plus an mkvmerge run, so it
+        /// lost outright on every short SVT-AV1 encode and was marginal on the others.
+        /// <para/>
+        /// **So it looked codec-specific and is not: the window is the video encode's own duration**,
+        /// audio being extracted in the first ~350 ms whatever the codec. SVT-AV1 at preset 12 simply
+        /// finishes the video soonest. That is why the report behind this - three encodes carrying the
+        /// attachment and the fastest one not - reads as "SVT-AV1 drops it".
+        /// <para/>
+        /// Worse than the missing attachment was what the same code could have cost: <c>File.Delete</c>
+        /// then <c>File.Move</c> on a file av1an may open at any moment leaves a window in which
+        /// audio.mkv does not exist, and av1an's mux is the thing that opens it. The comment that used
+        /// to sit here guarded the same loss from one cause (no mkvmerge to call) without noticing the
+        /// race could produce it too, and it said the right thing about the stakes: losing that text
+        /// file is not worth a second's thought, losing the audio is the encode.
+        /// <para/>
+        /// Attaching afterwards costs one mkvmerge remux of the output - a copy, no re-encode, measured
+        /// at 0.23 s for 178 MB, which is I/O bound and negligible beside the encode it follows. It
+        /// needs the output's size in free space while it runs.
+        /// <para/>
+        /// Two details are measured rather than obvious. **<c>--disable-track-statistics-tags</c> must
+        /// not be passed here**, which is the opposite of the call Quick Convert's containerise step
+        /// makes: av1an muxes with mkvmerge itself, so its output *already* carries BPS, DURATION,
+        /// NUMBER_OF_FRAMES, NUMBER_OF_BYTES and the _STATISTICS_ pair, and the flag would strip tags
+        /// the encode put there. (The remux does regenerate _STATISTICS_WRITING_DATE_UTC, measured
+        /// 05:55:31 to 05:57:13 across an 11 s gap - honest, the file being genuinely rewritten then.)
+        /// And **the result is judged by stream count, not by size**: a remux can come out *smaller*
+        /// than its input despite gaining an attachment - measured, 186,437,450 bytes against
+        /// 186,443,976, mkvmerge rewriting the seek head more compactly than ffmpeg had - so a
+        /// "not smaller than the original" check would reject perfectly good output.
+        /// </summary>
+        private static async Task AttachEncodeSettings(string args, string outPath)
         {
-            if (!args.MatchesWildcard("* -o \"*.mkv\"*")) return; // Only do this if output is MKV
+            // Matroska is the only container here that carries attachments. Asked of the path rather
+            // than of the command line, which is what the old wildcard on args did.
+            if (!outPath.ToLower().EndsWith(".mkv")) return;
 
-            NmkdStopwatch sw = new NmkdStopwatch();
+            string encoder = TextBetween(args, " -e ", " ");
+            string encoderArgs = TextBetween(args, "-v \" ", " \"");
 
-            while (!IsAv1anRunning()) // Give up rather than poll forever if av1an never comes up
+            if (encoder.IsEmpty()) return; // Not a command we can describe, so there is nothing worth attaching
+
+            // Deterministic rather than silent: bundle-tools.sh ships MKVToolNix for win-x64 alone, so
+            // this is every Linux and macOS build, every time, and saying so once per encode in the
+            // visible log would be noise about a text file nobody asked for. What must not happen is
+            // the old behaviour - present or absent depending on how fast the encode was.
+            if (!AvProcess.IsToolAvailable("mkvmerge"))
             {
-                if (RunTask.canceled || sw.ElapsedMs > 30000) return;
-                await Task.Delay(200);
+                Logger.Log($"Not attaching the encode settings to '{Path.GetFileName(outPath)}': mkvmerge is not " +
+                    $"available. The encode itself is unaffected.", true);
+                return;
             }
 
-            while (!IsAudioDone(tempFolder)) // The encode ending without an audio track means it is never coming
-            {
-                if (RunTask.canceled || !IsAv1anRunning()) return;
-                await Task.Delay(500);
-            }
-
-            await Task.Delay(500);
+            string txtPath = Path.Combine(Paths.GetSessionDataPath(), $"av1an-{DateTime.Now.ToString("MM-dd-yyyy-HH-mm-ss")}.txt");
+            string tmpOutPath = IoUtils.FilenameSuffix(outPath, ".attach");
 
             try
             {
-                string encoder = TextBetween(args, " -e ", " ");
-                string encoderArgs = TextBetween(args, "-v \" ", " \"");
+                File.WriteAllLines(txtPath, new List<string> { "Encoder:", encoder, "", "Args:", encoderArgs });
 
-                if (encoder.IsEmpty()) return; // Not a command we can describe, so there is nothing worth attaching
+                // Asked before the remux and uncached, because the answer is compared with the new
+                // file's - and this path is about to be rewritten, which is exactly the case
+                // GetStreamCount's noCache flag exists for.
+                int before = await FfmpegUtils.GetStreamCount(outPath, noCache: true);
+                string cmd = $"-o {tmpOutPath.Wrap()} --attachment-mime-type text/plain --attach-file {txtPath.Wrap()} {outPath.Wrap()}";
+                await AvProcess.RunMkvMerge(cmd, NmkoderProcess.ProcessType.Background);
 
-                string txtPath = Path.Combine(Paths.GetSessionDataPath(), $"av1an-{DateTime.Now.ToString("MM-dd-yyyy-HH-mm-ss")}.txt");
-                List<string> lines = new List<string> { "Encoder:", encoder, "", "Args:", encoderArgs };
-                File.WriteAllLines(txtPath, lines);
-                string outPath = Path.Combine(tempFolder, "audio.mkv");
+                // By the artifact, never by mkvmerge's exit code, which is 1 for warnings over a file
+                // it has written perfectly well. Every stream that was there has to still be there,
+                // plus the attachment - a truncated remux is non-empty, and this is replacing the
+                // finished encode.
+                int after = IoUtils.GetFilesize(tmpOutPath) > 0 ? await FfmpegUtils.GetStreamCount(tmpOutPath, noCache: true) : 0;
 
-                if (File.Exists(outPath)) // Add attachment to existing audio.mkv
+                if (after == before + 1)
                 {
-                    string tmpOutPath = IoUtils.FilenameSuffix(outPath, ".tmp");
-                    string cmd = $"-o {tmpOutPath.Wrap()} --attachment-mime-type text/plain --attach-file {txtPath.Wrap()} {outPath.Wrap()}";
-                    await AvProcess.RunMkvMerge(cmd, NmkoderProcess.ProcessType.Background);
-
-                    // Only once mkvmerge has actually written the replacement. This delete was
-                    // unconditional, and it is deleting av1an's encoded audio - so a run with no
-                    // mkvmerge to call, which is every Linux and macOS build since bundle-tools.sh
-                    // ships MKVToolNix for win-x64 alone, threw away the audio track and then failed
-                    // the move into a catch that logs where nobody looks. The encode finished, the
-                    // output had no sound, and nothing on screen said so. Windows is not exempt
-                    // either: a full disk or a path too long lands in the same place.
-                    //
-                    // What is at stake on the other side is a text file naming the encoder arguments.
-                    // Losing that is not worth a second's thought; losing the audio is the encode.
-                    if (File.Exists(tmpOutPath))
-                    {
-                        File.Delete(outPath);
-                        File.Move(tmpOutPath, outPath);
-                    }
-                    else
-                    {
-                        Logger.Log($"Could not attach the encode settings to the output - mkvmerge wrote nothing. The audio is untouched.", true);
-                    }
+                    File.Delete(outPath);
+                    File.Move(tmpOutPath, outPath);
+                    Logger.Log($"Attached the encode settings to '{Path.GetFileName(outPath)}'.", true);
                 }
-                else // Create an empty audio.mkv with just the attachment in it
+                else
                 {
-                    string cmd = $"-o {outPath.Wrap()} --attachment-mime-type text/plain --attach-file {txtPath.Wrap()}";
-                    await AvProcess.RunMkvMerge(cmd, NmkoderProcess.ProcessType.Background);
+                    // Visible, unlike the missing-mkvmerge case above: mkvmerge was there and the mux
+                    // still did not come out right, which is not something to find out later.
+                    Logger.Log($"Could not attach the encode settings to '{Path.GetFileName(outPath)}' " +
+                        $"({after} of the {before + 1} expected streams came out of the mux). The encode itself " +
+                        $"is untouched.");
+                    IoUtils.TryDeleteIfExists(tmpOutPath);
                 }
-
-                IoUtils.TryDeleteIfExists(txtPath);
             }
             catch (Exception ex)
             {
-                Logger.Log($"CreateAttachmentMkv Error: {ex.Message}\n{ex.StackTrace}", true);
+                Logger.Log($"Failed to attach the encode settings to the output: {ex.Message}");
+                Logger.Log($"{ex.StackTrace}", true);
+                IoUtils.TryDeleteIfExists(tmpOutPath);
             }
+
+            IoUtils.TryDeleteIfExists(txtPath);
         }
 
         /// <summary> Text between two markers, or "" if either is absent - custom args can leave them out. </summary>
@@ -1366,29 +1410,11 @@ namespace Nmkoder.UI.Tasks
             return to < 0 ? "" : str.Substring(from, to - from).Trim();
         }
 
-        private static bool IsAudioDone(string tempFolder)
-        {
-            string doneJsonPath = Path.Combine(tempFolder, "done.json");
-
-            if (!Directory.Exists(tempFolder) || !File.Exists(doneJsonPath)) return false;
-
-            try
-            {
-                using var stream = File.Open(doneJsonPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                string contents = new StreamReader(stream).ReadToEnd();
-                return contents.Contains("\"audio_done\":true");
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"IsAudioDone Error: {ex.Message}", true);
-                return false;
-            }
-        }
-
-        private static bool IsAv1anRunning()
-        {
-            return ProcessManager.RunningSubProcesses.Any(x => x.Type == NmkoderProcess.ProcessType.Primary && x.Process.StartInfo.Arguments.Contains("av1an"));
-        }
+        // IsAudioDone and IsAv1anRunning sat here, and both existed only to let the attachment step
+        // poll a running av1an from the outside. Deleted with it rather than left behind: they are
+        // exactly the pieces somebody would rebuild the race out of, and "audio_done" in particular
+        // reads like a usable signal for "av1an has finished with audio.mkv", which is the belief
+        // that made the old step wrong. AttachEncodeSettings says what the real window was.
 
         /// <summary> Encoder threads the whole run should add up to, as a fraction of the machine.
         /// Under one on purpose: av1an runs a decoding ffmpeg beside every worker, and scene

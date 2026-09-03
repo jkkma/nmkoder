@@ -842,6 +842,11 @@ changing anything here; what follows is only what has to hold whatever you are d
 - **The progress bar is measured from av1an's temp folder** (`scenes.json`, `done.json`), never by
   parsing av1an's stderr, and it counts **frames** rather than chunks. Everything it used to parse
   rotted away underneath it, silently, one release at a time.
+- **Read av1an's temp folder, never write into it while av1an is running.** The progress bar only
+  reads. The encode-settings attachment used to delete and replace `audio.mkv` there, racing av1an's
+  own mux for it - which lost on fast encodes and could have cost the audio track. `done.json`'s
+  `audio_done` is not a signal that av1an has finished with that file, and nothing outside av1an is.
+  `Av1an.AttachEncodeSettings` amends the finished output instead.
 - **The geometry order is crop, then resize or the anamorphic de-squeeze, then borders last** - a
   scaler run over a hard black edge rings. Frames come out even on both axes, and `CropConfig` is
   the one place the rectangle is worked out, so the readout, the frame the resize is measured
@@ -1417,6 +1422,12 @@ and the mux copies them straight through: measured, an MKV output carried `BPS`,
 name - two otherwise identical encodes differ - and the rest describe the intermediate rather than the
 file, on the video track alone, and only for a Matroska output, MP4 keeping just `language` and
 `handler_name`. Nobody asked for any of it.
+
+**It is right here and wrong on the AV1AN tab, so do not unify the two mkvmerge calls over it.** This
+step *creates* the file, so tags describing an intermediate are noise. `Av1an.AttachEncodeSettings`
+remuxes a **finished av1an output**, and av1an muxes with mkvmerge itself - measured, its output already
+carries all six tags - so passing the flag there would strip what the encode put in. Same flag, same
+binary, opposite calls, because one is writing a new file and the other is amending someone else's.
 
 **The rate on the mkvmerge command is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an
 fps resample or a bob changes what the frames leave the chain at, and the raw stream knows nothing a
