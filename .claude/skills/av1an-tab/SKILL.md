@@ -784,9 +784,17 @@ the stakes right: losing that text file is not worth a second's thought, losing 
 `Av1an.AttachEncodeSettings` does it to the **finished output** instead, awaited after `succeeded` and
 before `SetWorking(false)`, and `IsAudioDone`/`IsAv1anRunning` are deleted rather than left behind -
 `audio_done` reads like a usable signal for "av1an has finished with audio.mkv", which is precisely the
-belief that made the old step wrong. The cost is one mkvmerge remux of the output: a copy, no re-encode,
-**measured at 0.23 s for 178 MB**, I/O bound and negligible beside the encode it follows, needing the
-output's size in free space while it runs.
+belief that made the old step wrong. It costs one mkvmerge remux of the output - a copy, no re-encode -
+and needs the output's size in free space while it runs.
+
+**What the run pays is the whole method rather than the remux, and this file first said otherwise.** It
+quoted 0.23 s for 178 MB, which is mkvmerge alone on a warm file and understates what the encode waits
+for. Measured end to end through the real method: **371-442 ms** on outputs of 183 KB to 4.5 MB and
+**535-552 ms** on 187 MB, of which mkvmerge is ~300 ms and the two uncached `GetStreamCount` probes are
+most of the remainder at 76-89 ms each. Cross-checked from outside against the same encode into MP4,
+where the method returns on the extension - 1781 ms against 2137-2260 ms into MKV, so +356 to +479 ms.
+Still negligible beside the encode it follows; the point is that the probes are a third of it and they
+are what make the result judgeable, so quoting the mux alone prices the wrong thing.
 
 Two details there are measured rather than obvious, and both are traps in the other direction.
 **`--disable-track-statistics-tags` must not be passed** - the opposite of the call Quick Convert's
@@ -804,6 +812,32 @@ warnings over a file it has written perfectly well.
 level: MKVToolNix is bundled for win-x64 alone, so that is every Linux and macOS build, every time, and
 a visible line per encode about a text file nobody asked for is noise. A mux that *fails* with mkvmerge
 present is logged visibly, that one being unexpected.
+
+Verified by running it, through the real `MainWindow` and `RunTask.Start`: 15 encodes, 383 checks, no
+failures. Three repeats each of SVT-AV1 at preset 12, aomenc and vpxenc on a 3 s fixture - the shape
+that used to lose - all carrying the attachment, plus the 30 s fixture at presets 12 and 4, an MP4
+output that correctly attaches nothing and writes no text file at all, and a run in the visible-console
+mode that is the shipped Windows default. `mkvextract` read the attachment back out of every MKV and
+its text was machine-compared against the `-v "…"` payload the app logged for that run: 13 of 13 exact.
+
+**The control is a real av1an run rather than an inference**: for four of them the logged command was
+replayed with only `--temp`, `--log-file` and `-o` repointed, so what av1an writes with no attach step
+at all could be compared with the app's output. Two streams against three; video and audio packet
+payloads md5-identical, and the packet pts/dts/duration/size md5-identical with them, so the remux
+moves nothing; the size delta is the attachment and nothing else (248014 → 248301, 3963733 → 3964020).
+The statistics tags come out **byte-identical** between control and output on all four, with only
+`_STATISTICS_WRITING_DATE_UTC` differing - which is the direct evidence that
+`--disable-track-statistics-tags` is not being passed, rather than an argument that it should not be.
+
+A `FileSystemWatcher` over av1an's temp root across all 13 instrumented runs saw **zero `.tmp` events**
+and exactly one create and one delete of `audio.mkv` per run, the delete landing 3-5 ms *after* the
+attach step had finished with the output - that being `HandleTempFolder` removing the directory. So
+nothing writes into av1an's temp folder any more, measured rather than read.
+
+**Four branches are unexercised and are named rather than implied**: the `succeeded == false` gate (no
+av1an failure was staged), the `IsToolAvailable` stand-down (mkvmerge is present on the machines this
+runs on), the `after != before + 1` failure message and its cleanup (every mux came out right), and a
+resume. No WebM output either.
 
 **av1an's own log is put in the temp folder rather than left to that default.**
 `Av1an.GetLogFileArgs` names it, beside `--temp` and for the same reasons: the folder only exists once

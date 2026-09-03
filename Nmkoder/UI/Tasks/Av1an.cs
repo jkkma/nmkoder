@@ -1314,9 +1314,14 @@ namespace Nmkoder.UI.Tasks
         /// race could produce it too, and it said the right thing about the stakes: losing that text
         /// file is not worth a second's thought, losing the audio is the encode.
         /// <para/>
-        /// Attaching afterwards costs one mkvmerge remux of the output - a copy, no re-encode, measured
-        /// at 0.23 s for 178 MB, which is I/O bound and negligible beside the encode it follows. It
-        /// needs the output's size in free space while it runs.
+        /// Attaching afterwards costs one mkvmerge remux of the output - a copy, no re-encode - and it
+        /// needs the output's size in free space while it runs. **What the run pays is this whole
+        /// method, not the remux**: measured end to end, 371-442 ms on outputs of 183 KB to 4.5 MB and
+        /// 535-552 ms on 187 MB, of which mkvmerge itself is ~300 ms and the two uncached
+        /// <see cref="FfmpegUtils.GetStreamCount"/> probes are most of the rest at 76-89 ms each.
+        /// Cross-checked against the same encode into MP4, where this returns on the extension: 1781 ms
+        /// against 2137-2260 ms into MKV. Negligible beside the encode it follows, and worth stating as
+        /// the method's cost rather than the mux's, since the probes are what make the result judgeable.
         /// <para/>
         /// Two details are measured rather than obvious. **<c>--disable-track-statistics-tags</c> must
         /// not be passed here**, which is the opposite of the call Quick Convert's containerise step
