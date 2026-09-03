@@ -87,6 +87,25 @@ where the superwhite came from in the first place. **The curve names map straigh
 libplacebo has `hable`, `mobius` and `reinhard` under those names - so those three entries mean the
 same thing whichever backend they land on.
 
+**Those two libplacebo figures reproduce exactly on real hardware - and only with peak detection
+*off*, which is not how the chain ships.** Re-measured on an RTX 5080 against the 2.8.78 bundle, on
+a fixture built to this passage's description (10/100/203/400/1000-nit PQ patches through the ST 2084
+inverse, lossless x265, MDL 4000): `peak_detect=0` gives hable **115/143** and spline **129/152** at
+100 and 203 nits, matching the recorded numbers to the code value. With `peak_detect=1` - what
+`ToneMapConfig` actually runs - the same fixture gives hable 131/163 and spline 115/152, because
+detection re-exposes to the content's own 1000-nit peak rather than the declared 4000. **So these
+figures describe the parameterisation this chain no longer uses**, and they should be read as a
+curve-versus-curve comparison rather than as what a user gets. The "top lands on 235" clause is the
+opposite way round: it is a *detection-on* result, and it reproduced as one - all four curves put the
+content peak at 940 of 1023, which is 235 in eight bits, exactly as the reference-white passage below
+describes.
+
+Recorded rather than corrected, because what is wrong is the missing parameter and not the numbers:
+this passage predates detection being switched on, and it never said which setting it was measured
+under. Say which, when a measurement depends on a default that can move. The fixture recipe is in the
+first sentence above, so the next re-check does not have to guess at it - the failure the HLG figures
+below are still sitting in.
+
 **The "CPU chain (no pass)" tick is gone because it stopped being optional.** `ForceCpuChain` began
 as that tick, one direction of override only - forcing the zscale chain where the probe would have
 said libplacebo, buying the structural things (no render pass in front of av1an, no intermediate on
@@ -204,6 +223,40 @@ And that device has to be a real GPU - measured against Mesa's lavapipe, libplac
 perfectly and then takes 8.4-13.1s over 48 frames of 1080p where the zscale chain takes 0.9-1.8s and
 a plain pixel format conversion takes 0.27s. A software rasteriser passes every check except the one
 that matters, and the cost lands hours into an encode.
+
+**The probe has now been shown to say *yes*, which until 2.8.78 it never had.** Everything above
+establishes that it correctly refuses lavapipe; nothing established that it accepts a real GPU, no
+session having had one. Run on an RTX 5080 (driver 616.56) against the 2.8.78 bundle's ffmpeg
+`N-126264-g007cd1fd43-20260825`, all three gates pass: `-filters` carries ` libplacebo ` with the
+spaces the match requires, the probe's exact command renders `MD5=`, and the device line reads
+`Device 0 selected: NVIDIA GeForce RTX 5080 (discrete) (0x2c02)` - `(discrete)` where the refusal
+looks for `(software)`. So `GetLibplaceboProblem` returns `""` and Quick Convert runs libplacebo on
+this machine. The `-init_hw_device vulkan` position after the `-i` was re-confirmed on real hardware
+at the same time, that having been measured only where no device could actually come up.
+
+**libplacebo's cost is a flat startup rather than a per-frame rate, and on a fast CPU that makes it
+the *slower* backend on anything short.** Measured on the same box (Ryzen 9950X, 16C/32T) over 1080p
+PQ at three lengths, net of the decode:
+
+| frames | libplacebo | zscale chain |
+|---|---|---|
+| 48 | 0.70s (69 fps) | 0.09s (533 fps) |
+| 240 | 0.70s (343 fps) | 0.35s (686 fps) |
+| 720 | 0.77s (935 fps) | 1.15s (626 fps) |
+
+libplacebo is **constant** at ~0.7s however many frames it is given - Vulkan device creation and
+shader compilation, paid once - with a marginal per-frame cost too small to measure at these
+lengths, where the zscale chain is linear at ~1.6 ms/frame. So the crossover is about **440 frames,
+18 seconds of 1080p**: below it libplacebo loses, by 7.8x at 48 frames, and above it wins and keeps
+widening. Every real encode is far past that, so the shipped pick is right - but "the better
+tone-mapper is also the faster one" is not true in general and is false for exactly the short clips
+a person tests with.
+
+**This does not weaken the software-rasteriser refusal, and the distinction is the whole point.**
+lavapipe's 8.4-13.1s over 48 frames is 12-19x this GPU's *entire* fixed cost, and it is per-frame
+slowness rather than startup - which is why it "lands hours into an encode" where a real GPU's 0.7s
+never does. A threshold on wall-clock would still be the wrong probe; what the timing says is only
+that the device-type test is measuring the right thing.
 
 ffmpeg's own Vulkan setup prints what it chose at verbose level - `Device 0 selected: llvmpipe (LLVM
 20.1.2, 256 bits) (software) (0x0)`, where the parenthesised word is `VK_PHYSICAL_DEVICE_TYPE_CPU`
