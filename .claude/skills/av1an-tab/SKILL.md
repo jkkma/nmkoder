@@ -839,6 +839,47 @@ av1an failure was staged), the `IsToolAvailable` stand-down (mkvmerge is present
 runs on), the `after != before + 1` failure message and its cleanup (every mux came out right), and a
 resume. No WebM output either.
 
+**Two faults were still in that method after all of the above, and both are about the *output's own
+name* rather than about av1an.** The verification behind this section is extensive and never touched
+either, because every fixture it used was called `out.mkv` and every run was on Windows.
+
+**The three paths on the mkvmerge line were `.Wrap()`, which is plain double quotes on every
+platform** - and `AvProcess.RunMkvMerge` goes through `Shell.BuildArguments` and a shell, so off
+Windows this is the exact case CLAUDE.md's Quick Convert quoting note is about. Two of the three are
+the user's own: the output is whatever they typed, and the session folder sits under it on a portable
+install. Measured through Git Bash's `sh`, the same `sh -c` `BuildArguments` composes: `"…/My $HOME
+`id` clip.mkv"` reaches the tool with the home directory substituted for `$HOME` and the whole of
+`id`'s output - uid, gid and groups - spliced in where the backticks were, so `$HOME` expanded and
+`id` **executed**, where the single-quoted form arrives whole and opens. So off Windows with a
+user-installed mkvmerge, an output named like that lost the
+attachment - reported as "0 of the 3 expected streams came out of the mux", which names the mux and
+not the name - and ran whatever was between the backticks. It is `Shell.WrapArg` now, matching
+`QuickConvert.BuildDirectCommand`'s own mkvmerge call. **The whole fault is invisible from Windows**:
+the two encodings are byte-identical there, checked on the real methods, so this is a fix nothing on
+either development machine can exercise and the sh measurement above is what stands behind it.
+
+**And the replace step was `File.Delete(outPath)` then `File.Move(tmpOutPath, outPath)` inside a catch
+that deletes `tmpOutPath`** - so a move that threw after the delete succeeded left the encode nowhere
+and the handler removed the only remaining copy. `AddSubtitlesToMp4` had the same two lines and the
+same catch. Both go through `ReplaceWithRewritten` (one `File.Move` with `overwrite`, a same-volume
+rename, since the replacement is always a sibling) and `DiscardRewritten` (deletes only while the
+original is still there); the rule and the two instances of the shape left elsewhere in the tree are
+under CLAUDE.md's `Replacing a finished output`.
+
+Verified by running it, through the real private methods out of the built assembly and the real
+bundled tools (`mkvmerge v93.0 'Goblu'`, ffmpeg `N-126264-g007cd1fd43-20260825`, toolchain 2.8.79):
+26 checks, no failures. An AV1+Opus MKV called ``My $HOME `id` clip.mkv`` gains exactly one attachment
+stream (2 -> 3, 20886 -> 26398 bytes), `mkvextract` reads the text back as the encoder and the `-v
+"…"` payload, no `.attach` file is left, and the logged mkvmerge command carries the full name; an
+ordinary `plain.mkv` is the control. **The discriminating failure case is the move failing while the
+original is deletable** - the replacement held open without `FileShare.Delete` - and on identical
+fixtures the shipped helper keeps the 20886-byte encode where the old two lines leave it **gone**.
+The old cleanup deletes the only copy where `DiscardRewritten` keeps it. Through the whole method,
+with the output itself held open, both `AttachEncodeSettings` and `AddSubtitlesToMp4` come back with
+the encode byte-identical and the replacement cleaned up. **Not exercised**: the sh branch (unreachable
+on Windows - hence the standalone `sh` measurement), and the `after != before + 1` branch, which is
+still the same gap as above.
+
 **av1an's own log is put in the temp folder rather than left to that default.**
 `Av1an.GetLogFileArgs` names it, beside `--temp` and for the same reasons: the folder only exists once
 the run has one, and both flags sit ahead of the `-i` that `SaveJson` starts saving from, so a resume

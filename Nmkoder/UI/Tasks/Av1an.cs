@@ -1143,20 +1143,66 @@ namespace Nmkoder.UI.Tasks
                 if (!File.Exists(tempPath) || new FileInfo(tempPath).Length < 1)
                 {
                     Logger.Log("Could not add the subtitles - the encode itself is unaffected.");
-                    IoUtils.TryDeleteIfExists(tempPath);
+                    DiscardRewritten(tempPath, outPath);
                     return;
                 }
 
-                File.Delete(outPath);
-                File.Move(tempPath, outPath);
+                ReplaceWithRewritten(tempPath, outPath);
                 Logger.Log("Added the subtitles to the finished MP4.");
             }
             catch (Exception e)
             {
                 Logger.Log($"Failed to add subtitles to the output: {e.Message}");
                 Logger.Log($"{e.StackTrace}", true);
-                IoUtils.TryDeleteIfExists(tempPath);
+                DiscardRewritten(tempPath, outPath);
             }
+        }
+
+        /// <summary>
+        /// Swaps a rewritten copy in for the file it was made from, with no moment in between where
+        /// neither of them is on disk.
+        /// <para/>
+        /// Both callers were <c>File.Delete(outPath)</c> then <c>File.Move(tmpPath, outPath)</c>, inside
+        /// a <c>catch</c> that deletes the replacement - so a move that threw after the delete had
+        /// already gone through left the output nowhere and the handler then removed the only remaining
+        /// copy of the encode. Nothing about it is exotic: the destination being briefly re-locked by an
+        /// indexer, a virus scanner or a media player is enough, and the file at stake is hours of
+        /// encoding. Same trade the old audio.mkv race got wrong from the other end - losing the
+        /// attachment or the subtitles is not worth a second's thought, losing the encode is everything.
+        /// <para/>
+        /// One <c>File.Move</c> with <c>overwrite</c> closes it. The replacement is always a sibling of
+        /// the original (<see cref="IoUtils.FilenameSuffix"/>), so this is a same-volume rename -
+        /// MoveFileEx with MOVEFILE_REPLACE_EXISTING on Windows, rename(2) elsewhere - and it either
+        /// happens or does not: a failure leaves both files exactly as they were rather than half of
+        /// one, which is what makes <see cref="DiscardRewritten"/> below safe to reach from a catch.
+        /// </summary>
+        private static void ReplaceWithRewritten(string tmpPath, string outPath)
+        {
+            File.Move(tmpPath, outPath, overwrite: true);
+        }
+
+        /// <summary>
+        /// Drops a rewritten copy that is not going to be used - but only while the file it was to
+        /// replace is still there.
+        /// <para/>
+        /// <see cref="ReplaceWithRewritten"/> makes "the original is gone and the replacement is all
+        /// there is" unreachable, so this guard fires for nothing today. It is here to keep it
+        /// unreachable: this is the cleanup two catch blocks and a failure branch call, and a delete
+        /// written unconditionally is what turned a failed move into a lost encode the first time. A
+        /// leftover ".attach" or ".subs" file beside the output costs a user one puzzled look; the
+        /// alternative costs them the run.
+        /// </summary>
+        private static void DiscardRewritten(string tmpPath, string outPath)
+        {
+            if (IoUtils.GetFilesize(outPath) > 0)
+            {
+                IoUtils.TryDeleteIfExists(tmpPath);
+                return;
+            }
+
+            if (IoUtils.GetFilesize(tmpPath) > 0)
+                Logger.Log($"'{Path.GetFileName(outPath)}' is not there and '{Path.GetFileName(tmpPath)}' is, so " +
+                    $"that one is being left alone - it may be all that is left of the encode.");
         }
 
         /// <summary>
@@ -1367,7 +1413,18 @@ namespace Nmkoder.UI.Tasks
                 // file's - and this path is about to be rewritten, which is exactly the case
                 // GetStreamCount's noCache flag exists for.
                 int before = await FfmpegUtils.GetStreamCount(outPath, noCache: true);
-                string cmd = $"-o {tmpOutPath.Wrap()} --attachment-mime-type text/plain --attach-file {txtPath.Wrap()} {outPath.Wrap()}";
+
+                // Shell.WrapArg rather than the plain double quotes of Wrap(): RunMkvMerge goes
+                // through Shell.BuildArguments and a shell, and sh expands $var and backticks inside
+                // double quotes. Two of these three paths are the user's own - the output name is
+                // whatever they typed, and the session folder sits under it on a portable install -
+                // so off Windows an output called "My $HOME clip.mkv" reached mkvmerge as a path that
+                // does not exist (this step then reporting a failed mux over a file it never opened),
+                // and one with backticks in its name ran whatever was between them. Windows keeps the
+                // same double quotes it had; the encoding is the one measured for Quick Convert's own
+                // mkvmerge call, which this now matches.
+                string cmd = $"-o {Shell.WrapArg(tmpOutPath)} --attachment-mime-type text/plain " +
+                    $"--attach-file {Shell.WrapArg(txtPath)} {Shell.WrapArg(outPath)}";
                 await AvProcess.RunMkvMerge(cmd, NmkoderProcess.ProcessType.Background);
 
                 // By the artifact, never by mkvmerge's exit code, which is 1 for warnings over a file
@@ -1378,8 +1435,7 @@ namespace Nmkoder.UI.Tasks
 
                 if (after == before + 1)
                 {
-                    File.Delete(outPath);
-                    File.Move(tmpOutPath, outPath);
+                    ReplaceWithRewritten(tmpOutPath, outPath);
                     Logger.Log($"Attached the encode settings to '{Path.GetFileName(outPath)}'.", true);
                 }
                 else
@@ -1389,14 +1445,14 @@ namespace Nmkoder.UI.Tasks
                     Logger.Log($"Could not attach the encode settings to '{Path.GetFileName(outPath)}' " +
                         $"({after} of the {before + 1} expected streams came out of the mux). The encode itself " +
                         $"is untouched.");
-                    IoUtils.TryDeleteIfExists(tmpOutPath);
+                    DiscardRewritten(tmpOutPath, outPath);
                 }
             }
             catch (Exception ex)
             {
                 Logger.Log($"Failed to attach the encode settings to the output: {ex.Message}");
                 Logger.Log($"{ex.StackTrace}", true);
-                IoUtils.TryDeleteIfExists(tmpOutPath);
+                DiscardRewritten(tmpOutPath, outPath);
             }
 
             IoUtils.TryDeleteIfExists(txtPath);

@@ -779,6 +779,30 @@ this. `CadenceRepair`'s colour restatement was at `error` and shipped the failur
 and the capture that reproduces it, is under `Repairing a padded capture`. A third such parse
 written at `error` would be the same bug again, which is why this is here rather than only there.
 
+## Replacing a finished output
+
+**`File.Delete(outPath)` then `File.Move(tmpPath, outPath)` has a window in which the encode does not
+exist, and every one of these steps sits inside a `catch` that deletes the replacement.** So a move
+that throws after the delete has gone through leaves the output nowhere and the handler then removes
+the only remaining copy of it. Nothing exotic gets you there - an indexer, a scanner or a player
+holding the destination open for a moment is enough - and what is at stake is hours of encoding for
+the sake of an attachment or a subtitle track.
+
+**One `File.Move` with `overwrite` closes it**, and it is a *stronger* guarantee rather than a tidier
+spelling: the replacement is always a sibling of the original, so this is a same-volume rename -
+`MoveFileEx` with `MOVEFILE_REPLACE_EXISTING` on Windows, `rename(2)` elsewhere - which either happens
+or does not, leaving both files exactly as they were rather than half of one. The cleanup then has to
+be conditional on the original still being there, or the next person to write a catch block puts the
+bug back. `Av1an.ReplaceWithRewritten` and `Av1an.DiscardRewritten` are the one place both live, for
+`AttachEncodeSettings` and `AddSubtitlesToMp4`; the measurements are in the `av1an-tab` skill.
+
+**Two more instances of the shape are still in the tree and are not the same severity, which is why
+they were left rather than swept up.** `ColorDataUtils.SetColorData` deletes the user's source file
+and moves the remux over it, but its catch only logs - so a failed move leaves the data under the
+`.tmp` name rather than deleting it, and what is lost is the file's own name. `IoUtils.TryMove` is the
+generic helper written the same way, and its callers are not all output replacements. Both want the
+same fix; neither can lose an encode outright the way the two av1an steps could.
+
 ## The file list and the track list
 
 **`TrackList.SetAsMainFile` empties the stream list, and every caller has to say what it wants of
@@ -1289,6 +1313,22 @@ measured rather than reasoned out, round-tripping `$`, backticks, both quote cha
 double backslashes, `%`, `&`, `!`, `;`, newlines, spaces and parentheses through .NET's argument parsing
 and sh. Windows keeps its plain double quotes; cmd has no single-quoting and what it expands is a
 different question.
+
+**The trap is that a second wrapper exists and looks like the same thing.** `path.Wrap()`
+(`Nmkoder/Extensions/ExtensionMethods.cs`) is plain double quotes on **every** platform - so it is
+`WrapArg`'s Windows branch on all three, which is exactly the encoding the paragraph above says is not
+enough. It predates `WrapArg` and 26 files still call it, 82 call sites. Every one of those that ends
+up inside a `Shell.BuildArguments` command is the same latent bug, and it is not hypothetical:
+`Av1an.AttachEncodeSettings` put the user's own output name on an mkvmerge line that way until this
+was written, and `ColorDataUtils.SetColorData` and both of `ConcatUtils`' mkvmerge calls still do.
+Measured on this Windows machine through Git Bash's `sh`, which is the same `sh -c` `BuildArguments`
+composes off Windows: `"…/My $HOME `id` clip.mkv"` reaches `ls` as a path with the home directory
+substituted for `$HOME` and the whole of `id`'s output - uid, gid and groups - spliced in where the
+backticks were, so the variable expanded and `id` **executed**, where `'…/My $HOME `id` clip.mkv'`
+arrives whole and opens. **Windows is where
+this cannot be seen**: there the two encodings are byte-identical (checked, on the real methods), so a
+call site is only ever wrong on the platforms nobody develops on. Reach for `Shell.WrapArg` and treat
+`.Wrap()` as the thing to replace when you touch a line that reaches a shell.
 
 **That different question has an answer, and the answer is to leave it alone.** cmd expands `%VAR%`
 inside double quotes, so a path is not protected from it - but the exposure is narrow and there is no
