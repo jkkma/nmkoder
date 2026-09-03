@@ -4,6 +4,20 @@ Media encoding/muxing toolkit. Avalonia UI on .NET 10.
 
 Build with `dotnet build Nmkoder/Nmkoder.csproj`.
 
+Where things live, under `Nmkoder/`: `Views/` is every window - `MainWindow.axaml` with its partials
+(`MainWindow.Av1an.cs`, `.QuickConvert.cs`, `.EncoderArgs.cs`, `.FileList.cs`, `.StreamList.cs`,
+`.Utils.cs`, `.Settings.cs`, `.Layout.cs`, `.Log.cs`) and the dialogs. `UI/Tasks/` builds each tab's
+command (`Av1an.cs` + `Av1anUi.cs`, `QuickConvert.cs` + `QuickConvertUi.cs`, the `*Ui.cs` row drivers)
+and holds every Utilities-tab task (`Util*.cs`); `UI/` is the shell around them - `FileList`,
+`TrackList`, `Notifications`, `ResetSettingsOnNewFile`. `Media/` drives the tools (`AvProcess`,
+`FfmpegCommands`, `Qtgmc`, `CadenceRepair`, `ToneMap`, `Grav1synth`, `Loudnorm`, the metric scorers).
+`Data/` is the settings objects and codec tables - the `*Config.cs` files, `TrimSettings`, `Paths`,
+and `Codecs/Video/` with `VideoEncodersBin.cs` (av1an's encoders), `VideoEncodersDirect.cs` (the
+binaries Quick Convert launches) and `VideoEncodersLib.cs` (ffmpeg's own, kept for the CRF ladder).
+`IO/` is config, logging and the packager; `OS/` is process launching, `Shell.WrapArg` and the Windows
+toast; `Utils/` is `FormatUtils`, `ColorDataUtils` and the other shared helpers. `BinFiles/` is the
+tracked tool data (`encoderArgs/{av1an,ffmpeg}`, `iso639.csv`) that lands in `bin/` beside the exe.
+
 **Development happens on the user's two Windows machines - a laptop and a desktop, worked in
 tandem - and nowhere else since August 2026.** Sessions used to run in Claude Code on the web's
 Linux containers as well, and this file was written across both; where a passage below says a
@@ -93,19 +107,21 @@ stubs for what they touch and references `Microsoft.WindowsAppSDK` with
 excluding the build assets is what skips the MSIX targets that cannot run.) The *publish*
 is still only proven by the release workflow's win-x64 job.
 
-**Four areas keep their full record in a skill rather than in this file, and each has a digest
-here under its own heading.** Tone mapping, the AV1AN tab, grain synthesis and deinterlacing came
-to 63% of this document - 2,869 of 4,580 lines - and it loads into every session whole, before a
-word is typed. Their sections now carry what has to hold whatever you are doing, and point at
-`.claude/skills/{tone-mapping,av1an-tab,grain-synthesis,deinterlacing}`, which load on any task in
-their vocabulary. The bodies were moved **verbatim** - byte-identical, nothing paraphrased and
-nothing dropped - so the skill is the same text this file used to hold.
+**Six areas keep their full record in a skill rather than in this file, and each has a digest here
+under its own heading.** Tone mapping, the AV1AN tab, grain synthesis and deinterlacing were the
+first four, 63% of the document as it then stood - 2,869 of 4,580 lines; driving the encoder
+binaries directly and repairing a padded capture followed in a second pass, once they had grown
+back into the largest sections left. The document loads into every session whole, before a word is
+typed. Their sections now carry what has to hold whatever you are doing, and point at
+`.claude/skills/{tone-mapping,av1an-tab,grain-synthesis,deinterlacing,direct-encoders,cadence-repair}`,
+which load on any task in their vocabulary. The bodies were moved **verbatim** - byte-identical,
+nothing paraphrased and nothing dropped - so the skill is the same text this file used to hold.
 
 The division is the digest's job: **an invariant that can be broken from outside its own area
 stays here**, because a trap that does not load is a trap re-shipped, and the measurements and
 the history behind it go to the skill. Do not move a rule out of a digest on the grounds that
 the skill already says it - that is precisely the case the digest exists for. New findings in
-those four areas go in the skill (`.claude/skills/record-finding` is the house style); a new
+those six areas go in the skill (`.claude/skills/record-finding` is the house style); a new
 *rule* that reaches beyond the area goes in both.
 
 ## UI conventions
@@ -1110,392 +1126,71 @@ the command in an edit window, which is the escape hatch that replaces both boxe
 
 ## Driving the encoder binaries directly
 
-**Quick Convert drives the standalone encoder binaries now** - `SvtAv1EncApp`, `aomenc`, `vpxenc`,
-`x264`, `x265`, the same ones `bin/av1an/enc/` already carries for av1an, and the same five slots of
-the dropdown the ffmpeg libraries used to hold. NVENC stays on ffmpeg, having no CLI equivalent at
-all, and so do GIF, PNG, JPEG and stream copy. A codec whose binary is not on the machine **refuses**
-the run naming it and `bin/av1an/enc`, the way a missing mkvmerge or grav1synth is handled - macOS
-bundles no encoders, and vpxenc's bundling is best-effort, so this is not a hypothetical. There is
-deliberately no fallback to ffmpeg's library for the same codec: an encode that quietly ran on a
-different encoder than the one picked would be worse than the message. The Lib* five stay in the enum
-and the codebase for the CRF ladder, which deliberately measures ffmpeg's own encoders and persists
-the enum's numeric values.
+Quick Convert drives the standalone encoder binaries - `SvtAv1EncApp`, `aomenc`, `vpxenc`, `x264`,
+`x265`, the same ones `bin/av1an/enc/` carries for av1an - through an `ffmpeg | encoder` y4m pipe
+and a second ffmpeg that muxes the result with everything that never went down the pipe.
+`VideoEncodersDirect.cs` holds the five encoder classes and `IBinaryEncoder`;
+`QuickConvert.BuildDirectCommand` composes the chain. NVENC, GIF, PNG, JPEG and stream copy stay on
+the single ffmpeg command.
 
-`VideoEncodersDirect.cs` holds the five encoder classes and `IBinaryEncoder`; `QuickConvert.Run`
-branches on `CodecUtils.GetBinaryCodec` and builds the chain in `BuildDirectCommand`. What follows is
-what was established by running it.
+**The full record is the `direct-encoders` skill**, which loads on any task in this area. Read it
+before changing anything here; what follows is only what has to hold whatever you are doing.
 
-The shape is `ffmpeg (decode + filters) -f yuv4mpegpipe -strict -1 - | <encoder> <io> <settings>` per
-pass - the pixel format conversion rides the pipe side, and `-strict -1` is what lets the y4m muxer
-write its "non-official" formats, the 10-bit ones among them - then a second ffmpeg muxing the
-elementary stream with the audio, subtitles, chapters and metadata that never went down the pipe. The
-encoded video goes in as the **last** `-i`, which is the trick `DeinterlacePipeInput` already uses:
-every input the stream maps were built against keeps its index, so the metadata and chapter *source*
-indices stay right - and the maps put the encoded video at the position the first video track held in
-`TrackList.GetMappedStreams`, so the output stream order is the one `GetMetadataArgs` numbers its
-`-metadata:s:N` against. QTGMC composes as a third stage in front (`vspipe | ffmpeg | encoder`),
-exactly as it prefixes the single command.
-
-**The trim has to reach both halves, and the mux's copy cannot be the same spelling.** The pipe
-commands carry the ordinary input/output trim, so the video is cut exactly as the single command cut
-it. The mux then has to cut the audio to match - but its output-side seek would also apply to the
-encoded video input, taking the section's own length off the front of a video that was already
-trimmed. So `TrimSettings.GetMuxInputArgs` turns all three modes into an input-side `-ss` in front of
-each *original* input (never the encoded one), where ffmpeg's default `accurate_seek` keeps a decoded
-- which is to say re-encoded - stream sample-exact, and `GetMuxOutputArgs` is the duration alone.
-
-**The chain's exit status is the mux's, and that is why success is judged by artifacts.** `&&` stops
-the chain on any nonzero step, so encoder and mux failures do surface - but a decode ffmpeg dying
-mid-file upstream of the encoder is invisible: the encoder sees an ordinary end of stream and every
-later step finishes normally over a truncated video. Each pass's decode ffmpeg therefore writes a
-`-progress` file whose final `progress=end` is its completion marker - the same idea as
-`Qtgmc.ReadRunProblem` one pipe further up - and the run checks those, then that the mux holds every
-mapped stream. The encoder's own stderr goes to a log file, not the live stream: its progress spam is
-not ffmpeg's format, its vocabulary trips `FfmpegOutputHandler.LooksLikeTrouble`, and on failure the
-log's tail is quoted in the report. ffmpeg's stderr stays live, which is what keeps the progress bar
-fed - producer-side progress, slightly ahead of the encoder, which is fine for a bar. The scratch
-files (intermediate, stats stem and its `.cutree`/`.mbtree` siblings, logs, markers) live in the
-session folder and are deleted on success, because that folder is only emptied at the *next* launch
-and the intermediate is the whole video.
-
-**aomenc and vpxenc will stop and ask a question at values their own argument rows offer, and a launched
-child never answers.** Both accept `min-q` and `max-q` at 0-63, defaulting to 0 and 63 respectively -
-which is what `AomAv1.json` and `Vpx.json` state, and 63 apart, so nobody meets this by leaving the
-rows alone; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
-differ by at least 8.` followed by `1 encoder configuration warning(s). Continue? (y to continue)` and
-reads a byte from stdin. Measured on the 2.8.78 bundle (`AV1 Encoder v3.14.1`, `VP9 Encoder
-v1.15.2-151-gd98e70839`); `--min-q=55 --max-q=63` is clean and `56` asks, so the boundary is exactly the
-documented 8 - and it is the **only** configuration warning either binary has, one `Continue?` string and
-one `Bad quantizer values` string apiece and nothing else feeding the tally.
-
-**What that costs depends on what is on stdin, and this file used to name the wrong one of the two.** It
-said the encoder "hangs indefinitely… so there is no exit code, no artifact and nothing in the log to
-judge: the run simply never ends". That is true only of a stdin that is open and *silent* - measured,
-both binaries are still blocked at 25 s against a pipe given the y4m header and then nothing - and it is
-not what this app produces. Their stdin here is the y4m the frames arrive on, so the prompt read is
-satisfied by frame data, which is not `y`, and the encoder **exits 1 in ~130 ms having written nothing**;
-the chain's `&&` then stops before the mux. Measured through the app's own command shape under cmd.exe
-and sh alike: rc=1, 0.07 s, no intermediate. So the failure is loud rather than invisible -
-`settings.Problem` is set and `GetDirectRunProblemAsync` appends `GetEncoderLogTail`, which is where the
-`Continue? (y to continue)` line surfaces in the message. The artifact checks in this section were never
-blind to it, and the sentence that said they were - that they "all run after a process that never
-exits" - was a consequence of the wrong half rather than a separate finding.
-
-**The AV1AN tab reaches the same two binaries from the same rows, and av1an passes no suppression flag
-of its own** - `--disable-warning-prompt` does not appear anywhere in the bundled `av1an.exe`
-(`0.5.2-unstable (rev 805dad6)`, toolchain 2.8.78), read out of its strings. Measured on a one-chunk
-encode: the chunk dies as `encoder crashed: exit code: 1` with the prompt quoted in av1an's own stderr,
-is retried once, and is then given up on with nothing written. So this was one bug on two tabs.
-
-`CodecUtils.GetNoPromptArg` is the one place the flag is decided, for both of them: `aomenc` and
-`vpxenc` get `--disable-warning-prompt` and every other encoder gets `""`, so nothing else grows an
-argument. It is **looked up rather than written unconditionally** - both binaries refuse a command over
-an unrecognised option outright (`Error: Unrecognized option`, rc=1, nothing written), so an unguarded
-flag would trade this bug for a worse one on a build without it - and `AvProcess.ToolKnowsFlagOrIsUnknown`
-errs the right way by construction: a binary that cannot be found or run gets the benefit of the doubt
-and the flag goes out anyway. The lookup is async where `GetArgs` is not, so each tab resolves it in its
-own `Run` and carries it in the argument dictionary under `CodecUtils.NoPromptKey`; the av1an classes
-write it inside av1an's `-v "…"` string, that being what reaches the binary. The control is that it
-changes nothing where no warning fires - `--min-q=55 --max-q=63` with the flag and without it is
-**byte-identical** output on both encoders, same length and same SHA-256.
-
-Verified by running it, through the real `MainWindow` and `RunTask.Start` rather than a model of them:
-13 scenarios, 138 assertions, no failures, nothing over 3.5 s against a 180 s budget - a timeout being
-the only thing that could have told "fixed" from "still hanging". Both encoders on both tabs with the
-prompting pair; the non-prompting pair as a control; two-pass, where the flag has to appear in **both**
-pass commands and does; and `DirectSvtAv1`, `DirectX264`, `DirectX265` and the AV1AN tab's SVT-AV1 as
-leak controls, where it must not appear and does not - those three binaries' `--help` *was* read and
-genuinely lacks the flag, so the name check and the guard each keep it away independently. The negative
-control is the app's own logged command with only `--disable-warning-prompt` deleted: aomenc rc=1 at
-0.09 s with no `.ivf` written, av1an rc=1 at 0.63 s having failed the chunk three times. Both detection
-paths were made to fire rather than assumed - an out-of-range `min-q=99` produced a reported failure, and
-a 1 s budget on a 2.9 s run produced a timeout. The flag lands after the last app-written argument and
-eleven-plus tokens clear of aomenc's and vpxenc's sole positional `-`.
-
-**Not verified: the hang, through the app.** Every failure reproduced here is the fast `exit 1` shape,
-which is what this app's stdin arrangement produces; the blocked-past-25 s case needs a producer that
-goes quiet and stays quiet, which nothing here can generate. Nor were batch mode, Muxing Mode, filters or
-trims exercised - one 3 s 320x240 fixture throughout - and two-pass was run on aomenc only. NVENC is not
-an `IBinaryEncoder`, so `QuickConvert.Run`'s `directEnc != null` never sets the key for it: read rather
-than measured.
-
-This is the same rule this file already records for grav1synth - *prompts interactively without `-y`* -
-reappearing on two more bundled binaries, and reachable from the argument rows' own stated range rather
-than from anything exotic. **Assume a bundled CLI tool prompts until it has been shown not to**, and
-pass its suppression flag when launching it.
-
-**Every launched tool inherits this app's stdin, and that one fact decides hang against fail-fast.**
-`RedirectStandardInput` appears nowhere in the codebase, and `OsUtils.SetStartInfo` redirects stdout and
-stderr only - so a tool gets whatever stdin the app has. From Explorer that is a `WinExe`'s non-console
-handle; from a terminal, or the visible-console debug mode, it is a real console someone could type into;
-and an encoder on the far side of a `|` gets the pipe instead, which is the case above. A prompt is
-therefore never merely cosmetic and never reliably fatal: it is three different failures depending on how
-the app was started.
-
-**The rest of the bundled toolchain was surveyed against that, and the aomenc/vpxenc pair is the only
-gap that was open.** Every tool that can prompt already gets its flag at every launch site: ffmpeg's `-y`
-is hardcoded into `AvProcess`'s own `beforeArgs` and written again on each of the three chained ffmpegs
-`BuildDirectCommand` composes; av1an's is at both its launch sites; grav1synth's is on all five calls
-that write a file. mkvmerge, mkvextract, mkvinfo, `SvtAv1EncApp`, x264, x265 and VSPipe **have no prompt
-at all** - measured silent-stdin, EOF and PTY, all completing in 0.10-0.25 s, and none of the seven
-contains a `[y/N]`-shaped string. (mkvmerge overwrites silently and has no such flag to pass.) The
-bundled `python.exe` blocks forever given no script argument, being a REPL; all four call sites always
-pass one. Measured on the 2.8.78 toolchain, with a `ffmpeg` overwrite prompt as the positive control -
-it hangs on a PTY at 12 s without `-y` and returns in 0.07 s with it.
-
-**av1an's `-y` is the one whose absence would be silent, so both of its call sites now say so.** Given an
-output path that already exists, av1an asks `Output <f> exists. Do you want to overwrite it? [y/N]:`,
-takes the default, and **exits 0** - measured twice, status 0 with the existing file byte-for-byte
-untouched and `Not overwriting, aborting.` its last word. `RunAv1an` hands that 0 straight to `Av1an.Run`,
-whose retry path is gated on `exitCode != 0`, so the encode would be reported as finished having never
-run. That is the `Av1anMemory` out-of-memory trap under another name, and the comments at
-`Av1an.Run` and `Av1anSceneDetect.RunSliceAsync` exist so neither `-y` reads as boilerplate.
-
-Two launch sites were **not** covered and are named rather than assumed: `OcrProcess` runs SubtitleEdit,
-which is not bundled at all, and is the one place a *modal dialog* rather than a stdin prompt is
-plausible - it needs a machine with SubtitleEdit installed; and `PackageBuild` runs `7za`, also not
-bundled and reachable only through the maintainer-only `-package=` command line.
-
-A tone-mapped encode swaps `MediaFile.ColorData` for `ToneMapConfig.GetOutputColorData` around the
-`GetArgs` calls - the same swap `Av1an.Run` makes, because these encoders are told their colour by
-flag where ffmpeg's libraries read it off the frames; without it the output is SDR pixels tagged PQ
-and BT.2020. The direct classes are also handed `GetVideoSourceFile()` rather than the loaded file,
-which in Muxing Mode is a different file - possibly an audio file, with no colour and no frame rate
-to derive a keyframe interval from.
-
-**These are the same binaries the AV1AN tab drives and deliberately not the same argument builders.**
-`VideoEncodersBin` writes an *av1an* command - `-e svt-av1 --force -v "…"` with the encoder's parameters
-inside a string av1an splits again - where these write the command line the binary is launched with.
-av1an owns the input, the output, the chunking and the pixel format; all four are this app's to state
-when it is the one launching the encoder, so the two cannot share a builder.
-
-**y4m carries the frame size, the rate and the range and nothing else.** Measured, the header is
-`YUV4MPEG2 W320 H240 F24:1 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2 XCOLORRANGE=LIMITED` - no primaries, no
-transfer curve, no matrix. So colour has to be handed to the encoder by flag in each one's own spelling,
-which is the same reason the av1an classes do it, and why `ColorDataUtils`' aom and x264 name tables are
-load-bearing here too.
-
-**The one thing y4m *does* carry that the encoder still cannot pass on is the pixel aspect, and that
-shipped stretching every anamorphic source from 2.8.44 to 2.8.77.** The `A1:1` in that header is real -
-measured on a 720x480 NTSC capture it reads `A8:9`, so the shape reaches the binary intact - but **AV1
-has no sample-aspect field in its sequence header and IVF has none either**, so `SvtAv1EncApp` and
-`aomenc` cannot emit it however they are fed, and the mux then copied an elementary stream that never
-knew. Measured end to end through `QuickConvert.Run()` on a 720x480 SAR 8:9 source with no filters at
-all: **8:9 / 4:3 in, 1:1 / 3:2 out**, which plays horizontally stretched. vpxenc loses it the same way.
-x264 and x265 do **not** - raw Annex B carries the SAR in its SPS VUI and mkvmerge reads it back out,
-measured 8:9 / 4:3 through the whole route - so this is the IVF/AV1 pair and VP9, not the direct path as
-such.
-
-What let it ship is a premise in `QuickConvertUi.ResolveScaledFrame` that stopped being true underneath
-it. It leaves an anamorphic source un-squeezed and says why: *"ffmpeg carries its aspect flag through to
-the output"*. That held while this tab handed frames to an ffmpeg encoder inside one command, and stopped
-holding the moment the tab began launching encoder binaries itself - the identical constraint the AV1AN
-tab has always had, which is why that tab de-squeezes instead (`Av1anFrame.Desqueezing`) and is not
-affected. The comment even named the difference between the two tabs as deliberate; it was, and then one
-half of it changed.
-
-`QuickConvertUi.GetMuxAspectArgs` states the display aspect on the mux instead, `-aspect W:H` worked out
-from the encoded frame and the pixel shape `ResolveScaledFrame` already tracks. **Stated rather than
-baked in, and that is the difference from the AV1AN tab's answer**: av1an muxes its own output where this
-mux is ours, so the shape can be recorded rather than resampled - no scale filter, no quality cost, and
-the frame stays the size the encoder was tuned for. Emitted for every direct encoder rather than only the
-ones that need it: on the x264/x265 path it restates the ratio their own VUI already carried, which is a
-no-op by construction. An unresolved automatic crop is the one case it abstains on, the encoded frame not
-being known until the crop is - a ratio worked out from the wrong frame states, precisely, a shape the
-file does not have, where saying nothing leaves it as it was.
-
-**A separate and wider fault sat behind it: VSPipe's y4m header reads `A0:0`, so anything fed through
-VapourSynth lost the pixel aspect before ffmpeg's filters ever saw it - for every encoder, not just the
-AV1 pair.** Measured on an 8:9 fixture: `vspipe | ffmpeg -c:v libx264` gave `N/A`, where the same ffmpeg
-reading the file directly gives 8:9 / 4:3. VapourSynth has no SAR on a clip to write, so `A0:0` is honest
-rather than a bug in VSPipe; it is a loss only because everything downstream then reads the frame as
-square. `Qtgmc.GetPipeSarFilter` is the one statement of the repair - a `setsar` built from
-`VideoStream.Sar`, **read off the source file and never off the pipe, the pipe being precisely where it
-no longer is** - and it goes at the *head* of each chain, which is what makes one filter the whole fix:
-ffmpeg's scale adjusts SAR to hold the display aspect and crop and pad carry it through, so everything
-below behaves as it does un-piped. Measured through a real VSPipe producer, which is the only thing that
-shows any of this: `setsar=8/9` at the head gives 8:9 / 4:3, and with an app-style
-`scale=640:480,setsar=1/1` under it, 640x480 at 1:1 and **DAR 4:3** - the de-squeeze lands right rather
-than being disturbed by the filter above it.
-
-Three chains carry it, and `setparams` could not have: that filter takes field_mode, range and the three
-colour properties and **has no aspect of any kind**. `CadenceRepair` (whose `_cfr.mkv` is explicitly a
-deliverable for something else to encode, so the loss propagated), `DeinterlacePass` (the Deinterlace
-utility - only where `plan.UsesPipe`, since reading the file directly ffmpeg already knows the shape),
-and Quick Convert's filter chain. Verified by running the real methods against real fixtures, before and
-after: both utilities wrote `N/A` on master and `8:9 / 4:3` after, and Quick Convert's chain came back
-`-filter_complex "[0:0]setsar=8/9[vf]"` where it had been empty.
-
-**`setparams` has since grown from five options to seven, and the load-bearing half is intact.**
-Re-checked against ffmpeg `N-126264-g007cd1fd43-20260825` (toolchain 2.8.78) it now takes field_mode,
-range, the three colour properties, and additionally `chroma_location` and `alpha_mode` - while a grep
-for `aspect|sar|dar` over its option table still returns nothing, so the sentence above holds and
-`setsar` is still the only way to restate the pixel aspect. What the growth is worth noting for is that
-`chroma_location` is a **fifth** property y4m loses on the VapourSynth pipe, which
-`Qtgmc.GetPipeColorParamsAsync` could now restate and does not.
-
-**The AV1AN tab is not affected, and for two independent reasons** - worth writing down because it looks
-like it should be. It has no QTGMC at all (`DeinterlaceUi.Av1anModes` omits it), so nothing on that tab
-pipes VapourSynth into ffmpeg; and it de-squeezes anamorphic sources anyway (`Av1anFrame.Desqueezing`),
-so the shape is in the pixels before av1an ever sees them.
-
-**The verification turned up a second loss on the same pipe: `DeinterlacePass` was dropping the colour
-tags as well.** Measured on a fixture stating bt470m/bt470m/bt470bg, its output came back `unknown` for
-all three - the same y4m loss `CadenceRepair` already repaired for itself and this pass never had, on the
-utility whose output is a file people keep. `Qtgmc.GetPipeColorParamsAsync` is now the one place the
-four properties are probed and written, called by both; CadenceRepair's own copy is gone rather than left
-beside it. Measured after: `bt470m / bt470m / bt470bg`, range `tv`, out of both passes.
-
-**The field order is deliberately not part of that helper, and that is the whole reason it returns
-properties rather than a finished filter.** A cadence repair hands on woven fields and must say so; a
-deinterlace emits progressive frames and must not - asserting a field order on its output would be a lie
-the next deinterlacer acts on. Measured, the two chains come out as they should:
-
-```
-CadenceRepair    setsar=8/9,setparams=field_mode=tff:color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv
-DeinterlacePass  setsar=8/9,setparams=color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv
-```
-
-**A source that states nothing is left stating nothing**, which is the case worth checking because the
-failure is silent in the other direction: on a square-pixel fixture with no colour at all the chain comes
-out `setparams=range=tv` and no `setsar` - only the one property the file actually carries - where
-asserting `unknown` would state ignorance as though it were a measurement.
-
-**`DenoisePass` is not affected**, though the comment on `DeinterlacePass.GetSubtitleArgs` pointing at it
-makes it look as though it should be: it reads its input with `-i` and runs hqdn3d over it, with no pipe
-anywhere, so ffmpeg knows the colour and the aspect natively. What the two share is track carriage, not
-a y4m producer.
-
-**Raw Annex B cannot be given correct timestamps by any ffmpeg route, and mkvmerge is what
-containerises it - for every output container.** The intermediates are `.ivf` for SVT-AV1, aomenc and
-vpxenc, whose IVF header carries the frame rate and mux straight in; and raw Annex B for x264 and
-x265, which is where the trap lives. Read back with `-framerate N` the packets have no timestamps:
-Matroska refuses them outright ("Timestamps are unset in a packet for stream 0" / a current master's
-"Can't write packet with unknown timestamp" - match the shape, not the sentence - plus a **796-byte
-stub**, the `File.Exists` trap this file warns about twice), and the muxers that will stamp them - the
-MP4 family - write **pts equal to dts in decode order, with no reordering info**. The frames stay in
-the right sequence (the decoder orders by POC; PSNR-matching output position N to source frame N is a
-clean diagonal), but on any stream with B-frames the timestamps put them at the wrong ticks, and a
-pts-honouring player duplicates one frame and drops another at every mini-GOP. Measured through the
-app's own output on a frame-numbered source: at 30fps screen ticks the viewer saw frames **0, 0, 1, 3,
-4, 5** - and the container ran 67 ms long. That shipped from 2.8.44 to 2.8.67 as the MKV route (raw →
-MP4 intermediate → mux) *and* the MP4-direct route (raw straight to the mux), because the measurement
-that blessed them compared **the two routes against each other** - "same PTS and DTS in presentation
-order" was true, both carrying the same wrong stamps - and never against the source's timing. The
-fps-tick render (`fps=30` samples by pts, like a player) is the check that catches it; frame-content
-matching and duration checks do not. `-fflags +genpts`, `+igndts`, `-fps_mode`, an output-side `-r`
-and the `setts` bitstream filter (packet index in decode order) are all wrong the same way.
-
-**mkvmerge parses the stream's own reordering and writes real presentation timestamps** - measured, 0
-non-monotonic frames where the MP4 route had 60 of 150, the fps-tick check reads 0,1,2,3,4,5, and a
-fractional `--default-duration 0:24000/1001fps` comes out exactly. So `BuildDirectCommand` runs it on
-the raw stream into `pipe_video_timed.mkv` whatever the output container, the final mux copies from
-that, and `QuickConvert.Run` refuses up front, naming MKVToolNix, when a raw-Annex-B codec is picked
-with no mkvmerge to call - the same invisible-failure argument as a missing encoder, and it is real
-off Windows, where MKVToolNix is not bundled. `Containers.StampsUntimedPackets` is deleted with its
-one caller; a comment where it sat says why. x264 *can* mux Matroska itself where its build has the
-muxer (also measured clean), but that is a build option rather than a promise, x265 has no muxer at
-all, and both encoders taking the same route is worth more than saving x264 the step.
-
-**"Comes out exactly" is the stream's rate and not the frames', and the difference is Matroska's 1 ms
-timestamp scale.** Measured on 24000/1001 through to MP4: packet durations come back as 84x672 and
-36x656 ticks of a 1/16000 timebase - 42 ms and 41 ms alternating - where an exactly-spaced track is
-uniform, so anything that reads durations calls the output variable frame rate. `r_frame_rate` and the
-total are exact (24000/1001, 5.005000 over 120 frames), so nothing drifts and no frame sits more than
-half a millisecond off its true tick, which is three orders under the dup-and-drop it replaces.
-`--timestamp-scale -1` does **not** fix it - measured, the same 656/672 split - so this is the price of
-routing through Matroska rather than a flag anyone forgot. Expect it before re-measuring it as a bug.
-
-**mkvmerge exits 1 for warnings and its output is usable at that status**, so the chain swallows its
-exit code (`|| ver > nul` on Windows, `|| true` elsewhere, **parenthesised** - written bare, `A && B ||
-ok` runs `ok` when *A* fails and hands the mux a chain that died upstream) and
-`GetDirectRunProblemAsync` judges the artifact instead, which is what every other mkvmerge caller here
-already does. Measured against the bundled v93: a warning run exits 1 having written a complete file, a
-clean one 0, a real failure 2. Left on `&&`, one line of advice about a perfectly good file threw away
-the whole encode with the mux never run. That check is asked *before* the exit code, and only where the
-intermediate is non-empty - without it the encoder or the pipe above it is what died, and blaming the
-containerise step for that is the misattribution this file already warns about in the other direction.
-
-**`--disable-track-statistics-tags` goes out with it**, because mkvmerge writes those tags by default
-and the mux copies them straight through: measured, an MKV output carried `BPS`, `DURATION`,
-`NUMBER_OF_FRAMES`, `NUMBER_OF_BYTES`, `_STATISTICS_WRITING_APP=mkvmerge v93.0` and a
-`_STATISTICS_WRITING_DATE_UTC` of the moment it ran. The date is the WebM SegmentUID trap under another
-name - two otherwise identical encodes differ - and the rest describe the intermediate rather than the
-file, on the video track alone, and only for a Matroska output, MP4 keeping just `language` and
-`handler_name`. Nobody asked for any of it.
-
-**It is right here and wrong on the AV1AN tab, so do not unify the two mkvmerge calls over it.** This
-step *creates* the file, so tags describing an intermediate are noise. `Av1an.AttachEncodeSettings`
-remuxes a **finished av1an output**, and av1an muxes with mkvmerge itself - measured, its output already
-carries all six tags - so passing the flag there would strip what the encode put in. Same flag, same
-binary, opposite calls, because one is writing a new file and the other is amending someone else's.
-
-**The rate on the mkvmerge command is the post-filter rate** (`QuickConvertUi.GetPostFilterRate`): an
-fps resample or a bob changes what the frames leave the chain at, and the raw stream knows nothing a
-demuxer could check against. Left unreadable, the flag is omitted and the VUI timing x264/x265 wrote
-from the y4m header governs - the same number by construction, both coming from the post-filter rate.
-
-**So is the keyframe interval, and it was not.** `CodecUtils.GetKeyIntArg` multiplied the *source*
-rate by the configured seconds, so an encode whose frames leave at twice that rate - which is every
-bob deinterlace - got half the GOP it asked for: 29.97 x 10 = 300 frames, which in a 59.94 fps
-output is five seconds, not ten. That is one place rather than two, so it is fixed by handing it
-the rate the frames actually arrive at; it takes a `rateOverride` now, which Quick Convert fills
-from `QuickConvertUi.GetPostFilterRate` and the AV1AN tab from `Av1anUi.GetPostFilterRate` (added
-to match, the same answer `Av1anUi.GetFrame` already worked the resize out against). The CRF ladder
-passes nothing and is right to: it runs no deinterlacer, so the source rate *is* the post-filter one.
-
-Pre-existing and uniform rather than new, which is worth saying because fixing the field-rate read
-above is what exposed it - on a capture stating a field rate the old arithmetic happened to land on
-the right answer for the wrong reason, and correcting the rate made that file behave like every
-other interlaced one. Measured through the real command: `--keyint 480` before, 300 after the rate
-fix alone, 480 again once the GOP was given the post-filter rate - and 480 on a clean CFR
-interlaced source too, where it had always been 300.
-
-Two-pass runs the pipe twice against one stats stem - `--pass N --stats` on x264, x265 and SVT,
-`--passes=2 --pass=N --fpf=` on aomenc and vpxenc, which also want `--passes=1` stating for a
-single-pass run - with the first pass writing its bitstream to the same intermediate the second
-overwrites, `/dev/null` and `NUL` not being the same word. The first cut of this was verified out of
-the built assembly against the real binaries - all five, CRF and target-bitrate, 34 checks - before
-the run was wired to it; the wired-up tab's own verification is the harness described at the end of
-this section.
-
-**Verified by running it, through the real controls rather than a model of them.** A headless
-Avalonia harness constructs the real `MainWindow`, loads fixtures through `FileList.HandleFiles`,
-drives the actual boxes and grids, starts each encode through `RunTask.Start`, and judges the
-outputs with ffprobe - against real x264, x265, aomenc, vpxenc, the shipped SVT-AV1-HDR binary
-pulled back out of the published linux-x64 release, and the BtbN master ffmpeg the app bundles.
-94 checks across 17 scenarios, no failures. What passed, frame-exact and stream-complete: all five
-encoders in CRF and in two-pass target bitrate (whole-file bitrate landing at video target plus the
-audio's share); 10-bit through x264, x265 and SVT; an HDR source tone-mapped through DirectX265
-coming out tagged bt709/bt709 with zero HDR side data, which is the ColorData swap doing its job;
-a crop+resize+borders chain landing exactly on `GetEncodedFrameSize`'s prediction;
-all three trim modes with the audio length matching the video, frame mode exact at 96/96; a
-23.976-to-30 resample whose containerise rate, frame count and duration all came out right; titles,
-languages, chapters, dispositions, an attachment and a copied-audio track surviving the mux; muxing
-mode carrying video from one file and audio from another; a two-file batch; and GIF's palette
-graph, stream copy and NVENC untouched on the single-command path - NVENC asserted by command shape
-in the log, this box having no GPU. The refusals were run, not just read: a missing binary (with
-the process PATH squeezed - a real x265 on the user's PATH rightly satisfies the availability
-check, which is the check working), a second ticked video track, Measured-from-source, and a grain
-table against a *mainline* SvtAv1EncApp swapped in for the run, which the encode asks per run. The
-`vspipe | ffmpeg | encoder` three-stage shape was proven with a producer stand-in - ffmpeg reading
-one pipe on stdin while writing y4m on stdout - since no web session has VapourSynth; a real QTGMC
-run through the pipe remains a real-machine check.
-
-**The grain table path is field-verified on both AV1 encoders now.** grav1synth measured a real
-table off a grainy fixture, the tab was driven through Grain table file mode, and `grav1synth
-inspect` read film grain back out of both finished outputs - aomenc's through `--film-grain-table`,
-and SVT's through `--fgs-table` on the shipped SVT-AV1-HDR binary. That closes half of the gap the
-grain section has carried since the row was written: `--fgs-table` acceptance is no longer a
-real-machine-only check, the PSY binary being extractable from a published release. A full av1an
-measured-grain run still is one.
-
-**The harness paid for itself before the checks did: it found a crash on master.** The ffmpeg
-ignore-path scan takes the text between a command line's last two double quotes, and on Linux the
-paths are single-quoted - so what it finds is whatever double-quoted value comes last, and the
-metadata grid writes `language=""` for a track that has none. That empty extraction made
-`String.Replace` throw inside the output reader and took the process down mid-encode, on the old
-single command as much as the new chain; the scan skips empty extractions now.
+- **A codec whose binary is missing is a refusal naming it and `bin/av1an/enc`, and there is
+  deliberately no fallback to ffmpeg's library for the same codec** - an encode that quietly ran on
+  a different encoder than the one picked would be worse than the message. The Lib* five stay in
+  the enum for the CRF ladder, which persists their numeric values.
+- **These are the binaries the AV1AN tab drives and deliberately not the same argument builders.**
+  `VideoEncodersBin` writes an av1an `-v "…"` string; these write the command line the binary is
+  launched with, and state the input, output, chunking and pixel format av1an would otherwise own.
+- **Success is judged by artifacts, never by the chain's exit status**, which is the mux's: a decode
+  ffmpeg dying upstream of the encoder is invisible to `&&`. Each pass's decode writes a `-progress`
+  file whose `progress=end` is its marker, the mux is checked for every mapped stream, and the
+  encoder's own stderr goes to a log file rather than the live stream, its vocabulary tripping
+  `FfmpegOutputHandler.LooksLikeTrouble`.
+- **Assume a bundled CLI tool prompts until it has been shown not to, and pass its suppression flag
+  at every launch site.** Every launched tool inherits this app's stdin - nothing here sets
+  `RedirectStandardInput` - so one prompt is a hang from a terminal, a silent failure from Explorer
+  and a fast `exit 1` behind a pipe. aomenc and vpxenc ask `Continue? (y to continue)` at a `min-q`
+  within 8 of `max-q`, values their own rows offer; `CodecUtils.GetNoPromptArg` is the one place the
+  flag is decided, for both tabs, looked up through `AvProcess.ToolKnowsFlagOrIsUnknown` because
+  both binaries refuse an unrecognised option outright. av1an's `-y` is the one whose absence is
+  silent - it exits 0 having declined to overwrite - and the comments at `Av1an.Run` and
+  `Av1anSceneDetect.TryPrepareScenesFileAsync` exist so it never reads as boilerplate.
+- **y4m carries the frame size, the rate and the range and nothing else**, so colour is handed to
+  the encoder by flag in its own spelling, and a tone-mapped encode swaps `MediaFile.ColorData` for
+  `ToneMapConfig.GetOutputColorData` around `GetArgs` exactly as `Av1an.Run` does. The direct
+  classes are handed `GetVideoSourceFile()`, not the loaded file - in Muxing Mode a different file.
+- **AV1 and IVF have no sample-aspect field, so the AV1 pair and VP9 cannot carry an anamorphic
+  source's pixel shape, and 2.8.44 to 2.8.77 shipped every such encode stretched.**
+  `QuickConvertUi.GetMuxAspectArgs` states `-aspect W:H` on the mux instead, for every direct
+  encoder; `ResolveScaledFrame` leaves the source un-squeezed on purpose, and the AV1AN tab
+  de-squeezes (`Av1anFrame.Desqueezing`) because av1an muxes its own output. Do not unify the two.
+- **VSPipe's y4m header reads `A0:0`, so anything fed through VapourSynth loses the pixel aspect for
+  every encoder.** `Qtgmc.GetPipeSarFilter` - a `setsar` built from `VideoStream.Sar` read off the
+  source file, never the pipe - goes at the *head* of each VapourSynth-fed chain (`CadenceRepair`,
+  `DeinterlacePass`, Quick Convert); `setparams` has no aspect option. `Qtgmc.GetPipeColorParamsAsync`
+  is the one place the four colour properties lost on the same pipe are restated, and the field
+  order is deliberately not in it: a cadence repair must assert one and a deinterlace must not.
+- **Raw Annex B from x264 and x265 cannot be given correct timestamps by any ffmpeg route**, and is
+  containerised by mkvmerge into `pipe_video_timed.mkv` whatever the output container - the MP4
+  muxers stamp pts equal to dts in decode order, which duplicates and drops a frame at every
+  mini-GOP. `Containers.StampsUntimedPackets` was deleted for this reason, and `QuickConvert.Run`
+  refuses up front, naming MKVToolNix, when mkvmerge is absent. mkvmerge exits 1 for warnings over
+  a usable file, so its status is swallowed *parenthesised* and the artifact judged.
+- **`--disable-track-statistics-tags` goes out on that call and must not go out from
+  `Av1an.AttachEncodeSettings`**: this step creates the file, that one amends a finished av1an
+  output whose tags the encode put in. Same flag, same binary, opposite calls.
+- **The keyframe interval and mkvmerge's rate are the post-filter rate.** `CodecUtils.GetKeyIntArg`
+  takes a `rateOverride`, filled from `QuickConvertUi.GetPostFilterRate` and
+  `Av1anUi.GetPostFilterRate`, or a bob deinterlace gets half the GOP it asked for. The CRF ladder
+  passes nothing and is right to: it runs no deinterlacer.
+- **The trim reaches both halves and the mux's copy cannot be the same spelling**:
+  `TrimSettings.GetMuxInputArgs` puts an input-side `-ss` in front of each *original* input, never
+  the encoded one, and `GetMuxOutputArgs` is the duration alone.
+- The intermediate is the whole video, so the run's scratch files live in the session folder and are
+  deleted on success rather than left for the next launch. Two-pass writes its first pass to the
+  same intermediate the second overwrites - `/dev/null` and `NUL` are not the same word.
 
 ## The Quick Convert command
 
@@ -2098,249 +1793,46 @@ Read it before changing anything here; what follows is only what has to hold wha
 
 ## Repairing a padded capture
 
-The Repair Frame Cadence utility, which removes the duplicate frames a capture inserted and writes a
-constant-rate copy. `CadenceRepair` holds the script and the run, `UtilRepairCadence` the task.
+The Repair Frame Cadence utility removes the duplicate frames a capture's TBC inserted and writes a
+constant-rate copy. `CadenceRepair` holds the VapourSynth script and the run, `UtilRepairCadence`
+the task. It has no settings - the recording's own length is the answer - and a file whose frame
+count already matches its length is refused rather than copied.
 
-**Every rate conversion in this app decides what to drop from the timestamps alone and never looks at
-the pictures, which is the half this utility does differently.** ffmpeg's `-fps_mode cfr` and a
-VapourSynth source plugin's `fpsnum` are the same idea twice, so the ffmpeg deinterlacers and QTGMC
-inherit the same fault. Measured on 15319 coded frames decimated to 10936: the timestamp-only result
-leaves **560 adjacent-identical pairs, 5.12% of its own output**, and the total count being right
-means each one cost a real frame. That is **12.8% of the padding identified wrongly**, about 1.5
-visible hitches a second.
+**The full record is the `cadence-repair` skill**, which loads on any task in this area. Read it
+before changing anything here; what follows is only what has to hold whatever you are doing.
 
-**The content tie-break earns its place against that, and the margin is modest - do not quote it as
-though it were the old algorithm's.** Measured on the 30 s cut by running each selection over the same
-source frames, with no encode in the way (`PlaneStatsDiff` is normalised 0-1, so the thresholds are
-1e-5/1e-4/1e-3 - reading them as 0-255 makes 90% of any file look duplicated):
-
-| selection | kept | <1e-4 | <1e-3 | worst drift |
-|---|---|---|---|---|
-| shipped: time places, content breaks ties | 900 | 16 | 83 | **0.059 s** |
-| tie-break window widened to 2 steps | 899 | 10 | 87 | 0.092 s |
-| pure nearest-in-time, no content at all | 901 | 21 | 98 | 0.045 s |
-| the old index/cycle selection, content only | 901 | **0** | **14** | 0.127 s |
-
-So the tie-break beats a pure timestamp pick at every threshold - which is the claim worth keeping -
-and the **old content-only selection beats both, by a lot.** That is not a reason to go back to it:
-it optimises for exactly the thing being counted and pays for it in the one that ruins a file. Nine
-percent of frames sitting within 1e-3 of their predecessor is a mild softness; seven seconds of audio
-drift is a memory nobody can watch. State the trade rather than claiming the new selection dominates.
-
-**The old selection's drift is 0.127 s here and was 6.99 s on the real file, which is the whole reason
-it shipped.** Index-resampling error grows with length; a 30 s fixture cannot show it. Every check
-that mattered was run on the short cut, passed, and proved nothing about the 95-minute capture the
-utility was written for. **Validate a length-dependent fault at length**, or at minimum report the
-placement error, which is a per-frame quantity and does show up on 30 s.
-
-**The timestamps say *when* an output frame belongs and the content says *which* of the frames near
-that moment to take. Dropping either half breaks it in a way the other half cannot show.** This
-section used to say the timestamps were "the damaged part" and were ignored entirely, and the code
-did exactly that - picking frames by index at a constant keep-ratio, in cycles chosen to bound the
-local drift. It is wrong, and it shipped to a user: choosing by index assumes the coded frames are
-spread evenly through the recording, and a padded capture's are not. Measured on the 95-minute
-capture this was written for, the finished file ran **up to 6.99 s ahead of its own audio** at 37
-minutes in, and −4.06 s at 16% - converging to ~0 at **both ends**. Placing every frame against its
-own timestamp, with the content used only to break ties among the frames at that instant, holds the
-worst error to **0.054 s** over that file and **0.059 s** on a 30 s cut - bounded by the source's own
-jitter rather than accumulating. The timestamps are damaged *individually* - jittering between 8 and
-79 ms where 33 is due, and running backwards thousands of times - and that is not the same as
-worthless: their trend is the only record of when each picture belongs.
-
-**So the check is the worst placement error over every frame, never a comparison of durations.** The
-endpoints agreeing is precisely the signature of the bug: total length, frame count and end-to-end
-sync were all exact while the middle was seconds out, so every check that looked at the ends passed
-and the file was handed over as verified. The number the script prints is the largest gap between
-where a kept frame belongs and where it was put, across the whole file; one frame is 33 ms, so
-anything reading in seconds is drift.
-
-**The tie-break window is half an output step and must not be widened.** It exists to prefer a real
-frame over a repeat among the frames sitting at the same instant - timing first, content second.
-Measured, allowing two steps let a higher-difference frame be fetched from 67 ms away and pushed the
-worst placement error to 92 ms, which is inside the range where lip-sync is noticeable.
-
-**y4m carries a frame size, a rate and a range and nothing else, so the field order *and* the colour
-are both lost piping VapourSynth into ffmpeg - one problem with one fix.** VSPipe's header reads
-`... F30000:1001 Ip` - `Ip` is *progressive* - so ffmpeg marks every frame progressive on the way in.
-Measured against a `tt` source through a real VSPipe producer: `-x264-params tff=1` alone gives
-`field_order=progressive`; `-flags +ilme+ildct -x264-params tff=1` gives **`bt`, the wrong parity**;
-`-vf setparams=field_mode=tff -x264-params tff=1` gives `tb`, which is right. The middle row is the
-one to remember - it looks like it worked, and leaves the next deinterlace running at the wrong parity
-on a file just "repaired". The same four flags read `tb` for all of them when the y4m comes from
-ffmpeg rather than VSPipe, so a test that does not use the real producer proves nothing.
-
-**The colour goes the same way, and the output AVOptions cannot put it back - the frame's own
-properties beat them.** Measured through the repair's exact pipe shape on a capture declaring
-bt470m/bt470m/bt470bg tv, reading primaries/transfer/matrix/range back off the result:
-`-color_primaries bt470m -color_trc bt470m -colorspace bt470bg -color_range tv` gives **unknown,
-unknown, bt470bg, tv** - two of four honoured and two dropped in silence - and the same four written
-numerically (4/4/5/1) gives exactly the same thing.
-`-vf setparams=color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv` gives all four.
-The same command reading the source as a **file** rather than through the pipe tags all four
-correctly, so this is specific to piped y4m and a test that skips the pipe proves nothing here either.
-`setparams` sets the field order too, which is why it replaces `setfield` rather than sitting beside
-it. What it costs to get wrong is downstream and quiet: the AV1 encode reading a repaired file was
-handed `--color-primaries 2 --transfer-characteristics 2 --matrix-coefficients 2`, leaving every
-player to guess the matrix of a file that had said precisely what it was.
-
-**A fix that changes only the spelling is not a fix, and this one shipped as one.** The first cut of
-the colour repair read the values as ffprobe's *names* rather than as `VideoColorData`'s numbers, on
-the theory that ffmpeg was refusing the numeric spelling - and the finding was written up that way,
-confidently, with the half-tagged output as its evidence. The numbers and the names behave
-identically; the spelling was never what decided it. What settled it was running the AVOption and
-`setparams` forms against each other **through the real pipe**, which is a different question from
-whether the command parses.
-
-**The colour repair was got wrong a third time, and this time nothing about the command was wrong -
-the value never arrived.** The four properties are probed off the source and re-stated through
-`setparams`, and each was asked for *bare* (`-of default=noprint_wrappers=1:nokey=1`), taking the
-first non-empty line of what came back. ffprobe writes its diagnostics to the same stream as its
-answer, so a bare value is not distinguishable from a complaint - and on a capture cut mid-audio-frame
-`[mp2 @ 0000026f1f808e80] Header missing` arrives **first**. That line failed the character guard that
-exists to keep a `:` or an `=` out of the filter graph, so all four properties were dropped,
-`setparams=field_mode=tff` went out alone, and the repair wrote a file tagged `unknown` for primaries,
-transfer and matrix **while reporting success** - the "every player left to guess the matrix" outcome
-this section already warns about, reached from the other end rather than through the AVOptions.
-
-Why it survived every earlier check is the disguise: the *same file* probes clean when nothing
-complains, so the bug needs a source ffprobe has something to say about, and the complaint is about the
-**audio** while the values being lost are the video's. The fix is `key=value` in one call rather than
-four bare values, matched on the `key=` prefix - a diagnostic cannot be shaped like one. That is robust
-whatever the log level, which is the point: the only other `nokey=1` call in the app,
-`Av1anSceneDetect.GetDurationSecondsAsync`, is safe **solely** because its `LogLevel` is `quiet`, and a
-correctness resting on a log level is one edit away from being lost. Do not re-narrow this to a
-`LogLevel` change on those grounds.
-
-Verified by running the real repair on the file that reproduced it, against the bundled BtbN build:
-`setparams=field_mode=tff` and `unknown/unknown/unknown/tv` before, and
-`setparams=field_mode=tff:color_primaries=bt470m:color_trc=bt470m:colorspace=bt470bg:range=tv` with
-`bt470m/bt470m/bt470bg/tv` after, `field_order=tb` still preserved from a `tt` source; plus the clean
-probe, which yields the same four values, and a file that genuinely states no colour, which yields four
-`unknown` lines and is correctly left alone. Not verified: a diagnostic that happens to *begin*
-`color_space=` would still fool the prefix match, and nothing has been seen to produce one.
-
-**The three source plugins decode this file identically and answer a *backwards* request three
-different ways, one of them silently wrong.** Measured on the same 1259-frame capture: sequentially
-all three are exact and agree with each other frame for frame, 0 of 1259 differing between any pair;
-asked for frames forward-with-gaps - which is all `DeleteFrames` ever does - all three are exact
-again; asked for frames out of order, **lsmas raises "failed to output a video frame", ffms2 answers
-971 of 1259 requests with the wrong picture and no complaint at all, and bestsource gets every one
-right.** So "which plugin" is free on a sequential read and decisive on a random one, and the failure
-that matters is ffms2's, being the quiet one.
-
-The repair therefore names `bestsource` first through `PLAIN_ORDER` while the deinterlace script keeps
-`lsmas`. Not because the repair was wrong - it was measured correct on lsmas, byte for byte the same
-output - but because its correctness rested on nothing except `DeleteFrames` happening to ask in
-order, which is an invariant nobody had written down and any later filter could break. `PLAIN_ORDER`
-is the one place that choice is stated, per script. Note that bestsource reports this file's rate as
-`4680000/117031` where lsmas says `30000/1001`; only the frame *count* is read here and `AssumeFPS`
-states the output rate, so it changes nothing - expect it in the log rather than re-diagnosing it.
-
-**Measured across ten downloaded samples, no source plugin is safe on MPEG-2 and all three are
-perfect on everything else - and the reason first given for ffms2's wrongness was wrong.** This file
-used to say the divergence was "measured on the same file", with the guess offered alongside it that
-ffms2's silent errors were down to that capture's damaged timestamps and that a clean MKV would be
-fine. Half of that survives. Sources: ffmpeg's own sample archive (`dvd.mpeg`, `broken-ntsc.mpg`,
-`interlaced/burosch1.mpg`, `mpeg2_field_encoding.ts`, a VOB) and test-videos.co.uk (H.264 MP4, VP9
-WebM, AV1 MP4), plus an MKV remuxed from the first, first 600 frames of each, forward-with-gaps and
-true-random against a sequential reference:
-
-| sample | lsmas | ffms2 | bestsource |
-|---|---|---|---|
-| MP4/H.264, MKV/H.264, WebM/VP9, MP4/AV1 | clean | clean | clean |
-| `dvd.mpeg` (progressive PS) | clean | clean | clean, but **1 frame of 600 decodes differently from both others** |
-| `burosch1.mpg` (interlaced PS) | clean | **132 of 600 wrong on random access** | clean |
-| `broken-ntsc.mpg` | **refuses**: "repeat requested for 1438 frames by input video, but unable to obey" | clean | clean |
-| `mpeg2_field_encoding.ts` | clean | clean | **refuses**: "No frame returned for frame number 30" |
-| the padded capture | random access errors | 446 of 600 wrong | clean |
-
-So the *class* is right and the *cause* was not: ffms2's silent wrongness is not a symptom of damaged
-timestamps, because `burosch1.mpg` is an ordinary test pattern and shows it, while the VOB - also
-interlaced MPEG-2 - does not. And bestsource is not the universal answer the paragraph above implies:
-it is the only one that refuses a field-encoded transport stream outright, and the only one that
-disagrees with the other two about a frame of a clean DVD stream. Each of the three has at least one
-hard failure or silent error somewhere in five MPEG-2 samples, and never on the same file as another.
-
-**Which is the argument for trying rather than declaring.** A StaxRip-style table keyed on extension
-cannot express this: `.mpg` alone wants bestsource on one file, ffms2 on the next and lsmas on a
-third. Only the ordered attempt list with a validating check copes, and that is what `open_video` is.
-
-The operational half: **forward-with-gaps access is exact on all three plugins across all ten
-samples**, 0 wrong in every cell. That is the only pattern `DeleteFrames` produces, so the cadence
-repair is safe whichever plugin wins its fallback - which is what makes naming bestsource first a
-defence against a *future* filter rather than a fix for a present bug.
-
-**The one disagreement that looked alarming is an off-by-one, and it was settled by asking ffmpeg.**
-`mpeg2_field_encoding.ts` had lsmas and ffms2 returning different pictures for 30 of its 41 frames,
-with bestsource - the obvious tie-break - refusing the file, and *its own suggested remedy of
-`threads=1` does not help*, nor does d2vsource, which refuses it too. The reference is therefore
-ffmpeg itself, per-frame luma through `signalstats`: it decodes **31 frames from the stream's 41
-packets**, the leading ones being undecodable ("Invalid frame dimensions 0x0", "ac-tex damaged").
-Both plugins report 41 - the packet count - and pad the head with held copies of the first picture,
-lsmas with 11 and ffms2 with 12. At those offsets each reproduces **30 of ffmpeg's 31 frames
-exactly**, differing only on the final partial one, and they match *each other* on 40 of 41 at a
-shift of one. So neither decodes anything wrongly; they disagree by a single frame about where real
-content begins in a damaged stream, and both overstate its length.
-
-**Getting that answer needed the right tolerance, which is the trap worth keeping.** The content is
-nearly static - every frame's luma average lies between 0.2624 and 0.2707 - so the first comparison,
-run at 0.002, manufactured agreement out of neighbouring frames and reported lsmas matching 31/31
-against ffms2's 30/31, which reads as "lsmas is right and ffms2 is not". At 1e-5, which is still
-fifty times the rounding error of the four decimal places `signalstats` prints, both come out at
-30/31 and the real relationship - a one-frame offset - appears. On near-constant material a loose
-tolerance does not blur a comparison, it invents one.
-
-**DGIndex and d2vsource were fetched, run against this file and deliberately not adopted** - which is
-worth writing down, because "why does this not use the proper MPEG-2 source the way StaxRip does" is a
-reasonable question to ask later. StaxRip's default route for an `.mpg` really is a different one: a
-demuxer in `Demux.vb` (`InputExtensions = {mpg, mpeg, vob, m2ts, m2v, mts, m2t}`, `InputFormats =
-{mpeg2}`, active by default where its eac3to and D2V Witch siblings set `.Active = False`) runs DGIndex
-into a `.d2v`, and the source-filter table then maps `d2v` to `core.d2v.Source`, so the `*` default of
-ffms2 never sees the file.
-
-Measured here with DGIndex 1.5.8 (GPL-2, `rlaphoenix/DGIndex`) indexing in 0.4 s and d2vsource 1.3
-(LGPL-2.1) loading cleanly into R72: **it decodes this file identically to what is already bundled -
-0 of 1259 frames differ from bestsource** - reports the same 1259 coded frames, so it removes none of
-the padding and the repair is needed either way, and it **fails the same random-access test lsmas
-fails** ("Seek pattern broke d2vsource! Please send a sample"). Sequential decode is 3850 fps against
-bestsource's 2896, which on the full file is 20 s against 26 s inside an hour-long encode.
-
-The one thing it does better is read `Frame_Rate=29970 (30000/1001)` and `Field_Operation=0` out of the
-MPEG-2 sequence header rather than from timestamps - genuinely the right way round, and exactly nothing
-this app needs, since `avg_frame_rate` already answers that (see `Reading what the tools print`). So the
-cost is a Windows-only 2010 binary, a 15.8 MB plugin, a per-file pre-index step and a new intermediate
-format, against no measurable gain. D2V Witch, the open-source indexer, is worse still to bundle: it
-ships as a bare exe needing Qt5 plus ffmpeg 4.x shared libraries (`avutil-56`, where the bundle carries
-`avutil-61`).
-
-**`FPS_NUM`/`FPS_DEN` are `open_video`'s names and mean "rebuild the clip at this rate".** Naming a
-script's *output* rate that way hands the padded file to the very conversion the script exists to
-replace: caught by running it, the repair opened 900 frames of a 1259-frame file and reported nothing
-to decimate. The repair script sets both to 0 and calls its own rate `OUT_FPS_NUM`/`OUT_FPS_DEN`.
-
-**It is a utility rather than something an encode tab does on the way past**, for the reason the
-Deinterlace Video utility gives plus two of its own: the metrics pass is a full extra decode, and one
-repaired file fixes every downstream path rather than one. The judgement is also not one to make
-silently - deciding a file's frame count is wrong and its container right is a claim about somebody's
-capture, and `CadenceRepair.TargetFrames` records that the opposite case exists and cannot be told
-apart from these two numbers alone. It has no settings; the recording's own length is the answer. A
-file whose frame count already matches its length is **refused** rather than copied.
-
-Verified through the real `MainWindow` and `RunTask`, on two cuts of the capture it was written for.
-A 30 s cut: 1259 coded frames → 900 at 30000/1001, worst placement error **0.059 s**, all four colour
-properties (`bt470m`/`bt470m`/`bt470bg`, range `tv`) round-tripping from source to output,
-`field_order=tb` preserved from a `tt` source, 30.03 s of video against 29.98 s of audio. A 6-minute
-cut: 15305 → 11060, worst placement error **0.054 s**, same colour and field order, 369.035 s of video
-against a 369.041 s source - and it exercised the timestamp-count mismatch path on the way (ffprobe
-counted 15307 where bestsource decoded 15305, trimmed rather than refused). Feeding the repaired file
-back in is refused, `1x`, no output written, which is the round trip proving the output is genuinely
-constant-rate. The full 95-minute run was made and its worst placement error was 0.054 s across
-172,024 frames.
-
-What is **not** verified: nothing here establishes that the *real* frames were themselves captured at
-even instants - a frame count matching the recording only proves none were lost - and the placement
-error is measured against the source's own timestamps, so it bounds this utility's contribution to the
-drift and not the capture hardware's.
+- **Every other rate conversion in this app - ffmpeg's `-fps_mode cfr`, a source plugin's
+  `fpsnum` - decides what to drop from the timestamps alone and never looks at the pictures.** This
+  utility is the one that does, which is why a padded capture goes through it first and why the
+  deinterlacers cannot be taught to cope instead.
+- **The timestamps say *when* an output frame belongs and the content says *which* frame near that
+  moment to take; drop either half and the other cannot show the damage.** Index-resampling at a
+  constant keep-ratio shipped once and ran 6.99 s ahead of its own audio in the middle of a file
+  whose ends lined up exactly. Place by timestamp, break ties by content, and **check the worst
+  placement error over every frame - never a comparison of durations or endpoints**, which is
+  precisely the signature that passed the bug.
+- **The tie-break window is half an output step and must not be widened**: two steps fetched a
+  frame from 67 ms away and pushed the worst error to 92 ms, inside lip-sync range.
+- **Validate a length-dependent fault at length.** The 30 s cut showed 0.127 s of drift where the
+  95-minute capture showed 6.99 s; every check that mattered was run on the short cut and proved
+  nothing about the file the utility was written for.
+- **The pipe into ffmpeg loses the field order and the colour, and only `setparams` on the frames
+  puts them back** - the output AVOptions are dropped in silence for two of the four properties,
+  `-flags +ilme+ildct` yields the *wrong parity*, and a test that reads the source as a file rather
+  than through the real VSPipe producer proves nothing. The four properties are probed as
+  `key=value` in one ffprobe call, never `nokey=1`, or a diagnostic about the *audio* is taken for a
+  value and the file is written tagged `unknown` while reporting success.
+- **Forward-with-gaps access is exact on all three source plugins and random access is not** -
+  lsmas raises, ffms2 answers wrongly in silence, bestsource is right - and across ten samples no
+  plugin is safe on every MPEG-2 file. `PLAIN_ORDER` is the one place each script's attempt order is
+  stated (bestsource first here, lsmas for the deinterlace script), and `open_video` tries in that
+  order with a validating check rather than declaring by extension. That shape must stay.
+- **`FPS_NUM`/`FPS_DEN` are `open_video`'s names and mean "rebuild the clip at this rate"** - naming
+  a script's *output* rate that way hands the file to the very conversion this script replaces. The
+  repair sets both to 0 and calls its own `OUT_FPS_NUM`/`OUT_FPS_DEN`.
+- **DGIndex and d2vsource were fetched, run against the capture and deliberately not adopted**: they
+  decode it identically to bestsource, remove none of the padding, and fail the same random-access
+  test lsmas fails - for a Windows-only 2010 binary and a new intermediate format.
 
 ## Grain synthesis
 

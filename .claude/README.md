@@ -200,6 +200,17 @@ each skill body sha256-matches the CLAUDE.md slice it came from, each retained r
 sha256-matches its original, and the two add up - **1,707 retained + 2,873 moved = 4,580, the
 original line count exactly**, with the heading list unchanged and line endings still CRLF.
 
+**A second pass on 3 September 2026 moved two more.** Measured additions had re-accumulated -
+the file was back to 202,744 bytes - and `Driving the encoder binaries directly` (389 lines) and
+`Repairing a padded capture` (246 lines) were the two largest sections left, so they went the
+same way, verbatim and checksummed, into the `direct-encoders` and `cadence-repair` skills.
+CLAUDE.md is **158,931 bytes / 2,015 lines** now, six `##` digests among its nineteen headings;
+each moved body sha256-matches its pre-split slice, every retained line is byte-identical, and the
+endings are still CRLF. The meta-documents that count the skills went in the same change - this
+section, `record-finding`'s routing table and section list, `verifier`, and CLAUDE.md's own
+preamble - because a skill that documents where things go is invalidated by moving things, the
+lesson the first split already records below.
+
 **What stays in CLAUDE.md is the invariant that can be broken from outside its own area**, and
 that division is the whole safety argument: a trap that does not load is a trap re-shipped, so
 "do not restore a mainline SVT-AV1 fallback in `bundle-tools.sh`" (a bundler edit),

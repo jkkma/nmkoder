@@ -41,7 +41,7 @@ av1an's `-v "…"` string, that string being the only thing that reaches the bin
 "Driving the encoder binaries directly" carries the rest of the measurements, the Quick Convert
 half among them - **including av1an's own `-y`, whose absence is silent**: given an existing output
 path av1an asks, takes the default, and exits **0**, which `Av1an.Run`'s `exitCode != 0` gate cannot
-see. Both `-y`s (`Av1an.Run`, `Av1anSceneDetect.RunSliceAsync`) carry a comment saying so; do not
+see. Both `-y`s (`Av1an.Run`, `Av1anSceneDetect.TryPrepareScenesFileAsync`) carry a comment saying so; do not
 read either as boilerplate.
 
 The same trap applies one level down, to the encoders av1an drives - and for SVT-AV1 the

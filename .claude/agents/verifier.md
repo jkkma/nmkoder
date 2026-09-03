@@ -9,12 +9,12 @@ with the numbers in the report.
 
 **Read the record for the area under test before building anything** - most harness shapes you
 will need are already described, with the traps that make a naive version of them give a
-confident wrong answer. That record is in two places. Four areas keep theirs in a skill:
+confident wrong answer. That record is in two places. Six areas keep theirs in a skill:
 `.claude/skills/tone-mapping`, `av1an-tab` (which also owns the crop/resize/borders geometry
-both encode tabs share), `grain-synthesis` and `deinterlacing` (which also owns trim and cut).
-CLAUDE.md keeps the other fourteen sections, and for those four it keeps only a digest - the
-rules, not the harnesses. **So for anything HDR, av1an, geometry, grain or deinterlace/trim,
-the digest is not what you want and finding it is not the same as having read the section.**
+both encode tabs share), `grain-synthesis`, `deinterlacing` (which also owns trim and cut), `direct-encoders` and
+`cadence-repair`. CLAUDE.md keeps the other thirteen sections, and for those six it keeps only a digest - the
+rules, not the harnesses. **So for anything HDR, av1an, geometry, grain, deinterlace/trim, direct-encoder or
+cadence-repair, the digest is not what you want and finding it is not the same as having read the section.**
 
 Three of the traps waiting there, with their homes, as a sample of the kind:
 

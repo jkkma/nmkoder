@@ -29,7 +29,7 @@ It does **not** belong if the code already says it. "`GetCropProblem` validates 
 readable from `GetCropProblem`. What belongs is why the four edges are held as *pairs*, and the
 batch that carried a 140-line letterbox crop from a 1080p file onto a 480p one.
 
-The file is ~365 KB and loads into every session whole. A paragraph that repeats the code costs
+The file is ~155 KB and loads into every session whole. A paragraph that repeats the code costs
 every future session and buys nothing.
 
 ## The nine rules
@@ -85,31 +85,32 @@ made on where it can drift (`.claude/agents/upstream-drift.md` is what re-checks
 Sections are areas of the app, not kinds of fact, and a finding goes where its subject is -
 beside what it contradicts or qualifies, never appended at the end.
 
-**Four areas keep their record in a skill rather than in CLAUDE.md**, and routing those is the
+**Six areas keep their record in a skill rather than in CLAUDE.md**, and routing those is the
 part to get right:
 
 | the finding | where it goes |
 |---|---|
-| a measurement, or the history of one, in one of the four | the skill alone |
-| a *rule* in one of the four that can be broken from **outside** it | **both** - the skill, and that section's digest in CLAUDE.md |
-| anything in the other fourteen sections | CLAUDE.md, in that section |
+| a measurement, or the history of one, in one of the six | the skill alone |
+| a *rule* in one of the six that can be broken from **outside** it | **both** - the skill, and that section's digest in CLAUDE.md |
+| anything in the other thirteen sections | CLAUDE.md, in that section |
 
-The four are `.claude/skills/tone-mapping`, `av1an-tab`, `grain-synthesis` and `deinterlacing`.
+The six are `.claude/skills/tone-mapping`, `av1an-tab`, `grain-synthesis`, `deinterlacing`,
+`direct-encoders` and `cadence-repair`.
 **A digest is not a summary kept in sync with its skill** - it carries the invariants a session
 that never loads the skill could still break: a `bundle-tools.sh` edit, a temp-folder cleanup, an
 encoder path added on another tab. So do not put a measurement in a digest, and do not take a rule
 out of one on the grounds that the skill already carries it.
 
-The CLAUDE.md sections, the four digests in bold:
+The CLAUDE.md sections, the six digests in bold:
 
 `UI conventions` · `The palette` · `Cutting a release` · `The Scoop bucket` · `Notifications` ·
 `Reading what the tools print` · `The file list and the track list` · **`The AV1AN tab`** ·
-`The Advanced tab, on both encode tabs` · `Driving the encoder binaries directly` ·
+`The Advanced tab, on both encode tabs` · **`Driving the encoder binaries directly`** ·
 `The Quick Convert command` · `The VMAF model was never a model` · `The CRF ladder` ·
-**`Deinterlacing`** · **`Grain synthesis`** · **`Tone mapping`** · `Loudness normalization` ·
-`Nothing on the Quick Convert tab is saved either`
+**`Deinterlacing`** · **`Repairing a padded capture`** · **`Grain synthesis`** · **`Tone mapping`** ·
+`Loudness normalization` · `Nothing on the Quick Convert tab is saved either`
 
-Two of the four own subjects their names do not advertise, which is where a finding gets misfiled:
+Two of the six own subjects their names do not advertise, which is where a finding gets misfiled:
 **the trim and cut material is under `Deinterlacing`** - it is there because a trim is the one
 thing QTGMC cannot compose with - and **the crop, resize and borders geometry is under
 `The AV1AN tab`** though Quick Convert shares it.
