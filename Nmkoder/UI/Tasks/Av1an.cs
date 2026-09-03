@@ -334,6 +334,13 @@ namespace Nmkoder.UI.Tasks
                     // two decide whether the encoder emits its own quality flag at all.
                     videoArgs["qMode"] = ((int)qualMode).ToString();
                     videoArgs["q"] = ((int)quality).ToString();
+                    // This tab reaches the same two prompting binaries through av1an, from the same
+                    // AomAv1.json and Vpx.json rows Quick Convert reads, and av1an passes no
+                    // suppression flag of its own - grepped, --disable-warning-prompt does not appear
+                    // anywhere in the bundled av1an.exe. Measured: with a min-q within 8 of max-q the
+                    // chunk dies as "encoder crashed: exit code: 1" with the prompt quoted in av1an's
+                    // own stderr, retried once and then given up on. See CodecUtils.GetNoPromptArg.
+                    videoArgs[CodecUtils.NoPromptKey] = await CodecUtils.GetNoPromptArg(vCodec);
                     string pixFmt = videoArgs.ContainsKey("pixFmt") ? videoArgs["pixFmt"] : "";
 
                     // Settled before the filters are built, and once: in Automatic mode working out
@@ -508,6 +515,16 @@ namespace Nmkoder.UI.Tasks
                     // The input is not named here. A trim has to cut its section out first, and where
                     // that copy goes is only settled once this run's temp folder is, so the '-i' is
                     // put in front of all of this below, after the cut has run.
+                    //
+                    // That leading -y is load-bearing and does not look it. Without it, an output path
+                    // that already exists gets "Output <f> exists. Do you want to overwrite it? [y/N]:",
+                    // and av1an then takes the default and **exits 0** - measured, status 0 with the
+                    // existing file untouched and "Not overwriting, aborting." its last word. So the
+                    // exitCode != 0 gate below would never see it and the run would report success over
+                    // an encode that never happened, the same shape as the Av1anMemory OOM that reports
+                    // itself as 0. On a console it is worse still: stdin is inherited (nothing here sets
+                    // RedirectStandardInput), so from a terminal av1an blocks on the prompt instead -
+                    // measured, still waiting at 20 s.
                     args = $"-y --verbose --keep " +
                         $"{GetSplittingMethodArgs()} " +
                         $"{GetChunkGenMethod(chunkMethod)} " +

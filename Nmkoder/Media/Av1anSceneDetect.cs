@@ -206,6 +206,11 @@ namespace Nmkoder.Media
                     // Its own temp and log per slice, inside the scratch folder, so no two runs
                     // share state and nothing lands in ./logs beside the binary - the same litter
                     // Av1an.GetLogFileArgs exists to prevent.
+                    //
+                    // The -y is load-bearing for the reason Av1an.Run's own copy gives: without it an
+                    // existing output path makes av1an ask, and declining is **exit 0** rather than a
+                    // failure. A slice folder is fresh per run so nothing should be in the way, which
+                    // is exactly why its absence would go unnoticed until something left one behind.
                     string sliceArgs = $"-y --sc-only --split-method av-scenechange -m lsmash " +
                         $"--scenes {scenesPath.Wrap()} " +
                         $"{scDownscaleArg} {keyIntArg} ".Replace("  ", " ") +

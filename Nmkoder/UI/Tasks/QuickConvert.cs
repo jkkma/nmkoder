@@ -251,6 +251,14 @@ namespace Nmkoder.UI.Tasks
                 if (!encodedFrame.IsEmpty)
                     videoArgs[CodecUtils.FrameSizeKey] = $"{encodedFrame.Width}x{encodedFrame.Height}";
 
+                // aomenc and vpxenc stop and wait for a keypress over a min-q/max-q pair their own
+                // argument rows offer, and a launched child has nobody to answer - see
+                // CodecUtils.GetNoPromptArg for what that costs and why the flag is looked up rather
+                // than written. Resolved here because the lookup is async and GetArgs is not; "" for
+                // every other encoder, so nothing else sees a new argument.
+                if (directEnc != null)
+                    videoArgs[CodecUtils.NoPromptKey] = await CodecUtils.GetNoPromptArg(directEnc.ToolName);
+
                 // The same note the AV1AN tab logs beside its SVT presets: hbd-mds only acts on a
                 // 10-bit input, and the content presets set it.
                 string hbdProblem = QuickConvertUi.GetHbdModeDecisionProblem(GetCurrentCodecV(),

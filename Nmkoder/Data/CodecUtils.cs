@@ -75,6 +75,54 @@ namespace Nmkoder.Data
             return GetCodec(c) as IBinaryEncoder;
         }
 
+        /// <summary> The key both tabs carry the flag below under, in the argument dictionary the
+        /// encoder classes read. </summary>
+        public const string NoPromptKey = "noPrompt";
+
+        /// <summary>
+        /// The flag that stops aomenc and vpxenc waiting for a keypress, or "" for every other encoder
+        /// and for a build that turns out not to have it.
+        /// <para/>
+        /// **Both of them stop and ask at values their own argument rows offer.** <c>min-q</c> and
+        /// <c>max-q</c> are 0-63 with a default of 63 in <c>AomAv1.json</c> and <c>Vpx.json</c> alike;
+        /// set within 8 of each other the binary prints <c>Warning: Bad quantizer values…</c> followed
+        /// by <c>1 encoder configuration warning(s). Continue? (y to continue)</c> and reads a byte
+        /// from stdin. Measured against the 2.8.78 bundle (AV1 Encoder v3.14.1, VP9 Encoder
+        /// v1.15.2-151-gd98e70839): <c>--min-q=55 --max-q=63</c> is clean and 56 asks, so the boundary
+        /// is exactly the documented 8, and it is the *only* configuration warning either binary has -
+        /// grepped, one <c>Continue?</c> and one <c>Bad quantizer values</c> string in each.
+        /// <para/>
+        /// What that costs depends on what stdin is, and the two outcomes are worth telling apart.
+        /// With stdin an open pipe that never delivers, both **hang indefinitely** - measured, still
+        /// blocked at 25 s. With stdin the y4m the encode actually arrives on, the read is satisfied
+        /// by frame data, which is not 'y', so the encoder **exits 1 in ~130 ms having written
+        /// nothing** and the encode dies at the first chunk or the first pass. That is the shape this
+        /// app produces, on both tabs; the hang is what would happen if the producer ever went quiet.
+        /// <para/>
+        /// Guarded rather than written unconditionally, because both encoders refuse a command over an
+        /// unrecognised option outright - measured, <c>Error: Unrecognized option</c>, rc=1, nothing
+        /// written - so an unguarded flag would trade this bug for a worse one on any build lacking
+        /// it. The lookup errs the right way by construction: an encoder that cannot be found or run
+        /// gets the benefit of the doubt and the flag goes out anyway, which is the direction that
+        /// fixes the encode.
+        /// </summary>
+        public static async Task<string> GetNoPromptArg(string toolName)
+        {
+            // Named rather than deduced: nothing else this app launches has this prompt, and grav1synth
+            // - which has the same trap under its own -y - is not run through an encoder class.
+            if (toolName != "aomenc" && toolName != "vpxenc")
+                return "";
+
+            const string flag = "--disable-warning-prompt";
+            return await Media.AvProcess.ToolKnowsFlagOrIsUnknown(toolName, flag) ? flag : "";
+        }
+
+        /// <summary> The same question for the AV1AN tab, which knows its encoders as codecs. </summary>
+        public static async Task<string> GetNoPromptArg(Av1anCodec c)
+        {
+            return await GetNoPromptArg(c == Av1anCodec.AomAv1 ? "aomenc" : c == Av1anCodec.Vpx ? "vpxenc" : "");
+        }
+
         public static IEncoder GetCodec(Av1anCodec c)
         {
             if (c == Av1anCodec.AomAv1) return new AomAv1();

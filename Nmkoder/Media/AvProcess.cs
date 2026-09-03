@@ -481,6 +481,17 @@ namespace Nmkoder.Media
             if (!av1anEncoderBinaries.TryGetValue(av1anEncoderName, out string binary))
                 return true;
 
+            return await ToolKnowsFlagOrIsUnknown(binary, flag);
+        }
+
+        /// <summary>
+        /// The same question as <see cref="EncoderKnowsFlagOrIsUnknown"/>, asked of a binary by its own
+        /// name rather than by the av1an encoder that would invoke it - which is what Quick Convert
+        /// needs, launching the encoders itself and knowing them as <c>IBinaryEncoder.ToolName</c>.
+        /// Same contract: false only where a help text was actually read and did not hold the flag.
+        /// </summary>
+        public static async Task<bool> ToolKnowsFlagOrIsUnknown(string binary, string flag)
+        {
             string help = await GetToolHelp(binary);
             return help.IsEmpty() || help.Contains(flag);
         }

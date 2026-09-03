@@ -66,10 +66,15 @@ namespace Nmkoder.Data.Codecs.Video
                 ? $"--film-grain-table={encArgs["grainTable"]}"
                 : $"--enable-dnl-denoising={denoise} --denoise-noise-level={grain}";
 
+            // Resolved by the run rather than written here, the lookup being async - see
+            // CodecUtils.GetNoPromptArg. It goes inside av1an's -v "…" string because that is what
+            // reaches aomenc; av1an has no such flag of its own to pass on.
+            string noPrompt = encArgs.ContainsKey(CodecUtils.NoPromptKey) ? encArgs[CodecUtils.NoPromptKey] : "";
+
             // --end-usage=q stays even in the target quality modes: av1an's search only injects
             // --cq-level, which aomenc ignores unless constant quality rate control is selected.
             return new CodecArgs($" -e aom -v \" --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
-                    $"{grainArgs} {colors} --threads={thr} {tiles} {adv} \" --pix-format {pixFmt}");
+                    $"{grainArgs} {colors} --threads={thr} {tiles} {noPrompt} {adv} \" --pix-format {pixFmt}");
         }
     }
 
@@ -192,10 +197,12 @@ namespace Nmkoder.Data.Codecs.Video
             string adv = encArgs.ContainsKey("advanced") ? encArgs["advanced"] : ""; // vpxenc takes --flag=value, as written
 
             string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : ""; // No video stream to work an interval out from
+            // As with aomenc, and for the same reason - see CodecUtils.GetNoPromptArg
+            string noPrompt = encArgs.ContainsKey(CodecUtils.NoPromptKey) ? encArgs[CodecUtils.NoPromptKey] : "";
 
             // As with aomenc, --end-usage=q has to be set for av1an's injected --cq-level to apply
             return new CodecArgs($" -e vpx --force -v \" --codec=vp9 --profile={p} --bit-depth={b} --end-usage=q {(!targetQual ? $"--cq-level={q}" : "")} --cpu-used={preset} {kf} " +
-                    $"--threads={thr} --row-mt=1 {tiles} {adv} \" --pix-format {pixFmt}");
+                    $"--threads={thr} --row-mt=1 {tiles} {noPrompt} {adv} \" --pix-format {pixFmt}");
         }
     }
 

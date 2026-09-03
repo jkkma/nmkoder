@@ -828,6 +828,10 @@ changing anything here; what follows is only what has to hold whatever you are d
 - **av1an rejects an entire command over one unrecognised flag, and so do the encoders it drives.**
   Never add one unguarded: `AvProcess.Av1anSupportsFlag` reads av1an's own `--help`, and
   `AvProcess.EncoderKnowsFlagOrIsUnknown` the encoder's.
+- **`CodecUtils.GetNoPromptArg` serves this tab as well as Quick Convert, and narrowing it to the
+  direct path would break aom and vpx encodes here.** av1an carries no prompt-suppression flag of
+  its own, so `--disable-warning-prompt` has to ride inside its `-v "…"` string or a `min-q` within
+  8 of `max-q` - which `AomAv1.json` and `Vpx.json` offer - kills every chunk.
 - **This project ships the PSY line of SVT-AV1 or nothing.** `bundle-tools.sh` takes `SvtAv1EncApp`
   only from `juliobbv-p/svt-av1-hdr`. Both fallbacks that used to sit behind it substituted a
   mainline binary under the same filename with nothing saying so; a release with no PSY build is a
@@ -1149,21 +1153,102 @@ files (intermediate, stats stem and its `.cutree`/`.mbtree` siblings, logs, mark
 session folder and are deleted on success, because that folder is only emptied at the *next* launch
 and the intermediate is the whole video.
 
-**aomenc and vpxenc will stop and wait for a keypress at values their own argument rows offer, and a
-launched child never answers.** Both accept `min-q` and `max-q` at 0-63 with a default of 63, which the
-rows state; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
+**aomenc and vpxenc will stop and ask a question at values their own argument rows offer, and a launched
+child never answers.** Both accept `min-q` and `max-q` at 0-63 with a default of 63, which the rows
+state; set `min-q` within 8 of `max-q` and the binary prints `Warning: Bad quantizer values… should
 differ by at least 8.` followed by `1 encoder configuration warning(s). Continue? (y to continue)` and
-blocks on stdin. With stdin an open pipe - which is what these encoders get, the y4m arriving that way -
-**it hangs indefinitely** rather than failing, so there is no exit code, no artifact and nothing in the
-log to judge: the run simply never ends. Measured on the 2.8.78 bundle (`AV1 Encoder v3.14.1`, `VP9
-Encoder v1.15.2-151-gd98e70839`); `--min-q=55 --max-q=63` is clean and `56` prompts, so the boundary is
-exactly the documented 8. `-y` / `--disable-warning-prompt` suppresses it.
+reads a byte from stdin. Measured on the 2.8.78 bundle (`AV1 Encoder v3.14.1`, `VP9 Encoder
+v1.15.2-151-gd98e70839`); `--min-q=55 --max-q=63` is clean and `56` asks, so the boundary is exactly the
+documented 8 - and it is the **only** configuration warning either binary has, one `Continue?` string and
+one `Bad quantizer values` string apiece and nothing else feeding the tally.
+
+**What that costs depends on what is on stdin, and this file used to name the wrong one of the two.** It
+said the encoder "hangs indefinitely… so there is no exit code, no artifact and nothing in the log to
+judge: the run simply never ends". That is true only of a stdin that is open and *silent* - measured,
+both binaries are still blocked at 25 s against a pipe given the y4m header and then nothing - and it is
+not what this app produces. Their stdin here is the y4m the frames arrive on, so the prompt read is
+satisfied by frame data, which is not `y`, and the encoder **exits 1 in ~130 ms having written nothing**;
+the chain's `&&` then stops before the mux. Measured through the app's own command shape under cmd.exe
+and sh alike: rc=1, 0.07 s, no intermediate. So the failure is loud rather than invisible -
+`settings.Problem` is set and `GetDirectRunProblemAsync` appends `GetEncoderLogTail`, which is where the
+`Continue? (y to continue)` line surfaces in the message. The artifact checks in this section were never
+blind to it, and the sentence that said they were - that they "all run after a process that never
+exits" - was a consequence of the wrong half rather than a separate finding.
+
+**The AV1AN tab reaches the same two binaries from the same rows, and av1an passes no suppression flag
+of its own** - `--disable-warning-prompt` does not appear anywhere in the bundled `av1an.exe`
+(`0.5.2-unstable (rev 805dad6)`, toolchain 2.8.78), read out of its strings. Measured on a one-chunk
+encode: the chunk dies as `encoder crashed: exit code: 1` with the prompt quoted in av1an's own stderr,
+is retried once, and is then given up on with nothing written. So this was one bug on two tabs.
+
+`CodecUtils.GetNoPromptArg` is the one place the flag is decided, for both of them: `aomenc` and
+`vpxenc` get `--disable-warning-prompt` and every other encoder gets `""`, so nothing else grows an
+argument. It is **looked up rather than written unconditionally** - both binaries refuse a command over
+an unrecognised option outright (`Error: Unrecognized option`, rc=1, nothing written), so an unguarded
+flag would trade this bug for a worse one on a build without it - and `AvProcess.ToolKnowsFlagOrIsUnknown`
+errs the right way by construction: a binary that cannot be found or run gets the benefit of the doubt
+and the flag goes out anyway. The lookup is async where `GetArgs` is not, so each tab resolves it in its
+own `Run` and carries it in the argument dictionary under `CodecUtils.NoPromptKey`; the av1an classes
+write it inside av1an's `-v "…"` string, that being what reaches the binary. The control is that it
+changes nothing where no warning fires - `--min-q=55 --max-q=63` with the flag and without it is
+**byte-identical** output on both encoders, same length and same SHA-256.
+
+Verified by running it, through the real `MainWindow` and `RunTask.Start` rather than a model of them:
+13 scenarios, 138 assertions, no failures, nothing over 3.5 s against a 180 s budget - a timeout being
+the only thing that could have told "fixed" from "still hanging". Both encoders on both tabs with the
+prompting pair; the non-prompting pair as a control; two-pass, where the flag has to appear in **both**
+pass commands and does; and `DirectSvtAv1`, `DirectX264`, `DirectX265` and the AV1AN tab's SVT-AV1 as
+leak controls, where it must not appear and does not - those three binaries' `--help` *was* read and
+genuinely lacks the flag, so the name check and the guard each keep it away independently. The negative
+control is the app's own logged command with only `--disable-warning-prompt` deleted: aomenc rc=1 at
+0.09 s with no `.ivf` written, av1an rc=1 at 0.63 s having failed the chunk three times. Both detection
+paths were made to fire rather than assumed - an out-of-range `min-q=99` produced a reported failure, and
+a 1 s budget on a 2.9 s run produced a timeout. The flag lands after the last app-written argument and
+eleven-plus tokens clear of aomenc's and vpxenc's sole positional `-`.
+
+**Not verified: the hang, through the app.** Every failure reproduced here is the fast `exit 1` shape,
+which is what this app's stdin arrangement produces; the blocked-past-25 s case needs a producer that
+goes quiet and stays quiet, which nothing here can generate. Nor were batch mode, Muxing Mode, filters or
+trims exercised - one 3 s 320x240 fixture throughout - and two-pass was run on aomenc only. NVENC is not
+an `IBinaryEncoder`, so `QuickConvert.Run`'s `directEnc != null` never sets the key for it: read rather
+than measured.
 
 This is the same rule this file already records for grav1synth - *prompts interactively without `-y`* -
 reappearing on two more bundled binaries, and reachable from the argument rows' own stated range rather
 than from anything exotic. **Assume a bundled CLI tool prompts until it has been shown not to**, and
-pass its suppression flag when launching it: a hang is the one failure mode none of the artifact checks
-in this section can see, because they all run after a process that never exits.
+pass its suppression flag when launching it.
+
+**Every launched tool inherits this app's stdin, and that one fact decides hang against fail-fast.**
+`RedirectStandardInput` appears nowhere in the codebase, and `OsUtils.SetStartInfo` redirects stdout and
+stderr only - so a tool gets whatever stdin the app has. From Explorer that is a `WinExe`'s non-console
+handle; from a terminal, or the visible-console debug mode, it is a real console someone could type into;
+and an encoder on the far side of a `|` gets the pipe instead, which is the case above. A prompt is
+therefore never merely cosmetic and never reliably fatal: it is three different failures depending on how
+the app was started.
+
+**The rest of the bundled toolchain was surveyed against that, and the aomenc/vpxenc pair is the only
+gap that was open.** Every tool that can prompt already gets its flag at every launch site: ffmpeg's `-y`
+is hardcoded into `AvProcess`'s own `beforeArgs` and written again on each of the three chained ffmpegs
+`BuildDirectCommand` composes; av1an's is at both its launch sites; grav1synth's is on all five calls
+that write a file. mkvmerge, mkvextract, mkvinfo, `SvtAv1EncApp`, x264, x265 and VSPipe **have no prompt
+at all** - measured silent-stdin, EOF and PTY, all completing in 0.10-0.25 s, and none of the seven
+contains a `[y/N]`-shaped string. (mkvmerge overwrites silently and has no such flag to pass.) The
+bundled `python.exe` blocks forever given no script argument, being a REPL; all four call sites always
+pass one. Measured on the 2.8.78 toolchain, with a `ffmpeg` overwrite prompt as the positive control -
+it hangs on a PTY at 12 s without `-y` and returns in 0.07 s with it.
+
+**av1an's `-y` is the one whose absence would be silent, so both of its call sites now say so.** Given an
+output path that already exists, av1an asks `Output <f> exists. Do you want to overwrite it? [y/N]:`,
+takes the default, and **exits 0** - measured twice, status 0 with the existing file byte-for-byte
+untouched and `Not overwriting, aborting.` its last word. `RunAv1an` hands that 0 straight to `Av1an.Run`,
+whose retry path is gated on `exitCode != 0`, so the encode would be reported as finished having never
+run. That is the `Av1anMemory` out-of-memory trap under another name, and the comments at
+`Av1an.Run` and `Av1anSceneDetect.RunSliceAsync` exist so neither `-y` reads as boilerplate.
+
+Two launch sites were **not** covered and are named rather than assumed: `OcrProcess` runs SubtitleEdit,
+which is not bundled at all, and is the one place a *modal dialog* rather than a stdin prompt is
+plausible - it needs a machine with SubtitleEdit installed; and `PackageBuild` runs `7za`, also not
+bundled and reachable only through the maintainer-only `-package=` command line.
 
 A tone-mapped encode swaps `MediaFile.ColorData` for `ToneMapConfig.GetOutputColorData` around the
 `GetArgs` calls - the same swap `Av1an.Run` makes, because these encoders are told their colour by

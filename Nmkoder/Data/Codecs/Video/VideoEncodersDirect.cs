@@ -279,7 +279,13 @@ namespace Nmkoder.Data.Codecs.Video
                 : $"--denoise-noise-level={DirectEncoderUtils.Get(encArgs, "grainSynthStrength", "0")} " +
                   $"--enable-dnl-denoising={(DirectEncoderUtils.Get(encArgs, "grainSynthDenoise", "False").GetBool() ? 1 : 0)}";
 
-            return new CodecArgs($"{rc} --cpu-used={preset} {kf} --row-mt=1 {grainArgs} {colors} {tiles} {adv}");
+            // Resolved by the run rather than written here, the lookup being async - see
+            // CodecUtils.GetNoPromptArg. Without it a min-q within 8 of max-q, which this encoder's own
+            // argument rows offer, has aomenc ask "Continue? (y to continue)" and read a byte of the
+            // y4m as the answer, exiting 1 with nothing written.
+            string noPrompt = DirectEncoderUtils.Get(encArgs, CodecUtils.NoPromptKey);
+
+            return new CodecArgs($"{rc} --cpu-used={preset} {kf} --row-mt=1 {grainArgs} {colors} {tiles} {noPrompt} {adv}");
         }
     }
 
@@ -339,9 +345,12 @@ namespace Nmkoder.Data.Codecs.Video
                 ? $"--end-usage=vbr --target-bitrate={DirectEncoderUtils.Kbps(encArgs)}"
                 : $"--end-usage=q --cq-level={q}";
             string kf = g.IsNotEmpty() ? $"--kf-max-dist={g}" : "";
+            // The same prompt aomenc has, from the same shared vpx argument handling, reachable from
+            // the same min-q/max-q rows - see CodecUtils.GetNoPromptArg.
+            string noPrompt = DirectEncoderUtils.Get(encArgs, CodecUtils.NoPromptKey);
 
             return new CodecArgs($"--codec=vp9 --profile={profile} --bit-depth={depth} {rc} " +
-                $"--cpu-used={preset} {kf} --row-mt=1 {tiles} {adv}");
+                $"--cpu-used={preset} {kf} --row-mt=1 {tiles} {noPrompt} {adv}");
         }
     }
 

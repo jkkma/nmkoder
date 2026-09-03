@@ -27,6 +27,23 @@ assume it - av1an rejects an entire command over one unrecognised flag instead o
 ignoring it, so an unguarded new flag breaks every encode.
 `AvProcess.Av1anSupportsFlag` reads the binary's own `--help` for this.
 
+**av1an passes on nothing that would stop the encoder it drives from asking a question, so a
+prompt is this tab's to suppress.** `--disable-warning-prompt` does not appear anywhere in the
+bundled `av1an.exe` (`0.5.2-unstable (rev 805dad6)`, toolchain 2.8.78), read out of its strings -
+and aomenc and vpxenc both prompt over a `min-q` within 8 of `max-q`, which `AomAv1.json` and
+`Vpx.json` offer as an ordinary 0-63 pair. Measured on a one-chunk encode with `--min-q=56
+--max-q=63`: the chunk dies as `encoder crashed: exit code: 1` with `Continue? (y to continue)`
+quoted in av1an's own stderr, is retried once, and is then given up on with nothing written. So
+av1an *reports* it plainly - better than the direct path did - and the encode is dead either way.
+`CodecUtils.GetNoPromptArg` decides the flag for both tabs; `Av1an.Run` resolves it (the lookup is
+async, `GetArgs` is not) into `CodecUtils.NoPromptKey`, and `AomAv1`/`Vpx` write it **inside**
+av1an's `-v "…"` string, that string being the only thing that reaches the binary. CLAUDE.md's
+"Driving the encoder binaries directly" carries the rest of the measurements, the Quick Convert
+half among them - **including av1an's own `-y`, whose absence is silent**: given an existing output
+path av1an asks, takes the default, and exits **0**, which `Av1an.Run`'s `exitCode != 0` gate cannot
+see. Both `-y`s (`Av1an.Run`, `Av1anSceneDetect.RunSliceAsync`) carry a comment saying so; do not
+read either as boilerplate.
+
 The same trap applies one level down, to the encoders av1an drives - and for SVT-AV1 the
 answer is a policy, not just a guard: **this project ships the PSY line or nothing.**
 `bundle-tools.sh` takes `SvtAv1EncApp` only from `juliobbv-p/svt-av1-hdr`. Mainline
