@@ -44,6 +44,17 @@ user PATH. Verified by launching the Debug build: its own startup probe rendered
 through the staged VapourSynth. `dotnet clean` leaves the staged tools alone; only a deleted
 `bin/` costs a re-run.
 
+**Two hooks enforce two of the user's standing rules, and one of them wants a per-machine file.**
+`.claude/hooks/guard-identifying-info.sh` asks before a commit, a push or a `gh pr`/`gh release`
+create whose added lines carry the machine's username or hostname - read from `USERNAME` and
+`COMPUTERNAME` at run time, never spelled in the tracked script - a profile path with a name in it,
+or a pattern from `~/.nmkoder-dev/identifying-patterns`: one extended regex per line, `#` comments,
+per machine, beside the staged toolchain because that folder is outside the repo and outside Claude
+Desktop's write virtualization. A fresh machine wants that file created with the handle and the
+personal address in it. `.claude/hooks/ask-before-gpu-load.sh` asks before a command that would hold
+the GPU. Both are backstops for rules that stay in force - neither can see inside a script or a
+compiled harness - and `.claude/README.md` carries their cases.
+
 The BtbN `master-latest` ffmpeg in that folder is what `bundle-tools.sh` puts in a release, so a
 measurement against it is a measurement against the binary users get. A bare `ffmpeg` on the
 user's PATH resolves to their own Scoop build first - the script *appends* rather than shadows -
@@ -1093,6 +1104,29 @@ original "7 values across 5 rows" was not reproduced exactly, the extractor used
 more liberal (583 candidate values against 459), so the two unnamed rows are identified by class rather
 than out of the original run's own record; and the values a row enumerates in prose rather than in its
 examples - x265's six tunes, x264's `1b` - were run by hand rather than swept, all of them accepted.
+
+**That check is a script now, `.claude/skills/sweep-encoder-args/scripts/sweep.py`, because the two
+hand-run sweeps could not reconcile their counts.** The first extracted 459 candidate values and the
+second 583, from two ad-hoc extractors nobody kept; the script's rules are fixed - every example,
+the numeric range ends and an `up to N` at the head of the short description, every token of a head
+that is purely an enumeration, and a `(default X)` that is a number or an enumerated token, with
+nothing after `(default` ever read as a value - and it handles the two artifact classes above
+itself, moving a min/max partner with the value and comparing a stated default against a blank run
+only where the encoder is deterministic (SVT-AV1 is, with `--lp 1`). Against the 2.8.79 toolchain
+it extracts 588 values over 152 rows, and its report names the binary, the source and the preset
+every verdict came from. `.claude/skills/test-fixtures` makes the y4m it encodes, and the rest of
+the sources the record describes in prose.
+
+Its first full run, 3 September 2026 against that toolchain (SVT-AV1-HDR v4.1.0-20-g0bed4090b,
+AV1 Encoder v3.14.1, vpxenc v1.15.2-151-gd98e70839, x264 0.165.3222M, x265 4.3+1-e9b8812): 588
+runs, none refused, four of them paired (SVT-AV1's `qm-max 0`, `qm-min 15` and `chroma-qm-max 0`,
+aomenc's `qm-max 0`), and every stated default reproducing a blank run byte for byte except x265's
+`max-merge 2` and `limit-refs 3` at `medium` - the preset moving a default, as above, which is
+information rather than a fault. Through ffmpeg (`--ffmpeg`), libx264's list is clean at 143 runs
+and libvpx's `lossless 1` fails to open the encoder beside any CRF above 0 (`Error while opening
+encoder - maybe incorrect parameters`), working with `-crf 0` or no CRF at all - measured with the
+harness's `-crf 30 -b:v 0` and again with `-crf 30` alone. A row that should say so; nothing in the
+app puts a `LibVpx.json` row beside a CRF today, that list being the CRF ladder's, which has no grid.
 
 **One latent trap sits behind the same lists.** An unknown `-svtav1-params` key logs `[libsvtav1] Error
 parsing option <key>: <val>.` and encodes anyway at rc=0 - consistent with the three-way split above -

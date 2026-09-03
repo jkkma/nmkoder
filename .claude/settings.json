@@ -59,6 +59,19 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-if-gitignored.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-identifying-info.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ask-before-gpu-load.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -76,6 +89,13 @@
     "vercel@claude-plugins-official": false,
     "cloudflare@claude-plugins-official": false,
     "google-cloud-storage@claude-plugins-official": false,
-    "supabase@claude-plugins-official": false
+    "supabase@claude-plugins-official": false,
+    "cwc-makers@claude-plugins-official": false,
+    "plugin-dev@claude-plugins-official": false,
+    "mcp-server-dev@claude-plugins-official": false,
+    "agent-sdk-dev@claude-plugins-official": false,
+    "ralph-loop@claude-plugins-official": false,
+    "mcp-tunnels@claude-plugins-official": false,
+    "project-artifact@claude-plugins-official": false
   }
 }

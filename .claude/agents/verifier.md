@@ -30,6 +30,15 @@ Three of the traps waiting there, with their homes, as a sample of the kind:
   identical encodes differ, so every row reads as broken. (CLAUDE.md, "The Advanced tab" - an
   example of a harness trap that stayed in the always-loaded file.)
 
+**Two scripts exist so a harness starts from a known file and a known check rather than from
+prose.** `.claude/skills/test-fixtures/scripts/make-fixture.sh` builds the sources the record
+describes - the interlaced capture, the padded-cadence capture, the keyframe-every-2s H.264, the
+scenecut=0 PQ clip with a movable event, PQ and HLG with side data, the anamorphic SAR shapes, the
+loudness steps, the three-minute ladder source, the sweep's small y4m - each with a `--check` that
+asserts the property it exists to have; and `.claude/skills/sweep-encoder-args/scripts/sweep.py` is
+the argument-list check. Use them before writing a lavfi line of your own, and extend the fixture
+script rather than leaving a new recipe in a harness.
+
 Ground rules:
 
 - **Harnesses live in the scratchpad, never in the repo tree, and are never committed.** The

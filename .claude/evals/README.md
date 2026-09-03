@@ -23,6 +23,12 @@ development moved off the cloud environments and onto the user's two Windows mac
 ordinary build, the second because `.claude/setup-windows.sh` puts every shipped binary on
 the machine. Their evals went with them; the baseline numbers below still name them.
 
+`test-fixtures` and `sweep-encoder-args` (September 2026) have no evals yet. Both are scripts
+that check themselves - `make-fixture.sh --check all` asserts the property each shape exists to
+have (36 checks on the 2.8.79 toolchain) and `sweep.py --dry-run` prints the values it would
+run (588 over 152 rows) - so a benchmark of the skill would be measuring whether a session
+reaches for the script, which is a triggering question rather than an outcome one.
+
 ## How to run a pass
 
 Per skill-creator's protocol, adapted to this repo:

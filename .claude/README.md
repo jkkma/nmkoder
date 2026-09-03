@@ -66,7 +66,43 @@ than pushes - a push is a decision. Verified against throwaway repos, ten cases:
 ahead, repeat, a second session, the count changing, after a push, committing again, detached
 HEAD, no upstream, not a repo. All exit 0.
 
-**`settings.json`** - registers the three hooks and carries a permissions allowlist so sessions
+**`hooks/guard-identifying-info.sh`** (PreToolUse on Bash|PowerShell) - asks before a `git commit`,
+a `git push` or a `gh pr`/`gh release` create/edit whose *added* lines would identify the user: the
+Windows username or the hostname, read from `USERNAME` and `COMPUTERNAME` at run time so the tracked
+script never spells them; a profile path with a real name in it (`C:\Users\<name>\`, while the
+record's elided `C:/Users/…` and `C:\Users\<you>\` stay quiet); or a pattern from
+`~/.nmkoder-dev/identifying-patterns`, a per-machine file beside the staged toolchain that carries
+the handle and the personal address. That rule was a memory file until now, applied only when a
+session remembered it; a hook applies it every time, and to a subagent's commands too. It reads the
+staged diff (plus the working tree for `-a`), the upstream-to-HEAD diff and messages for a push
+(origin/master when there is no upstream yet), and the command text with absolute paths stripped -
+so a `git -C C:/…/repo commit` is not asked about while a name typed into a message is. It asks
+rather than denies, a false positive being answered with yes, and every path exits 0. Verified by
+running it against throwaway repos under Git Bash, twenty-seven cases: a clean stage, the username
+in either case, the hostname, both file patterns, a profile path, an elided path, an unstaged hit
+with and without `-a`, a hit in the message, a name inside a `-C` path, `git log | grep commit`,
+push with nothing ahead, push with a hit, `push -u` on a new branch, `gh pr create` with and without
+a hit, quotes in the command, a deletion of a line with the name, empty and garbage input, and the
+cwd taken from the tool input so a worktree's index is the one checked.
+
+**`hooks/ask-before-gpu-load.sh`** (PreToolUse on Bash|PowerShell) - asks before a command that
+would hold the GPU: a GPU word (nvenc, nvdec, libplacebo, vship, cuda, vulkan, hwaccel) *and* a
+launcher that can reach one (ffmpeg, ffplay, av1an, vspipe, python, `dotnet run`, an .exe), which
+is what keeps `grep -rn nvenc Nmkoder` - a normal thing to type here - from asking. Listing probes
+(`-encoders`, `-h encoder=`, `-buildconf`, `--help`, `-version`) are exempt. The 17 August rule
+that every GPU load is asked about first lived in a memory file; this is its backstop, and its
+header says what it cannot see (a compiled harness, a `.vpy` with Vship inside). Verified against
+fifteen crafted tool inputs: seven that must ask, including the PowerShell tool's shape with a
+quoted exe path and escaped quotes ahead of the GPU word, and eight that must not, the probes,
+a source grep and garbage input among them.
+
+  Both were first written through a Bash heredoc and one landed on disk with its regex mangled -
+  the Bash tool collapses a doubled backslash in command text into one, measured with `od -c` -
+  so both are written with the Write tool, byte-exact, and the test that caught it is in the cases
+  above (the PowerShell shape). A hook script with a backslash in it is checked on disk, not in the
+  command that wrote it.
+
+**`settings.json`** - registers the five hooks and carries a permissions allowlist so sessions
 prompt less: builds, the bundled tools the verifier runs (ffmpeg/ffprobe, mkvmerge, vspipe,
 av1an, grav1synth and the five encoders), read-only git including the `check-ignore`/`ls-files`
 the hook above needs, and **read-only `gh` only**. `gh workflow run`, `gh release create/edit`,
@@ -89,11 +125,22 @@ the one place a prompt is worth its cost. Trim or extend freely.
   at whichever machine ran the command. Reverse any of them with
   `claude plugin enable <name>@claude-plugins-official --scope project`.
 
+  Extended on 3 September 2026 to seven more that a .NET/Avalonia/ffmpeg desktop app cannot use,
+  each measured with the same command: plugin-dev ~1,704 always-on tokens, mcp-server-dev ~357,
+  cwc-makers ~236, project-artifact ~235, agent-sdk-dev ~169, mcp-tunnels ~43, ralph-loop ~42 -
+  ~2.8k a session between them. The original four entries name plugins that `claude plugin list`
+  no longer shows installed at user scope; they stay, harmless, and the record of why. Kept on:
+  `csharp-lsp` (the LSP tool - code navigation without an IDE), `hookify` (though the two rule
+  hooks above were written by hand, because hookify's rules are `.local.md` files that would stop
+  at whichever machine wrote them, where a tracked script travels), `claude-security`,
+  `claude-md-management` (its improver is not to be run on CLAUDE.md, whose measured-record style
+  is what `record-finding` exists to protect) and `claude-code-setup`.
+
   Written by `claude plugin disable --scope project`, which rewrites the whole file and reorders
   its top-level keys; the hooks and the allowlist survive that intact, but re-check them after
   running it rather than assuming.
 
-**Skills** (`skills/*/SKILL.md`) - three procedures sessions kept rebuilding from CLAUDE.md
+**Skills** (`skills/*/SKILL.md`) - five procedures sessions kept rebuilding from CLAUDE.md
 prose, distilled to executable form with templates, each validated by running it:
 
 - **cut-release** - the whole cutting-a-release order of operations, hard rules first, with
@@ -127,7 +174,42 @@ prose, distilled to executable form with templates, each validated by running it
   and the commit-subject convention. 66 of the last 200 commits touched CLAUDE.md and a dozen
   were CLAUDE.md alone, so this is the most repeated non-code task in the repository.
 
-**Agents** - two, and they answer different questions:
+- **test-fixtures** - the named synthetic sources the record describes forty-odd times and never
+  as a command, from one script with a `--check`: the interlaced capture (a 59.94p source woven by
+  `tinterlace`, so idet calls every frame TFF where a merely tagged one came out 49/30/11), the
+  padded-cadence capture (a CFR encode of a duplicated frame list with its stamps rewritten by
+  `setts`, since mpeg2video cannot write VFR stamps itself - 408 coded frames over 10.009 s, and
+  `r_frame_rate` above `avg_frame_rate` the way a real capture's field pictures put it), the
+  keyframe-every-2s H.264, the scenecut=0 PQ clip with a movable three-frame event and no keyframe
+  on it, PQ and HLG with and without a mastering display, the two anamorphic SAR shapes, the stereo
+  and 5.1 loudness steps 25.7 LU apart, the three-minute ladder source whose thirds differ, and the
+  sweep's y4m. Measured against the shipped BtbN `N-126264-g007cd1fd43-20260825`: twelve shapes,
+  36 checks, all passing, in twenty seconds. Building it found three things the record did not
+  have - `-top 1` is gone from this ffmpeg, `-field_order tt` writes `bb` into MPEG-TS, and a
+  frame-coded synthetic cannot reproduce the field-rate `r_frame_rate` signature at all - and two
+  things about ffprobe on Windows that a check has to allow for: every line ends CRLF, and a
+  MPEG-TS or PS stream entry is printed twice, once under its program. The script header and the
+  skill carry all of it.
+- **sweep-encoder-args** - the argument-list check CLAUDE.md's Advanced tab section describes,
+  with the extractor as code: the record's two hand-run sweeps used two ad-hoc extractors and
+  could not reconcile 459 against 583. Every example, the numeric range ends and `up to N` at the
+  head of the short description, a purely enumerated head, and a `(default X)` that is a number or
+  an enumerated token, with nothing after `(default` ever read - so `rdoq-level` cannot contribute
+  `rd`'s 4-6. It pairs the min/max rows itself and compares a stated default against a blank run
+  only where two blank runs are identical (SVT-AV1 only with `--lp 1`, measured). 588 values over
+  152 rows against the 2.8.79 toolchain, judged by artifacts - a 32-byte SVT stub and an empty x265
+  output are refusals whatever the exit code - at the presets Quick Convert opens on, stdin closed.
+  `--ffmpeg` runs the ffmpeg lists with the params/AVOption split and `--gpu` gates the NVENC pair
+  behind the ask.
+  First full run, 3 September 2026: 588 runs, none refused, four paired and all accepted, two x265
+  defaults (`max-merge 2`, `limit-refs 3`) differing from a blank run at `medium`; through ffmpeg,
+  libx264 clean at 143 runs and libvpx's `lossless 1` refusing beside any CRF above 0 and working at
+  CRF 0 - checked against the harness's own base before it was called the row's, and now in
+  CLAUDE.md. Its own first run also found the script: three `master-display` examples sanitised
+  to one output name, so two parallel runs deleted each other's file - names carry the run index
+  now, and the report is written after every list rather than at the end.
+
+**Agents** - four, each answering a different question:
 
 - **`verifier`** - the verified-by-running-it culture as a subagent: builds throwaway harnesses
   in the scratchpad, measures against the shipped binaries in `~/.nmkoder-dev/bin`, reports
@@ -145,6 +227,41 @@ prose, distilled to executable form with templates, each validated by running it
   claim made about each, plus the evidence-grade rules - ask the binary not the docs, acceptance
   is not effect, presence is not loadability, read the avutil soname not the ffmpeg version.
   Worth a run before a release or after a bundler change. It reports; it does not edit CLAUDE.md.
+
+- **`record-audit`** - the names in the record that no longer name anything in the tree. Every
+  backticked identifier in CLAUDE.md, the skills and the agents, grepped against the sources (a
+  file name against the index, a member against the `.cs`/`.axaml` files), then every zero-hit
+  name read in its sentence and put in one of five classes - stale, deliberately removed and said
+  so, historical past tense, external, pipeline artifact - because a name in a past-tense sentence
+  is the record keeping an old belief visible on purpose. The commit before this layer, "fix the
+  stale scene-detect method name", is the fault it exists for. Read-only, and it clears this
+  file's test for a new agent: the bulk (601 identifiers, 34 zero-hit, 41 read on its first run,
+  3 September) is exactly what context isolation buys.
+- **`invariant-reviewer`** - a diff read against the standing rules with nothing else in its head:
+  the six digests' bullets and the cross-cutting traps, one line each with the member they live in,
+  and a method that reads the whole touched file rather than the hunk, since most rules are about
+  what a change fails to do. Reports breaks, risks and notes with file and line, and says "no rule
+  touched" in one line when that is the answer. This one only partly clears the test - the main
+  session already holds the rules - so it is on trial: drop it if it only echoes.
+
+  Both were picked up by the Agent tool within the session that wrote them; their instruction
+  files were first exercised through general-purpose subagents on 3 September 2026.
+  The reviewer's run, over the two code commits before this layer, found the new mkvmerge command
+  in `Av1an.AttachEncodeSettings` quoting the user's output path with `.Wrap()` - plain double
+  quotes on every platform - where anything that reaches a shell goes through `Shell.WrapArg`, and
+  a delete-then-move on the finished output that a failed move would turn into no output at all.
+  Both are filed as a task rather than fixed in this change, and both went into the reviewer's rules
+  (a `.Wrap()` clause, an amendment clause), along with what its own critique asked for: which
+  revision to read files at for a historical range, that a rule written alongside a change is not
+  evidence against it, and that documentation hunks count but their claims are out of scope.
+  The audit's run found one stale sentence - the grain-synthesis skill still describes
+  `ApplyGrainToOutput` in the present tense, a method added and removed on the same day in August
+  and moved into the skill verbatim afterwards - and classified the other 33 zero-hit names as
+  removed-and-said-so, historical, external or the pipeline's own. Its critique went into the
+  agent: the regex's coverage stated, the five runtime and script files it always reports named,
+  the pair check told to look for a declaration rather than a comment, the tie-break between
+  "removed and said so" and "past tense" written down, `git log -S` restricted to the sources,
+  and the extraction re-run before the report because the tree moved under the first pass.
 
 **Evals** (`evals/`) - the benchmark suite, and how to run a pass. Six tasks, two each for
 `cut-release`, `headless-ui` and `record-finding`. The last pair took the shape this file
@@ -182,6 +299,9 @@ pre-split way; see below.
   does: it is an open-ended investigation rather than a procedure, and it is read-heavy -
   dozens of help dumps and strings scans whose bulk is exactly what agent context isolation
   buys. That is the test to apply to the next one.
+- **hookify for the two rule hooks.** Its rules are `.claude/hookify.*.local.md` files - untracked,
+  so they would stop at whichever machine wrote them, and the whole reason those hooks exist is the
+  two-machine gap. A tracked bash script with its cases in this file is the shape that travels.
 
 ## The CLAUDE.md split
 
@@ -273,3 +393,6 @@ today: grav1synth back in the win-x64 zip after 2.8.65's transient miss; no av1a
 linux tarball as of 2.8.60). Re-measure on drift rather than trusting them forever - the
 bundler tracks rolling upstreams, which is the same rule CLAUDE.md applies to ffmpeg's stats
 line.
+The two scripts carry their own re-measurement: `make-fixture.sh --check all` (36 checks) and
+`sweep.py` (588 values, none refused) were last run on the 2.8.79 toolchain, 3 September 2026,
+and either one failing after a refresh is the drift showing itself.
